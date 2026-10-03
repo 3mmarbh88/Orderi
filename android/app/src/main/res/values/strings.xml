@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Orderi</string>
+    <string name="title_activity_main">Orderi</string>
+    <string name="package_name">com.orderi.radar</string>
+    <string name="custom_url_scheme">com.orderi.radar</string>
+</resources>

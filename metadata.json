@@ -1,0 +1,11 @@
+{
+  "name": "Ordari - رادار الأوردرت",
+  "description": "نظام ذكي لمراقبة وتصفية طلبات التوصيل ومطابقتها مع موقع السائق وشروطه في البحرين عبر مجموعات واتساب.",
+  "requestFramePermissions": [
+    "geolocation",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#059669" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Ordari" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="apple-touch-icon" href="/logo.png" />
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <link rel="alternate icon" href="/logo.png" />
+    <script>
+      // Suppress benign [vite] websocket connection warnings in AI Studio preview iframe
+      (function() {
+        if (typeof window !== 'undefined') {
+          // Intercept Vite HMR WebSocket so browser doesn't throw network errors
+          try {
+            var OrigWS = window.WebSocket;
+            if (OrigWS) {
+              window.WebSocket = function(url, protocols) {
+                var isViteHmr = false;
+                if (protocols === 'vite-hmr' || (Array.isArray(protocols) && protocols.indexOf('vite-hmr') !== -1)) {
+                  isViteHmr = true;
+                } else if (typeof url === 'string' && (url.indexOf('vite') !== -1 || url.indexOf('hmr') !== -1)) {
+                  isViteHmr = true;
+                }
+                if (isViteHmr) {
+                  var fake = {
+                    readyState: 3,
+                    bufferedAmount: 0,
+                    extensions: '',
+                    protocol: 'vite-hmr',
+                    url: String(url),
+                    binaryType: 'blob',
+                    close: function() {},
+                    send: function() {},
+                    addEventListener: function() {},
+                    removeEventListener: function() {},
+                    dispatchEvent: function() { return false; },
+                    onopen: null,
+                    onmessage: null,
+                    onerror: null,
+                    onclose: null,
+                  };
+                  return fake;
+                }
+                return new OrigWS(url, protocols);
+              };
+              window.WebSocket.prototype = OrigWS.prototype;
+              window.WebSocket.CONNECTING = 0;
+              window.WebSocket.OPEN = 1;
+              window.WebSocket.CLOSING = 2;
+              window.WebSocket.CLOSED = 3;
+            }
+          } catch (e) {}
+
+          function isViteMsg(args) {
+            if (!args || !args.length) return false;
+            try {
+              for (var i = 0; i < args.length; i++) {
+                var item = args[i];
+                if (!item) continue;
+                var str = '';
+                if (typeof item === 'string') {
+                  str = item;
+                } else if (item.message) {
+                  str = item.message;
+                } else if (item.reason && item.reason.message) {
+                  str = item.reason.message;
+                } else {
+                  str = String(item);
+                }
+                var lower = str.toLowerCase();
+                if (
+                  lower.indexOf('[vite]') !== -1 ||
+                  lower.indexOf('vite-hmr') !== -1 ||
+                  lower.indexOf('failed to connect to websocket') !== -1 ||
+                  (lower.indexOf('websocket') !== -1 && lower.indexOf('wss:') !== -1)
+                ) {
+                  return true;
+                }
+              }
+            } catch (err) {}
+            return false;
+          }
+
+          var origError = console.error;
+          var origWarn = console.warn;
+          var origLog = console.log;
+          var origInfo = console.info;
+          var origDebug = console.debug;
+
+          console.error = function() {
+            if (isViteMsg(arguments)) return;
+            return origError.apply(console, arguments);
+          };
+          console.warn = function() {
+            if (isViteMsg(arguments)) return;
+            return origWarn.apply(console, arguments);
+          };
+          console.log = function() {
+            if (isViteMsg(arguments)) return;
+            return origLog.apply(console, arguments);
+          };
+          console.info = function() {
+            if (isViteMsg(arguments)) return;
+            return origInfo.apply(console, arguments);
+          };
+          console.debug = function() {
+            if (isViteMsg(arguments)) return;
+            return origDebug.apply(console, arguments);
+          };
+
+          window.addEventListener('error', function(e) {
+            if (isViteMsg([e.message, e.filename, e.error])) {
+              e.preventDefault();
+              e.stopImmediatePropagation();
+            }
+          }, true);
+
+          window.addEventListener('unhandledrejection', function(e) {
+            if (isViteMsg([e.reason])) {
+              e.preventDefault();
+              e.stopImmediatePropagation();
+            }
+          }, true);
+        }
+      })();
+    </script>
+    <title>Ordari - رادار الأوردرت</title>
+    <meta name="description" content="نظام ذكي لمراقبة وتصفية طلبات التوصيل ومطابقتها مع موقع السائق وشروطه في البحرين عبر مجموعات واتساب." />
+    <meta property="og:title" content="Ordari - رادار الأوردرت" />
+    <meta property="og:description" content="نظام ذكي لمراقبة وتصفية طلبات التوصيل ومطابقتها مع موقع السائق وشروطه في البحرين عبر مجموعات واتساب." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+  </head>
+  <body class="bg-[#F4F6FB] text-slate-800 antialiased selection:bg-blue-600 selection:text-white font-['Tajawal',sans-serif]">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
