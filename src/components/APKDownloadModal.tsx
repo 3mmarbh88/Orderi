@@ -149,25 +149,32 @@ export const APKDownloadModal: React.FC<APKDownloadModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-xs animate-in fade-in duration-200">
+    <div 
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/75 backdrop-blur-xs animate-in fade-in duration-200"
+      onClick={onClose}
+    >
       <div 
-        className="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl border border-slate-200/90 overflow-hidden flex flex-col max-h-[92vh]"
+        className="relative w-full max-w-2xl bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-200/90 overflow-hidden flex flex-col max-h-[92vh] pb-safe"
         dir="rtl"
+        onClick={(e) => e.stopPropagation()}
       >
+        {/* Mobile Sheet Drag Handle */}
+        <div className="sm:hidden w-10 h-1.5 bg-slate-300 rounded-full mx-auto mt-2 -mb-1" />
+
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-5 bg-gradient-to-r from-emerald-800 via-teal-800 to-slate-900 text-white shadow-md">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-white/15 backdrop-blur-md flex items-center justify-center border border-white/20 shadow-inner">
-              <Smartphone className="w-6 h-6 text-emerald-300" />
+        <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 sm:py-5 bg-gradient-to-r from-emerald-800 via-teal-800 to-slate-900 text-white shadow-md">
+          <div className="flex items-center gap-2.5 sm:gap-3">
+            <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-white border border-white/20 shadow-inner shrink-0 overflow-hidden p-0.5">
+              <img src="/logo.png" alt="Orderi" className="w-full h-full object-contain rounded-xl" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-lg font-black tracking-tight">تشغيل وتثبيت التطبيق على الهاتف (APK)</h3>
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/25 text-emerald-200 border border-emerald-400/40">
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <h3 className="text-base sm:text-lg font-black tracking-tight">تثبيت التطبيق على الهاتف</h3>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold bg-emerald-500/25 text-emerald-200 border border-emerald-400/40">
                   Android APK 🇧🇭
                 </span>
               </div>
-              <p className="text-xs text-emerald-100/90 font-medium">العمل الفعلي في الخلفية وإلغاء المحاكاة لتلقي طلبات الواتساب الحقيقية</p>
+              <p className="text-[11px] sm:text-xs text-emerald-100/90 font-medium">العمل الفعلي في الخلفية وإلغاء المحاكاة لتلقي طلبات الواتساب الحقيقية</p>
             </div>
           </div>
 
@@ -236,8 +243,8 @@ export const APKDownloadModal: React.FC<APKDownloadModalProps> = ({
                       يقوم نظام أندرويد و Google Chrome بتجميع وحزم التطبيق فوراً إلى ملف تطبيق أصلي مستقل يُثبت على هاتفك مثل أي تطبيق من متجر Play.
                     </p>
                   </div>
-                  <div className="w-12 h-12 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-md shadow-emerald-600/20">
-                    <Smartphone className="w-6 h-6" />
+                  <div className="w-12 h-12 rounded-2xl bg-white border border-emerald-200 overflow-hidden shrink-0 shadow-md p-1 flex items-center justify-center">
+                    <img src="/logo.png" alt="Orderi" className="w-full h-full object-contain rounded-xl" />
                   </div>
                 </div>
 

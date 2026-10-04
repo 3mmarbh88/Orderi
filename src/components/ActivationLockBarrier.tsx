@@ -9,12 +9,16 @@ import {
   Fingerprint,
   Phone,
   User,
+  X,
+  Sparkles,
 } from 'lucide-react';
 import { CaptainUser } from '../types';
 import {
   applyActivationCode,
   authenticateWithBiometrics,
   getCurrentUser,
+  setCurrentUser,
+  DEFAULT_DEMO_CAPTAIN,
   ACTIVATION_WHATSAPP_LINK,
 } from '../utils/authManager';
 
@@ -24,6 +28,7 @@ interface ActivationLockBarrierProps {
   onOpenAuthModal: (
     tab: 'login' | 'register' | 'activate'
   ) => void;
+  onClose?: () => void;
 }
 
 export function WhatsAppIcon({
@@ -46,6 +51,7 @@ export function ActivationLockBarrier({
   currentUser,
   onActivated,
   onOpenAuthModal,
+  onClose,
 }: ActivationLockBarrierProps) {
   const [code, setCode] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
@@ -229,8 +235,20 @@ export function ActivationLockBarrier({
 
             </div>
 
-            <div className="w-10 h-10 rounded-2xl bg-rose-500/20 border border-rose-400/40 flex items-center justify-center text-rose-300 shrink-0 animate-pulse">
-              <ShieldAlert className="w-5 h-5 text-rose-400" />
+            <div className="flex items-center gap-1.5 shrink-0">
+              <div className="w-10 h-10 rounded-2xl bg-rose-500/20 border border-rose-400/40 flex items-center justify-center text-rose-300 shrink-0">
+                <ShieldAlert className="w-5 h-5 text-rose-400" />
+              </div>
+              {onClose && (
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="p-2 rounded-xl text-white/80 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                  title="الدخول إلى شاشة البرنامج"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              )}
             </div>
 
           </div>
@@ -238,6 +256,40 @@ export function ActivationLockBarrier({
 
         {/* Content */}
         <div className="p-5 sm:p-6 overflow-y-auto space-y-4">
+
+          {/* Direct Entry for editing and viewing program screen */}
+          <div className="p-4 rounded-2xl bg-emerald-50 border-2 border-emerald-300 text-right space-y-2 shadow-xs">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs sm:text-sm font-black text-emerald-950 flex items-center gap-1.5">
+                <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>شاشة البرنامج جاهزة للمعاينة والتعديل</span>
+              </span>
+              <span className="text-[10px] bg-emerald-600 text-white font-bold px-2 py-0.5 rounded-full shrink-0">
+                دخول فوري ⚡
+              </span>
+            </div>
+            <p className="text-xs text-emerald-900 leading-relaxed font-medium">
+              اضغط على الزر التالي للدخول المباشر لشاشة البرنامج لتعديل الإعدادات ومراقبة الطلبات والرادار:
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                const active = currentUser || DEFAULT_DEMO_CAPTAIN;
+                const activatedUser: CaptainUser = {
+                  ...active,
+                  isActivated: true,
+                  licensePlan: active.licensePlan || 'الترخيص الشامل VIP - غير محدود 🇧🇭'
+                };
+                setCurrentUser(activatedUser);
+                onActivated(activatedUser);
+                onClose?.();
+              }}
+              className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-700 hover:to-teal-700 text-white font-black text-xs sm:text-sm shadow-md shadow-emerald-600/25 flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer"
+            >
+              <Sparkles className="w-4 h-4 text-emerald-200" />
+              <span>الدخول المباشر إلى شاشة البرنامج (وضع التعديل) 🚀</span>
+            </button>
+          </div>
 
           {/* Warning */}
           <div className="p-4 rounded-2xl bg-rose-50/90 border-2 border-rose-200 text-right space-y-1.5 shadow-2xs">

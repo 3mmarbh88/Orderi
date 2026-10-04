@@ -149,33 +149,35 @@ export function AcceptedLedger({
                 </div>
 
                 {/* Price & Contact actions */}
-                <div className="flex items-center gap-3 shrink-0 self-end md:self-auto">
-                  <div className="text-left px-4 py-2 rounded-2xl bg-emerald-50 border border-emerald-200">
+                <div className="flex items-center justify-between md:justify-end gap-2.5 sm:gap-3 shrink-0 w-full md:w-auto pt-3 md:pt-0 border-t md:border-t-0 border-slate-100">
+                  <div className="text-left px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl sm:rounded-2xl bg-emerald-50 border border-emerald-200">
                     <span className="text-[10px] text-emerald-800 font-semibold block">الأجرة</span>
-                    <strong className="text-lg font-black text-emerald-700">{ord.price.toFixed(1)} د.ب</strong>
+                    <strong className="text-base sm:text-lg font-black text-emerald-700">{ord.price.toFixed(1)} د.ب</strong>
                   </div>
 
-                  {waUrl && (
-                    <a
-                      href={waUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="p-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white shadow-xs transition-colors"
-                      title="مراسلة العميل في واتساب"
-                    >
-                      <MessageCircle className="w-4 h-4" />
-                    </a>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {waUrl && (
+                      <a
+                        href={waUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="min-h-[44px] min-w-[44px] flex items-center justify-center p-2.5 rounded-xl sm:rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white shadow-xs active:scale-95 transition-all"
+                        title="مراسلة العميل في واتساب"
+                      >
+                        <MessageCircle className="w-4 h-4 sm:w-5 sm:h-5" />
+                      </a>
+                    )}
 
-                  {ord.senderPhone && (
-                    <a
-                      href={`tel:+${ord.senderPhone}`}
-                      className="p-3 rounded-2xl bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition-colors"
-                      title="اتصال هاتفي"
-                    >
-                      <Phone className="w-4 h-4" />
-                    </a>
-                  )}
+                    {ord.senderPhone && (
+                      <a
+                        href={`tel:+${ord.senderPhone}`}
+                        className="min-h-[44px] min-w-[44px] flex items-center justify-center p-2.5 rounded-xl sm:rounded-2xl bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 active:scale-95 transition-all"
+                        title="اتصال هاتفي"
+                      >
+                        <Phone className="w-4 h-4 sm:w-5 sm:h-5" />
+                      </a>
+                    )}
+                  </div>
                 </div>
               </div>
             );

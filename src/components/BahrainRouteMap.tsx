@@ -76,7 +76,7 @@ export function BahrainRouteMap({
       </div>
 
       {/* Interactive Map Canvas Container */}
-      <div className="relative w-full h-[400px] sm:h-[480px] rounded-2xl bg-gradient-to-br from-slate-900 via-[#0B1E38] to-[#122A4E] overflow-hidden border border-slate-800 flex items-center justify-center select-none shadow-inner">
+      <div className="relative w-full h-[320px] sm:h-[460px] rounded-2xl bg-gradient-to-br from-slate-900 via-[#0B1E38] to-[#122A4E] overflow-hidden border border-slate-800 flex items-center justify-center select-none shadow-inner">
         
         {/* Subtle grid background */}
         <div className="absolute inset-0 bg-[radial-gradient(#38bdf8_1px,transparent_1px)] [background-size:24px_24px] opacity-10 pointer-events-none" />

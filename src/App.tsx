@@ -179,6 +179,7 @@ export default function App() {
   }, [currentUser]);
 
   const isActivated = isProgramActivated(currentUser);
+  const [isBarrierDismissed, setIsBarrierDismissed] = useState(false);
 
   // 8. Active Broadcast (Waiting for Courier) Replay Prompt State
   const [targetReplayBroadcastId, setTargetReplayBroadcastId] = useState<string | null>(null);
@@ -878,7 +879,7 @@ export default function App() {
       />
 
       {/* 2. Main Content Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-3 sm:py-8 pb-32 md:pb-8 space-y-4 sm:space-y-8">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-3 sm:py-8 pb-[calc(5.5rem+env(safe-area-inset-bottom,16px))] md:pb-8 space-y-4 sm:space-y-8">
         
         {/* Hero Radar Visualizer */}
         <HeroRadar
@@ -991,10 +992,10 @@ export default function App() {
                 </div>
 
                 {/* Center: Segmented Filter Tabs */}
-                <div className="flex items-center p-1 rounded-xl bg-slate-100 border border-slate-200/60 overflow-x-auto gap-1">
+                <div className="flex items-center p-1 rounded-xl bg-slate-100 border border-slate-200/60 overflow-x-auto gap-1 no-scrollbar select-none">
                   <button
                     onClick={() => setFeedFilter('all')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap shrink-0 ${
+                    className={`min-h-[40px] px-3.5 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap shrink-0 active:scale-95 ${
                       feedFilter === 'all'
                         ? 'bg-white text-slate-900 shadow-2xs'
                         : 'text-slate-600 hover:text-slate-900'
@@ -1005,7 +1006,7 @@ export default function App() {
 
                   <button
                     onClick={() => setFeedFilter('matched')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap shrink-0 ${
+                    className={`min-h-[40px] px-3.5 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap shrink-0 active:scale-95 ${
                       feedFilter === 'matched'
                         ? 'bg-blue-600 text-white shadow-2xs'
                         : 'text-slate-600 hover:text-slate-900'
@@ -1016,7 +1017,7 @@ export default function App() {
 
                   <button
                     onClick={() => setFeedFilter('vip')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap shrink-0 ${
+                    className={`min-h-[40px] px-3.5 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap shrink-0 active:scale-95 ${
                       feedFilter === 'vip'
                         ? 'bg-emerald-600 text-white shadow-2xs'
                         : 'text-slate-600 hover:text-slate-900'
@@ -1027,13 +1028,13 @@ export default function App() {
 
                   <button
                     onClick={() => setFeedFilter('trusted_vip')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap shrink-0 flex items-center gap-1 ${
+                    className={`min-h-[40px] px-3.5 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap shrink-0 flex items-center gap-1 active:scale-95 ${
                       feedFilter === 'trusted_vip'
                         ? 'bg-amber-500 text-white shadow-2xs'
                         : 'text-amber-800 hover:text-amber-950 hover:bg-amber-100/50'
                     }`}
                   >
-                    <Star className="w-3 h-3 fill-amber-300 text-amber-300" />
+                    <Star className="w-3.5 h-3.5 fill-amber-300 text-amber-300" />
                     <span>متاجر VIP ({trustedVipCount})</span>
                   </button>
                 </div>
@@ -1265,10 +1266,10 @@ export default function App() {
 
       </main>
 
-      {/* Floating Toast Notification */}
+      {/* Floating Toast Notification (Safely above mobile bottom navigation bar) */}
       {toastMessage && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-in fade-in slide-in-from-bottom-3 duration-300">
-          <div className="flex items-center gap-3 px-5 py-3 rounded-2xl bg-slate-900 text-white shadow-2xl border border-slate-700 text-xs sm:text-sm font-bold">
+        <div className="fixed bottom-20 sm:bottom-6 left-1/2 -translate-x-1/2 z-50 animate-in fade-in slide-in-from-bottom-3 duration-300 max-w-[90vw] pointer-events-none">
+          <div className="flex items-center gap-2.5 px-4 py-2.5 sm:px-5 sm:py-3 rounded-2xl bg-slate-900/95 backdrop-blur-md text-white shadow-2xl border border-slate-700 text-xs sm:text-sm font-bold text-center">
             <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
             <span>{toastMessage}</span>
           </div>
@@ -1344,14 +1345,16 @@ export default function App() {
         onShowToast={showToast}
       />
 
-      {/* Activation Lock Barrier: إذا لم يدخل كود التفعيل البرنامج لا يعمل */}
-      {!isActivated && (
+      {/* Activation Lock Barrier: يمكن الدخول المباشر لشاشة البرنامج أو التخطي للتعديل */}
+      {!isActivated && !isBarrierDismissed && (
         <ActivationLockBarrier
           currentUser={currentUser}
+          onClose={() => setIsBarrierDismissed(true)}
           onActivated={(user) => {
             setCurrentUser(user);
             setStoredCurrentUser(user);
             setLiveRadarActive(true);
+            setIsBarrierDismissed(true);
             showToast(`تم تفعيل Ordari بنجاح! مرحباً بك ${user.name} 🚀`);
           }}
           onOpenAuthModal={(tab) => handleOpenAuthModal(tab)}

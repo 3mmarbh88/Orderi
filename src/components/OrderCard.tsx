@@ -528,15 +528,23 @@ export function OrderCard({
 
       {/* Accept Order Modal Confirmation */}
       {showAcceptDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="w-full max-w-md bg-white rounded-3xl p-6 shadow-2xl border border-slate-200 space-y-4">
+        <div 
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-200"
+          onClick={() => setShowAcceptDialog(false)}
+        >
+          <div 
+            className="w-full max-w-md bg-white rounded-t-3xl sm:rounded-3xl p-5 sm:p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[90vh] overflow-y-auto pb-safe"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Mobile Sheet Drag Handle */}
+            <div className="sm:hidden w-10 h-1.5 bg-slate-300 rounded-full mx-auto -mt-1 mb-2" />
             
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
                 {isMyBroadcast ? <Reply className="w-6 h-6" /> : <MessageCircle className="w-6 h-6" />}
               </div>
               <div>
-                <h3 className="text-lg font-black text-slate-900">
+                <h3 className="text-base sm:text-lg font-black text-slate-900">
                   {isMyBroadcast ? 'نشر رد (تم) في نفس القروبات' : 'تأكيد قبول الطلب'}
                 </h3>
                 <p className="text-xs text-slate-500">
@@ -545,33 +553,35 @@ export function OrderCard({
               </div>
             </div>
 
-            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+            <div className="p-3.5 sm:p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
               <span className="text-xs font-bold text-slate-500 block">
                 {isMyBroadcast ? 'صيغة رد (تم) باقتباس الإعلان:' : 'معاينة الرسالة المتكاملة المرسلة للواتساب:'}
               </span>
-              <div className="p-3 rounded-xl bg-white border border-slate-200 text-xs text-slate-800 leading-relaxed font-mono whitespace-pre-wrap max-h-48 overflow-y-auto">
+              <div className="p-3 rounded-xl bg-white border border-slate-200 text-xs text-slate-800 leading-relaxed font-mono whitespace-pre-wrap max-h-40 sm:max-h-48 overflow-y-auto">
                 {fullWhatsAppMessage}
               </div>
             </div>
 
             <div className="p-3 rounded-xl bg-blue-50/80 border border-blue-200/70 text-xs text-blue-900 flex items-center justify-between">
               <span>{isMyBroadcast ? 'قيمة الطلب المنشور:' : 'أجرة التوصيل المسجلة:'}</span>
-              <strong className="text-sm font-black text-blue-700">{order.price.toFixed(1)} د.ب</strong>
+              <strong className="text-base font-black text-blue-700">{order.price.toFixed(1)} د.ب</strong>
             </div>
 
-            <div className="flex items-center gap-3 pt-2">
+            <div className="flex items-center gap-2.5 pt-1">
               <button
+                type="button"
                 onClick={() => setShowAcceptDialog(false)}
-                className="flex-1 py-3 px-4 rounded-xl border border-slate-200 text-slate-700 font-bold text-sm hover:bg-slate-50 transition-colors"
+                className="flex-1 min-h-[48px] py-3 px-4 rounded-xl border border-slate-200 text-slate-700 font-bold text-sm hover:bg-slate-50 active:scale-98 transition-all"
               >
                 إلغاء
               </button>
 
               <button
+                type="button"
                 onClick={handleConfirmAccept}
-                className="flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-sm shadow-md shadow-emerald-600/20 transition-all"
+                className="flex-1 min-h-[48px] flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-sm shadow-md shadow-emerald-600/20 active:scale-98 transition-all"
               >
-                <span>{isMyBroadcast ? 'نشر رد (تم) الآن 🚀' : 'متابعة إلى WhatsApp'}</span>
+                <span>{isMyBroadcast ? 'نشر رد (تم) 🚀' : 'متابعة إلى WhatsApp'}</span>
                 <ExternalLink className="w-4 h-4" />
               </button>
             </div>

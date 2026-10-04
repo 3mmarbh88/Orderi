@@ -658,33 +658,33 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
             </div>
 
             {/* Quick Presets Pills */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar select-none">
               <span className="text-[11px] font-bold text-slate-400 whitespace-nowrap pl-1">قوالب جاهزة:</span>
               <button
                 type="button"
                 onClick={() => applyPresetTemplate('instant')}
-                className="px-2.5 py-1 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 text-[11px] font-bold border border-amber-200 transition-colors whitespace-nowrap"
+                className="min-h-[36px] px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 text-[11px] font-bold border border-amber-200 transition-colors whitespace-nowrap active:scale-95"
               >
                 ⚡ طلب مستعجل
               </button>
               <button
                 type="button"
                 onClick={() => applyPresetTemplate('gift')}
-                className="px-2.5 py-1 rounded-xl bg-pink-50 hover:bg-pink-100 text-pink-800 text-[11px] font-bold border border-pink-200 transition-colors whitespace-nowrap"
+                className="min-h-[36px] px-3 py-1.5 rounded-xl bg-pink-50 hover:bg-pink-100 text-pink-800 text-[11px] font-bold border border-pink-200 transition-colors whitespace-nowrap active:scale-95"
               >
                 🌸 باقة ورد وهدايا
               </button>
               <button
                 type="button"
                 onClick={() => applyPresetTemplate('errand')}
-                className="px-2.5 py-1 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-800 text-[11px] font-bold border border-indigo-200 transition-colors whitespace-nowrap"
+                className="min-h-[36px] px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-800 text-[11px] font-bold border border-indigo-200 transition-colors whitespace-nowrap active:scale-95"
               >
                 📦 مشوار بضاعة
               </button>
               <button
                 type="button"
                 onClick={() => applyPresetTemplate('courier_available')}
-                className="px-2.5 py-1 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[11px] font-bold border border-emerald-200 transition-colors whitespace-nowrap"
+                className="min-h-[36px] px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[11px] font-bold border border-emerald-200 transition-colors whitespace-nowrap active:scale-95"
               >
                 🚗 مندوب متاح الآن
               </button>
@@ -1167,8 +1167,16 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
 
       {/* Modal: Replay (تم) in Same Groups */}
       {replayItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/65 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="w-full max-w-2xl bg-white rounded-3xl p-5 sm:p-7 shadow-2xl border border-slate-200 space-y-5 max-h-[92vh] overflow-y-auto">
+        <div 
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/65 backdrop-blur-xs animate-in fade-in duration-200"
+          onClick={() => setReplayItem(null)}
+        >
+          <div 
+            className="w-full max-w-2xl bg-white rounded-t-3xl sm:rounded-3xl p-5 sm:p-7 shadow-2xl border border-slate-200 space-y-5 max-h-[92vh] overflow-y-auto pb-safe"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Mobile Sheet Drag Handle */}
+            <div className="sm:hidden w-10 h-1.5 bg-slate-300 rounded-full mx-auto -mt-2 mb-3" />
             
             {/* Modal Header */}
             <div className="flex items-start justify-between pb-3.5 border-b border-slate-100">

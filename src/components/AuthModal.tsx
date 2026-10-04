@@ -440,7 +440,10 @@ export function AuthModal({
   // ============================================================
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-200">
+    <div 
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/75 backdrop-blur-sm animate-in fade-in duration-200"
+      onClick={onClose}
+    >
 
       {/* ======================================================
           Biometric Scanner
@@ -552,7 +555,12 @@ export function AuthModal({
           Main Auth Card
           ====================================================== */}
 
-      <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-200/90 overflow-hidden flex flex-col max-h-[92vh]">
+      <div 
+        className="w-full max-w-md bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-200/90 overflow-hidden flex flex-col max-h-[92vh] pb-safe"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Mobile Sheet Drag Handle */}
+        <div className="sm:hidden w-10 h-1.5 bg-slate-300 rounded-full mx-auto mt-2 -mb-1" />
 
         {/* Header */}
 

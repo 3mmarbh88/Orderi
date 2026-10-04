@@ -142,18 +142,26 @@ export const BackgroundModeModal: React.FC<BackgroundModeModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 overflow-y-auto animate-in fade-in duration-200">
-      <div className="w-full max-w-xl rounded-3xl bg-white p-6 sm:p-7 shadow-2xl border border-slate-200 space-y-6 text-right my-8 max-h-[90vh] overflow-y-auto">
+    <div 
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-0 sm:p-4 animate-in fade-in duration-200"
+      onClick={onClose}
+    >
+      <div 
+        className="w-full max-w-xl rounded-t-3xl sm:rounded-3xl bg-white p-5 sm:p-7 shadow-2xl border border-slate-200 space-y-5 sm:space-y-6 text-right max-h-[92vh] overflow-y-auto pb-safe"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Mobile Sheet Drag Handle */}
+        <div className="sm:hidden w-10 h-1.5 bg-slate-300 rounded-full mx-auto -mt-2 mb-2" />
         
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-          <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between border-b border-slate-100 pb-3.5">
+          <div className="flex items-center gap-2.5 sm:gap-3">
             <div className="w-10 h-10 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0 border border-indigo-100">
               <Zap className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base sm:text-lg font-black text-slate-900">تشغيل الرادار في الخلفية (Background Mode)</h2>
-              <p className="text-xs text-slate-500 mt-0.5">استقبل تنبيهات الطلبات وأنت تستخدم واتساب أو خرائط Google</p>
+              <h2 className="text-base sm:text-lg font-black text-slate-900">تشغيل الرادار في الخلفية</h2>
+              <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">استقبل تنبيهات الطلبات وأنت تستخدم واتساب أو خرائط Google</p>
             </div>
           </div>
           <button

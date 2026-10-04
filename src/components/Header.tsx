@@ -112,28 +112,28 @@ export function Header({
             {/* Logo & Identity */}
             <div className="flex items-center gap-2 sm:gap-3 shrink-0">
               <div className="relative">
-                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl overflow-hidden shadow-md shadow-emerald-600/20 ring-2 ring-emerald-500/30 bg-white p-0.5 flex items-center justify-center">
+                <div className="w-9 h-9 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl overflow-hidden shadow-md shadow-emerald-600/20 ring-2 ring-emerald-500/30 bg-white p-0.5 flex items-center justify-center">
                   <img 
                     src="/logo.png" 
                     alt="Ordari Bahrain Radar" 
-                    className="w-full h-full object-cover rounded-[10px] sm:rounded-[13px]"
+                    className="w-full h-full object-cover rounded-[9px] sm:rounded-[13px]"
                     referrerPolicy="no-referrer"
                   />
                 </div>
-                <span className="absolute -bottom-0.5 -left-0.5 flex h-3 w-3 sm:h-4 sm:w-4">
+                <span className="absolute -bottom-0.5 -left-0.5 flex h-2.5 w-2.5 sm:h-4 sm:w-4">
                   <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${liveRadarActive ? 'bg-emerald-400 opacity-75' : 'bg-amber-400 opacity-75'}`}></span>
-                  <span className={`relative inline-flex rounded-full h-3 w-3 sm:h-4 sm:w-4 border-2 border-white ${liveRadarActive ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
+                  <span className={`relative inline-flex rounded-full h-2.5 w-2.5 sm:h-4 sm:w-4 border-2 border-white ${liveRadarActive ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
                 </span>
               </div>
 
               <div>
-                <div className="flex items-center gap-1.5 sm:gap-2">
-                  <span className="text-xl sm:text-2xl font-black tracking-tight text-slate-900 font-['Plus_Jakarta_Sans',sans-serif]">Ordari</span>
-                  <span className="text-[10px] sm:text-xs px-2 sm:px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold border border-emerald-200/60 shadow-xs">
+                <div className="flex items-center gap-1 sm:gap-2">
+                  <span className="text-lg sm:text-2xl font-black tracking-tight text-slate-900 font-['Plus_Jakarta_Sans',sans-serif]">Ordari</span>
+                  <span className="text-[9px] sm:text-xs px-1.5 sm:px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold border border-emerald-200/60 shadow-2xs">
                     البحرين 🇧🇭
                   </span>
                 </div>
-                <p className="text-[11px] text-slate-500 font-medium">رادار طلبات التوصيل الذكي</p>
+                <p className="hidden sm:block text-[11px] text-slate-500 font-medium">رادار طلبات التوصيل الذكي</p>
               </div>
             </div>
 
@@ -206,7 +206,7 @@ export function Header({
             </nav>
 
             {/* Quick Action Controls */}
-            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <div className="flex items-center gap-1 sm:gap-2 shrink-0">
               
               {/* Captain Profile & Auth / License Button */}
               {onOpenAuthModal && (
@@ -217,7 +217,7 @@ export function Header({
                       ? `الحساب: ${currentUser.name.replace(/كابتن\s*/g, '').replace(/الكابتن\s*/g, '').trim()} (${currentUser.licensePlan || 'نشط'}) - انقر لإدارة الترخيص أو كود التفعيل`
                       : 'تسجيل الدخول برقم الهاتف وكلمة المرور أو البصمة وإدخال كود التفعيل'
                   }
-                  className={`min-h-[40px] flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3 rounded-xl text-xs font-black border transition-all active:scale-95 shadow-2xs ${
+                  className={`min-h-[40px] flex items-center gap-1 px-2 py-1.5 sm:px-3 rounded-xl text-xs font-black border transition-all active:scale-95 shadow-2xs ${
                     currentUser
                       ? 'bg-gradient-to-r from-emerald-50 to-teal-50 text-emerald-950 border-emerald-300 hover:bg-emerald-100'
                       : 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white border-blue-500 hover:from-blue-700 hover:to-indigo-700 shadow-blue-500/25'
@@ -225,16 +225,16 @@ export function Header({
                 >
                   <Fingerprint className={`w-4 h-4 shrink-0 ${currentUser ? 'text-emerald-600' : 'text-emerald-300'}`} />
                   {currentUser ? (
-                    <div className="flex flex-col text-right leading-none">
-                      <span className="text-[11px] font-black max-w-[70px] sm:max-w-[100px] truncate">
+                    <div className="hidden xs:flex flex-col text-right leading-none">
+                      <span className="text-[10px] sm:text-[11px] font-black max-w-[55px] sm:max-w-[100px] truncate">
                         {currentUser.name.replace(/كابتن\s*/g, '').replace(/الكابتن\s*/g, '').trim()}
                       </span>
-                      <span className="text-[9px] text-emerald-700 font-bold mt-0.5 truncate max-w-[70px] sm:max-w-[100px]">
+                      <span className="text-[8px] sm:text-[9px] text-emerald-700 font-bold mt-0.5 truncate max-w-[55px] sm:max-w-[100px]">
                         {currentUser.isActivated ? 'VIP 🇧🇭' : 'تفعيل 🔑'}
                       </span>
                     </div>
                   ) : (
-                    <span className="text-[11px] sm:text-xs">تسجيل الدخول 🔑</span>
+                    <span className="hidden xs:inline text-[10px] sm:text-xs">دخول 🔑</span>
                   )}
                 </button>
               )}
@@ -243,14 +243,14 @@ export function Header({
               <button
                 onClick={onRequestGps}
                 title="تحديد وتحديث موقعك الحالي عبر GPS"
-                className={`min-h-[40px] flex items-center gap-1.5 px-2.5 py-2 sm:px-3 rounded-xl text-xs font-bold border transition-all active:scale-95 ${
+                className={`min-h-[40px] flex items-center gap-1 px-2 py-1.5 sm:px-3 rounded-xl text-xs font-bold border transition-all active:scale-95 ${
                   driverLocation
                     ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100/70'
                     : 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
                 }`}
               >
                 <MapPin className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 ${isGpsLoading ? 'animate-bounce text-amber-600' : 'text-emerald-600'}`} />
-                <span className="text-[11px] sm:text-xs max-w-[80px] sm:max-w-[120px] truncate">
+                <span className="text-[10px] sm:text-xs max-w-[48px] xs:max-w-[65px] sm:max-w-[120px] truncate">
                   {isGpsLoading ? '...' : driverLocation?.areaName || 'موقعي'}
                 </span>
               </button>
@@ -259,19 +259,19 @@ export function Header({
               {onOpenAutoSyncModal && (
                 <button
                   onClick={onOpenAutoSyncModal}
-                  className={`min-h-[40px] flex items-center gap-1.5 px-2.5 py-2 sm:px-3 rounded-xl text-xs font-black transition-all shadow-xs border active:scale-95 ${
+                  className={`min-h-[40px] flex items-center gap-1 px-2 py-1.5 sm:px-3 rounded-xl text-xs font-black transition-all shadow-2xs border active:scale-95 ${
                     isWhatsAppWebConnected
                       ? 'bg-emerald-600 text-white border-emerald-500 shadow-emerald-600/30'
                       : 'bg-emerald-50 hover:bg-emerald-100/90 text-emerald-950 border-emerald-300'
                   }`}
                   title="ربط واتساب ويب بالباركود وقراءة إشعارات الأندرويد لسحب الطلبات تلقائياً"
                 >
-                  <QrCode className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-600 shrink-0" />
+                  <QrCode className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 ${isWhatsAppWebConnected ? 'text-white' : 'text-emerald-600'}`} />
                   <span className="relative flex h-2 w-2">
                     <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${isWhatsAppWebConnected || isStreamConnected ? 'bg-emerald-400 opacity-75' : 'bg-amber-400 opacity-75'}`} />
                     <span className={`relative inline-flex rounded-full h-2 w-2 ${isWhatsAppWebConnected || isStreamConnected ? 'bg-emerald-500' : 'bg-amber-500'}`} />
                   </span>
-                  <span className="text-[11px] sm:text-xs">{isWhatsAppWebConnected ? 'واتساب 🟢' : 'ربط ⚡'}</span>
+                  <span className="hidden xs:inline text-[10px] sm:text-xs">{isWhatsAppWebConnected ? 'متصل' : 'ربط ⚡'}</span>
                 </button>
               )}
 
@@ -303,7 +303,7 @@ export function Header({
                 </button>
               )}
 
-              {/* Discovered WhatsApp Group Links Sniffer Button - hidden on xs screens */}
+              {/* Discovered WhatsApp Group Links Sniffer Button - hidden on mobile screens */}
               {onOpenDiscoveredGroupsModal && (
                 <button
                   onClick={onOpenDiscoveredGroupsModal}
@@ -336,7 +336,7 @@ export function Header({
                 </button>
               )}
 
-              {/* PWA Install Button (Available for both mobile & desktop) */}
+              {/* PWA Install Button (Available for desktop/tablet) */}
               <div className="hidden sm:block">
                 <PWAInstallButton />
               </div>
@@ -345,14 +345,14 @@ export function Header({
               <button
                 onClick={onToggleRadar}
                 title={liveRadarActive ? 'إيقاف الرادار مؤقتاً' : 'تفعيل الرادار'}
-                className={`min-h-[40px] flex items-center gap-1.5 px-2.5 py-2 sm:px-3.5 rounded-xl text-xs font-bold transition-all active:scale-95 ${
+                className={`min-h-[40px] min-w-[40px] flex items-center justify-center gap-1.5 px-2.5 py-1.5 sm:px-3.5 rounded-xl text-xs font-bold transition-all active:scale-95 ${
                   liveRadarActive
                     ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20 hover:bg-emerald-700'
                     : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
                 }`}
               >
                 <Wifi className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${liveRadarActive ? 'animate-pulse' : ''}`} />
-                <span className="hidden xs:inline sm:inline">{liveRadarActive ? 'جاهز 🟢' : 'متوقف'}</span>
+                <span className="hidden sm:inline">{liveRadarActive ? 'جاهز 🟢' : 'متوقف'}</span>
               </button>
 
             </div>

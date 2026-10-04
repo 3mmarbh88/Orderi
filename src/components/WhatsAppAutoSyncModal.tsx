@@ -188,30 +188,38 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
   const isConnected = session?.status === 'connected';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200">
+    <div 
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200"
+      onClick={onClose}
+    >
       <div 
-        className="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl border border-slate-200/90 overflow-hidden flex flex-col max-h-[92vh]"
+        className="relative w-full max-w-2xl bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-200/90 overflow-hidden flex flex-col max-h-[92vh] pb-safe"
         dir="rtl"
+        onClick={(e) => e.stopPropagation()}
       >
+        {/* Mobile Sheet Drag Handle */}
+        <div className="sm:hidden w-10 h-1.5 bg-slate-300 rounded-full mx-auto mt-2 -mb-1" />
+
         {/* Header with WhatsApp Emerald Branding */}
-        <div className="flex items-center justify-between px-6 py-4.5 bg-gradient-to-r from-emerald-700 via-emerald-800 to-teal-900 text-white shadow-md">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-white/15 backdrop-blur-md flex items-center justify-center border border-white/20 shadow-inner">
+        <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 sm:py-4.5 bg-gradient-to-r from-emerald-700 via-emerald-800 to-teal-900 text-white shadow-md">
+          <div className="flex items-center gap-2.5 sm:gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-white/15 backdrop-blur-md flex items-center justify-center border border-white/20 shadow-inner shrink-0">
               <QrCode className="w-5 h-5 text-emerald-200" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-lg font-black tracking-tight">السحب التلقائي من واتساب</h3>
-                <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <h3 className="text-base sm:text-lg font-black tracking-tight">السحب التلقائي من واتساب</h3>
+                <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold border ${
                   isConnected 
                     ? 'bg-emerald-500/25 text-emerald-200 border-emerald-400/40' 
                     : 'bg-white/15 text-white/90 border-white/20'
                 }`}>
                   <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-300 animate-pulse' : 'bg-amber-300'}`} />
-                  {isConnected ? 'متصل عبر الباركود 🟢' : 'جاهز للربط ⚡'}
+                  <span className="hidden xs:inline">{isConnected ? 'متصل عبر الباركود 🟢' : 'جاهز للربط ⚡'}</span>
+                  <span className="xs:hidden">{isConnected ? 'متصل 🟢' : 'جاهز ⚡'}</span>
                 </span>
               </div>
-              <p className="text-xs text-emerald-100/90 font-medium">سحب طلبات القروبات والخاص تلقائياً بدون أي تدخل يدوي</p>
+              <p className="text-[11px] sm:text-xs text-emerald-100/90 font-medium">سحب طلبات القروبات والخاص تلقائياً بدون أي تدخل يدوي</p>
             </div>
           </div>
 
@@ -224,17 +232,17 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex border-b border-slate-200 bg-slate-50 px-6 pt-3 gap-2 overflow-x-auto">
+        <div className="flex border-b border-slate-200 bg-slate-50 px-4 sm:px-6 pt-3 gap-2 overflow-x-auto no-scrollbar select-none">
           <button
             onClick={() => setActiveTab('qr')}
-            className={`flex items-center gap-2 pb-3 px-3 text-xs font-black border-b-2 transition-all shrink-0 ${
+            className={`min-h-[44px] flex items-center gap-2 pb-3 px-3 text-xs font-black border-b-2 transition-all shrink-0 active:scale-95 ${
               activeTab === 'qr'
                 ? 'border-emerald-600 text-emerald-800'
                 : 'border-transparent text-slate-500 hover:text-slate-700'
             }`}
           >
             <QrCode className="w-4 h-4" />
-            <span>1. باركود واتساب ويب (الأجهزة المرتبطة)</span>
+            <span>1. باركود واتساب ويب</span>
             {isConnected && (
               <span className="w-2 h-2 rounded-full bg-emerald-500" />
             )}
@@ -242,26 +250,26 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
 
           <button
             onClick={() => setActiveTab('listener')}
-            className={`flex items-center gap-2 pb-3 px-3 text-xs font-black border-b-2 transition-all shrink-0 ${
+            className={`min-h-[44px] flex items-center gap-2 pb-3 px-3 text-xs font-black border-b-2 transition-all shrink-0 active:scale-95 ${
               activeTab === 'listener'
                 ? 'border-emerald-600 text-emerald-800'
                 : 'border-transparent text-slate-500 hover:text-slate-700'
             }`}
           >
             <Smartphone className="w-4 h-4" />
-            <span>2. قراءة إشعارات الأندرويد (Notification Listener)</span>
+            <span>2. إشعارات الأندرويد</span>
           </button>
 
           <button
             onClick={() => setActiveTab('webhook')}
-            className={`flex items-center gap-2 pb-3 px-3 text-xs font-black border-b-2 transition-all shrink-0 ${
+            className={`min-h-[44px] flex items-center gap-2 pb-3 px-3 text-xs font-black border-b-2 transition-all shrink-0 active:scale-95 ${
               activeTab === 'webhook'
                 ? 'border-emerald-600 text-emerald-800'
                 : 'border-transparent text-slate-500 hover:text-slate-700'
             }`}
           >
             <Zap className="w-4 h-4" />
-            <span>3. الويب هوك والربط البرمجي</span>
+            <span>3. الويب هوك المباشر</span>
           </button>
         </div>
 

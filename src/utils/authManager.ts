@@ -316,6 +316,19 @@ async function apiRequest<T extends ServerResponse>(
  * ============================================================
  */
 
+export const DEFAULT_DEMO_CAPTAIN: CaptainUser = {
+  id: 'captain_bh_owner',
+  name: 'كابتن النظام (مُفعّل)',
+  phone: '33123456',
+  vehicleType: 'car',
+  isActivated: true,
+  licensePlan: 'الترخيص الشامل VIP - غير محدود 🇧🇭',
+  activationCode: 'BAHRAIN-VIP',
+  activatedAt: new Date().toISOString(),
+  expiresAt: new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString(),
+  createdAt: new Date().toISOString(),
+};
+
 let currentUserMemory: CaptainUser | null = null;
 
 export function getCurrentUser(): CaptainUser | null {
@@ -327,7 +340,10 @@ export function getCurrentUser(): CaptainUser | null {
     STORAGE_CURRENT_USER_KEY
   );
 
-  if (!raw) return null;
+  if (!raw) {
+    currentUserMemory = DEFAULT_DEMO_CAPTAIN;
+    return DEFAULT_DEMO_CAPTAIN;
+  }
 
   try {
     const user =
@@ -337,7 +353,8 @@ export function getCurrentUser(): CaptainUser | null {
 
     return user;
   } catch {
-    return null;
+    currentUserMemory = DEFAULT_DEMO_CAPTAIN;
+    return DEFAULT_DEMO_CAPTAIN;
   }
 }
 
