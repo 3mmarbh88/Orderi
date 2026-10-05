@@ -10,7 +10,9 @@ import {
   Share2,
   Zap,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Car,
+  RefreshCw
 } from 'lucide-react';
 import { OrderFilter } from '../types';
 import { MatcherLocation } from '../utils/matcher';
@@ -28,9 +30,15 @@ interface HeroRadarProps {
   onOpenBroadcast?: () => void;
   onOpenBackgroundModal?: () => void;
   onOpenAutoSyncModal?: () => void;
+  onToggleRadar?: () => void;
   isStreamConnected?: boolean;
   isWhatsAppWebConnected?: boolean;
   onToggleIgnoreNonMatching?: () => void;
+  isCarTrackingActive?: boolean;
+  onToggleCarTracking?: () => void;
+  onRequestGps?: () => void;
+  isGpsLoading?: boolean;
+  carSpeedKmh?: number;
 }
 
 export function HeroRadar({
@@ -46,8 +54,15 @@ export function HeroRadar({
   onOpenBroadcast,
   onOpenBackgroundModal,
   onOpenAutoSyncModal,
+  onToggleRadar,
   isStreamConnected = false,
   isWhatsAppWebConnected = false,
+  onToggleIgnoreNonMatching,
+  isCarTrackingActive = true,
+  onToggleCarTracking,
+  onRequestGps,
+  isGpsLoading = false,
+  carSpeedKmh = 0,
 }: HeroRadarProps) {
   const [mobileExpanded, setMobileExpanded] = useState(false);
 
@@ -85,13 +100,18 @@ export function HeroRadar({
                   <h1 className="text-base sm:text-2xl font-black tracking-tight text-white font-['Plus_Jakarta_Sans',sans-serif]">
                     Ordari
                   </h1>
-                  <span className={`px-2 sm:px-2.5 py-0.5 rounded-full text-[10px] sm:text-[11px] font-black border ${
-                    liveRadarActive 
-                      ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' 
-                      : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
-                  }`}>
+                  <button
+                    type="button"
+                    onClick={onToggleRadar}
+                    title={liveRadarActive ? 'انقر لإيقاف الرادار' : 'انقر لتشغيل الرادار'}
+                    className={`px-2 sm:px-2.5 py-0.5 rounded-full text-[10px] sm:text-[11px] font-black border transition-all cursor-pointer hover:scale-105 active:scale-95 ${
+                      liveRadarActive 
+                        ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25' 
+                        : 'bg-amber-500/15 text-amber-300 border-amber-500/30 hover:bg-amber-500/25'
+                    }`}
+                  >
                     {liveRadarActive ? '● نشط' : '○ متوقف'}
-                  </span>
+                  </button>
                 </div>
                 <p className="hidden sm:block mt-0.5 text-[11px] sm:text-xs text-slate-400 max-w-xl leading-relaxed">
                   مراقبة فورية لطلبات التوصيل في قروبات الواتساب وتصفيتها تلقائياً وفق موقعك وشروطك المالية.
@@ -102,49 +122,31 @@ export function HeroRadar({
             {/* Mobile Stats Toggle Button */}
             <button
               onClick={() => setMobileExpanded(!mobileExpanded)}
-              className="sm:hidden flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-800 text-slate-300 hover:text-white border border-slate-700 text-[11px] font-bold active:scale-95 transition-all shrink-0"
+              className="sm:hidden flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-800 text-slate-300 hover:text-white border border-slate-700 text-[11px] font-bold active:scale-95 transition-all shrink-0 cursor-pointer"
             >
               <span>{mobileExpanded ? 'إخفاء' : 'الإحصائيات'}</span>
               {mobileExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
             </button>
           </div>
 
-          {/* Header Action Buttons - 2x2 grid on mobile, inline on desktop */}
-          <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 sm:gap-2.5 w-full lg:w-auto min-w-0">
-            {/* Auto-Sync WhatsApp Webhook & QR Session */}
-            {onOpenAutoSyncModal && (
-              <button
-                onClick={onOpenAutoSyncModal}
-                className={`min-h-[44px] flex items-center justify-center gap-1.5 px-3 py-2.5 sm:px-4 rounded-xl font-black text-xs transition-all shadow-md active:scale-[0.98] ${
-                  isWhatsAppWebConnected
-                    ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-950/40 border border-emerald-400/50'
-                    : 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 shadow-emerald-950/30'
-                }`}
-                title="الربط التلقائي بواتساب (جلسة باركود + قراءة إشعارات الأندرويد)"
-              >
-                <span className="relative flex h-2 w-2 sm:h-2.5 sm:w-2.5 shrink-0">
-                  <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${isWhatsAppWebConnected || isStreamConnected ? 'bg-emerald-400 opacity-75' : 'bg-amber-400 opacity-75'}`} />
-                  <span className={`relative inline-flex rounded-full h-2 w-2 sm:h-2.5 sm:w-2.5 ${isWhatsAppWebConnected || isStreamConnected ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-                </span>
-                <span className="truncate">{isWhatsAppWebConnected ? 'واتساب متصل 🟢' : 'سحب واتساب ⚡'}</span>
-              </button>
-            )}
-
+          {/* Header Action Buttons */}
+          <div className="flex flex-wrap items-center gap-2 sm:gap-2.5 w-full lg:w-auto min-w-0">
+            {/* 1. Publish Order */}
             {onOpenBroadcast && (
               <button
                 onClick={onOpenBroadcast}
-                className="min-h-[44px] flex items-center justify-center gap-1.5 px-3 py-2.5 sm:px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-black text-xs shadow-md shadow-blue-600/25 transition-all active:scale-[0.98]"
+                className="flex-1 sm:flex-none min-h-[44px] flex items-center justify-center gap-1.5 px-3.5 py-2.5 sm:px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-black text-xs shadow-md shadow-blue-600/25 transition-all active:scale-[0.98] cursor-pointer"
               >
                 <Share2 className="w-3.5 h-3.5 shrink-0" />
                 <span className="truncate">نشر طلب 📢</span>
               </button>
             )}
 
-            {/* Background Mode Trigger */}
+            {/* 2. Background Mode Trigger */}
             {onOpenBackgroundModal && (
               <button
                 onClick={onOpenBackgroundModal}
-                className="min-h-[44px] flex items-center justify-center gap-1.5 px-3 py-2.5 sm:px-3.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 font-bold text-xs transition-all active:scale-[0.98]"
+                className="flex-1 sm:flex-none min-h-[44px] flex items-center justify-center gap-1.5 px-3 py-2.5 sm:px-3.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 font-bold text-xs transition-all active:scale-[0.98] cursor-pointer"
                 title="إعدادات وتشغيل الرادار في الخلفية وتثبيت التطبيق"
               >
                 <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
@@ -152,9 +154,10 @@ export function HeroRadar({
               </button>
             )}
 
+            {/* 3. Filter Settings */}
             <button
               onClick={onOpenSettings}
-              className="min-h-[44px] flex items-center justify-center gap-1.5 px-3 py-2.5 sm:px-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-xs transition-all active:scale-[0.98]"
+              className="flex-1 sm:flex-none min-h-[44px] flex items-center justify-center gap-1.5 px-3 py-2.5 sm:px-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-xs transition-all active:scale-[0.98] cursor-pointer"
             >
               <SlidersHorizontal className="w-3.5 h-3.5 text-slate-400 shrink-0" />
               <span className="truncate">ضبط الفلتر</span>
@@ -232,12 +235,42 @@ export function HeroRadar({
 
         </div>
 
-        {/* Filter Summary Tags (Visible on desktop or when mobile expanded) */}
+        {/* Filter & Live Tracking Summary Tags */}
         <div className={`${mobileExpanded ? 'flex' : 'hidden sm:flex'} flex-wrap items-center gap-1.5 sm:gap-2 pt-1 text-[11px] sm:text-xs font-medium text-slate-300`}>
-          <div className="flex items-center gap-1.5 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg sm:rounded-xl bg-slate-800/80 border border-slate-700/70">
-            <MapPin className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-400" />
-            <span>موقعك: <strong className="text-white font-bold">{driverLocation ? driverLocation.areaName : 'غير محدد'}</strong></span>
-          </div>
+          
+          {/* Live Car Tracking Badge / Switch */}
+          {onToggleCarTracking && (
+            <button
+              onClick={onToggleCarTracking}
+              title="تفعيل أو إيقاف تتبع حركة السيارة التلقائي"
+              className={`flex items-center gap-1.5 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg sm:rounded-xl border transition-all cursor-pointer ${
+                isCarTrackingActive
+                  ? 'bg-emerald-500/20 border-emerald-400/80 text-emerald-300 shadow-xs'
+                  : 'bg-slate-800/80 border-slate-700/70 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Car className={`w-3 h-3 sm:w-3.5 sm:h-3.5 ${isCarTrackingActive ? 'text-emerald-400 animate-pulse' : 'text-slate-400'}`} />
+              <span>تتبع السيارة: {isCarTrackingActive ? 'نشط 🟢' : 'معطل ⚪'}</span>
+              {isCarTrackingActive && carSpeedKmh > 5 && (
+                <span className="text-[10px] font-mono text-emerald-300 bg-emerald-950/60 px-1 rounded">
+                  {carSpeedKmh} كم/س
+                </span>
+              )}
+            </button>
+          )}
+
+          {/* Current Area Tag with instant GPS Refresh */}
+          <button
+            onClick={onRequestGps}
+            title="انقر لتحديث موقعك الحالي عبر GPS"
+            className="flex items-center gap-1.5 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg sm:rounded-xl bg-slate-800/80 border border-slate-700/70 hover:border-emerald-500/60 transition-colors cursor-pointer text-right"
+          >
+            <MapPin className={`w-3 h-3 sm:w-3.5 sm:h-3.5 ${isGpsLoading ? 'animate-bounce text-amber-400' : 'text-emerald-400'}`} />
+            <span>
+              موقعك: <strong className="text-white font-bold">{isGpsLoading ? 'جاري التحديد...' : (driverLocation ? driverLocation.areaName : 'غير محدد')}</strong>
+            </span>
+            <RefreshCw className={`w-2.5 h-2.5 text-slate-400 hover:text-white ${isGpsLoading ? 'animate-spin text-amber-400' : ''}`} />
+          </button>
 
           <div className="flex items-center gap-1.5 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg sm:rounded-xl bg-slate-800/80 border border-slate-700/70">
             <span>التغطية: <strong className="text-white font-bold">{filter.coverageKm} كم</strong></span>

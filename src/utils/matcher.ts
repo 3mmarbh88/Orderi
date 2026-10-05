@@ -5,6 +5,10 @@ export interface MatcherLocation {
   latitude: number;
   longitude: number;
   areaName?: string;
+  speedKmh?: number;
+  heading?: number;
+  accuracyMeters?: number;
+  lastUpdated?: string;
 }
 
 export function evaluateOrderMatch(

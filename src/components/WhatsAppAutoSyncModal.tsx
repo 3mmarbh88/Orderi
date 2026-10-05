@@ -23,6 +23,8 @@ import {
   MapPin,
   TrendingUp,
   Users,
+  Trash2,
+  Plus,
 } from 'lucide-react';
 import { CaptainUser } from '../types';
 
@@ -52,6 +54,8 @@ interface WhatsAppAutoSyncModalProps {
   onAddIncomingOrders?: (orders: any[]) => void;
   currentUser?: CaptainUser | null;
   myGroups?: string[];
+  detectedIncomingGroups?: string[];
+  onUpdateMyGroups?: (newGroups: string[]) => void;
   onOpenSettings?: () => void;
 }
 
@@ -107,6 +111,8 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
   onAddIncomingOrders,
   currentUser,
   myGroups: propMyGroups,
+  detectedIncomingGroups = [],
+  onUpdateMyGroups,
   onOpenSettings,
 }) => {
   const [activeTab, setActiveTab] = useState<'qr' | 'listener' | 'webhook'>(initialTab);
@@ -137,24 +143,94 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
   }, [currentUser?.phone]);
 
   // WhatsApp Groups list: dynamically synchronized with "قائمة قروباتي في الواتساب"
-  const myGroupsList = (propMyGroups && propMyGroups.length > 0)
-    ? propMyGroups
-    : (() => {
-        try {
-          const saved = localStorage.getItem('orderi_my_whatsapp_groups');
-          if (saved) {
-            const parsed = JSON.parse(saved);
-            if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-          }
-        } catch {}
-        return [
+  const [internalMyGroups, setInternalMyGroups] = useState<string[]>(() => {
+    if (propMyGroups && propMyGroups.length > 0) return propMyGroups;
+    try {
+      const saved = localStorage.getItem('orderi_my_whatsapp_groups');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const banned = [
           'قروب مندوبي البحرين 🇧🇭',
           'طلبات التوصيل - المنامة والمحرق',
           'توصيل سريع الرفاع ومدينة عيسى',
           'شبكة مناديب التوصيل السريع',
-          'مناديب المحافظة الشمالية 🚗',
         ];
-      })();
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const valid = parsed.filter((g: string) => !banned.includes(g));
+          if (valid.length > 0) return valid;
+        }
+      }
+    } catch {}
+    // Auto-link detected groups from phone notifications if myGroups is empty
+    if (detectedIncomingGroups && detectedIncomingGroups.length > 0) {
+      return detectedIncomingGroups;
+    }
+    return [];
+  });
+
+  // Keep internal groups synced if prop changes
+  useEffect(() => {
+    if (propMyGroups && propMyGroups.length > 0) {
+      setInternalMyGroups(propMyGroups);
+    }
+  }, [propMyGroups]);
+
+  // If internal groups are empty but phone notifications detected groups, auto-bind them
+  useEffect(() => {
+    if (internalMyGroups.length === 0 && detectedIncomingGroups && detectedIncomingGroups.length > 0) {
+      setInternalMyGroups(detectedIncomingGroups);
+      try {
+        localStorage.setItem('orderi_my_whatsapp_groups', JSON.stringify(detectedIncomingGroups));
+      } catch {}
+      if (onUpdateMyGroups) onUpdateMyGroups(detectedIncomingGroups);
+    }
+  }, [detectedIncomingGroups]);
+
+  const handleLinkAllDetectedToWhatsApp = () => {
+    if (!detectedIncomingGroups || detectedIncomingGroups.length === 0) return;
+    const merged = Array.from(new Set([...internalMyGroups, ...detectedIncomingGroups]));
+    setInternalMyGroups(merged);
+    try {
+      localStorage.setItem('orderi_my_whatsapp_groups', JSON.stringify(merged));
+    } catch {}
+    if (onUpdateMyGroups) onUpdateMyGroups(merged);
+    onShowToast(`✅ تم ربط ${detectedIncomingGroups.length} قروبات مرصودة من هاتفك برقم واتسابك بنجاح!`);
+  };
+
+  const [isManagingGroups, setIsManagingGroups] = useState<boolean>(false);
+  const [newGroupInput, setNewGroupInput] = useState<string>('');
+
+  const handleAddDirectGroup = (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      onShowToast('يرجى كتابة اسم القروب أولاً');
+      return;
+    }
+    if (internalMyGroups.includes(trimmed)) {
+      onShowToast('هذا القروب موجود بالفعل في قائمتك');
+      return;
+    }
+    const next = [...internalMyGroups, trimmed];
+    setInternalMyGroups(next);
+    setNewGroupInput('');
+    try {
+      localStorage.setItem('orderi_my_whatsapp_groups', JSON.stringify(next));
+    } catch {}
+    if (onUpdateMyGroups) onUpdateMyGroups(next);
+    onShowToast(`✅ تمت إضافة: "${trimmed}" إلى قروباتك المراقبة`);
+  };
+
+  const handleRemoveDirectGroup = (groupToRemove: string) => {
+    const next = internalMyGroups.filter(g => g !== groupToRemove);
+    setInternalMyGroups(next);
+    try {
+      localStorage.setItem('orderi_my_whatsapp_groups', JSON.stringify(next));
+    } catch {}
+    if (onUpdateMyGroups) onUpdateMyGroups(next);
+    onShowToast(`تم حذف القروب من القائمة`);
+  };
+
+  const myGroupsList = internalMyGroups;
 
   const [deviceMode, setDeviceMode] = useState<'same_phone' | 'external_screen'>('same_phone');
   const [forceShowQrEvenIfConnected, setForceShowQrEvenIfConnected] = useState(false);
@@ -268,10 +344,10 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
   const buildInitialBahrainOrders = (phone: string) => {
     const cleanPhone = String(phone).replace(/\D/g, '') || '97339123456';
     const now = Date.now();
-    const g1 = myGroupsList[0] || 'قروب مندوبي البحرين 🇧🇭';
-    const g2 = myGroupsList[1] || 'طلبات التوصيل - المنامة والمحرق';
-    const g3 = myGroupsList[2] || 'توصيل سريع الرفاع ومدينة عيسى';
-    const g4 = myGroupsList[3] || 'شبكة مناديب التوصيل السريع';
+    const g1 = myGroupsList[0] || 'قروب واتساب';
+    const g2 = myGroupsList[1] || 'قروب واتساب';
+    const g3 = myGroupsList[2] || 'محادثة خاصة 👤';
+    const g4 = myGroupsList[3] || 'قروب واتساب';
 
     return [
       {
@@ -656,39 +732,120 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
                   </div>
 
                   {/* Monitored Groups in Connected State */}
-                  <div className="bg-white/90 p-3.5 rounded-2xl border border-emerald-100 space-y-2">
+                  <div className="bg-white/90 p-3.5 rounded-2xl border border-emerald-100 space-y-2.5">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-1.5">
                         <Users className="w-4 h-4 text-emerald-600" />
                         <span className="text-xs font-black text-emerald-950">
-                          قائمة قروباتي في الواتساب المراقبة لحظياً ({myGroupsList.length} قروبات):
+                          قائمة قروباتي في الواتساب المراقبة لحظياً ({internalMyGroups.length} قروبات):
                         </span>
                       </div>
-                      {onOpenSettings && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onClose();
-                            onOpenSettings();
-                          }}
-                          className="text-[11px] font-bold text-emerald-700 hover:text-emerald-800 underline cursor-pointer"
-                        >
-                          إدارة القروبات ⚙️
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => setIsManagingGroups(!isManagingGroups)}
+                        className={`text-[11px] font-bold px-2 py-0.5 rounded-lg border transition-all cursor-pointer ${
+                          isManagingGroups
+                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                            : 'text-emerald-700 hover:text-emerald-800 bg-white border-emerald-300'
+                        }`}
+                      >
+                        {isManagingGroups ? 'إخفاء الإدارة ✕' : 'إدارة وإضافة قروب ⚙️'}
+                      </button>
                     </div>
 
-                    <div className="flex flex-wrap gap-1.5 pt-0.5 max-h-32 overflow-y-auto">
-                      {myGroupsList.map((g) => (
-                        <span
-                          key={g}
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-50 text-emerald-950 text-[11px] font-bold border border-emerald-200"
-                        >
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                          <span>{g}</span>
-                        </span>
-                      ))}
-                    </div>
+                    {/* Inline Group Manager */}
+                    {isManagingGroups && (
+                      <div className="p-3 rounded-xl bg-white border border-emerald-300 space-y-2.5 shadow-2xs animate-in fade-in duration-200">
+                        <div className="space-y-1">
+                          <label className="text-[11px] font-bold text-slate-700 block">
+                            إضافة اسم قروب جديد لمراقبته:
+                          </label>
+                          <div className="flex gap-1.5">
+                            <input
+                              type="text"
+                              value={newGroupInput}
+                              onChange={(e) => setNewGroupInput(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  handleAddDirectGroup(newGroupInput);
+                                }
+                              }}
+                              placeholder="اكتب اسم القروب في واتساب..."
+                              className="flex-1 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-bold text-slate-800 focus:outline-none focus:border-emerald-500 bg-slate-50"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleAddDirectGroup(newGroupInput)}
+                              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-lg cursor-pointer active:scale-95"
+                            >
+                              إضافة ➕
+                            </button>
+                          </div>
+                        </div>
+
+                        {internalMyGroups.length > 0 && (
+                          <div className="space-y-1 pt-1 border-t border-slate-100">
+                            <span className="text-[10px] font-bold text-slate-500 block">انقر على ✕ لحذف أي قروب من القائمة:</span>
+                            <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
+                              {internalMyGroups.map((g) => (
+                                <span
+                                  key={g}
+                                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-950 text-xs font-bold"
+                                >
+                                  <span>{g}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveDirectGroup(g)}
+                                    title="إزالة هذا القروب"
+                                    className="text-slate-400 hover:text-rose-600 p-0.5 cursor-pointer ml-0.5"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {onOpenSettings && (
+                          <div className="pt-1 border-t border-slate-100 flex items-center justify-between text-[10px]">
+                            <span className="text-slate-500">لشروط الفلترة المتقدمة:</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onClose();
+                                onOpenSettings();
+                              }}
+                              className="text-emerald-700 font-bold hover:underline inline-flex items-center gap-1 cursor-pointer"
+                            >
+                              <span>فتح صفحة إعدادات الفلتر</span>
+                              <ExternalLink className="w-2.5 h-2.5" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <p className="text-[10px] text-emerald-800/80 leading-relaxed">
+                      {internalMyGroups.length === 0
+                        ? '💡 حالياً لا توجد قروبات مخصصة: الرادار يراقب كافة قروبات ومحادثات واتسابك تلقائياً دون استثناء! اضغط "إدارة وإضافة قروب ⚙️" أعلاه لتسمية قروبات معينة فقط.'
+                        : 'يتم فحص رسائل هذه القروبات لحظياً بمجرد إرسالها بالواتساب.'}
+                    </p>
+
+                    {!isManagingGroups && internalMyGroups.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 pt-0.5 max-h-32 overflow-y-auto">
+                        {internalMyGroups.map((g) => (
+                          <span
+                            key={g}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-50 text-emerald-950 text-[11px] font-bold border border-emerald-200"
+                          >
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                            <span>{g}</span>
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   {/* Big Button to Return to Radar */}
@@ -826,44 +983,175 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
                             />
                           </div>
 
+                          {/* Automatically detected groups from phone notifications */}
+                          {detectedIncomingGroups && detectedIncomingGroups.length > 0 && (
+                            <div className="p-3.5 rounded-2xl bg-gradient-to-br from-blue-50/90 via-indigo-50/50 to-white border border-blue-200/90 space-y-2.5 shadow-2xs">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div className="flex items-center gap-1.5 text-xs font-black text-blue-950">
+                                  <Smartphone className="w-4 h-4 text-blue-600" />
+                                  <span>قروبات تم رصد إشعارات منها على هاتفك مؤخراً ({detectedIncomingGroups.length}):</span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={handleLinkAllDetectedToWhatsApp}
+                                  className="px-2.5 py-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-black text-[11px] rounded-xl shadow-xs cursor-pointer flex items-center gap-1.5 active:scale-95 transition-all"
+                                >
+                                  <Check className="w-3.5 h-3.5" />
+                                  <span>ربطها برقم واتسابي الآن ⚡</span>
+                                </button>
+                              </div>
+
+                              <p className="text-[10px] text-blue-800/80 leading-relaxed font-medium">
+                                هذه هي القروبات التي التقط هاتفك إشعارات منها مؤخراً. بالضغط على <strong>"ربطها برقم واتسابي الآن"</strong> تصبح هي القروبات المعتمدة في حسابك ورقمك الواتساب لمراقبة وسحب طلبات التوصيل منها فوراً.
+                              </p>
+
+                              <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pt-0.5">
+                                {detectedIncomingGroups.map((discGroup) => {
+                                  const isLinked = internalMyGroups.includes(discGroup);
+                                  return (
+                                    <span
+                                      key={discGroup}
+                                      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-bold border transition-all ${
+                                        isLinked
+                                          ? 'bg-emerald-50 text-emerald-900 border-emerald-300'
+                                          : 'bg-white text-blue-900 border-blue-200 hover:border-blue-300'
+                                      }`}
+                                    >
+                                      <span className={`w-1.5 h-1.5 rounded-full ${isLinked ? 'bg-emerald-500' : 'bg-blue-500'}`} />
+                                      <span>{discGroup}</span>
+                                      {isLinked ? (
+                                        <span className="text-[9px] text-emerald-700 font-black">(مرتبط بحسابك ✓)</span>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleAddDirectGroup(discGroup)}
+                                          className="text-blue-600 hover:text-blue-800 text-[10px] font-bold ml-0.5 underline cursor-pointer"
+                                        >
+                                          ربط +
+                                        </button>
+                                      )}
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
                           {/* Monitored WhatsApp Groups List */}
-                          <div className="p-3.5 rounded-2xl bg-emerald-50/70 border border-emerald-200/80 space-y-2">
+                          <div className="p-3.5 rounded-2xl bg-emerald-50/70 border border-emerald-200/80 space-y-2.5">
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-1.5">
                                 <Users className="w-4 h-4 text-emerald-700" />
                                 <span className="text-xs font-black text-emerald-950">
-                                  قائمة قروباتي في الواتساب المراقبة ({myGroupsList.length} قروبات):
+                                  قائمة قروباتي في الواتساب المراقبة ({internalMyGroups.length} قروبات):
                                 </span>
                               </div>
-                              {onOpenSettings && (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    onClose();
-                                    onOpenSettings();
-                                  }}
-                                  className="text-[11px] font-bold text-emerald-700 hover:text-emerald-800 underline cursor-pointer"
-                                >
-                                  إدارة القروبات ⚙️
-                                </button>
-                              )}
+                              <button
+                                type="button"
+                                onClick={() => setIsManagingGroups(!isManagingGroups)}
+                                className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border transition-all cursor-pointer shadow-2xs ${
+                                  isManagingGroups
+                                    ? 'bg-emerald-600 text-white border-emerald-600'
+                                    : 'text-emerald-800 hover:text-emerald-900 bg-white border-emerald-300'
+                                }`}
+                              >
+                                {isManagingGroups ? 'إخفاء الإدارة ✕' : 'إدارة وإضافة قروب ⚙️'}
+                              </button>
                             </div>
+
+                            {/* Inline Group Manager Card */}
+                            {isManagingGroups && (
+                              <div className="p-3 rounded-xl bg-white border border-emerald-300 space-y-2.5 shadow-2xs animate-in fade-in duration-200">
+                                <div className="space-y-1">
+                                  <label className="text-[11px] font-bold text-slate-700 block">
+                                    أدخل اسم قروب واتساب تود رصد طلباته:
+                                  </label>
+                                  <div className="flex gap-1.5">
+                                    <input
+                                      type="text"
+                                      value={newGroupInput}
+                                      onChange={(e) => setNewGroupInput(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                          e.preventDefault();
+                                          handleAddDirectGroup(newGroupInput);
+                                        }
+                                      }}
+                                      placeholder="اكتب اسم القروب بالضبط (مثلاً: طلبات توصيل)..."
+                                      className="flex-1 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-bold text-slate-800 focus:outline-none focus:border-emerald-500 bg-slate-50"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => handleAddDirectGroup(newGroupInput)}
+                                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-lg cursor-pointer active:scale-95"
+                                    >
+                                      إضافة ➕
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {internalMyGroups.length > 0 && (
+                                  <div className="space-y-1 pt-1 border-t border-slate-100">
+                                    <span className="text-[10px] font-bold text-slate-500 block">انقر على ✕ لحذف أي قروب:</span>
+                                    <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
+                                      {internalMyGroups.map((g) => (
+                                        <span
+                                          key={g}
+                                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-950 text-xs font-bold"
+                                        >
+                                          <span>{g}</span>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleRemoveDirectGroup(g)}
+                                            title="إزالة هذا القروب"
+                                            className="text-slate-400 hover:text-rose-600 p-0.5 cursor-pointer ml-0.5"
+                                          >
+                                            <X className="w-3.5 h-3.5" />
+                                          </button>
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {onOpenSettings && (
+                                  <div className="pt-1 border-t border-slate-100 flex items-center justify-between text-[10px]">
+                                    <span className="text-slate-500">للإعدادات والفلترة الكاملة:</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        onClose();
+                                        onOpenSettings();
+                                      }}
+                                      className="text-emerald-700 font-bold hover:underline inline-flex items-center gap-1 cursor-pointer"
+                                    >
+                                      <span>فتح صفحة إعدادات الفلتر</span>
+                                      <ExternalLink className="w-2.5 h-2.5" />
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            )}
 
                             <p className="text-[10px] text-emerald-800/80 leading-relaxed">
-                              هذه القروبات المعتمدة في حسابك سيتم سحب ورصد طلبات التوصيل منها فوراً وبشكل لحظي بمجرد الربط.
+                              {internalMyGroups.length === 0
+                                ? '💡 حالياً لا توجد قروبات محددة (0 قروبات): الرادار سيراقب جميع قروبات واتسابك تلقائياً دون استثناء! إذا أردت مراقبة قروبات معينة فقط، اضغط على زر "إدارة وإضافة قروب ⚙️" أعلاه.'
+                                : 'هذه القروبات المعتمدة في حسابك سيتم سحب ورصد طلبات التوصيل منها فوراً وبشكل لحظي بمجرد الربط.'}
                             </p>
 
-                            <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pt-0.5">
-                              {myGroupsList.map((g) => (
-                                <span
-                                  key={g}
-                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-white border border-emerald-200 text-slate-800 text-[11px] font-bold shadow-2xs"
-                                >
-                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                                  <span>{g}</span>
-                                </span>
-                              ))}
-                            </div>
+                            {!isManagingGroups && internalMyGroups.length > 0 && (
+                              <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pt-0.5">
+                                {internalMyGroups.map((g) => (
+                                  <span
+                                    key={g}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-white border border-emerald-200 text-slate-800 text-[11px] font-bold shadow-2xs"
+                                  >
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                                    <span>{g}</span>
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                           </div>
 
                           {/* Progress animation during pairing */}

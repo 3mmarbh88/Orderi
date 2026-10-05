@@ -44,17 +44,11 @@ interface BroadcastPublisherProps {
   onClearInitialReplayBroadcastId?: () => void;
 }
 
-const DEFAULT_GROUPS = [
-  { id: '1', name: 'قروب مندوبي البحرين 🇧🇭', category: 'مندوبين' },
-  { id: '2', name: 'طلبات التوصيل - المنامة والمحرق', category: 'عاصمة ومحرق' },
-  { id: '3', name: 'توصيل سريع الرفاع ومدينة عيسى', category: 'الجنوبية' },
-  { id: '4', name: 'شبكة مناديب التوصيل السريع', category: 'عام' },
-  { id: '5', name: 'قروب أصحاب المشاريع والأسر المنتجة', category: 'مشاريع' },
-  { id: '6', name: 'توصيل هدايا وورود البحرين', category: 'هدايا' },
-  { id: '7', name: 'طلبات المطاعم والكافيهات البحرين', category: 'مطاعم' },
-  { id: '8', name: 'قروب توصيل المحافظة الشمالية (سار والجنبية)', category: 'الشمالية' },
-  { id: '9', name: 'سواق وسيارات توصيل البحرين', category: 'سيارات' },
-];
+interface GroupItem {
+  id: string;
+  name: string;
+  category?: string;
+}
 
 export function BroadcastPublisher({
   driverLocation,
@@ -79,13 +73,42 @@ export function BroadcastPublisher({
   // The actual final message formula/text
   const [broadcastText, setBroadcastText] = useState('');
 
-  // Groups management
-  const [availableGroups, setAvailableGroups] = useState(DEFAULT_GROUPS);
-  const [selectedGroupNames, setSelectedGroupNames] = useState<string[]>([
-    'قروب مندوبي البحرين 🇧🇭',
-    'طلبات التوصيل - المنامة والمحرق',
-    'شبكة مناديب التوصيل السريع'
-  ]);
+  // Groups management - only real groups added by the user
+  const [availableGroups, setAvailableGroups] = useState<GroupItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('orderi_my_whatsapp_groups');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map((name: string, idx: number) => ({
+            id: `grp-${idx}`,
+            name,
+            category: 'قروباتي',
+          }));
+        }
+      }
+    } catch {}
+    if (filter.selectedGroups && filter.selectedGroups.length > 0) {
+      return filter.selectedGroups.map((name, idx) => ({
+        id: `filter-grp-${idx}`,
+        name,
+        category: 'قروباتي',
+      }));
+    }
+    return [];
+  });
+  const [selectedGroupNames, setSelectedGroupNames] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('orderi_my_whatsapp_groups');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    } catch {}
+    return filter.selectedGroups || [];
+  });
   const [groupSearch, setGroupSearch] = useState('');
   const [newGroupName, setNewGroupName] = useState('');
 
@@ -965,36 +988,40 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
 
             {/* Groups Scrollable List */}
             <div className="divide-y divide-slate-100 max-h-[300px] overflow-y-auto pr-1">
-              {filteredGroups.map((grp) => {
-                const isChecked = selectedGroupNames.includes(grp.name);
-                const isCustom = grp.id.startsWith('custom-');
+              {filteredGroups.length === 0 ? (
+                <div className="p-4 text-center rounded-xl bg-slate-50 border border-dashed border-slate-200">
+                  <p className="text-xs font-bold text-slate-700">لا توجد قروبات مضافة بعد</p>
+                  <p className="text-[11px] text-slate-400 mt-1">أضف أسماء قروبات واتساب التي أنت عضو فيها أعلاه لتتمكن من النشر إليها بضغطة زر.</p>
+                </div>
+              ) : (
+                filteredGroups.map((grp) => {
+                  const isChecked = selectedGroupNames.includes(grp.name);
 
-                return (
-                  <div
-                    key={grp.id}
-                    onClick={() => handleToggleGroup(grp.name)}
-                    className={`flex items-center justify-between p-2.5 rounded-xl cursor-pointer transition-colors ${
-                      isChecked ? 'bg-purple-50/60 hover:bg-purple-50' : 'hover:bg-slate-50'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <div className={`w-5 h-5 rounded-lg border flex items-center justify-center transition-colors ${
-                        isChecked ? 'bg-purple-600 border-purple-600 text-white' : 'border-slate-300 bg-white'
-                      }`}>
-                        {isChecked && <Check className="w-3.5 h-3.5" />}
-                      </div>
-                      <span className={`text-xs font-bold ${isChecked ? 'text-purple-950 font-black' : 'text-slate-800'}`}>
-                        {grp.name}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-1.5">
-                      {grp.category && (
-                        <span className="text-[10px] text-slate-400 font-semibold px-2 py-0.5 rounded-md bg-slate-100">
-                          {grp.category}
+                  return (
+                    <div
+                      key={grp.id}
+                      onClick={() => handleToggleGroup(grp.name)}
+                      className={`flex items-center justify-between p-2.5 rounded-xl cursor-pointer transition-colors ${
+                        isChecked ? 'bg-purple-50/60 hover:bg-purple-50' : 'hover:bg-slate-50'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <div className={`w-5 h-5 rounded-lg border flex items-center justify-center transition-colors ${
+                          isChecked ? 'bg-purple-600 border-purple-600 text-white' : 'border-slate-300 bg-white'
+                        }`}>
+                          {isChecked && <Check className="w-3.5 h-3.5" />}
+                        </div>
+                        <span className={`text-xs font-bold ${isChecked ? 'text-purple-950 font-black' : 'text-slate-800'}`}>
+                          {grp.name}
                         </span>
-                      )}
-                      {isCustom && (
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        {grp.category && (
+                          <span className="text-[10px] text-slate-400 font-semibold px-2 py-0.5 rounded-md bg-slate-100">
+                            {grp.category}
+                          </span>
+                        )}
                         <button
                           type="button"
                           onClick={(e) => {
@@ -1002,14 +1029,15 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
                             handleDeleteCustomGroup(grp.id, grp.name);
                           }}
                           className="p-1 rounded-md text-slate-300 hover:text-rose-600 hover:bg-rose-50"
+                          title="حذف هذا القروب"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
-                      )}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
             </div>
 
             {/* Big Action Buttons Card */}

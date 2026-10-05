@@ -2,35 +2,8 @@ import { DiscoveredGroupLink } from '../types';
 
 const STORAGE_KEY = 'orderi_discovered_group_links';
 
-// Seed sample Bahrain delivery group links for realistic demonstration and testing
-export const INITIAL_DISCOVERED_GROUPS: DiscoveredGroupLink[] = [
-  {
-    id: 'grp-seed-1',
-    url: 'https://chat.whatsapp.com/Jk99BhDeliveryCaptains01',
-    inviteCode: 'Jk99BhDeliveryCaptains01',
-    title: 'قروب مناديب وتوصيل المحرق والحد 🇧🇭',
-    senderName: 'أبو علي (مندوب محترف)',
-    senderPhone: '97339112233',
-    sourceGroup: 'قروب مندوبي البحرين 🇧🇭',
-    rawText: 'حياكم يا شباب تم إنشاء قروب خاص بطلبات المحرق والحد السريعة فقط: https://chat.whatsapp.com/Jk99BhDeliveryCaptains01',
-    capturedAt: new Date(Date.now() - 1000 * 60 * 35).toISOString(),
-    status: 'new',
-    isMonitored: false,
-  },
-  {
-    id: 'grp-seed-2',
-    url: 'https://chat.whatsapp.com/RifaaQuickOrders2026',
-    inviteCode: 'RifaaQuickOrders2026',
-    title: 'توصيل عاجل الرفاع وسند وعالي 🛵',
-    senderName: 'مطعم ومشويات الخليج',
-    senderPhone: '97333448899',
-    sourceGroup: 'طلبات التوصيل - المنامة والمحرق',
-    rawText: 'السلام عليكم، تجار ومطاعم الرفاع وسند عملنا قروب مباشر لتوزيع الطلبات: https://chat.whatsapp.com/RifaaQuickOrders2026 حياكم شباب',
-    capturedAt: new Date(Date.now() - 1000 * 60 * 120).toISOString(),
-    status: 'joined',
-    isMonitored: true,
-  },
-];
+// Start clean without predefined sample groups - only real discovered links will appear
+export const INITIAL_DISCOVERED_GROUPS: DiscoveredGroupLink[] = [];
 
 /**
  * Extracts all WhatsApp group invite URLs from a text string

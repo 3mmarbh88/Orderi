@@ -4,6 +4,17 @@ let wakeLockSentinel: any = null;
 let isWakeLockRequested = false;
 
 /**
+ * Checks if running inside an iframe (e.g. AI Studio preview)
+ */
+export function isInIframe(): boolean {
+  try {
+    return typeof window !== 'undefined' && window.self !== window.top;
+  } catch {
+    return true;
+  }
+}
+
+/**
  * Checks if the Web Notification API is supported
  */
 export function isNotificationSupported(): boolean {
@@ -23,13 +34,29 @@ export function getNotificationPermission(): NotificationPermission {
  */
 export async function requestNotificationPermission(): Promise<NotificationPermission> {
   if (!isNotificationSupported()) return 'denied';
+
+  // Check if running inside an iframe - browsers security sandbox blocks notification prompts in iframes
+  if (isInIframe()) {
+    console.warn('[Ordari] Cannot request notification permission from inside an iframe.');
+    return Notification.permission;
+  }
+
   try {
-    const permission = await Notification.requestPermission();
-    return permission;
+    if (typeof Notification.requestPermission === 'function') {
+      let permission: NotificationPermission;
+      try {
+        permission = await Notification.requestPermission();
+      } catch {
+        permission = await new Promise<NotificationPermission>((resolve) => {
+          Notification.requestPermission(resolve);
+        });
+      }
+      return permission;
+    }
   } catch (error) {
     console.error('Error requesting notification permission:', error);
-    return 'denied';
   }
+  return Notification.permission || 'denied';
 }
 
 /**

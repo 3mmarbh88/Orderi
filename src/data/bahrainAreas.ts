@@ -141,12 +141,4 @@ export function findNearestArea(lat: number, lon: number): { area: AreaLocation;
   return { area: nearest, distanceKm: minDistance };
 }
 
-export const POPULAR_WHATSAPP_GROUPS = [
-  'قروب مندوبي البحرين 🇧🇭',
-  'طلبات التوصيل - المنامة والمحرق',
-  'توصيل سريع الرفاع ومدينة عيسى',
-  'شبكة مناديب التوصيل السريع',
-  'قروب أصحاب المشاريع والأسر المنتجة',
-  'توصيل هدايا وورود البحرين',
-  'طلبات المطاعم والكافيهات البحرين',
-];
+export const POPULAR_WHATSAPP_GROUPS: string[] = [];

@@ -14,6 +14,7 @@ import { ParsedOrder } from '../types';
 
 interface AcceptedLedgerProps {
   acceptedOrders: ParsedOrder[];
+  allOrders?: ParsedOrder[];
   onClearLedger: () => void;
   customTemplate: string;
   driverLocation?: { areaName?: string } | null;

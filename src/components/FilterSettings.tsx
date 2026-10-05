@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { 
+  AlertCircle,
   MapPin, 
   Radar, 
   Navigation as StartIcon, 
@@ -44,7 +45,9 @@ import {
   Fingerprint,
   KeyRound,
   Lock,
-  User
+  User,
+  AlertTriangle,
+  ExternalLink
 } from 'lucide-react';
 import { OrderFilter, AreaLocation, AlertToneId, VibrationPatternId, CaptainUser } from '../types';
 import { BAHRAIN_AREAS } from '../data/bahrainAreas';
@@ -53,6 +56,7 @@ import { ContactsManager } from './ContactsManager';
 import { PWAInstallButton } from './PWAInstallButton';
 import { getVehicleTypeLabel, ACTIVATION_WHATSAPP_LINK } from '../utils/authManager';
 import { 
+  isInIframe,
   getNotificationPermission, 
   requestNotificationPermission, 
   sendBackgroundOrderNotification,
@@ -80,6 +84,10 @@ interface FilterSettingsProps {
   detectedIncomingGroups?: string[];
   onOpenDiscoveredGroupsModal?: () => void;
   discoveredGroupsCount?: number;
+  isCarTrackingActive?: boolean;
+  onToggleCarTracking?: () => void;
+  carSpeedKmh?: number;
+  initialOpenSection?: string | null;
 }
 
 export function FilterSettings({
@@ -95,6 +103,10 @@ export function FilterSettings({
   detectedIncomingGroups = [],
   onOpenDiscoveredGroupsModal,
   discoveredGroupsCount = 0,
+  isCarTrackingActive = true,
+  onToggleCarTracking,
+  carSpeedKmh = 0,
+  initialOpenSection = null,
 }: FilterSettingsProps) {
   const [localFilter, setLocalFilter] = useState<OrderFilter>(filter);
   const [areaSearch, setAreaSearch] = useState('');
@@ -102,6 +114,89 @@ export function FilterSettings({
   const [modalMode, setModalMode] = useState<'start' | 'dest' | null>(null);
   const [customAreaInput, setCustomAreaInput] = useState('');
   const [notifPermission, setNotifPermission] = useState<NotificationPermission>(getNotificationPermission());
+  const [showNotifGuideModal, setShowNotifGuideModal] = useState<boolean>(false);
+
+  // Sync with parent filter prop when it changes
+  useEffect(() => {
+    setLocalFilter(filter);
+    if (filter.customGroups && filter.customGroups.length > 0) {
+      setMyGroups(filter.customGroups);
+    }
+  }, [filter]);
+
+  // Keep ref for unmount auto-save
+  const localFilterRef = useRef(localFilter);
+  localFilterRef.current = localFilter;
+
+  // Auto-persist localFilter to localStorage so changes are never lost even if user closes app without clicking save
+  useEffect(() => {
+    try {
+      localStorage.setItem('orderi_filter_settings', JSON.stringify(localFilter));
+    } catch {}
+  }, [localFilter]);
+
+  // Save on unmount
+  useEffect(() => {
+    return () => {
+      try {
+        localStorage.setItem('orderi_filter_settings', JSON.stringify(localFilterRef.current));
+      } catch {}
+    };
+  }, []);
+
+  const handleRequestNotifPermission = async () => {
+    if (isInIframe()) {
+      setShowNotifGuideModal(true);
+      return;
+    }
+    const current = getNotificationPermission();
+    if (current === 'denied') {
+      setShowNotifGuideModal(true);
+      return;
+    }
+    const res = await requestNotificationPermission();
+    setNotifPermission(res);
+    if (res === 'granted') {
+      onSaveToast();
+      sendBackgroundOrderNotification({
+        id: `test-welcome-${Date.now()}`,
+        from: 'المنامة',
+        to: 'المحرق',
+        price: 2.5,
+        rawText: 'تم تفعيل إشعارات النظام بنجاح! ستصلك التنبيهات المنبثقة مباشرة فوق واتساب والخرائط',
+        groupName: 'قروب مناديب البحرين',
+        senderName: 'متجر ورود VIP',
+        senderPhone: '97339000000',
+        receivedAt: new Date(),
+        confidence: 1,
+        type: 'delivery',
+        status: 'pending',
+        match: {
+          score: 95,
+          startMatched: true,
+          destinationMatched: true,
+          priceMatched: true,
+          distanceMatched: true,
+          timeMatched: true,
+          distanceKm: 3.5,
+          statusLabel: 'طلب ممتاز',
+          statusColor: 'emerald',
+        },
+        contactStatus: 'vip',
+      });
+    } else if (res === 'denied') {
+      setShowNotifGuideModal(true);
+    }
+  };
+
+  const handleRefreshNotifPermission = () => {
+    const current = getNotificationPermission();
+    setNotifPermission(current);
+    if (current === 'granted') {
+      setShowNotifGuideModal(false);
+      onSaveToast();
+    }
+  };
 
   // Accordion collapsible sections state (all closed or selectively opened to reduce space)
   type SettingsSection = 
@@ -128,6 +223,20 @@ export function FilterSettings({
     done_template: false,
     background_mode: false,
   });
+  const [audioUploadError, setAudioUploadError] = useState<string | null>(null);
+
+  // Auto-expand and scroll to targeted section when requested (e.g. from WhatsApp Sync Modal)
+  useEffect(() => {
+    if (initialOpenSection && (initialOpenSection in openSections)) {
+      setOpenSections((prev) => ({ ...prev, [initialOpenSection]: true }));
+      setTimeout(() => {
+        const el = document.getElementById(`settings-section-${initialOpenSection}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 150);
+    }
+  }, [initialOpenSection]);
 
   const toggleSection = (sec: SettingsSection) => {
     setOpenSections((prev) => ({ ...prev, [sec]: !prev[sec] }));
@@ -176,12 +285,7 @@ export function FilterSettings({
     if (filter.customGroups && filter.customGroups.length > 0) {
       return filter.customGroups;
     }
-    return [
-      'قروب مندوبي البحرين 🇧🇭',
-      'طلبات التوصيل - المنامة والمحرق',
-      'توصيل سريع الرفاع ومدينة عيسى',
-      'شبكة مناديب التوصيل السريع',
-    ];
+    return [];
   });
 
   const governorates = ['الكل', 'العاصمة', 'المحرق', 'الشمالية', 'الجنوبية'];
@@ -287,6 +391,24 @@ export function FilterSettings({
     if (!nameToAdd) setNewGroupNameInput('');
   };
 
+  const handleLinkAllDetectedGroups = () => {
+    if (!detectedIncomingGroups || detectedIncomingGroups.length === 0) return;
+    const merged = Array.from(new Set([...myGroups, ...detectedIncomingGroups]));
+    setMyGroups(merged);
+    try {
+      localStorage.setItem('orderi_my_whatsapp_groups', JSON.stringify(merged));
+    } catch {}
+    const updatedSelected = localFilter.selectedGroups.length > 0
+      ? Array.from(new Set([...localFilter.selectedGroups, ...detectedIncomingGroups]))
+      : [];
+    setLocalFilter({
+      ...localFilter,
+      customGroups: merged,
+      selectedGroups: updatedSelected,
+    });
+    onSaveToast();
+  };
+
   const handleRemoveMyGroup = (groupToRemove: string) => {
     const updated = myGroups.filter(g => g !== groupToRemove);
     setMyGroups(updated);
@@ -315,7 +437,17 @@ export function FilterSettings({
   };
 
   const handleSave = () => {
-    onUpdateFilter(localFilter);
+    const finalFilter: OrderFilter = {
+      ...localFilter,
+      customGroups: myGroups,
+    };
+    try {
+      localStorage.setItem('orderi_filter_settings', JSON.stringify(finalFilter));
+      localStorage.setItem('orderi_my_whatsapp_groups', JSON.stringify(myGroups));
+    } catch (e) {
+      console.error('Error saving settings to storage:', e);
+    }
+    onUpdateFilter(finalFilter);
     onSaveToast();
   };
 
@@ -614,33 +746,119 @@ export function FilterSettings({
           {openSections.location && (
             <div className="p-4 sm:p-6 border-t border-slate-100 bg-slate-50/40 space-y-6 animate-in fade-in duration-200">
               
-              {/* Location Card */}
+              {/* 1. Live Vehicle Movement Tracking Control Card */}
+              {onToggleCarTracking && (
+                <div className={`p-4 rounded-2xl border transition-all ${
+                  isCarTrackingActive
+                    ? 'bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-emerald-500/5 border-emerald-300 ring-2 ring-emerald-500/20'
+                    : 'bg-white border-slate-200/90'
+                }`}>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-start gap-3">
+                      <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${
+                        isCarTrackingActive ? 'bg-emerald-600 text-white shadow-xs' : 'bg-slate-100 text-slate-500'
+                      }`}>
+                        <Car className={`w-5 h-5 ${isCarTrackingActive ? 'animate-pulse' : ''}`} />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h4 className="text-xs sm:text-sm font-black text-slate-900">
+                            تتبع حركة السيارة تلقائياً أثناء القيادة 🚗
+                          </h4>
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                            isCarTrackingActive
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                              : 'bg-slate-100 text-slate-600 border border-slate-200'
+                          }`}>
+                            {isCarTrackingActive ? 'مفعّل وشغال ⚡' : 'متوقف'}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">
+                          يتغير موقعك المعتمد تلقائياً كلما تحركت بالسيارة بين مناطق البحرين (مثلاً: من المنامة إلى السيف أو الرفاع)، ليتم تحديث رادار الطلبات الأقرب لك فوراً وبدون أي تدخل يدوي!
+                        </p>
+                        {isCarTrackingActive && carSpeedKmh > 0 && (
+                          <div className="mt-1.5 flex items-center gap-1.5 text-[11px] font-mono font-bold text-emerald-700">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
+                            <span>السرعة الحالية: {carSpeedKmh} كم/س</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={onToggleCarTracking}
+                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                        isCarTrackingActive ? 'bg-emerald-600' : 'bg-slate-300'
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                          isCarTrackingActive ? '-translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* 2. Current Location & Instant GPS Refresh Card */}
               <div className="p-4 rounded-2xl bg-white border border-slate-200/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                   <span className="text-xs text-slate-500 block">الموقع المعتمد حالياً للرادار:</span>
-                  <strong className="text-base font-black text-slate-900 mt-0.5 block">
-                    {driverLocation?.areaName || 'لم يتم تحديد موقعك بعد'}
+                  <strong className="text-base font-black text-slate-900 mt-0.5 block flex items-center gap-2">
+                    <MapPin className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>{driverLocation?.areaName || 'لم يتم تحديد موقعك بعد'}</span>
                   </strong>
                   {driverLocation && (
                     <span className="text-[11px] text-emerald-700 font-mono font-semibold block mt-0.5" dir="ltr">
                       {driverLocation.latitude.toFixed(4)}, {driverLocation.longitude.toFixed(4)}
+                      {driverLocation.lastUpdated && ` · آخر تحديث: ${driverLocation.lastUpdated}`}
                     </span>
                   )}
                 </div>
 
                 <button
+                  type="button"
                   onClick={onRequestGps}
                   disabled={isGpsLoading}
-                  className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-xs transition-all disabled:opacity-50 active:scale-95"
+                  className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-xs transition-all disabled:opacity-50 active:scale-95 cursor-pointer"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isGpsLoading ? 'animate-spin' : ''}`} />
-                  <span>{isGpsLoading ? 'جاري التحديد...' : 'تحديث الموقع عبر GPS'}</span>
+                  <span>{isGpsLoading ? 'جاري الاتصال بالأقمار الصناعية...' : 'تحديد وتحديث الموقع عبر GPS 📍'}</span>
                 </button>
               </div>
 
-              {/* Manual area quick select */}
+              {/* 3. Quick 1-Tap Area Selector Pills */}
+              <div className="p-4 rounded-2xl bg-white border border-slate-200/80 shadow-xs space-y-2">
+                <span className="text-xs font-bold text-slate-700 block">أو حدد منطقتك الحالية بنقرة سريعة واحدة:</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {['المنامة', 'المحرق', 'السيف', 'الرفاع', 'مدينة عيسى', 'سار', 'مدينة حمد', 'البديع', 'توبلي', 'سترة'].map((quickName) => {
+                    const isSelected = driverLocation?.areaName === quickName;
+                    return (
+                      <button
+                        key={quickName}
+                        type="button"
+                        onClick={() => {
+                          const area = BAHRAIN_AREAS.find(a => a.name === quickName);
+                          if (area) onSetManualLocation(area);
+                        }}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                            : 'bg-slate-50 hover:bg-emerald-50 hover:border-emerald-300 text-slate-700 border-slate-200'
+                        }`}
+                      >
+                        {quickName}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 4. Full manual area dropdown select */}
               <div className="p-4 rounded-2xl bg-white border border-slate-200/80 shadow-xs space-y-1.5">
-                <label className="text-xs font-bold text-slate-700 block">أو حدد منطقتك يدوياً من قائمة مدن وقرى البحرين:</label>
+                <label className="text-xs font-bold text-slate-700 block">كافة مدن وقرى مملكة البحرين:</label>
                 <select
                   value={driverLocation?.areaName || ''}
                   onChange={(e) => {
@@ -649,7 +867,7 @@ export function FilterSettings({
                   }}
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-slate-800 focus:bg-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none"
                 >
-                  <option value="">-- اختر منطقة تواجدك الحالية --</option>
+                  <option value="">-- اختر منطقة تواجدك الحالية من القائمة الكاملة --</option>
                   {BAHRAIN_AREAS.map((a) => (
                     <option key={a.id} value={a.name}>
                       {a.name} ({a.governorate})
@@ -931,7 +1149,7 @@ export function FilterSettings({
         </div>
 
         {/* 3. Accordion: قروبات واتسابي المراقبة (على هذا الهاتف) */}
-        <div className="rounded-2xl sm:rounded-3xl bg-white border border-slate-200/90 shadow-2xs overflow-hidden transition-all">
+        <div id="settings-section-groups" className="rounded-2xl sm:rounded-3xl bg-white border border-slate-200/90 shadow-2xs overflow-hidden transition-all">
           <button
             type="button"
             onClick={() => toggleSection('groups')}
@@ -1126,12 +1344,27 @@ export function FilterSettings({
 
         {/* Auto-Discovered Groups From Incoming Phone Notifications */}
         {detectedIncomingGroups && detectedIncomingGroups.length > 0 && (
-          <div className="space-y-2">
-            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
-              <Smartphone className="w-3.5 h-3.5 text-blue-600" />
-              <span>قروبات تم رصد إشعارات منها على هاتفك مؤخراً:</span>
+          <div className="p-3.5 sm:p-4 rounded-2xl bg-gradient-to-br from-blue-50/80 via-indigo-50/40 to-white border border-blue-200/90 space-y-2.5 shadow-2xs">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 text-xs font-black text-blue-950">
+                <Smartphone className="w-4 h-4 text-blue-600" />
+                <span>قروبات تم رصد إشعارات منها على هاتفك مؤخراً ({detectedIncomingGroups.length}):</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleLinkAllDetectedGroups}
+                className="px-3 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-black text-xs rounded-xl shadow-xs cursor-pointer flex items-center gap-1.5 transition-all active:scale-95"
+              >
+                <Check className="w-3.5 h-3.5" />
+                <span>ربط واعتماد كافة هذه القروبات بحسابي فوراً ⚡</span>
+              </button>
             </div>
-            <div className="flex flex-wrap gap-2">
+
+            <p className="text-[11px] text-blue-900/80 leading-relaxed font-medium">
+              هذه هي القروبات الحقيقية التي استلم تطبيقك إشعارات ورسائل منها على الهاتف. عند النقر على الزر أعلاه، يتم ربطها واعتمادها فوراً في حسابك ورقمك الواتساب لمراقبة وسحب كافة طلبات التوصيل منها تلقائياً.
+            </p>
+
+            <div className="flex flex-wrap gap-2 pt-0.5">
               {detectedIncomingGroups.map((discGroup) => {
                 const isAlreadyInMyGroups = myGroups.includes(discGroup);
                 return (
@@ -1145,13 +1378,14 @@ export function FilterSettings({
                     }}
                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${
                       isAlreadyInMyGroups
-                        ? 'bg-emerald-50 text-emerald-800 border-emerald-200 cursor-default'
-                        : 'bg-white hover:bg-blue-50 text-blue-700 border-blue-200 hover:border-blue-300 cursor-pointer'
+                        ? 'bg-emerald-50 text-emerald-800 border-emerald-300 cursor-default'
+                        : 'bg-white hover:bg-blue-50 text-blue-700 border-blue-200 hover:border-blue-300 cursor-pointer shadow-2xs'
                     }`}
                   >
+                    <span className={`w-1.5 h-1.5 rounded-full ${isAlreadyInMyGroups ? 'bg-emerald-500' : 'bg-blue-500'}`} />
                     <span>{discGroup}</span>
                     {isAlreadyInMyGroups ? (
-                      <span className="text-[10px] text-emerald-600 font-normal">(مضاف)</span>
+                      <span className="text-[10px] text-emerald-700 font-black">(مرتبط بحسابك ✓)</span>
                     ) : (
                       <Plus className="w-3 h-3 text-blue-600" />
                     )}
@@ -1181,38 +1415,47 @@ export function FilterSettings({
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-            {myGroups.map((group) => {
-              const isSelected = localFilter.selectedGroups.length === 0 || localFilter.selectedGroups.includes(group);
-              return (
-                <div
-                  key={group}
-                  className={`flex items-center justify-between p-3 rounded-2xl border transition-all ${
-                    isSelected 
-                      ? 'bg-emerald-50/40 border-emerald-200/90 text-emerald-950 font-bold shadow-2xs' 
-                      : 'bg-slate-50/50 border-slate-200 text-slate-400 font-medium'
-                  }`}
-                >
-                  <label className="flex items-center gap-2.5 cursor-pointer flex-1 min-w-0">
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => handleToggleGroup(group)}
-                      className="rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4 shrink-0"
-                    />
-                    <span className="text-xs truncate">{group}</span>
-                  </label>
-
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveMyGroup(group)}
-                    title="إزالة هذا القروب من القائمة"
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors shrink-0 ml-1 cursor-pointer"
+            {myGroups.length === 0 ? (
+              <div className="col-span-full p-4 rounded-2xl bg-white border border-dashed border-slate-200 text-center">
+                <p className="text-xs font-bold text-slate-700">لا توجد قروبات مسجلة في القائمة</p>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  اكتب اسم قروب واتسابك في خانة "إضافة اسم قروب" أعلاه لإضافته ومراقبته، أو اترك الخيار مفعلاً على "مراقبة جميع قروبات واتسابي تلقائياً" لمراقبة كل شيء دون الحاجة لتسميتها.
+                </p>
+              </div>
+            ) : (
+              myGroups.map((group) => {
+                const isSelected = localFilter.selectedGroups.length === 0 || localFilter.selectedGroups.includes(group);
+                return (
+                  <div
+                    key={group}
+                    className={`flex items-center justify-between p-3 rounded-2xl border transition-all ${
+                      isSelected 
+                        ? 'bg-emerald-50/40 border-emerald-200/90 text-emerald-950 font-bold shadow-2xs' 
+                        : 'bg-slate-50/50 border-slate-200 text-slate-400 font-medium'
+                    }`}
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              );
-            })}
+                    <label className="flex items-center gap-2.5 cursor-pointer flex-1 min-w-0">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => handleToggleGroup(group)}
+                        className="rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4 shrink-0"
+                      />
+                      <span className="text-xs truncate">{group}</span>
+                    </label>
+
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveMyGroup(group)}
+                      title="إزالة هذا القروب من القائمة"
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors shrink-0 ml-1 cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
 
@@ -1514,9 +1757,10 @@ export function FilterSettings({
                             if (!file) return;
 
                             if (file.size > 8 * 1024 * 1024) {
-                              alert('حجم الملف الصوتي كبير، يرجى اختيار ملف نغمة أقل من 8 ميجابايت');
+                              setAudioUploadError('حجم الملف الصوتي كبير، يرجى اختيار ملف نغمة أقل من 8 ميجابايت');
                               return;
                             }
+                            setAudioUploadError(null);
 
                             const reader = new FileReader();
                             reader.onload = (event) => {
@@ -1541,6 +1785,13 @@ export function FilterSettings({
               );
             })}
           </div>
+
+          {audioUploadError && (
+            <div className="mt-3 text-xs font-bold text-rose-600 bg-rose-50 border border-rose-200 rounded-xl p-2.5 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" />
+              <span>{audioUploadError}</span>
+            </div>
+          )}
         </div>
 
         {/* 4. Vibration Patterns & Intensity Control */}
@@ -2099,7 +2350,7 @@ export function FilterSettings({
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-start gap-3">
                       <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
-                        notifPermission === 'granted' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                        notifPermission === 'granted' ? 'bg-emerald-100 text-emerald-700' : notifPermission === 'denied' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'
                       }`}>
                         <BellRing className="w-4 h-4" />
                       </div>
@@ -2109,9 +2360,11 @@ export function FilterSettings({
                           <span className={`px-2 py-0.5 rounded text-[10px] font-black ${
                             notifPermission === 'granted' 
                               ? 'bg-emerald-100 text-emerald-800' 
+                              : notifPermission === 'denied'
+                              ? 'bg-rose-100 text-rose-800'
                               : 'bg-amber-100 text-amber-800'
                           }`}>
-                            {notifPermission === 'granted' ? 'مفعّلة ✅' : 'تحتاج إذن'}
+                            {notifPermission === 'granted' ? 'مفعّلة ومستعدة ✅' : notifPermission === 'denied' ? 'محظورة بالمتصفح 🚫' : 'تحتاج إذن ⚠️'}
                           </span>
                         </div>
                         <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
@@ -2120,28 +2373,17 @@ export function FilterSettings({
                       </div>
                     </div>
 
-                    {notifPermission !== 'granted' ? (
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          const res = await requestNotificationPermission();
-                          setNotifPermission(res);
-                        }}
-                        className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-2xs shrink-0 active:scale-95"
-                      >
-                        منح الإذن
-                      </button>
-                    ) : (
+                    {notifPermission === 'granted' ? (
                       <button
                         type="button"
                         onClick={() => {
                           sendBackgroundOrderNotification({
                             id: `test-${Date.now()}`,
-                            from: 'المنامة',
-                            to: 'المحرق',
+                            from: 'المنامة (السلمانية)',
+                            to: 'المحرق (البسيتين)',
                             price: 2.5,
-                            rawText: 'تجربة إشعار خلفية',
-                            groupName: 'قروب تجريبي',
+                            rawText: 'تجربة إشعار خلفية منبثق فوق التطبيقات',
+                            groupName: 'قروب مناديب البحرين',
                             senderName: 'متجر ورود VIP',
                             senderPhone: '97339000000',
                             receivedAt: new Date(),
@@ -2162,12 +2404,47 @@ export function FilterSettings({
                             contactStatus: 'vip',
                           });
                         }}
-                        className="px-2.5 py-1 rounded-lg bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 text-[11px] font-bold shrink-0 active:scale-95"
+                        className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shrink-0 active:scale-95 shadow-2xs cursor-pointer flex items-center gap-1"
                       >
-                        إرسال تجربة
+                        <Volume2 className="w-3.5 h-3.5" />
+                        <span>إرسال تجربة</span>
+                      </button>
+                    ) : notifPermission === 'denied' ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowNotifGuideModal(true)}
+                        className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shadow-2xs shrink-0 active:scale-95 cursor-pointer flex items-center gap-1"
+                      >
+                        <AlertTriangle className="w-3.5 h-3.5" />
+                        <span>فك الحظر 🔓</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleRequestNotifPermission}
+                        className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-2xs shrink-0 active:scale-95 cursor-pointer flex items-center gap-1"
+                      >
+                        <span>منح الإذن الآن 🔔</span>
                       </button>
                     )}
                   </div>
+
+                  {/* If in iframe or denied, show helper tip */}
+                  {isInIframe() && (
+                    <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200/80 text-[11px] text-amber-900 flex items-center justify-between gap-2">
+                      <span className="font-medium">
+                        المتصفح يمنع الإذن في نافذة المعاينة. افتح في متصفح مستقل:
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => window.open(window.location.href, '_blank')}
+                        className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-bold rounded-lg shrink-0 cursor-pointer flex items-center gap-1"
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                        <span>فتح كامل ↗</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Screen Wake Lock Card */}
@@ -2417,6 +2694,90 @@ export function FilterSettings({
                   تم واعتماد الوجهات
                 </button>
               </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* Notification Fix & Permission Unblock Modal */}
+      {showNotifGuideModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="w-full max-w-md bg-white rounded-3xl p-5 sm:p-6 shadow-2xl border border-slate-200 space-y-4 text-right">
+            
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2 text-rose-700 font-black text-base">
+                <AlertTriangle className="w-5 h-5 text-rose-600" />
+                <h3>إذن إشعارات النظام المنبثقة</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowNotifGuideModal(false)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* In-Iframe Explanation */}
+            {isInIframe() && (
+              <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-xs space-y-2 text-amber-950">
+                <div className="flex items-center gap-1.5 font-black text-amber-900">
+                  <Sparkles className="w-4 h-4 text-amber-600" />
+                  <span>أنت تتصفح حالياً من نافذة المعاينة (iFrame)</span>
+                </div>
+                <p className="text-[11px] leading-relaxed text-amber-900/90 font-medium">
+                  المتصفحات الحديثة (Chrome / Safari) تمنع طلب إذن الإشعارات وتثبيت PWA من داخل الإطارات المضمنة لحماية الخصوصية. افتح التطبيق في نافذة مستقلة كاملة لمنح الإذن فوراً:
+                </p>
+                <button
+                  type="button"
+                  onClick={() => window.open(window.location.href, '_blank')}
+                  className="w-full py-2.5 px-3 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-xs cursor-pointer"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  <span>فتح في متصفح مستقل كامل الآن 🚀</span>
+                </button>
+              </div>
+            )}
+
+            {/* Step-by-Step Unblock Guide for Denied Permission */}
+            <div className="space-y-3">
+              <h4 className="text-xs font-black text-slate-800">
+                خطوات فك حظر الإشعارات في متصفح هاتفك (Chrome / Safari):
+              </h4>
+              <div className="space-y-2 text-xs">
+                <div className="flex items-start gap-2.5 p-2.5 rounded-xl bg-slate-50 border border-slate-200">
+                  <span className="w-5 h-5 rounded-lg bg-rose-600 text-white flex items-center justify-center font-bold text-[11px] shrink-0">1</span>
+                  <p className="text-slate-700">اضغط على أيقونة <strong>القفل 🔒</strong> بجانب رابط الموقع أعلى شاشة المتصفح.</p>
+                </div>
+                <div className="flex items-start gap-2.5 p-2.5 rounded-xl bg-slate-50 border border-slate-200">
+                  <span className="w-5 h-5 rounded-lg bg-rose-600 text-white flex items-center justify-center font-bold text-[11px] shrink-0">2</span>
+                  <p className="text-slate-700">اختر <strong>«أذونات الموقع» (Permissions / Site settings)</strong>.</p>
+                </div>
+                <div className="flex items-start gap-2.5 p-2.5 rounded-xl bg-slate-50 border border-slate-200">
+                  <span className="w-5 h-5 rounded-lg bg-rose-600 text-white flex items-center justify-center font-bold text-[11px] shrink-0">3</span>
+                  <p className="text-slate-700">اضغط على <strong>«الإشعارات» (Notifications)</strong> وغيّرها إلى <strong>«سماح» (Allow)</strong>.</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={handleRefreshNotifPermission}
+                className="flex-1 py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs cursor-pointer transition-all active:scale-95"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>إعادة فحص الإذن الآن 🔄</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowNotifGuideModal(false)}
+                className="py-2.5 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs cursor-pointer"
+              >
+                إغلاق
+              </button>
             </div>
 
           </div>

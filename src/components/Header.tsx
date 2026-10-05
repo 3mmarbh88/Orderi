@@ -24,6 +24,8 @@ import {
   KeyRound,
   ShieldCheck,
   LogOut,
+  Car,
+  Navigation,
   X
 } from 'lucide-react';
 import { MatcherLocation } from '../utils/matcher';
@@ -58,6 +60,9 @@ interface HeaderProps {
   isWhatsAppWebConnected?: boolean;
   onRequestGps: () => void;
   isGpsLoading: boolean;
+  isCarTrackingActive?: boolean;
+  onToggleCarTracking?: () => void;
+  carSpeedKmh?: number;
 }
 
 export function Header({
@@ -86,6 +91,9 @@ export function Header({
   isWhatsAppWebConnected = false,
   onRequestGps,
   isGpsLoading,
+  isCarTrackingActive = true,
+  onToggleCarTracking,
+  carSpeedKmh = 0,
 }: HeaderProps) {
   const [timeStr, setTimeStr] = useState('');
   const [isExitConfirmOpen, setIsExitConfirmOpen] = useState(false);
@@ -226,43 +234,49 @@ export function Header({
             {/* Quick Action Controls */}
             <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
               
-              {/* Captain Profile & Auth / License Button */}
-              {onOpenAuthModal && (
+              {/* GPS Location & Live Vehicle Tracking Button */}
+              <div className="flex items-center gap-1">
                 <button
-                  onClick={() => onOpenAuthModal(currentUser ? 'activate' : 'login')}
-                  title={
-                    currentUser
-                      ? `الحساب: ${currentUser.name} (${currentUser.licensePlan || 'نشط'})`
-                      : 'تسجيل الدخول وإدخال كود التفعيل'
-                  }
-                  className={`h-9 sm:h-10 flex items-center justify-center gap-1 px-2 sm:px-3 rounded-xl text-xs font-black border transition-all active:scale-95 shadow-2xs ${
-                    currentUser
-                      ? 'bg-gradient-to-r from-emerald-50 to-teal-50 text-emerald-950 border-emerald-300 hover:bg-emerald-100'
-                      : 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white border-blue-500'
+                  onClick={onRequestGps}
+                  title={isCarTrackingActive ? "تتبع حركة السيارة نشط: انقر لتحديث موقعك الآن عبر GPS" : "تحديد وتحديث موقعك الحالي عبر GPS"}
+                  className={`h-9 sm:h-10 flex items-center justify-center gap-1.5 px-2 sm:px-3 rounded-xl text-xs font-bold border transition-all active:scale-95 cursor-pointer ${
+                    isCarTrackingActive
+                      ? 'bg-gradient-to-r from-emerald-50 to-teal-50 text-emerald-950 border-emerald-300 hover:bg-emerald-100 shadow-2xs'
+                      : driverLocation
+                      ? 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                      : 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
                   }`}
                 >
-                  <Fingerprint className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 ${currentUser ? 'text-emerald-600' : 'text-emerald-300'}`} />
-                  <span className="hidden sm:inline text-xs">
-                    {currentUser ? 'كابتن VIP' : 'دخول 🔑'}
+                  {isCarTrackingActive ? (
+                    <Car className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-600 animate-pulse shrink-0" />
+                  ) : (
+                    <MapPin className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 ${isGpsLoading ? 'animate-bounce text-amber-600' : 'text-emerald-600'}`} />
+                  )}
+                  <span className="hidden xs:inline text-[10px] sm:text-xs max-w-[65px] sm:max-w-[130px] truncate">
+                    {isGpsLoading ? '...' : (carSpeedKmh > 10 ? `${carSpeedKmh} كم/س` : driverLocation?.areaName || 'موقعي')}
                   </span>
+                  {isCarTrackingActive && (
+                    <span className="relative flex h-2 w-2 shrink-0">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                    </span>
+                  )}
                 </button>
-              )}
 
-              {/* GPS Location Button */}
-              <button
-                onClick={onRequestGps}
-                title="تحديد وتحديث موقعك الحالي عبر GPS"
-                className={`h-9 sm:h-10 flex items-center justify-center gap-1 px-2 sm:px-3 rounded-xl text-xs font-bold border transition-all active:scale-95 ${
-                  driverLocation
-                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100/70'
-                    : 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
-                }`}
-              >
-                <MapPin className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 ${isGpsLoading ? 'animate-bounce text-amber-600' : 'text-emerald-600'}`} />
-                <span className="hidden xs:inline text-[10px] sm:text-xs max-w-[50px] sm:max-w-[120px] truncate">
-                  {isGpsLoading ? '...' : driverLocation?.areaName || 'موقعي'}
-                </span>
-              </button>
+                {onToggleCarTracking && (
+                  <button
+                    onClick={onToggleCarTracking}
+                    title={isCarTrackingActive ? "إيقاف تتبع حركة السيارة" : "تشغيل تتبع حركة السيارة (يتغير موقعك تلقائياً كلما تحركت)"}
+                    className={`h-9 w-8 sm:h-10 sm:w-9 hidden md:flex items-center justify-center rounded-xl border text-xs font-bold transition-all active:scale-95 cursor-pointer ${
+                      isCarTrackingActive
+                        ? 'bg-emerald-600 text-white border-emerald-500 shadow-xs'
+                        : 'bg-slate-100 text-slate-400 border-slate-200 hover:bg-slate-200'
+                    }`}
+                  >
+                    <Navigation className={`w-3.5 h-3.5 ${isCarTrackingActive ? 'rotate-45 text-white' : 'text-slate-400'}`} />
+                  </button>
+                )}
+              </div>
 
               {/* WhatsApp Auto-Sync & Webhook Hub Button */}
               {onOpenAutoSyncModal && (

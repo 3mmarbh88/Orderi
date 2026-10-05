@@ -28,6 +28,7 @@ import {
 import { OrderFilter, ParsedOrder, AreaLocation, StoreContact, OrderBroadcast } from './types';
 import { BAHRAIN_AREAS, findNearestArea } from './data/bahrainAreas';
 import { MatcherLocation, evaluateOrderMatch } from './utils/matcher';
+import { getDetailedCurrentPosition, globalVehicleTracker } from './utils/gpsTracker';
 import { 
   DEFAULT_CONTACTS, 
   checkOrderContactStatus, 
@@ -90,17 +91,31 @@ const DEFAULT_FILTER: OrderFilter = {
 };
 
 export default function App() {
-  // 1. Persistent Filter State
+  // 1. Persistent Filter State (Merged with DEFAULT_FILTER to guarantee all fields exist)
   const [filter, setFilter] = useState<OrderFilter>(() => {
     try {
       const saved = localStorage.getItem('orderi_filter_settings');
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === 'object') {
+          return { ...DEFAULT_FILTER, ...parsed };
+        }
+      }
     } catch {}
     return DEFAULT_FILTER;
   });
 
-  // 2. Driver Location (Default: Manama)
+  // 2. Driver Location (Default: Manama or last saved position)
   const [driverLocation, setDriverLocation] = useState<MatcherLocation | null>(() => {
+    try {
+      const saved = localStorage.getItem('orderi_driver_location');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.latitude && parsed.longitude) {
+          return parsed;
+        }
+      }
+    } catch {}
     return {
       latitude: 26.2235,
       longitude: 50.5876,
@@ -111,7 +126,13 @@ export default function App() {
 
   // 3. Navigation & Feed Filter
   const [activeTab, setActiveTab] = useState<'radar' | 'settings' | 'ledger' | 'broadcast' | 'map'>('radar');
-  const [feedFilter, setFeedFilter] = useState<'all' | 'matched' | 'vip' | 'trusted_vip'>('all');
+  const [feedFilter, setFeedFilter] = useState<'all' | 'matched' | 'vip' | 'trusted_vip'>(() => {
+    try {
+      const saved = localStorage.getItem('orderi_feed_filter');
+      if (saved) return saved as any;
+    } catch {}
+    return 'all';
+  });
 
   // 4. Orders State (Persisted real orders)
   const [orders, setOrders] = useState<ParsedOrder[]>(() => {
@@ -135,15 +156,70 @@ export default function App() {
     return [];
   });
 
-  // 5. Radar Live Engine (No fake simulator - pure real WhatsApp stream & webhooks)
-  const [liveRadarActive, setLiveRadarActive] = useState(true);
+  // 5. Radar Live Engine (Persisted state)
+  const [liveRadarActive, setLiveRadarActive] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('orderi_live_radar_active');
+      if (saved !== null) return JSON.parse(saved);
+    } catch {}
+    return true;
+  });
+
+  // Self-healing purge: Automatically remove deleted default groups from localStorage if previously stored
+  useEffect(() => {
+    try {
+      const banned = [
+        'قروب مندوبي البحرين 🇧🇭',
+        'طلبات التوصيل - المنامة والمحرق',
+        'توصيل سريع الرفاع ومدينة عيسى',
+        'شبكة مناديب التوصيل السريع',
+      ];
+
+      // Clean orderi_my_whatsapp_groups
+      const saved = localStorage.getItem('orderi_my_whatsapp_groups');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          const cleaned = parsed.filter((g: string) => !banned.includes(g));
+          if (cleaned.length !== parsed.length) {
+            localStorage.setItem('orderi_my_whatsapp_groups', JSON.stringify(cleaned));
+          }
+        }
+      }
+
+      // Clean orderi_custom_broadcast_groups
+      const savedBroadcast = localStorage.getItem('orderi_custom_broadcast_groups');
+      if (savedBroadcast) {
+        const parsedB = JSON.parse(savedBroadcast);
+        if (Array.isArray(parsedB)) {
+          const cleanedB = parsedB.filter((g: any) => !banned.includes(g?.name || g));
+          if (cleanedB.length !== parsedB.length) {
+            localStorage.setItem('orderi_custom_broadcast_groups', JSON.stringify(cleanedB));
+          }
+        }
+      }
+    } catch {}
+  }, []);
   const [isBackgroundModalOpen, setIsBackgroundModalOpen] = useState(false);
   const [isAutoSyncModalOpen, setIsAutoSyncModalOpen] = useState(false);
+  const [settingsInitialSection, setSettingsInitialSection] = useState<string | null>(null);
   const [autoSyncInitialTab, setAutoSyncInitialTab] = useState<'qr' | 'listener' | 'webhook'>('qr');
   const [isStreamConnected, setIsStreamConnected] = useState(false);
   const [isWhatsAppWebConnected, setIsWhatsAppWebConnected] = useState(false);
   const [webhookOrdersCount, setWebhookOrdersCount] = useState(0);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Persistent list of groups detected from phone notifications / orders
+  const [persistedDetectedGroups, setPersistedDetectedGroups] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('orderi_detected_incoming_groups');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return [];
+  });
 
   // 6. WhatsApp Group Links Hunter & Interceptor State
   const [discoveredGroupLinks, setDiscoveredGroupLinks] = useState<DiscoveredGroupLink[]>(() => {
@@ -289,6 +365,54 @@ export default function App() {
     } catch {}
   }, [acceptedOrders]);
 
+  // Persist driver location to localStorage
+  useEffect(() => {
+    if (driverLocation) {
+      try {
+        localStorage.setItem('orderi_driver_location', JSON.stringify(driverLocation));
+      } catch {}
+    }
+  }, [driverLocation]);
+
+  // Persist live radar active state
+  useEffect(() => {
+    try {
+      localStorage.setItem('orderi_live_radar_active', JSON.stringify(liveRadarActive));
+    } catch {}
+  }, [liveRadarActive]);
+
+  // Persist feed filter
+  useEffect(() => {
+    try {
+      localStorage.setItem('orderi_feed_filter', feedFilter);
+    } catch {}
+  }, [feedFilter]);
+
+  // Flush all critical states to localStorage on tab switch / window close / mobile app hide
+  useEffect(() => {
+    const handleFlushStorage = () => {
+      try {
+        localStorage.setItem('orderi_filter_settings', JSON.stringify(filterRef.current));
+        if (driverLocationRef.current) {
+          localStorage.setItem('orderi_driver_location', JSON.stringify(driverLocationRef.current));
+        }
+      } catch {}
+    };
+
+    window.addEventListener('beforeunload', handleFlushStorage);
+    window.addEventListener('pagehide', handleFlushStorage);
+    window.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') {
+        handleFlushStorage();
+      }
+    });
+
+    return () => {
+      window.removeEventListener('beforeunload', handleFlushStorage);
+      window.removeEventListener('pagehide', handleFlushStorage);
+    };
+  }, []);
+
   // Check if a group is allowed by driver filter
   const isOrderGroupAllowedRef = (groupName?: string) => {
     if (!filterRef.current.selectedGroups || filterRef.current.selectedGroups.length === 0) return true;
@@ -314,6 +438,20 @@ export default function App() {
     }
 
     setWebhookOrdersCount((prev) => prev + 1);
+
+    // Save detected group name from incoming WhatsApp notification / message
+    if (raw.groupName && raw.groupName !== 'محادثة خاصة 👤' && !raw.groupName.includes('محادثة خاصة')) {
+      setPersistedDetectedGroups((prev) => {
+        if (!prev.includes(raw.groupName)) {
+          const next = [...prev, raw.groupName];
+          try {
+            localStorage.setItem('orderi_detected_incoming_groups', JSON.stringify(next));
+          } catch {}
+          return next;
+        }
+        return prev;
+      });
+    }
 
     // Also sniff for any group links inside the raw message
     if (raw.rawText) {
@@ -526,12 +664,16 @@ export default function App() {
 
     const myActiveGroups = (filterRef.current.customGroups && filterRef.current.customGroups.length > 0)
       ? filterRef.current.customGroups
-      : [
-          'قروب مندوبي البحرين 🇧🇭',
-          'طلبات التوصيل - المنامة والمحرق',
-          'توصيل سريع الرفاع ومدينة عيسى',
-          'شبكة مناديب التوصيل السريع',
-        ];
+      : (() => {
+          try {
+            const saved = localStorage.getItem('orderi_my_whatsapp_groups');
+            if (saved) {
+              const parsed = JSON.parse(saved);
+              if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+            }
+          } catch {}
+          return [];
+        })();
 
     const periodicBahrainSamples = [
       {
@@ -540,7 +682,7 @@ export default function App() {
         price: 3.5,
         senderName: 'مطعم ومخبز دلمون',
         senderPhone: '97339221144',
-        groupName: myActiveGroups[0] || 'قروب مندوبي البحرين 🇧🇭',
+        groupName: myActiveGroups[0] || 'قروب واتساب',
         notes: 'طلب عشاء ساخن مغلف',
         isDirectPrivate: false,
       },
@@ -560,7 +702,7 @@ export default function App() {
         price: 3.5,
         senderName: 'حلويات كراميل وبستاشيو',
         senderPhone: '97336112233',
-        groupName: myActiveGroups[1] || 'شبكة مناديب المحافظة الوسطى',
+        groupName: myActiveGroups[1] || 'قروب واتساب',
         notes: 'حلويات ضيافة جاهزة',
         isDirectPrivate: false,
       },
@@ -570,7 +712,7 @@ export default function App() {
         price: 4.0,
         senderName: 'بوتيك شيل & عبايات',
         senderPhone: '97334556677',
-        groupName: myActiveGroups[2] || 'قروب مندوبي البحرين 🇧🇭',
+        groupName: myActiveGroups[2] || 'قروب واتساب',
         notes: 'توصيل عاجل VIP',
         isDirectPrivate: false,
       },
@@ -619,37 +761,80 @@ export default function App() {
     }, 4500);
   };
 
-  // GPS Location Request
-  const handleRequestGps = () => {
-    if (!navigator.geolocation) {
-      showToast('خدمة تحديد الموقع GPS غير مدعومة في متصفحك');
+  // 9. Continuous Car Movement Live Tracking State
+  const [isCarTrackingActive, setIsCarTrackingActive] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('orderi_car_tracking_active');
+      if (saved !== null) return saved === 'true';
+    } catch {}
+    return true; // Default ON so driver's location updates automatically while driving!
+  });
+  const [carSpeedKmh, setCarSpeedKmh] = useState<number>(0);
+
+  // Robust GPS Location Request with multi-tier fallback (High Accuracy -> Cellular/WiFi fallback)
+  const handleRequestGps = async () => {
+    setIsGpsLoading(true);
+    const result = await getDetailedCurrentPosition();
+    setIsGpsLoading(false);
+
+    if (result.success && result.location) {
+      setDriverLocation(result.location);
+      recalculateOrdersWithNewLocation(result.location, filter);
+      showToast(`📍 تم تحديد موقعك: أقرب منطقة هي ${result.location.areaName} (${result.distanceKm} كم)`);
+    } else {
+      if (result.isPermissionDenied) {
+        showToast('⚠️ تم رفض إذن الموقع: يرجى تفعيل إذن الـ GPS في المتصفح أو إعدادات الهاتف لتحديد موقعك تلقائياً 📍');
+      } else {
+        showToast(result.errorMessage || 'تعذر الوصول إلى GPS. يمكنك اختيار منطقتك يدوياً بنقرة واحدة من الإعدادات');
+      }
+    }
+  };
+
+  const handleToggleCarTracking = () => {
+    const next = !isCarTrackingActive;
+    setIsCarTrackingActive(next);
+    try {
+      localStorage.setItem('orderi_car_tracking_active', String(next));
+    } catch {}
+    if (next) {
+      showToast('🚗 تم تشغيل تتبع حركة السيارة: سيتغير موقعك تلقائياً كلما تحركت');
+      handleRequestGps();
+    } else {
+      showToast('تم إيقاف تتبع حركة السيارة التلقائي');
+    }
+  };
+
+  // Live Vehicle Movement Tracking: updates driver location automatically when moving in car
+  useEffect(() => {
+    if (!isCarTrackingActive) {
+      globalVehicleTracker.stop();
       return;
     }
 
-    setIsGpsLoading(true);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setIsGpsLoading(false);
-        const { latitude, longitude } = pos.coords;
-        const nearest = findNearestArea(latitude, longitude);
-
-        const newLoc: MatcherLocation = {
-          latitude,
-          longitude,
-          areaName: nearest.area.name,
-        };
+    const started = globalVehicleTracker.start({
+      onLocationChange: (newLoc, isAreaChanged) => {
         setDriverLocation(newLoc);
         recalculateOrdersWithNewLocation(newLoc, filter);
-        showToast(`تم تحديد موقعك: أقرب منطقة هي ${nearest.area.name} (${nearest.distanceKm} كم)`);
+        if (isAreaChanged) {
+          showToast(`🚗 تحديث القيادة: وصلت إلى ${newLoc.areaName} (تم تحديث رادار الطلبات)`);
+        }
       },
-      (err) => {
-        setIsGpsLoading(false);
-        showToast('تعذر الوصول إلى GPS. يمكنك اختيار منطقتك يدوياً من الإعدادات');
-        console.warn(err);
+      onSpeedUpdate: (speed) => {
+        setCarSpeedKmh(speed);
       },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
-  };
+      onError: (errMsg) => {
+        console.warn('Car tracking issue:', errMsg);
+      },
+    });
+
+    if (!started) {
+      setIsCarTrackingActive(false);
+    }
+
+    return () => {
+      globalVehicleTracker.stop();
+    };
+  }, [isCarTrackingActive, filter]);
 
   const handleSetManualLocation = (area: AreaLocation) => {
     const newLoc: MatcherLocation = {
@@ -658,6 +843,9 @@ export default function App() {
       areaName: area.name,
     };
     setDriverLocation(newLoc);
+    try {
+      localStorage.setItem('orderi_driver_location', JSON.stringify(newLoc));
+    } catch {}
     recalculateOrdersWithNewLocation(newLoc, filter);
     showToast(`تم تغيير موقعك إلى: ${area.name}`);
   };
@@ -672,9 +860,16 @@ export default function App() {
   };
 
   const handleUpdateFilter = (newFilter: OrderFilter) => {
-    setFilter(newFilter);
-    recalculateOrdersWithNewLocation(driverLocation, newFilter);
-    showToast('تم حفظ الإعدادات وتحديث مطابقة الرادار بنجاح');
+    const merged = { ...filter, ...newFilter };
+    setFilter(merged);
+    try {
+      localStorage.setItem('orderi_filter_settings', JSON.stringify(merged));
+      if (merged.customGroups) {
+        localStorage.setItem('orderi_my_whatsapp_groups', JSON.stringify(merged.customGroups));
+      }
+    } catch {}
+    recalculateOrdersWithNewLocation(driverLocation, merged);
+    showToast('تم حفظ وتطبيق شروط الفلتر بنجاح ✅ ستبقى محفوظة عند فتح التطبيق مجدداً');
   };
 
   // Toggle switch to ignore/hide non-matching orders (< 80%)
@@ -682,6 +877,9 @@ export default function App() {
     const nextVal = !filter.ignoreNonMatching;
     const updatedFilter: OrderFilter = { ...filter, ignoreNonMatching: nextVal };
     setFilter(updatedFilter);
+    try {
+      localStorage.setItem('orderi_filter_settings', JSON.stringify(updatedFilter));
+    } catch {}
     if (nextVal) {
       const hiddenCount = orders.filter((o) => o.match.score < 80).length;
       showToast(`تم تفعيل مفتاح الحجب: إخفاء الطلبات غير المطابقة (${hiddenCount} طلب محجوب تلقائياً)`);
@@ -959,8 +1157,11 @@ export default function App() {
   };
 
   const detectedIncomingGroups = Array.from(
-    new Set(orders.map((o) => o.groupName).filter(Boolean))
-  ) as string[];
+    new Set([
+      ...persistedDetectedGroups,
+      ...orders.map((o) => o.groupName).filter(Boolean),
+    ])
+  ).filter((g) => g && g !== 'محادثة خاصة 👤' && !g.includes('محادثة خاصة')) as string[];
 
   // Non-matching count (respecting group filter)
   const groupFilteredOrders = orders.filter((o) => isOrderGroupAllowed(o.groupName));
@@ -1094,6 +1295,9 @@ export default function App() {
         isWhatsAppWebConnected={isWhatsAppWebConnected}
         onRequestGps={handleRequestGps}
         isGpsLoading={isGpsLoading}
+        isCarTrackingActive={isCarTrackingActive}
+        onToggleCarTracking={handleToggleCarTracking}
+        carSpeedKmh={carSpeedKmh}
       />
 
       {/* 2. Main Content Container */}
@@ -1109,6 +1313,10 @@ export default function App() {
           todayEarnings={todayEarnings}
           acceptedCount={acceptedOrders.length}
           liveRadarActive={liveRadarActive}
+          onToggleRadar={() => {
+            setLiveRadarActive(!liveRadarActive);
+            showToast(!liveRadarActive ? 'تم تشغيل الرادار ومراقبة الطلبات فوراً 🟢' : 'تم إيقاف الرادار مؤقتاً ⏸️');
+          }}
           onOpenSettings={() => setActiveTab('settings')}
           onOpenBroadcast={() => setActiveTab('broadcast')}
           onOpenBackgroundModal={() => setIsBackgroundModalOpen(true)}
@@ -1119,6 +1327,11 @@ export default function App() {
           isStreamConnected={isStreamConnected}
           isWhatsAppWebConnected={isWhatsAppWebConnected}
           onToggleIgnoreNonMatching={handleToggleIgnoreNonMatching}
+          isCarTrackingActive={isCarTrackingActive}
+          onToggleCarTracking={handleToggleCarTracking}
+          onRequestGps={handleRequestGps}
+          isGpsLoading={isGpsLoading}
+          carSpeedKmh={carSpeedKmh}
         />
 
         {/* Dynamic Tab Views */}
@@ -1441,6 +1654,10 @@ export default function App() {
             detectedIncomingGroups={detectedIncomingGroups}
             onOpenDiscoveredGroupsModal={() => setIsDiscoveredGroupsModalOpen(true)}
             discoveredGroupsCount={discoveredGroupLinks.length}
+            isCarTrackingActive={isCarTrackingActive}
+            onToggleCarTracking={handleToggleCarTracking}
+            carSpeedKmh={carSpeedKmh}
+            initialOpenSection={settingsInitialSection}
           />
         )}
 
@@ -1515,8 +1732,18 @@ export default function App() {
         initialTab={autoSyncInitialTab}
         onShowToast={showToast}
         currentUser={currentUser}
+        detectedIncomingGroups={detectedIncomingGroups}
         myGroups={filter.customGroups && filter.customGroups.length > 0 ? filter.customGroups : undefined}
-        onOpenSettings={() => setActiveTab('settings')}
+        onUpdateMyGroups={(newGroups) => {
+          handleUpdateFilter({
+            ...filter,
+            customGroups: newGroups,
+          });
+        }}
+        onOpenSettings={() => {
+          setSettingsInitialSection('groups');
+          setActiveTab('settings');
+        }}
         onSessionConnected={(sessionData, initialOrders) => {
           setIsWhatsAppWebConnected(true);
           setIsStreamConnected(true);
