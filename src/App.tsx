@@ -134,16 +134,18 @@ export default function App() {
     return 'all';
   });
 
-  // 4. Orders State (Persisted real orders)
+  // 4. Orders State (Persisted real orders only - pure live feeds)
   const [orders, setOrders] = useState<ParsedOrder[]>(() => {
     try {
       const saved = localStorage.getItem('orderi_real_orders');
       if (saved) {
         const parsed = JSON.parse(saved);
-        return parsed.map((o: any) => ({
-          ...o,
-          receivedAt: new Date(o.receivedAt),
-        }));
+        return parsed
+          .filter((o: any) => o.source !== 'simulation' && !o.id?.startsWith('ord-auto-') && !o.notes?.includes('سحبه تلقائياً فور ربط'))
+          .map((o: any) => ({
+            ...o,
+            receivedAt: new Date(o.receivedAt),
+          }));
       }
     } catch {}
     return [];
@@ -657,101 +659,6 @@ export default function App() {
       clearInterval(pollTimer);
     };
   }, []);
-
-  // 6.b Continuous automated background order stream when WhatsApp session is active
-  useEffect(() => {
-    if (!isWhatsAppWebConnected) return;
-
-    const myActiveGroups = (filterRef.current.customGroups && filterRef.current.customGroups.length > 0)
-      ? filterRef.current.customGroups
-      : (() => {
-          try {
-            const saved = localStorage.getItem('orderi_my_whatsapp_groups');
-            if (saved) {
-              const parsed = JSON.parse(saved);
-              if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-            }
-          } catch {}
-          return [];
-        })();
-
-    const periodicBahrainSamples = [
-      {
-        from: 'البسيتين',
-        to: 'الجفير',
-        price: 3.5,
-        senderName: 'مطعم ومخبز دلمون',
-        senderPhone: '97339221144',
-        groupName: myActiveGroups[0] || 'قروب واتساب',
-        notes: 'طلب عشاء ساخن مغلف',
-        isDirectPrivate: false,
-      },
-      {
-        from: 'الرفاع الغربي',
-        to: 'مدينة زايد',
-        price: 3.0,
-        senderName: 'متجر دانات الزهور',
-        senderPhone: '97333887766',
-        groupName: 'محادثة خاصة / تاجر مباشر 👤',
-        notes: 'باقة ورد وهدية عيد ميلاد',
-        isDirectPrivate: true,
-      },
-      {
-        from: 'سند',
-        to: 'عالي',
-        price: 3.5,
-        senderName: 'حلويات كراميل وبستاشيو',
-        senderPhone: '97336112233',
-        groupName: myActiveGroups[1] || 'قروب واتساب',
-        notes: 'حلويات ضيافة جاهزة',
-        isDirectPrivate: false,
-      },
-      {
-        from: 'الجنبية',
-        to: 'السيف',
-        price: 4.0,
-        senderName: 'بوتيك شيل & عبايات',
-        senderPhone: '97334556677',
-        groupName: myActiveGroups[2] || 'قروب واتساب',
-        notes: 'توصيل عاجل VIP',
-        isDirectPrivate: false,
-      },
-      {
-        from: 'سترة',
-        to: 'أم الحصم',
-        price: 3.5,
-        senderName: 'مكتبة وقرطاسية المعرفة',
-        senderPhone: '97339445566',
-        groupName: 'محادثة خاصة / تاجر مباشر 👤',
-        notes: 'مستلزمات مدرسية ومكتبية',
-        isDirectPrivate: true,
-      },
-    ];
-
-    const timer = setInterval(() => {
-      const sample = periodicBahrainSamples[Math.floor(Math.random() * periodicBahrainSamples.length)];
-      const rawOrder = {
-        id: `ord-auto-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-        from: sample.from,
-        to: sample.to,
-        price: sample.price,
-        rawText: `طلب توصيل فوري من ${sample.from} إلى ${sample.to} السعر ${sample.price} د.ب هاتف ${sample.senderPhone}`,
-        groupName: sample.groupName,
-        senderName: sample.senderName,
-        senderPhone: sample.senderPhone,
-        receivedAt: new Date().toISOString(),
-        confidence: 96,
-        type: sample.isDirectPrivate ? 'طلب مباشر (خاص)' : 'طلب قروب واتساب',
-        notes: sample.notes,
-        status: 'pending',
-        source: 'whatsapp_web_session',
-        isDirectPrivate: sample.isDirectPrivate,
-      };
-      handleProcessIncomingRawOrder(rawOrder, false);
-    }, 26000);
-
-    return () => clearInterval(timer);
-  }, [isWhatsAppWebConnected]);
 
   // Toast feedback helper
   const showToast = (msg: string) => {

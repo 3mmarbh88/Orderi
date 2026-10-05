@@ -21,7 +21,8 @@ import {
   sendBackgroundOrderNotification,
   isWakeLockSupported,
   requestScreenWakeLock,
-  releaseScreenWakeLock
+  releaseScreenWakeLock,
+  isInIframe
 } from '../utils/backgroundManager';
 import { PWAInstallButton } from './PWAInstallButton';
 import { usePWAInstall } from '../hooks/usePWAInstall';
@@ -57,33 +58,14 @@ export const BackgroundModeModal: React.FC<BackgroundModeModalProps> = ({
     setPermission(res);
     if (res === 'granted') {
       onShowToast('تم تفعيل إشعارات الخلفية بنجاح! ستصلك التنبيهات أثناء استخدام التطبيقات الأخرى');
-      // Send a welcoming test notification
-      sendBackgroundOrderNotification({
-        id: 'test-welcome',
-        from: 'المنامة (السلمانية)',
-        to: 'المحرق (البسيتين)',
-        price: 2.5,
-        rawText: 'طلب تجريبي لتأكيد تفعيل إشعارات الخلفية',
-        groupName: 'قروب مناديب البحرين',
-        senderName: 'متجر ورود وتوزيعات (VIP)',
-        senderPhone: '97339000000',
-        receivedAt: new Date(),
-        confidence: 1,
-        type: 'delivery',
-        status: 'pending',
-        match: {
-          score: 95,
-          startMatched: true,
-          destinationMatched: true,
-          priceMatched: true,
-          distanceMatched: true,
-          timeMatched: true,
-          distanceKm: 4.2,
-          statusLabel: 'طلب ممتاز',
-          statusColor: 'emerald',
-        },
-        contactStatus: 'vip',
-      });
+      if ('Notification' in window && Notification.permission === 'granted') {
+        try {
+          new Notification('🔔 رادار أورداري جاهز في الخلفية', {
+            body: 'خدمة التنبيهات تعمل بنجاح. ستتلقى إشعاراً فورياً عند وصول أي طلب حقيقي مطابق.',
+            icon: '/logo.png',
+          });
+        } catch {}
+      }
     } else if (res === 'denied') {
       onShowToast('تم رفض إذن الإشعارات من إعدادات المتصفح');
     }
@@ -108,34 +90,17 @@ export const BackgroundModeModal: React.FC<BackgroundModeModalProps> = ({
       return;
     }
 
-    sendBackgroundOrderNotification({
-      id: `test-${Date.now()}`,
-      from: 'الرفاع الشرقي',
-      to: 'مدينة عيسى',
-      price: 2.0,
-      rawText: 'فحص إشعار الخلفية',
-      groupName: 'قروب طلبات سريعة 🇧🇭',
-      senderName: 'مطعم مذاق الخليج',
-      senderPhone: '97336111222',
-      receivedAt: new Date(),
-      confidence: 1,
-      type: 'delivery',
-      status: 'pending',
-      match: {
-        score: 90,
-        startMatched: true,
-        destinationMatched: true,
-        priceMatched: true,
-        distanceMatched: true,
-        timeMatched: true,
-        distanceKm: 3.5,
-        statusLabel: 'طلب ممتاز',
-        statusColor: 'emerald',
-      },
-      contactStatus: 'vip',
-    });
-
-    onShowToast('تم إرسال إشعار تجريبي! يمكنك تجربة تصغير الشاشة لمعاينته');
+    if ('Notification' in window && Notification.permission === 'granted') {
+      try {
+        new Notification('🔔 فحص تنبيهات الرادار الحية', {
+          body: 'نظام الإشعارات يعمل بكفاءة في الخلفية.',
+          icon: '/logo.png',
+        });
+        onShowToast('تم إرسال إشعار تأكيدي لجهازك بنجاح');
+      } catch {
+        onShowToast('تعذر إظهار الإشعار عبر النظام');
+      }
+    }
   };
 
   const handleToggleWakeLock = async () => {
@@ -251,27 +216,50 @@ export const BackgroundModeModal: React.FC<BackgroundModeModalProps> = ({
                 <span>لماذا تظهر «محظورة بالمتصفح 🚫» وكيف تفك الحظر؟</span>
               </div>
 
-              <p className="text-slate-600 leading-relaxed text-[11px] sm:text-xs">
-                قام متصفح هاتفك (Chrome أو Safari) بحفظ خيار «حظر الإشعارات» سابقاً لهذا الموقع. ولحماية الخصوصية، يمنع المتصفح التطبيق من إظهار نافذة الطلب مجدداً حتى تقوم بفك الحظر يدوياً في ثوانٍ:
-              </p>
+              {isInIframe() ? (
+                <div className="space-y-2 text-slate-700 leading-relaxed text-[11px] sm:text-xs">
+                  <p className="bg-amber-100/80 p-2.5 rounded-xl border border-amber-300/80 text-amber-900 font-medium">
+                    ⚠️ <strong>أنت تتصفح المعاينة المضمنة (iFrame):</strong> متصفحات الويب (Chrome و Safari) تمنع النوافذ المضمنة أمنياً من طلب إذن الإشعارات وتعتبرها محظورة تلقائياً.
+                  </p>
+                  <p className="text-slate-600">
+                    للحصول على إشعارات النظام الحقيقية كاملة، اضغط الزر أدناه لفتح التطبيق في صفحة مستقلة كاملة أو قم بتثبيته كتطبيق على شاشة هاتفك:
+                  </p>
+                  <div className="pt-1">
+                    <a
+                      href={typeof window !== 'undefined' ? window.location.href : '#'}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-black text-xs shadow-md transition-all cursor-pointer"
+                    >
+                      <span>فتح التطبيق في نافذة مستقلة جديدة ↗</span>
+                    </a>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-slate-600 leading-relaxed text-[11px] sm:text-xs">
+                    قام متصفح هاتفك (Chrome أو Safari) بحفظ خيار «حظر الإشعارات» سابقاً لهذا الموقع. ولحماية الخصوصية، يمنع المتصفح التطبيق برمجياً من إظهار نافذة الطلب مجدداً حتى تقوم بفك الحظر يدوياً في ثوانٍ:
+                  </p>
 
-              <div className="bg-white p-3 rounded-xl border border-rose-200/80 space-y-1.5 text-[11px]">
-                <span className="font-bold text-slate-800 block text-xs">خطوات فك الحظر في متصفح الهاتف (3 خطوات):</span>
-                <ol className="list-decimal list-inside space-y-1.5 text-slate-700 leading-relaxed font-medium">
-                  <li>
-                    اضغط على أيقونة <strong>القفل أو الضبط 🔒</strong> بجانب رابط الموقع في شريط العناوين أعلى الشاشة.
-                  </li>
-                  <li>
-                    اختر <strong>«أذونات الموقع» (Permissions / Site settings)</strong>.
-                  </li>
-                  <li>
-                    اضغط على <strong>«الإشعارات» (Notifications)</strong> وغيّرها من "حظر" إلى <strong>«سماح» (Allow)</strong>.
-                  </li>
-                  <li>
-                    ارجع هنا واضغط على زر <strong>«إعادة فحص الإذن 🔄»</strong> وسيعمل فوراً!
-                  </li>
-                </ol>
-              </div>
+                  <div className="bg-white p-3 rounded-xl border border-rose-200/80 space-y-1.5 text-[11px]">
+                    <span className="font-bold text-slate-800 block text-xs">خطوات فك الحظر في متصفح الهاتف (3 خطوات):</span>
+                    <ol className="list-decimal list-inside space-y-1.5 text-slate-700 leading-relaxed font-medium">
+                      <li>
+                        اضغط على أيقونة <strong>القفل أو الضبط 🔒</strong> بجانب رابط الموقع في شريط العناوين أعلى الشاشة.
+                      </li>
+                      <li>
+                        اختر <strong>«أذونات الموقع» (Permissions / Site settings)</strong>.
+                      </li>
+                      <li>
+                        اضغط على <strong>«الإشعارات» (Notifications)</strong> وغيّرها من "حظر" إلى <strong>«سماح» (Allow)</strong>.
+                      </li>
+                      <li>
+                        ارجع هنا واضغط على زر <strong>«إعادة فحص الإذن 🔄»</strong> وسيعمل فوراً!
+                      </li>
+                    </ol>
+                  </div>
+                </div>
+              )}
 
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1">
                 <button

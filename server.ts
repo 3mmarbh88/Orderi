@@ -154,114 +154,6 @@ generateFreshQRCode().then(() => {
   whatsAppSession.status = "qr_ready";
 });
 
-// Periodic automated live order emitter when WhatsApp session is connected
-const liveIncomingSamples = [
-  {
-    isDirect: true,
-    group: "محادثة خاصة / تاجر مباشر 👤",
-    sender: "بوتيك الريم للأزياء",
-    phone: "97339881122",
-    text: "سلام كابتن، عندي فستان توصيل فوري من الرفاع الشرقي إلى الجفير السعر 3.5 د.ب هاتف 39881122 جاهز حالا",
-    from: "الرفاع الشرقي",
-    to: "الجفير",
-    price: 3.5
-  },
-  {
-    isDirect: false,
-    group: "قروب مندوبي البحرين 🇧🇭",
-    sender: "حلويات ريتاج",
-    phone: "97333556677",
-    text: "طلب صينية حلا جاهزة من المحرق إلى مدينة حمد دوار 12 السعر 3.5 دينار 33556677",
-    from: "المحرق",
-    to: "مدينة حمد",
-    price: 3.5
-  },
-  {
-    isDirect: true,
-    group: "محادثة خاصة / تاجر مباشر 👤",
-    sender: "عطورات السامرية (VIP)",
-    phone: "97338112233",
-    text: "مساء الخير كابتننا العزيز، متوفر بوكس عطور عاجل من السيف إلى سار السعر 4 دينار 38112233",
-    from: "السيف",
-    to: "سار",
-    price: 4.0
-  },
-  {
-    isDirect: false,
-    group: "شبكة كباتن المنامة والمحرق",
-    sender: "مطعم البرجر الذهبي",
-    phone: "97336998877",
-    text: "أوردر وجبات ساخنة من المنامة إلى البسيتين السعر 2.5 د.ب هاتف 36998877 جاهز",
-    from: "المنامة",
-    to: "البسيتين",
-    price: 2.5
-  },
-  {
-    isDirect: false,
-    group: "توصيل المحافظة الجنوبية",
-    sender: "متجر الورود الطبيعية",
-    phone: "97334112244",
-    text: "باقة ورد وتخرج عاجلة من الرفاع الغربي إلى سند السعر 3 دينار اتصال 34112244",
-    from: "الرفاع الغربي",
-    to: "سند",
-    price: 3.0
-  },
-  {
-    isDirect: true,
-    group: "محادثة خاصة / تاجر مباشر 👤",
-    sender: "الدانة للأكسسوارات والذهب (خاص)",
-    phone: "97339776655",
-    text: "كابتن مستعجل، هدية وساعة من توبلي إلى الدير السعر 3.5 دينار هاتف 39776655 كاش عند الاستلام",
-    from: "توبلي",
-    to: "الدير",
-    price: 3.5
-  }
-];
-
-setInterval(() => {
-  if (whatsAppSession.status !== "connected") return;
-
-  const sample = liveIncomingSamples[Math.floor(Math.random() * liveIncomingSamples.length)];
-  const order = {
-    id: `ord-live-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-    from: sample.from,
-    to: sample.to,
-    price: sample.price,
-    rawText: sample.text,
-    groupName: sample.group,
-    senderName: sample.sender,
-    senderPhone: sample.phone,
-    receivedAt: new Date().toISOString(),
-    confidence: 98,
-    type: sample.isDirect ? "طلب مباشر (خاص)" : "طلب قروب واتساب",
-    notes: sample.isDirect ? "وارد في المحادثة الخاصة عبر جلسة واتساب ويب" : "وارد من قروب عبر جلسة واتساب ويب",
-    status: "pending",
-    source: "whatsapp_web_session",
-    isDirectPrivate: sample.isDirect,
-  };
-
-  recentWebhookOrders.unshift(order);
-  if (recentWebhookOrders.length > 50) recentWebhookOrders.pop();
-  whatsAppSession.totalOrdersCaptured += 1;
-  whatsAppSession.lastSyncAt = new Date().toISOString();
-
-  const eventPayload = `data: ${JSON.stringify({ 
-    type: "NEW_ORDER", 
-    order,
-    source: "whatsapp_web_session"
-  })}\n\n`;
-
-  sseClients.forEach((client) => {
-    try {
-      client.write(eventPayload);
-    } catch {
-      sseClients.delete(client);
-    }
-  });
-
-  console.log(`[WhatsApp Web Gateway Stream] Auto pushed order: ${order.from} -> ${order.to} (${order.price} BHD) to ${sseClients.size} clients`);
-}, 12000);
-
 // Lazy initialization of Gemini client
 let genAIClient: GoogleGenAI | null = null;
 function getGenAI(): GoogleGenAI {
@@ -584,70 +476,9 @@ app.post("/api/whatsapp/session/pair", (req, res) => {
   whatsAppSession.connectedAt = new Date().toISOString();
   whatsAppSession.deviceName = device;
   whatsAppSession.lastSyncAt = new Date().toISOString();
-  whatsAppSession.batteryLevel = Math.floor(92 + Math.random() * 6);
-  whatsAppSession.groupsMonitoredCount = 28;
-  whatsAppSession.privateChatsMonitoredCount = 12;
-
-  // Generate 3 immediate orders pulled upon pairing
-  const initialOrders = [
-    {
-      id: `ord-live-${Date.now()}-1`,
-      from: "الرفاع الشرقي",
-      to: "الجفير",
-      price: 3.5,
-      rawText: "طلب عباية فوري من الرفاع الشرقي شارع بوكوارة إلى الجفير بالقرب من مجمع الجفير السعر 3.5 دينار اتصال 39123456 جاهز للاستلام حالا",
-      groupName: "قروب مندوبي البحرين 🇧🇭",
-      senderName: "بوتيك الريم للأزياء",
-      senderPhone: String(phone).replace(/\D/g, "") || "97339123456",
-      receivedAt: new Date().toISOString(),
-      confidence: 98,
-      type: "طلب قروب واتساب",
-      notes: "تم سحبه تلقائياً فور ربط واتساب",
-      status: "pending",
-      source: "whatsapp_web_session",
-      isDirectPrivate: false,
-    },
-    {
-      id: `ord-live-${Date.now()}-2`,
-      from: "المحرق",
-      to: "مدينة حمد",
-      price: 3.5,
-      rawText: "طلب صينية حلا جاهزة ومغلفة من المحرق إلى مدينة حمد دوار 12 السعر 3.5 د.ب هاتف 33556677 كاش عند الاستلام",
-      groupName: "محادثة خاصة / تاجر مباشر 👤",
-      senderName: "حلويات ريتاج",
-      senderPhone: "97333556677",
-      receivedAt: new Date().toISOString(),
-      confidence: 99,
-      type: "طلب مباشر (خاص)",
-      notes: "تاجر مباشر في الدردشة الخاصة",
-      status: "pending",
-      source: "whatsapp_web_session",
-      isDirectPrivate: true,
-    },
-    {
-      id: `ord-live-${Date.now()}-3`,
-      from: "السيف",
-      to: "سار",
-      price: 4.0,
-      rawText: "مساء الخير كابتن، عندي بوكس عطور مستعجل من مجمع السيف إلى سار السعر 4 دينار هاتف 38112233",
-      groupName: "شبكة كباتن المنامة والمحرق",
-      senderName: "عطورات السامرية (VIP)",
-      senderPhone: "97338112233",
-      receivedAt: new Date().toISOString(),
-      confidence: 96,
-      type: "طلب قروب واتساب",
-      notes: "طلب VIP عالي الأرباح",
-      status: "pending",
-      source: "whatsapp_web_session",
-      isDirectPrivate: false,
-    },
-  ];
-
-  initialOrders.forEach((ord) => {
-    recentWebhookOrders.unshift(ord);
-  });
-  if (recentWebhookOrders.length > 50) recentWebhookOrders.length = 50;
-  whatsAppSession.totalOrdersCaptured += initialOrders.length;
+  whatsAppSession.batteryLevel = 100;
+  whatsAppSession.groupsMonitoredCount = 0;
+  whatsAppSession.privateChatsMonitoredCount = 0;
 
   // Broadcast session status to all clients
   const eventPayload = `data: ${JSON.stringify({ 
@@ -662,23 +493,11 @@ app.post("/api/whatsapp/session/pair", (req, res) => {
     }
   });
 
-  // Broadcast initial orders to connected SSE clients
-  initialOrders.forEach((ord) => {
-    const orderPayload = `data: ${JSON.stringify({
-      type: "NEW_ORDER",
-      order: ord,
-      source: "whatsapp_web_session"
-    })}\n\n`;
-    sseClients.forEach((client) => {
-      try { client.write(orderPayload); } catch {}
-    });
-  });
-
   res.json({
     success: true,
-    message: "تم ربط جلسة واتساب ويب بنجاح! بدأ السحب التلقائي اللحظي من كافة القروبات والخاص.",
+    message: "تم ربط جلسة واتساب بنجاح! الرادار الآن بانتظار استلام الطلبات الحقيقية من قروباتك.",
     session: whatsAppSession,
-    initialOrders,
+    initialOrders: [],
   });
 });
 

@@ -118,7 +118,7 @@ export function DiscoveredGroupsModal({
           </button>
         </div>
 
-        {/* Action Bar (Simulation, Manual Add, Search) */}
+        {/* Action Bar (Filters, Manual Add, Search) */}
         <div className="p-3.5 sm:p-4 bg-slate-50 border-b border-slate-200/80 space-y-3 shrink-0">
           <div className="flex flex-wrap items-center justify-between gap-2">
             

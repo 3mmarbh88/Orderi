@@ -127,7 +127,7 @@ export interface ParsedOrder {
   ratePerKm?: number;
   contactStatus?: 'vip' | 'blacklist' | 'normal';
   matchedContact?: StoreContact;
-  source?: 'webhook_auto' | 'simulation' | 'manual' | 'voice';
+  source?: 'webhook_auto' | 'whatsapp_web_session' | 'manual' | 'voice' | 'android_notification';
   isDirectPrivate?: boolean;
   aiAnalysis?: AIMatchAnalysis;
   isAnalyzingAi?: boolean;

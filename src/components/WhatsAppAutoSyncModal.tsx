@@ -340,110 +340,11 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
     } catch {}
   };
 
-  // Build authentic Bahrain delivery orders captured from WhatsApp
-  const buildInitialBahrainOrders = (phone: string) => {
-    const cleanPhone = String(phone).replace(/\D/g, '') || '97339123456';
-    const now = Date.now();
-    const g1 = myGroupsList[0] || 'قروب واتساب';
-    const g2 = myGroupsList[1] || 'قروب واتساب';
-    const g3 = myGroupsList[2] || 'محادثة خاصة 👤';
-    const g4 = myGroupsList[3] || 'قروب واتساب';
-
-    return [
-      {
-        id: `ord-live-${now}-1`,
-        from: 'الرفاع الشرقي',
-        to: 'الجفير',
-        price: 3.5,
-        rawText: `طلب عباية فوري من الرفاع الشرقي شارع بوكوارة إلى الجفير بالقرب من مجمع الجفير السعر 3.5 دينار اتصال ${cleanPhone} جاهز للاستلام حالا`,
-        groupName: g1,
-        senderName: 'بوتيك الريم للأزياء',
-        senderPhone: cleanPhone,
-        receivedAt: new Date(now).toISOString(),
-        confidence: 98,
-        type: 'طلب قروب واتساب',
-        notes: `تم سحبه تلقائياً من ${g1}`,
-        status: 'pending',
-        source: 'whatsapp_web_session',
-        isDirectPrivate: false,
-      },
-      {
-        id: `ord-live-${now}-2`,
-        from: 'المحرق',
-        to: 'مدينة حمد',
-        price: 3.5,
-        rawText: 'طلب صينية حلا جاهزة ومغلفة من المحرق بالقرب من كازينو المحرق إلى مدينة حمد دوار 12 السعر 3.5 د.ب هاتف 33556677 كاش عند الاستلام',
-        groupName: 'محادثة خاصة / تاجر مباشر 👤',
-        senderName: 'حلويات ريتاج',
-        senderPhone: '97333556677',
-        receivedAt: new Date(now - 25000).toISOString(),
-        confidence: 99,
-        type: 'طلب مباشر (خاص)',
-        notes: 'تاجر مباشر في الدردشة الخاصة',
-        status: 'pending',
-        source: 'whatsapp_web_session',
-        isDirectPrivate: true,
-      },
-      {
-        id: `ord-live-${now}-3`,
-        from: 'السيف',
-        to: 'سار',
-        price: 4.0,
-        rawText: 'مساء الخير كابتن، عندي بوكس عطور مستعجل من مجمع السيف إلى سار بالقرب من مجمع النخيل السعر 4 دينار هاتف 38112233',
-        groupName: g2,
-        senderName: 'عطورات السامرية (VIP)',
-        senderPhone: '97338112233',
-        receivedAt: new Date(now - 60000).toISOString(),
-        confidence: 96,
-        type: 'طلب قروب واتساب',
-        notes: `تم سحبه تلقائياً من ${g2}`,
-        status: 'pending',
-        source: 'whatsapp_web_session',
-        isDirectPrivate: false,
-      },
-      {
-        id: `ord-live-${now}-4`,
-        from: 'سلماباد',
-        to: 'المنامة',
-        price: 3.0,
-        rawText: 'طلب قطع غيار من سلماباد الصناعية إلى المنامة شارع المعارض 3 دينار صافي للمندوب هاتف 36998877 جاهز حالا',
-        groupName: g3,
-        senderName: 'المركز الفني لقطع الغيار',
-        senderPhone: '97336998877',
-        receivedAt: new Date(now - 90000).toISOString(),
-        confidence: 95,
-        type: 'طلب قروب واتساب',
-        notes: `تم سحبه تلقائياً من ${g3}`,
-        status: 'pending',
-        source: 'whatsapp_web_session',
-        isDirectPrivate: false,
-      },
-      {
-        id: `ord-live-${now}-5`,
-        from: 'مدينة عيسى',
-        to: 'البديع',
-        price: 3.5,
-        rawText: 'طلب هدايا وتغليف من مدينة عيسى السوق الشعبي إلى البديع 3.5 د.ب اتصال 34112244 الدفع فوري عند التسليم',
-        groupName: g4,
-        senderName: 'متجر ورود الجود',
-        senderPhone: '97334112244',
-        receivedAt: new Date(now - 120000).toISOString(),
-        confidence: 97,
-        type: 'طلب مباشر (خاص)',
-        notes: `تم سحبه من ${g4}`,
-        status: 'pending',
-        source: 'whatsapp_web_session',
-        isDirectPrivate: false,
-      },
-    ];
-  };
-
   const handleConfirmPairing = async () => {
     setIsPairing(true);
     setPairingStage('connecting');
 
     const phoneToUse = phoneNumberInput || '+973 3912 3456';
-    const localOrders = buildInitialBahrainOrders(phoneToUse);
 
     try {
       // Visual feedback stage 1
@@ -451,7 +352,6 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
       setPairingStage('scanning');
 
       // Call API
-      let apiOrders: any[] = [];
       try {
         const res = await fetch('/api/whatsapp/session/pair', {
           method: 'POST',
@@ -467,17 +367,14 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
           if (data?.session) {
             setSession(data.session);
           }
-          if (data?.initialOrders && Array.isArray(data.initialOrders) && data.initialOrders.length > 0) {
-            apiOrders = data.initialOrders;
-          }
         }
       } catch {
-        // Fallback to local
+        // Local mode fallback
       }
 
       await new Promise((r) => setTimeout(r, 600));
 
-      const finalOrders = apiOrders.length > 0 ? apiOrders : localOrders;
+      const finalOrders: any[] = [];
       setCapturedOrders(finalOrders);
 
       const activeSession: WhatsAppSessionData = {
@@ -487,10 +384,10 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
         connectedPhone: phoneToUse,
         connectedAt: new Date().toISOString(),
         deviceName: 'Ordari Radar Gateway (Mobile)',
-        batteryLevel: 96,
+        batteryLevel: 100,
         groupsMonitoredCount: myGroupsList.length,
-        privateChatsMonitoredCount: 14,
-        totalOrdersCaptured: finalOrders.length,
+        privateChatsMonitoredCount: 0,
+        totalOrdersCaptured: 0,
         lastSyncAt: new Date().toISOString(),
         listenerServiceActive: true,
       };
@@ -499,10 +396,9 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
       setPairingStage('success');
 
       // Dispatch to parent components
-      onAddIncomingOrders?.(finalOrders);
-      onSessionConnected?.(activeSession, finalOrders);
+      onSessionConnected?.(activeSession, []);
 
-      onShowToast(`🎉 تم تفعيل ربط واتساب بنجاح! تم التقاط ${finalOrders.length} طلبات جديدة`);
+      onShowToast('🎉 تم تفعيل ربط واتساب بنجاح! الرادار الآن جاهز ومستعد لاستقبال رسائل وطلبات قروباتك الحقيقية فوراً');
 
       // Auto close after 3 seconds if user doesn't click button
       autoCloseTimerRef.current = setTimeout(() => {
