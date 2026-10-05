@@ -492,18 +492,18 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
   const activeWaitingBroadcasts = broadcastHistory.filter((b) => !b.isCompleted);
 
   return (
-    <div className="space-y-6 sm:space-y-8 animate-in fade-in duration-300">
+    <div className="space-y-4 sm:space-y-8 animate-in fade-in duration-300 w-full max-w-full overflow-x-hidden min-w-0">
       
       {/* Top Banner / Header */}
-      <div className="p-6 rounded-3xl bg-gradient-to-r from-emerald-600 via-emerald-700 to-teal-800 text-white shadow-xl shadow-emerald-700/15 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="space-y-1.5">
-          <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white">
+      <div className="p-4 sm:p-6 rounded-2xl sm:rounded-3xl bg-gradient-to-r from-emerald-600 via-emerald-700 to-teal-800 text-white shadow-xl shadow-emerald-700/15 flex flex-col md:flex-row md:items-center justify-between gap-4 w-full max-w-full overflow-hidden">
+        <div className="space-y-1.5 min-w-0">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-10 h-10 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white shrink-0">
               <Share2 className="w-5 h-5" />
             </div>
-            <div>
-              <h2 className="text-xl font-black tracking-tight">نشر وإعلان طلب في قروبات الواتساب</h2>
-              <p className="text-xs text-emerald-100 font-medium">
+            <div className="min-w-0">
+              <h2 className="text-base sm:text-xl font-black tracking-tight truncate">نشر وإعلان طلب في قروبات الواتساب</h2>
+              <p className="text-[11px] sm:text-xs text-emerald-100 font-medium">
                 اكتب صيغة الطلب، اختر القروبات المستهدفة، وانشر رد (تم) فور العثور على مندوب
               </p>
             </div>

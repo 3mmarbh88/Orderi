@@ -28,13 +28,13 @@ export function AcceptedLedger({
   const averagePrice = acceptedOrders.length > 0 ? totalEarnings / acceptedOrders.length : 0;
 
   return (
-    <div className="space-y-4 sm:space-y-6 max-w-5xl mx-auto pb-12">
+    <div className="space-y-4 sm:space-y-6 w-full max-w-5xl mx-auto pb-12 overflow-x-hidden min-w-0">
       
       {/* Ledger Header & Metrics */}
-      <div className="p-4 sm:p-6 rounded-2xl sm:rounded-3xl bg-white border border-slate-200/80 shadow-xs space-y-4 sm:space-y-6">
+      <div className="p-3.5 sm:p-6 rounded-2xl sm:rounded-3xl bg-white border border-slate-200/80 shadow-xs space-y-4 sm:space-y-6 w-full max-w-full overflow-hidden">
         <div className="flex flex-row items-center justify-between gap-3">
           <div>
-            <h2 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight">سجل الطلبات المقبولة اليوم</h2>
+            <h2 className="text-base sm:text-xl font-black text-slate-900 tracking-tight">سجل الطلبات المقبولة اليوم</h2>
             <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">متابعة حسابات الدخل والتوصيلات التي قمت بقبولها عبر الرادار</p>
           </div>
 
@@ -114,7 +114,7 @@ export function AcceptedLedger({
             return (
               <div
                 key={ord.id || idx}
-                className="p-5 rounded-3xl bg-white border border-slate-200/80 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4"
+                className="p-3.5 sm:p-5 rounded-2xl sm:rounded-3xl bg-white border border-slate-200/80 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4 w-full max-w-full overflow-hidden"
               >
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">

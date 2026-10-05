@@ -52,19 +52,19 @@ export function HeroRadar({
   const [mobileExpanded, setMobileExpanded] = useState(false);
 
   return (
-    <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl bg-slate-900 text-white p-3.5 sm:p-6 lg:p-7 shadow-xl shadow-slate-950/20 border border-slate-800">
+    <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl bg-slate-900 text-white p-3.5 sm:p-6 lg:p-7 shadow-xl shadow-slate-950/20 border border-slate-800 w-full max-w-full">
       
       {/* Decorative ambient gradients */}
       <div className="absolute left-[-40px] top-[-40px] w-80 h-80 rounded-full bg-blue-600/10 blur-3xl pointer-events-none" />
       <div className="absolute right-[-40px] bottom-[-40px] w-80 h-80 rounded-full bg-emerald-600/10 blur-3xl pointer-events-none" />
 
-      <div className="relative z-10 space-y-3 sm:space-y-6">
+      <div className="relative z-10 space-y-3 sm:space-y-6 w-full max-w-full min-w-0">
         
         {/* Top Header Row */}
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 sm:gap-4 pb-3 sm:pb-5 border-b border-slate-800/80">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 sm:gap-4 pb-3 sm:pb-5 border-b border-slate-800/80 w-full max-w-full">
           
-          <div className="flex items-center justify-between sm:justify-start gap-3">
-            <div className="flex items-center gap-2.5 sm:gap-4">
+          <div className="flex items-center justify-between sm:justify-start gap-3 min-w-0">
+            <div className="flex items-center gap-2.5 sm:gap-4 min-w-0">
               <div className="relative shrink-0">
                 <div className="w-10 h-10 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl overflow-hidden shadow-xl shadow-emerald-500/25 border-2 border-emerald-400/40 bg-white p-0.5 flex items-center justify-center">
                   <img 
@@ -80,7 +80,7 @@ export function HeroRadar({
                 </span>
               </div>
 
-              <div>
+              <div className="min-w-0">
                 <div className="flex items-center gap-1.5 sm:gap-2">
                   <h1 className="text-base sm:text-2xl font-black tracking-tight text-white font-['Plus_Jakarta_Sans',sans-serif]">
                     Ordari
@@ -102,15 +102,15 @@ export function HeroRadar({
             {/* Mobile Stats Toggle Button */}
             <button
               onClick={() => setMobileExpanded(!mobileExpanded)}
-              className="sm:hidden flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-800 text-slate-300 hover:text-white border border-slate-700 text-[11px] font-bold active:scale-95 transition-all"
+              className="sm:hidden flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-800 text-slate-300 hover:text-white border border-slate-700 text-[11px] font-bold active:scale-95 transition-all shrink-0"
             >
-              <span>{mobileExpanded ? 'إخفاء الإحصائيات' : 'الإحصائيات'}</span>
+              <span>{mobileExpanded ? 'إخفاء' : 'الإحصائيات'}</span>
               {mobileExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
             </button>
           </div>
 
           {/* Header Action Buttons - 2x2 grid on mobile, inline on desktop */}
-          <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 sm:gap-2.5 w-full lg:w-auto">
+          <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 sm:gap-2.5 w-full lg:w-auto min-w-0">
             {/* Auto-Sync WhatsApp Webhook & QR Session */}
             {onOpenAutoSyncModal && (
               <button

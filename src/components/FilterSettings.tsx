@@ -47,7 +47,7 @@ import {
   User
 } from 'lucide-react';
 import { OrderFilter, AreaLocation, AlertToneId, VibrationPatternId, CaptainUser } from '../types';
-import { BAHRAIN_AREAS, POPULAR_WHATSAPP_GROUPS } from '../data/bahrainAreas';
+import { BAHRAIN_AREAS } from '../data/bahrainAreas';
 import { MatcherLocation } from '../utils/matcher';
 import { ContactsManager } from './ContactsManager';
 import { PWAInstallButton } from './PWAInstallButton';
@@ -320,20 +320,20 @@ export function FilterSettings({
   };
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto pb-12">
+    <div className="space-y-4 sm:space-y-6 w-full max-w-5xl mx-auto pb-12 overflow-x-hidden min-w-0">
       
       {/* Settings Header with Expand/Collapse All */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 sm:p-6 rounded-3xl bg-white border border-slate-200/80 shadow-xs">
-        <div>
-          <h2 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight">إعدادات الرادار وفلتر المطابقة</h2>
-          <p className="text-xs text-slate-500 mt-0.5">اضغط على أي عنوان أدناه لفتحه وتعديل تفاصيله باختصار لتقليل المساحة على الهاتف</p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 p-3.5 sm:p-6 rounded-2xl sm:rounded-3xl bg-white border border-slate-200/80 shadow-xs w-full max-w-full overflow-hidden">
+        <div className="min-w-0">
+          <h2 className="text-base sm:text-xl font-black text-slate-900 tracking-tight">إعدادات الرادار وفلتر المطابقة</h2>
+          <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">اضغط على أي عنوان أدناه لفتحه وتعديل تفاصيله باختصار لتقليل المساحة على الهاتف</p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 w-full sm:w-auto">
           <button
             type="button"
             onClick={expandAll}
-            className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all active:scale-95"
+            className="flex-1 sm:flex-none px-2.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all active:scale-95 text-center"
           >
             توسيع الكل ▾
           </button>
@@ -341,14 +341,14 @@ export function FilterSettings({
           <button
             type="button"
             onClick={collapseAll}
-            className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all active:scale-95"
+            className="flex-1 sm:flex-none px-2.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all active:scale-95 text-center"
           >
             طي الكل ▴
           </button>
 
           <button
             onClick={handleSave}
-            className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs sm:text-sm shadow-md shadow-emerald-600/20 transition-all hover:scale-[1.01] active:scale-[0.98]"
+            className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs sm:text-sm shadow-md shadow-emerald-600/20 transition-all hover:scale-[1.01] active:scale-[0.98]"
           >
             <Save className="w-4 h-4" />
             <span>حفظ وتطبيق الشروط</span>
@@ -357,7 +357,7 @@ export function FilterSettings({
       </div>
 
       {/* Accordion List Container */}
-      <div className="space-y-3 sm:space-y-4">
+      <div className="space-y-3 sm:space-y-4 w-full max-w-full min-w-0">
         
         {/* 0. Accordion: الحساب والترخيص (دخول بالهاتف والبصمة وكود التفعيل) */}
         <div className="rounded-2xl sm:rounded-3xl bg-gradient-to-br from-white via-emerald-50/20 to-teal-50/30 border border-emerald-200/90 shadow-2xs overflow-hidden transition-all">
@@ -1213,52 +1213,6 @@ export function FilterSettings({
                 </div>
               );
             })}
-          </div>
-        </div>
-
-        {/* Quick Suggestions from Bahrain Delivery Groups */}
-        <div className="p-3.5 rounded-2xl bg-slate-50/80 border border-slate-200/80 space-y-2.5">
-          <div className="flex items-center justify-between">
-            <div className="text-[11px] font-black text-slate-700">
-              اقتراحات سريعة لقروبات توصيل شائعة في البحرين (اضغط للإضافة إلى قروباتك):
-            </div>
-            <span className="text-[10px] text-slate-400 font-bold">أمثلة شائعة</span>
-          </div>
-
-          <div className="flex flex-wrap gap-1.5">
-            {POPULAR_WHATSAPP_GROUPS.map((popGroup) => {
-              const exists = myGroups.includes(popGroup);
-              if (exists) return null;
-              return (
-                <button
-                  key={popGroup}
-                  type="button"
-                  onClick={() => handleAddMyGroup(popGroup)}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-white hover:bg-emerald-50 text-slate-700 hover:text-emerald-800 border border-slate-200 hover:border-emerald-300 transition-colors cursor-pointer"
-                >
-                  <Plus className="w-3 h-3 text-emerald-600" />
-                  <span>{popGroup}</span>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Tips on how drivers join these groups in Bahrain */}
-          <div className="mt-3 p-3 rounded-xl bg-blue-50/70 border border-blue-100 text-[11px] text-slate-700 space-y-1.5">
-            <div className="font-black text-blue-900 flex items-center gap-1.5">
-              <span>💡 من أين تأتي بقروبات التوصيل في البحرين وكيف تنضم إليها؟</span>
-            </div>
-            <ul className="list-disc list-inside space-y-1 text-slate-600 leading-relaxed font-medium">
-              <li>
-                <strong className="text-slate-800">زملاء المهنة والمناديب:</strong> أغلب قروبات الواتساب تُدار بواسطة مناديب وسائقين يشاركون روابط الانضمام (Invite Links) فيما بينهم.
-              </li>
-              <li>
-                <strong className="text-slate-800">متاجر إنستغرام والأسر المنتجة:</strong> التواصل المباشر مع محلات الحلويات والورود والمطاعم لطلب إضافتك لقروب المناديب الخاص بهم على الواتساب.
-              </li>
-              <li>
-                <strong className="text-slate-800">تطبيق Ordari يتعامل مع أي قروب:</strong> لست مقيداً بأي أسماء محددة، فاختيارك لوضع <span className="text-emerald-700 font-bold">"مراقبة جميع قروبات واتسابي تلقائياً"</span> يعني أن أي قروب أنت منضم له فعلياً في هاتفك سيتم رصد طلباته فوراً.
-              </li>
-            </ul>
           </div>
         </div>
 

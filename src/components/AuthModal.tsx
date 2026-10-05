@@ -704,7 +704,7 @@ export function AuthModal({
               <div className="space-y-1.5">
 
                 <label className="text-xs font-bold text-slate-700 block">
-                  رقم الهاتف البحريني:
+                  رقم هاتف واتساب في البحرين (المعتمد للرادار والقروبات):
                 </label>
 
                 <div className="relative flex items-center">
@@ -728,6 +728,9 @@ export function AuthModal({
                   </div>
 
                 </div>
+                <span className="text-[10px] text-emerald-700 font-semibold block">
+                  رقم هاتفك في واتساب لربط القروبات والمحادثات تلقائياً بالرادار
+                </span>
               </div>
 
               {/* Password */}
@@ -884,7 +887,7 @@ export function AuthModal({
               <div className="space-y-1">
 
                 <label className="text-xs font-bold text-slate-700 block">
-                  رقم هاتف واتساب في البحرين:
+                  رقم هاتف واتساب (لرصد القروبات والمحادثات تلقائياً):
                 </label>
 
                 <div className="relative flex items-center">
@@ -908,6 +911,9 @@ export function AuthModal({
                   </div>
 
                 </div>
+                <span className="text-[10px] text-emerald-700 font-semibold block">
+                  رقم الهاتف المسجل هو الذي يُستخدم تلقائياً لربط قروباتك ومحادثاتك في واتساب
+                </span>
               </div>
 
               {/* Password */}

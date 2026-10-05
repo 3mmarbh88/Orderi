@@ -164,9 +164,9 @@ export function OrderCard({
           }`}
         >
           {/* Match Score & Status */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
             <div 
-              className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center font-black shrink-0 shadow-2xs ${
+              className={`w-11 h-11 sm:w-12 sm:h-12 rounded-xl flex flex-col items-center justify-center font-black shrink-0 shadow-2xs ${
                 isVip
                   ? 'bg-emerald-600 text-white'
                   : isGood
@@ -176,13 +176,13 @@ export function OrderCard({
                   : 'bg-slate-600 text-white'
               }`}
             >
-              <span className="text-base leading-none font-bold">{match.score}%</span>
-              <span className="text-[9px] font-medium opacity-90">مطابقة</span>
+              <span className="text-sm sm:text-base leading-none font-bold">{match.score}%</span>
+              <span className="text-[8px] sm:text-[9px] font-medium opacity-90">مطابقة</span>
             </div>
 
-            <div>
-              <div className="flex items-center gap-2">
-                <span className={`text-sm font-black ${
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                <span className={`text-xs sm:text-sm font-black truncate ${
                   isVip ? 'text-emerald-950' : isGood ? 'text-blue-950' : 'text-slate-800'
                 }`}>
                   {match.statusLabel}

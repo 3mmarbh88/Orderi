@@ -11,7 +11,9 @@ import {
   ExternalLink,
   ShieldCheck,
   Zap,
-  Volume2
+  Volume2,
+  RefreshCw,
+  Lock
 } from 'lucide-react';
 import { 
   getNotificationPermission, 
@@ -84,6 +86,19 @@ export const BackgroundModeModal: React.FC<BackgroundModeModalProps> = ({
       });
     } else if (res === 'denied') {
       onShowToast('تم رفض إذن الإشعارات من إعدادات المتصفح');
+    }
+  };
+
+  const handleCheckPermissionAgain = () => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      const current = Notification.permission;
+      setPermission(current);
+      if (current === 'granted') {
+        onShowToast('🎉 ممتاز! تم فك الحظر وتفعيل الإشعارات بنجاح');
+        handleSendTestNotification();
+      } else {
+        onShowToast('⚠️ لا تزال الإشعارات محظورة. يرجى الضغط على القفل 🔒 أعلى المتصفح وتغييرها إلى سماح');
+      }
     }
   };
 
@@ -201,24 +216,82 @@ export const BackgroundModeModal: React.FC<BackgroundModeModalProps> = ({
             </div>
 
             <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
-              {permission !== 'granted' ? (
+              {permission === 'granted' ? (
                 <button
-                  onClick={handleRequestNotifications}
-                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-xs transition-all"
+                  onClick={handleSendTestNotification}
+                  className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
                 >
-                  تفعيل الإشعارات الآن
+                  <Volume2 className="w-3.5 h-3.5" />
+                  <span>إرسال تجربة ✅</span>
+                </button>
+              ) : permission === 'denied' ? (
+                <button
+                  onClick={handleCheckPermissionAgain}
+                  className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>فحص الإذن 🔄</span>
                 </button>
               ) : (
                 <button
-                  onClick={handleSendTestNotification}
-                  className="px-3 py-1.5 rounded-xl bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 font-bold text-xs transition-colors flex items-center gap-1.5"
+                  onClick={handleRequestNotifications}
+                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-xs transition-all cursor-pointer"
                 >
-                  <Volume2 className="w-3.5 h-3.5 text-blue-600" />
-                  <span>إرسال تجربة</span>
+                  تفعيل الإشعارات الآن
                 </button>
               )}
             </div>
           </div>
+
+          {/* Blocked Permission Guide & Fix Steps */}
+          {permission === 'denied' && (
+            <div className="mt-3 p-3.5 rounded-2xl bg-rose-50/90 border border-rose-200/90 text-xs space-y-2.5 animate-in fade-in duration-200">
+              <div className="flex items-center gap-2 text-rose-900 font-bold">
+                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>لماذا تظهر «محظورة بالمتصفح 🚫» وكيف تفك الحظر؟</span>
+              </div>
+
+              <p className="text-slate-600 leading-relaxed text-[11px] sm:text-xs">
+                قام متصفح هاتفك (Chrome أو Safari) بحفظ خيار «حظر الإشعارات» سابقاً لهذا الموقع. ولحماية الخصوصية، يمنع المتصفح التطبيق من إظهار نافذة الطلب مجدداً حتى تقوم بفك الحظر يدوياً في ثوانٍ:
+              </p>
+
+              <div className="bg-white p-3 rounded-xl border border-rose-200/80 space-y-1.5 text-[11px]">
+                <span className="font-bold text-slate-800 block text-xs">خطوات فك الحظر في متصفح الهاتف (3 خطوات):</span>
+                <ol className="list-decimal list-inside space-y-1.5 text-slate-700 leading-relaxed font-medium">
+                  <li>
+                    اضغط على أيقونة <strong>القفل أو الضبط 🔒</strong> بجانب رابط الموقع في شريط العناوين أعلى الشاشة.
+                  </li>
+                  <li>
+                    اختر <strong>«أذونات الموقع» (Permissions / Site settings)</strong>.
+                  </li>
+                  <li>
+                    اضغط على <strong>«الإشعارات» (Notifications)</strong> وغيّرها من "حظر" إلى <strong>«سماح» (Allow)</strong>.
+                  </li>
+                  <li>
+                    ارجع هنا واضغط على زر <strong>«إعادة فحص الإذن 🔄»</strong> وسيعمل فوراً!
+                  </li>
+                </ol>
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1">
+                <button
+                  onClick={handleCheckPermissionAgain}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition-all cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>إعادة فحص الإذن الآن 🔄</span>
+                </button>
+
+                <button
+                  onClick={handleSendTestNotification}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 font-bold text-xs shadow-2xs transition-all cursor-pointer"
+                >
+                  <Volume2 className="w-3.5 h-3.5 text-blue-600" />
+                  <span>تجربة الصوت والاهتزاز 🔔</span>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Feature 2: Screen Wake Lock */}

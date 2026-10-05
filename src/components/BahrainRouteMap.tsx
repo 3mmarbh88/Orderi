@@ -45,7 +45,7 @@ export function BahrainRouteMap({
   const deliveryCoords = deliveryAreaObj ? projectCoord(deliveryAreaObj.latitude, deliveryAreaObj.longitude) : null;
 
   return (
-    <div className="p-6 rounded-3xl bg-white border border-slate-200/80 shadow-xs space-y-4">
+    <div className="p-3.5 sm:p-6 rounded-2xl sm:rounded-3xl bg-white border border-slate-200/80 shadow-xs space-y-4 w-full max-w-full overflow-hidden">
       
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
         <div className="flex items-center gap-3">

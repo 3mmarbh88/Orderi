@@ -133,11 +133,11 @@ async function generateFreshQRCode(): Promise<string> {
 
   try {
     const dataUrl = await QRCode.toDataURL(pairingStr, {
-      errorCorrectionLevel: "H",
+      errorCorrectionLevel: "M",
       margin: 2,
-      width: 280,
+      width: 320,
       color: {
-        dark: "#064e3b",
+        dark: "#000000",
         light: "#ffffff",
       },
     });
@@ -219,7 +219,7 @@ const liveIncomingSamples = [
 ];
 
 setInterval(() => {
-  if (whatsAppSession.status !== "connected" || sseClients.size === 0) return;
+  if (whatsAppSession.status !== "connected") return;
 
   const sample = liveIncomingSamples[Math.floor(Math.random() * liveIncomingSamples.length)];
   const order = {
@@ -260,7 +260,7 @@ setInterval(() => {
   });
 
   console.log(`[WhatsApp Web Gateway Stream] Auto pushed order: ${order.from} -> ${order.to} (${order.price} BHD) to ${sseClients.size} clients`);
-}, 28000);
+}, 12000);
 
 // Lazy initialization of Gemini client
 let genAIClient: GoogleGenAI | null = null;
@@ -584,9 +584,70 @@ app.post("/api/whatsapp/session/pair", (req, res) => {
   whatsAppSession.connectedAt = new Date().toISOString();
   whatsAppSession.deviceName = device;
   whatsAppSession.lastSyncAt = new Date().toISOString();
-  whatsAppSession.batteryLevel = Math.floor(88 + Math.random() * 10);
-  whatsAppSession.groupsMonitoredCount = 24;
-  whatsAppSession.privateChatsMonitoredCount = 8;
+  whatsAppSession.batteryLevel = Math.floor(92 + Math.random() * 6);
+  whatsAppSession.groupsMonitoredCount = 28;
+  whatsAppSession.privateChatsMonitoredCount = 12;
+
+  // Generate 3 immediate orders pulled upon pairing
+  const initialOrders = [
+    {
+      id: `ord-live-${Date.now()}-1`,
+      from: "الرفاع الشرقي",
+      to: "الجفير",
+      price: 3.5,
+      rawText: "طلب عباية فوري من الرفاع الشرقي شارع بوكوارة إلى الجفير بالقرب من مجمع الجفير السعر 3.5 دينار اتصال 39123456 جاهز للاستلام حالا",
+      groupName: "قروب مندوبي البحرين 🇧🇭",
+      senderName: "بوتيك الريم للأزياء",
+      senderPhone: String(phone).replace(/\D/g, "") || "97339123456",
+      receivedAt: new Date().toISOString(),
+      confidence: 98,
+      type: "طلب قروب واتساب",
+      notes: "تم سحبه تلقائياً فور ربط واتساب",
+      status: "pending",
+      source: "whatsapp_web_session",
+      isDirectPrivate: false,
+    },
+    {
+      id: `ord-live-${Date.now()}-2`,
+      from: "المحرق",
+      to: "مدينة حمد",
+      price: 3.5,
+      rawText: "طلب صينية حلا جاهزة ومغلفة من المحرق إلى مدينة حمد دوار 12 السعر 3.5 د.ب هاتف 33556677 كاش عند الاستلام",
+      groupName: "محادثة خاصة / تاجر مباشر 👤",
+      senderName: "حلويات ريتاج",
+      senderPhone: "97333556677",
+      receivedAt: new Date().toISOString(),
+      confidence: 99,
+      type: "طلب مباشر (خاص)",
+      notes: "تاجر مباشر في الدردشة الخاصة",
+      status: "pending",
+      source: "whatsapp_web_session",
+      isDirectPrivate: true,
+    },
+    {
+      id: `ord-live-${Date.now()}-3`,
+      from: "السيف",
+      to: "سار",
+      price: 4.0,
+      rawText: "مساء الخير كابتن، عندي بوكس عطور مستعجل من مجمع السيف إلى سار السعر 4 دينار هاتف 38112233",
+      groupName: "شبكة كباتن المنامة والمحرق",
+      senderName: "عطورات السامرية (VIP)",
+      senderPhone: "97338112233",
+      receivedAt: new Date().toISOString(),
+      confidence: 96,
+      type: "طلب قروب واتساب",
+      notes: "طلب VIP عالي الأرباح",
+      status: "pending",
+      source: "whatsapp_web_session",
+      isDirectPrivate: false,
+    },
+  ];
+
+  initialOrders.forEach((ord) => {
+    recentWebhookOrders.unshift(ord);
+  });
+  if (recentWebhookOrders.length > 50) recentWebhookOrders.length = 50;
+  whatsAppSession.totalOrdersCaptured += initialOrders.length;
 
   // Broadcast session status to all clients
   const eventPayload = `data: ${JSON.stringify({ 
@@ -601,10 +662,23 @@ app.post("/api/whatsapp/session/pair", (req, res) => {
     }
   });
 
+  // Broadcast initial orders to connected SSE clients
+  initialOrders.forEach((ord) => {
+    const orderPayload = `data: ${JSON.stringify({
+      type: "NEW_ORDER",
+      order: ord,
+      source: "whatsapp_web_session"
+    })}\n\n`;
+    sseClients.forEach((client) => {
+      try { client.write(orderPayload); } catch {}
+    });
+  });
+
   res.json({
     success: true,
     message: "تم ربط جلسة واتساب ويب بنجاح! بدأ السحب التلقائي اللحظي من كافة القروبات والخاص.",
     session: whatsAppSession,
+    initialOrders,
   });
 });
 

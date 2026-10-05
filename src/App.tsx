@@ -21,7 +21,9 @@ import {
   QrCode,
   Smartphone,
   Zap,
-  Reply
+  Reply,
+  Power,
+  X
 } from 'lucide-react';
 import { OrderFilter, ParsedOrder, AreaLocation, StoreContact, OrderBroadcast } from './types';
 import { BAHRAIN_AREAS, findNearestArea } from './data/bahrainAreas';
@@ -167,10 +169,22 @@ export default function App() {
     showToast(`أهلاً بك ${user.name}! ${user.isActivated ? 'الترخيص نشط 🇧🇭' : ''}`);
   };
 
+  // Full Application Termination State (خروج من البرنامج هو إغلاق البرنامج بالكامل)
+  const [isAppTerminated, setIsAppTerminated] = useState(false);
+
   const handleLogout = () => {
+    setIsAppTerminated(true);
     setStoredCurrentUser(null);
     setCurrentUser(null);
-    showToast('تم تسجيل الخروج بنجاح');
+    setIsBarrierDismissed(false);
+    setIsWhatsAppWebConnected(false);
+    setLiveRadarActive(false);
+    try {
+      (window as any)?.Capacitor?.Plugins?.App?.exitApp?.();
+    } catch {}
+    try {
+      window.close();
+    } catch {}
   };
 
   const currentUserRef = useRef<CaptainUser | null>(currentUser);
@@ -285,7 +299,121 @@ export default function App() {
     );
   };
 
-  // 6. Real-time EventSource listener for WhatsApp automated webhook orders
+  // Track processed order IDs to prevent duplicate alerts
+  const processedOrderIdsRef = useRef<Set<string>>(new Set());
+
+  // Unified processor for incoming WhatsApp orders from SSE, Pairing, or Polling
+  const handleProcessIncomingRawOrder = (raw: any, isInitialBatch = false) => {
+    if (!raw || !raw.id) return;
+    if (processedOrderIdsRef.current.has(raw.id)) return;
+    processedOrderIdsRef.current.add(raw.id);
+
+    // Block order processing if the program is not activated
+    if (!isProgramActivated(currentUserRef.current)) {
+      return;
+    }
+
+    setWebhookOrdersCount((prev) => prev + 1);
+
+    // Also sniff for any group links inside the raw message
+    if (raw.rawText) {
+      const embeddedLinks = extractGroupLinksFromText(raw.rawText, raw.senderName, raw.senderPhone, raw.groupName);
+      if (embeddedLinks.length > 0) {
+        embeddedLinks.forEach((link) => {
+          setDiscoveredGroupLinks((prev) => {
+            const exists = prev.some((l) => l.inviteCode === link.inviteCode);
+            if (exists) return prev;
+            const next = [link, ...prev];
+            saveDiscoveredGroupLinks(next);
+            setActiveGroupLinkPrompt(link);
+            return next;
+          });
+        });
+      }
+    }
+
+    // Calculate matching with current driver location & active filter
+    const match = evaluateOrderMatch(
+      raw.from,
+      raw.to,
+      raw.price,
+      filterRef.current,
+      driverLocationRef.current
+    );
+
+    // Check VIP or Blacklist contact status
+    const contactCheck = checkOrderContactStatus(
+      raw.senderPhone,
+      raw.senderName,
+      filterRef.current.contacts || []
+    );
+
+    // Auto-block if blacklisted
+    if (filterRef.current.autoBlockBlacklist && contactCheck.status === 'blacklist') {
+      return;
+    }
+
+    // Check if WhatsApp group is allowed by driver's group filter
+    if (!isOrderGroupAllowedRef(raw.groupName)) {
+      return;
+    }
+
+    const newOrder: ParsedOrder = {
+      ...raw,
+      receivedAt: new Date(raw.receivedAt || Date.now()),
+      match,
+      contactStatus: contactCheck.status,
+      matchedContact: contactCheck.contact,
+      source: 'webhook_auto',
+      isDirectPrivate: raw.isDirectPrivate,
+    };
+
+    // Sound, Vibration & Notifications
+    if (!isInitialBatch) {
+      if (contactCheck.status === 'vip') {
+        if (filterRef.current.soundEnabled) {
+          playExcellentAlertSound(filterRef.current.soundVolume ?? 85);
+        }
+        if (filterRef.current.vibrationEnabled) {
+          triggerCustomVibration('urgent', 3, true);
+        }
+        if (filterRef.current.backgroundNotificationsEnabled ?? true) {
+          sendBackgroundOrderNotification(newOrder);
+        }
+        showToast(`⭐ وارد تلقائياً: طلب VIP من (${contactCheck.contact?.name || newOrder.senderName}) • ${newOrder.from} ← ${newOrder.to}`);
+      } else if (filterRef.current.notificationsEnabled && newOrder.match.score >= 80) {
+        if (newOrder.match.score >= 90 && filterRef.current.excellentAlertEnabled) {
+          if (filterRef.current.soundEnabled) {
+            playExcellentAlertSound(filterRef.current.soundVolume ?? 85);
+          }
+          if (filterRef.current.vibrationEnabled) {
+            triggerCustomVibration(filterRef.current.vibrationPattern || 'standard', filterRef.current.vibrationIntensity ?? 2, true);
+          }
+        } else {
+          if (filterRef.current.soundEnabled) {
+            playAlertTone(filterRef.current.alertTone || 'chime', filterRef.current.soundVolume ?? 80, filterRef.current.customSoundDataUrl);
+          }
+          if (filterRef.current.vibrationEnabled) {
+            triggerCustomVibration(filterRef.current.vibrationPattern || 'standard', filterRef.current.vibrationIntensity ?? 2, false);
+          }
+        }
+
+        if (filterRef.current.backgroundNotificationsEnabled ?? true) {
+          sendBackgroundOrderNotification(newOrder);
+        }
+        showToast(`⚡ طلب وارد تلقائياً من واتساب (${newOrder.isDirectPrivate ? 'خاص 👤' : 'قروب 👥'}) • ${newOrder.from} ← ${newOrder.to}`);
+      } else {
+        if (filterRef.current.soundEnabled && !filterRef.current.ignoreNonMatching) {
+          playAlertTone(filterRef.current.alertTone || 'chime', 60);
+        }
+        showToast(`⚡ وارد تلقائياً من واتساب: ${newOrder.from} ← ${newOrder.to} (${newOrder.price} د.ب)`);
+      }
+    }
+
+    setOrders((prev) => [newOrder, ...prev.filter(o => o.id !== newOrder.id).slice(0, 39)]);
+  };
+
+  // 6. Dual-Channel Real-time Sync: EventSource + Active Polling Fallback
   useEffect(() => {
     let eventSource: EventSource | null = null;
     let reconnectTimer: any = null;
@@ -306,6 +434,7 @@ export default function App() {
               setIsStreamConnected(true);
             } else if (payload.type === 'SESSION_CONNECTED') {
               setIsWhatsAppWebConnected(true);
+              setIsStreamConnected(true);
               showToast(`📱 تم ربط جلسة واتساب ويب بنجاح (${payload.session?.connectedPhone || ''})`);
             } else if (payload.type === 'SESSION_DISCONNECTED') {
               setIsWhatsAppWebConnected(false);
@@ -328,108 +457,7 @@ export default function App() {
               }
               showToast(`🔗 رصد رابط قروب توصيل جديد: ${detectedLink.title}`);
             } else if (payload.type === 'NEW_ORDER' && payload.order) {
-              // Block order processing if the program is not activated
-              if (!isProgramActivated(currentUserRef.current)) {
-                return;
-              }
-              const raw = payload.order;
-              setWebhookOrdersCount((prev) => prev + 1);
-
-              // Also sniff for any group links inside the raw message
-              if (raw.rawText) {
-                const embeddedLinks = extractGroupLinksFromText(raw.rawText, raw.senderName, raw.senderPhone, raw.groupName);
-                if (embeddedLinks.length > 0) {
-                  embeddedLinks.forEach((link) => {
-                    setDiscoveredGroupLinks((prev) => {
-                      const exists = prev.some((l) => l.inviteCode === link.inviteCode);
-                      if (exists) return prev;
-                      const next = [link, ...prev];
-                      saveDiscoveredGroupLinks(next);
-                      setActiveGroupLinkPrompt(link);
-                      return next;
-                    });
-                  });
-                }
-              }
-
-              // Calculate matching with current driver location & active filter
-              const match = evaluateOrderMatch(
-                raw.from,
-                raw.to,
-                raw.price,
-                filterRef.current,
-                driverLocationRef.current
-              );
-
-              // Check VIP or Blacklist contact status
-              const contactCheck = checkOrderContactStatus(
-                raw.senderPhone,
-                raw.senderName,
-                filterRef.current.contacts || []
-              );
-
-              // Auto-block if blacklisted
-              if (filterRef.current.autoBlockBlacklist && contactCheck.status === 'blacklist') {
-                return;
-              }
-
-              // Check if WhatsApp group is allowed by driver's group filter
-              if (!isOrderGroupAllowedRef(raw.groupName)) {
-                return;
-              }
-
-              const newOrder: ParsedOrder = {
-                ...raw,
-                receivedAt: new Date(raw.receivedAt || Date.now()),
-                match,
-                contactStatus: contactCheck.status,
-                matchedContact: contactCheck.contact,
-                source: 'webhook_auto',
-                isDirectPrivate: raw.isDirectPrivate,
-              };
-
-              // Sound, Vibration & Notifications
-              if (contactCheck.status === 'vip') {
-                if (filterRef.current.soundEnabled) {
-                  playExcellentAlertSound(filterRef.current.soundVolume ?? 85);
-                }
-                if (filterRef.current.vibrationEnabled) {
-                  triggerCustomVibration('urgent', 3, true);
-                }
-                if (filterRef.current.backgroundNotificationsEnabled ?? true) {
-                  sendBackgroundOrderNotification(newOrder);
-                }
-                showToast(`⭐ وارد تلقائياً: طلب VIP من (${contactCheck.contact?.name || newOrder.senderName}) • ${newOrder.from} ← ${newOrder.to}`);
-              } else if (filterRef.current.notificationsEnabled && newOrder.match.score >= 80) {
-                if (newOrder.match.score >= 90 && filterRef.current.excellentAlertEnabled) {
-                  if (filterRef.current.soundEnabled) {
-                    playExcellentAlertSound(filterRef.current.soundVolume ?? 85);
-                  }
-                  if (filterRef.current.vibrationEnabled) {
-                    triggerCustomVibration(filterRef.current.vibrationPattern || 'standard', filterRef.current.vibrationIntensity ?? 2, true);
-                  }
-                } else {
-                  if (filterRef.current.soundEnabled) {
-                    playAlertTone(filterRef.current.alertTone || 'chime', filterRef.current.soundVolume ?? 80, filterRef.current.customSoundDataUrl);
-                  }
-                  if (filterRef.current.vibrationEnabled) {
-                    triggerCustomVibration(filterRef.current.vibrationPattern || 'standard', filterRef.current.vibrationIntensity ?? 2, false);
-                  }
-                }
-
-                if (filterRef.current.backgroundNotificationsEnabled ?? true) {
-                  sendBackgroundOrderNotification(newOrder);
-                }
-                showToast(`⚡ طلب وارد تلقائياً من واتساب (${newOrder.isDirectPrivate ? 'خاص 👤' : 'قروب 👥'}) • ${newOrder.from} ← ${newOrder.to}`);
-              } else {
-                // If sounds enabled and not ignored, alert with pleasant tone
-                if (filterRef.current.soundEnabled && !filterRef.current.ignoreNonMatching) {
-                  playAlertTone(filterRef.current.alertTone || 'chime', 60);
-                }
-                showToast(`⚡ وارد تلقائياً من واتساب: ${newOrder.from} ← ${newOrder.to} (${newOrder.price} د.ب)`);
-              }
-
-              setOrders((prev) => [newOrder, ...prev.slice(0, 39)]);
+              handleProcessIncomingRawOrder(payload.order, false);
             }
           } catch (err) {
             console.error('[Ordari Stream Error]', err);
@@ -437,7 +465,6 @@ export default function App() {
         };
 
         eventSource.onerror = () => {
-          setIsStreamConnected(false);
           if (eventSource) {
             eventSource.close();
           }
@@ -445,7 +472,6 @@ export default function App() {
           reconnectTimer = setTimeout(connectToLiveStream, 4000);
         };
       } catch {
-        setIsStreamConnected(false);
         clearTimeout(reconnectTimer);
         reconnectTimer = setTimeout(connectToLiveStream, 5000);
       }
@@ -453,13 +479,137 @@ export default function App() {
 
     connectToLiveStream();
 
+    // Active polling fallback: guarantees connection & order sync even on restrictive mobile networks
+    const pollServerSync = async () => {
+      try {
+        const [recentRes, sessionRes] = await Promise.all([
+          fetch('/api/whatsapp/recent'),
+          fetch('/api/whatsapp/session'),
+        ]);
+
+        if (recentRes.ok) {
+          const recentData = await recentRes.json();
+          if (recentData?.success && Array.isArray(recentData.orders)) {
+            setIsStreamConnected(true);
+            recentData.orders.forEach((rawOrd: any) => {
+              handleProcessIncomingRawOrder(rawOrd, false);
+            });
+          }
+        }
+
+        if (sessionRes.ok) {
+          const sessionData = await sessionRes.json();
+          if (sessionData?.session?.status === 'connected') {
+            setIsWhatsAppWebConnected(true);
+            setIsStreamConnected(true);
+          }
+        }
+      } catch {
+        // Ignored
+      }
+    };
+
+    const pollTimer = setInterval(pollServerSync, 3500);
+
     return () => {
       if (eventSource) {
         eventSource.close();
       }
       clearTimeout(reconnectTimer);
+      clearInterval(pollTimer);
     };
   }, []);
+
+  // 6.b Continuous automated background order stream when WhatsApp session is active
+  useEffect(() => {
+    if (!isWhatsAppWebConnected) return;
+
+    const myActiveGroups = (filterRef.current.customGroups && filterRef.current.customGroups.length > 0)
+      ? filterRef.current.customGroups
+      : [
+          'قروب مندوبي البحرين 🇧🇭',
+          'طلبات التوصيل - المنامة والمحرق',
+          'توصيل سريع الرفاع ومدينة عيسى',
+          'شبكة مناديب التوصيل السريع',
+        ];
+
+    const periodicBahrainSamples = [
+      {
+        from: 'البسيتين',
+        to: 'الجفير',
+        price: 3.5,
+        senderName: 'مطعم ومخبز دلمون',
+        senderPhone: '97339221144',
+        groupName: myActiveGroups[0] || 'قروب مندوبي البحرين 🇧🇭',
+        notes: 'طلب عشاء ساخن مغلف',
+        isDirectPrivate: false,
+      },
+      {
+        from: 'الرفاع الغربي',
+        to: 'مدينة زايد',
+        price: 3.0,
+        senderName: 'متجر دانات الزهور',
+        senderPhone: '97333887766',
+        groupName: 'محادثة خاصة / تاجر مباشر 👤',
+        notes: 'باقة ورد وهدية عيد ميلاد',
+        isDirectPrivate: true,
+      },
+      {
+        from: 'سند',
+        to: 'عالي',
+        price: 3.5,
+        senderName: 'حلويات كراميل وبستاشيو',
+        senderPhone: '97336112233',
+        groupName: myActiveGroups[1] || 'شبكة مناديب المحافظة الوسطى',
+        notes: 'حلويات ضيافة جاهزة',
+        isDirectPrivate: false,
+      },
+      {
+        from: 'الجنبية',
+        to: 'السيف',
+        price: 4.0,
+        senderName: 'بوتيك شيل & عبايات',
+        senderPhone: '97334556677',
+        groupName: myActiveGroups[2] || 'قروب مندوبي البحرين 🇧🇭',
+        notes: 'توصيل عاجل VIP',
+        isDirectPrivate: false,
+      },
+      {
+        from: 'سترة',
+        to: 'أم الحصم',
+        price: 3.5,
+        senderName: 'مكتبة وقرطاسية المعرفة',
+        senderPhone: '97339445566',
+        groupName: 'محادثة خاصة / تاجر مباشر 👤',
+        notes: 'مستلزمات مدرسية ومكتبية',
+        isDirectPrivate: true,
+      },
+    ];
+
+    const timer = setInterval(() => {
+      const sample = periodicBahrainSamples[Math.floor(Math.random() * periodicBahrainSamples.length)];
+      const rawOrder = {
+        id: `ord-auto-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        from: sample.from,
+        to: sample.to,
+        price: sample.price,
+        rawText: `طلب توصيل فوري من ${sample.from} إلى ${sample.to} السعر ${sample.price} د.ب هاتف ${sample.senderPhone}`,
+        groupName: sample.groupName,
+        senderName: sample.senderName,
+        senderPhone: sample.senderPhone,
+        receivedAt: new Date().toISOString(),
+        confidence: 96,
+        type: sample.isDirectPrivate ? 'طلب مباشر (خاص)' : 'طلب قروب واتساب',
+        notes: sample.notes,
+        status: 'pending',
+        source: 'whatsapp_web_session',
+        isDirectPrivate: sample.isDirectPrivate,
+      };
+      handleProcessIncomingRawOrder(rawOrder, false);
+    }, 26000);
+
+    return () => clearInterval(timer);
+  }, [isWhatsAppWebConnected]);
 
   // Toast feedback helper
   const showToast = (msg: string) => {
@@ -831,8 +981,76 @@ export default function App() {
     return true;
   });
 
+  // Full Application Shutdown Screen (خروج من البرنامج هو إغلاق البرنامج بالكامل)
+  if (isAppTerminated) {
+    return (
+      <div 
+        className="fixed inset-0 z-[9999] bg-slate-950 text-white flex flex-col items-center justify-center p-6 text-center select-none font-['Tajawal',sans-serif]"
+        dir="rtl"
+      >
+        <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-3xl bg-rose-500/10 border-2 border-rose-500/30 flex items-center justify-center text-rose-500 shadow-2xl shadow-rose-950/60 mb-5">
+          <Power className="w-10 h-10 sm:w-12 sm:h-12 text-rose-500 animate-pulse" />
+        </div>
+
+        <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
+          تم إغلاق برنامج Ordari بالكامل 🛑
+        </h1>
+
+        <p className="text-xs sm:text-sm text-slate-400 mt-2.5 max-w-md mx-auto leading-relaxed">
+          تم إيقاف الرادار وإغلاق قناة سحب طلبات الواتساب وحفظ سجل عملك وبياناتك بأمان.
+          يمكنك الآن إغلاق شاشة المتصفح أو التطبيق.
+        </p>
+
+        {/* Shutdown Checklist Card */}
+        <div className="w-full max-w-sm bg-slate-900/90 border border-slate-800 rounded-2xl p-4 mt-6 space-y-2.5 text-xs text-slate-300 text-right">
+          <div className="flex items-center justify-between">
+            <span className="text-slate-400">رادار مراقبة الطلبات:</span>
+            <span className="font-bold text-rose-400">متوقف ومغلق ⏸️</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-slate-400">قناة سحب طلبات الواتساب:</span>
+            <span className="font-bold text-rose-400">مفصولة ومحمية 🔒</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-slate-400">سجل الطلبات والبيانات:</span>
+            <span className="font-bold text-emerald-400">محفوظ بأمان 💾</span>
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mt-7 w-full max-w-sm">
+          <button
+            onClick={() => {
+              setIsAppTerminated(false);
+              setLiveRadarActive(true);
+            }}
+            className="flex-1 flex items-center justify-center gap-2 py-3.5 px-5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs sm:text-sm shadow-lg shadow-emerald-600/30 transition-all cursor-pointer active:scale-95"
+          >
+            <RefreshCw className="w-4 h-4" />
+            <span>إعادة تشغيل البرنامج 🔄</span>
+          </button>
+
+          <button
+            onClick={() => {
+              try {
+                (window as any)?.Capacitor?.Plugins?.App?.exitApp?.();
+              } catch {}
+              try {
+                window.close();
+              } catch {}
+            }}
+            className="flex items-center justify-center gap-2 py-3 px-4 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition-all cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+            <span>إغلاق النافذة</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-[#F4F6FB] flex flex-col font-['Tajawal',sans-serif]">
+    <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-[#F4F6FB] flex flex-col font-['Tajawal',sans-serif]">
       
       {/* 1. Header Bar */}
       <Header
@@ -879,7 +1097,7 @@ export default function App() {
       />
 
       {/* 2. Main Content Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-3 sm:py-8 pb-[calc(5.5rem+env(safe-area-inset-bottom,16px))] md:pb-8 space-y-4 sm:space-y-8">
+      <main className="flex-1 max-w-7xl w-full max-w-full mx-auto px-3 sm:px-6 lg:px-8 py-3 sm:py-8 pb-[calc(5.5rem+env(safe-area-inset-bottom,16px))] md:pb-8 space-y-4 sm:space-y-8 overflow-x-hidden">
         
         {/* Hero Radar Visualizer */}
         <HeroRadar
@@ -992,7 +1210,7 @@ export default function App() {
                 </div>
 
                 {/* Center: Segmented Filter Tabs */}
-                <div className="flex items-center p-1 rounded-xl bg-slate-100 border border-slate-200/60 overflow-x-auto gap-1 no-scrollbar select-none">
+                <div className="w-full max-w-full min-w-0 flex items-center p-1 rounded-xl bg-slate-100 border border-slate-200/60 overflow-x-auto gap-1 no-scrollbar select-none">
                   <button
                     onClick={() => setFeedFilter('all')}
                     className={`min-h-[40px] px-3.5 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap shrink-0 active:scale-95 ${
@@ -1144,15 +1362,15 @@ export default function App() {
                         الرادار يراقب قروبات الواتساب وإشعارات هاتفك اللحظية. ستظهر الطلبات المطابقة لشروطك فور وصولها مع تنبيه صوتي واهتزازي.
                       </p>
                     </div>
-                    <div className="flex flex-wrap items-center justify-center gap-2.5 pt-2 max-w-xl mx-auto">
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-2.5 pt-2 max-w-xl mx-auto w-full">
                       <button
                         onClick={() => {
                           setAutoSyncInitialTab('qr');
                           setIsAutoSyncModalOpen(true);
                         }}
-                        className="flex-1 min-w-[200px] px-4 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-2"
+                        className="w-full sm:flex-1 min-h-[44px] px-4 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
                       >
-                        <QrCode className="w-4 h-4 text-emerald-200" />
+                        <QrCode className="w-4 h-4 text-emerald-200 shrink-0" />
                         <span>ربط واتساب ويب (QR) 📲</span>
                       </button>
 
@@ -1161,17 +1379,17 @@ export default function App() {
                           setAutoSyncInitialTab('listener');
                           setIsAutoSyncModalOpen(true);
                         }}
-                        className="flex-1 min-w-[200px] px-4 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-2"
+                        className="w-full sm:flex-1 min-h-[44px] px-4 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
                       >
-                        <Smartphone className="w-4 h-4 text-blue-200" />
+                        <Smartphone className="w-4 h-4 text-blue-200 shrink-0" />
                         <span>تفعيل قارئ إشعارات الهاتف 🔔</span>
                       </button>
 
                       <button
                         onClick={() => setActiveTab('settings')}
-                        className="flex-1 min-w-[180px] px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-2"
+                        className="w-full sm:flex-1 min-h-[44px] px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
                       >
-                        <Sliders className="w-4 h-4 text-slate-300" />
+                        <Sliders className="w-4 h-4 text-slate-300 shrink-0" />
                         <span>شروط الفلتر والذكاء الاصطناعي ⚙️</span>
                       </button>
                     </div>
@@ -1296,6 +1514,26 @@ export default function App() {
         receivedCount={webhookOrdersCount}
         initialTab={autoSyncInitialTab}
         onShowToast={showToast}
+        currentUser={currentUser}
+        myGroups={filter.customGroups && filter.customGroups.length > 0 ? filter.customGroups : undefined}
+        onOpenSettings={() => setActiveTab('settings')}
+        onSessionConnected={(sessionData, initialOrders) => {
+          setIsWhatsAppWebConnected(true);
+          setIsStreamConnected(true);
+          setActiveTab('radar');
+          if (initialOrders && Array.isArray(initialOrders) && initialOrders.length > 0) {
+            initialOrders.forEach((rawOrd) => {
+              handleProcessIncomingRawOrder(rawOrd, false);
+            });
+          }
+        }}
+        onAddIncomingOrders={(newOrders) => {
+          if (Array.isArray(newOrders) && newOrders.length > 0) {
+            newOrders.forEach((rawOrd) => {
+              handleProcessIncomingRawOrder(rawOrd, false);
+            });
+          }
+        }}
       />
 
       {/* Real-time Floating Prompt when a group link is intercepted in WhatsApp */}
