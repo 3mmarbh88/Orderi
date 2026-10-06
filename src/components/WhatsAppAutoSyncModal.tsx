@@ -27,6 +27,8 @@ import {
   Plus,
 } from 'lucide-react';
 import { CaptainUser } from '../types';
+import { getWhatsAppListenerStatus, openWhatsAppListenerSettings } from '../native/whatsappListener';
+import { getWhatsAppConnection, registerWhatsAppNumber, disconnectWhatsApp, normalizeWhatsAppPhone } from '../utils/whatsappConnection';
 
 export interface WhatsAppSessionData {
   status: 'disconnected' | 'qr_ready' | 'connecting' | 'connected';
@@ -115,8 +117,11 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
   onUpdateMyGroups,
   onOpenSettings,
 }) => {
-  const [activeTab, setActiveTab] = useState<'qr' | 'listener' | 'webhook'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'qr' | 'listener' | 'webhook'>('listener');
+  const [nativeListenerEnabled, setNativeListenerEnabled] = useState(false);
   const [session, setSession] = useState<WhatsAppSessionData | null>(null);
+  const [savedConnection, setSavedConnection] = useState(() => getWhatsAppConnection());
+  const [linkBusy, setLinkBusy] = useState(false);
   const [clientQrCodeUrl, setClientQrCodeUrl] = useState<string>(DEFAULT_FALLBACK_QR);
   const [isPairing, setIsPairing] = useState(false);
   const [isDisconnecting, setIsDisconnecting] = useState(false);
@@ -133,7 +138,7 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
         if (u?.phone) return u.phone.startsWith('+') ? u.phone : `+973 ${u.phone}`;
       }
     } catch {}
-    return '+973 3912 3456';
+    return '';
   });
 
   useEffect(() => {
@@ -245,58 +250,16 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
   const countdownTimerRef = useRef<any>(null);
   const autoCloseTimerRef = useRef<any>(null);
 
-  // Generate ultra-crisp SVG / DataURL QR code
-  const generateLocalQR = async () => {
-    try {
-      const token = Math.random().toString(36).substring(2, 12);
-      const pairingStr = `2@ORD-RADAR-BH-${Date.now()}-${token}`;
+  // QR/WhatsApp-Web pairing is intentionally disabled.
+  // The Android native listener is the only supported WhatsApp integration.
+  const generateLocalQR = async () => {};
 
-      // 1. Try pure SVG (works in WebViews, Capacitor, iOS, Android without Canvas context)
-      const svg = await QRCode.toString(pairingStr, {
-        type: 'svg',
-        margin: 2,
-        errorCorrectionLevel: 'M',
-        color: { dark: '#0f172a', light: '#ffffff' },
-      });
-
-      if (svg && svg.includes('<svg')) {
-        setClientQrCodeUrl('data:image/svg+xml;utf8,' + encodeURIComponent(svg));
-        return;
-      }
-
-      // 2. Canvas fallback
-      const dataUrl = await QRCode.toDataURL(pairingStr, {
-        errorCorrectionLevel: 'M',
-        margin: 2,
-        width: 320,
-        color: { dark: '#0f172a', light: '#ffffff' },
-      });
-      if (dataUrl) setClientQrCodeUrl(dataUrl);
-    } catch {
-      // Keep DEFAULT_FALLBACK_QR
-    }
-  };
-
-  // Fetch session data
-  const fetchSession = async () => {
-    try {
-      const res = await fetch('/api/whatsapp/session');
-      if (res.ok) {
-        const data = await res.json();
-        if (data?.session) {
-          setSession(data.session);
-        }
-      }
-    } catch {
-      // Local mode
-    }
-  };
 
   useEffect(() => {
     if (isOpen) {
-      generateLocalQR();
-      fetchSession();
-      setQrCountdown(45);
+      const connection = getWhatsAppConnection();
+      setSavedConnection(connection);
+      if (connection?.phoneNumber) setPhoneNumberInput(connection.phoneNumber);
       setPairingStage('idle');
       setCapturedOrders([]);
 
@@ -321,6 +284,29 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
     };
   }, [isOpen]);
 
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'listener') return;
+    getWhatsAppListenerStatus().then(setNativeListenerEnabled).catch(() => setNativeListenerEnabled(false));
+  }, [isOpen, activeTab]);
+
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'listener') return;
+    let cancelled = false;
+    const refreshConnection = () => {
+      const connection = getWhatsAppConnection();
+      if (!cancelled) {
+        setSavedConnection(connection);
+        if (connection?.phoneNumber) setPhoneNumberInput(connection.phoneNumber);
+      }
+    };
+    refreshConnection();
+    const timer = window.setInterval(refreshConnection, 1000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [isOpen, activeTab]);
+
   if (!isOpen) return null;
 
   const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
@@ -328,85 +314,52 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
   const listenerEndpoint = `${currentOrigin}/api/android/notifications`;
 
   const handleRefreshQR = async () => {
-    await generateLocalQR();
-    setQrCountdown(45);
-    onShowToast('تم تحديث باركود ربط واتساب بنجاح 🔄');
-    try {
-      const res = await fetch('/api/whatsapp/session/refresh-qr', { method: 'POST' });
-      const data = await res.json();
-      if (data?.session) {
-        setSession(data.session);
-      }
-    } catch {}
+    onShowToast('ربط QR غير مستخدم. استخدم ربط الرقم وقارئ WhatsApp الأصلي.');
   };
 
   const handleConfirmPairing = async () => {
-    setIsPairing(true);
-    setPairingStage('connecting');
+    const phone = normalizeWhatsAppPhone(phoneNumberInput);
+    if (!phone) {
+      onShowToast('أدخل رقم WhatsApp أولاً');
+      return;
+    }
 
-    const phoneToUse = phoneNumberInput || '+973 3912 3456';
-
+    setLinkBusy(true);
     try {
-      // Visual feedback stage 1
-      await new Promise((r) => setTimeout(r, 600));
-      setPairingStage('scanning');
-
-      // Call API
-      try {
-        const res = await fetch('/api/whatsapp/session/pair', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            phoneNumber: phoneToUse,
-            deviceName: 'Ordari Radar Gateway (Multi-Device)',
-          }),
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          if (data?.session) {
-            setSession(data.session);
-          }
-        }
-      } catch {
-        // Local mode fallback
+      const enabled = await getWhatsAppListenerStatus();
+      if (!enabled) {
+        await openWhatsAppListenerSettings();
+        onShowToast('فعّل صلاحية قراءة إشعارات Orderi ثم ارجع واضغط ربط الرقم مرة أخرى');
+        return;
       }
 
-      await new Promise((r) => setTimeout(r, 600));
+      const connection = registerWhatsAppNumber(phone);
+      setSavedConnection(connection);
 
-      const finalOrders: any[] = [];
-      setCapturedOrders(finalOrders);
-
+      const verified = getWhatsAppConnection();
       const activeSession: WhatsAppSessionData = {
-        status: 'connected',
-        qrCodeDataUrl: clientQrCodeUrl,
-        pairingCode: 'ORD-973-8899',
-        connectedPhone: phoneToUse,
-        connectedAt: new Date().toISOString(),
-        deviceName: 'Ordari Radar Gateway (Mobile)',
-        batteryLevel: 100,
-        groupsMonitoredCount: myGroupsList.length,
+        status: verified?.status === 'connected' ? 'connected' : 'connecting',
+        qrCodeDataUrl: '',
+        pairingCode: '',
+        connectedPhone: connection.phoneNumber,
+        connectedAt: connection.connectedAt,
+        deviceName: `Orderi • ${connection.deviceId.slice(0, 8)}`,
+        batteryLevel: 0,
+        groupsMonitoredCount: connection.groups.length,
         privateChatsMonitoredCount: 0,
         totalOrdersCaptured: 0,
-        lastSyncAt: new Date().toISOString(),
+        lastSyncAt: connection.lastSeenAt,
         listenerServiceActive: true,
       };
-
       setSession(activeSession);
       setPairingStage('success');
-
-      // Dispatch to parent components
       onSessionConnected?.(activeSession, []);
-
-      onShowToast('🎉 تم تفعيل ربط واتساب بنجاح! الرادار الآن جاهز ومستعد لاستقبال رسائل وطلبات قروباتك الحقيقية فوراً');
-
-      // Auto close after 3 seconds if user doesn't click button
-      autoCloseTimerRef.current = setTimeout(() => {
-        onClose();
-      }, 3500);
+      onShowToast('✅ تم حفظ رقم WhatsApp وتفعيل مراقبة هذا الهاتف. أرسل رسالة في أحد القروبات لاختبار الربط الفعلي.');
     } catch (err) {
-      console.error('Pairing error:', err);
+      console.error('[Orderi] WhatsApp registration error:', err);
+      onShowToast('تعذر حفظ ربط WhatsApp على هذا الجهاز');
     } finally {
+      setLinkBusy(false);
       setIsPairing(false);
     }
   };
@@ -414,29 +367,18 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
   const handleDisconnect = async () => {
     setIsDisconnecting(true);
     try {
-      await fetch('/api/whatsapp/session/disconnect', { method: 'POST' });
-    } catch {}
-
-    const resetSession: WhatsAppSessionData = {
-      status: 'disconnected',
-      qrCodeDataUrl: clientQrCodeUrl,
-      pairingCode: 'ORD-973-8899',
-      connectedPhone: null,
-      connectedAt: null,
-      deviceName: 'Ordari Radar Gateway (Multi-Device)',
-      batteryLevel: 96,
-      groupsMonitoredCount: 18,
-      privateChatsMonitoredCount: 6,
-      totalOrdersCaptured: 0,
-      lastSyncAt: null,
-      listenerServiceActive: true,
-    };
-    setSession(resetSession);
-    setPairingStage('idle');
-    setForceShowQrEvenIfConnected(false);
-    setIsDisconnecting(false);
-    onShowToast('تم فصل جلسة واتساب وتوليد باركود جديد');
-    handleRefreshQR();
+      const connection = disconnectWhatsApp();
+      setSavedConnection(connection);
+      setSession((prev) => prev ? {
+        ...prev,
+        status: 'disconnected',
+        connectedAt: connection?.connectedAt || null,
+        lastSyncAt: connection?.lastSeenAt || null,
+      } : null);
+      onShowToast('تم إيقاف ربط رقم WhatsApp مع Orderi. خدمة Android تبقى متاحة ويمكن إعادة التفعيل.');
+    } finally {
+      setIsDisconnecting(false);
+    }
   };
 
   const copyToClipboard = (text: string, type: 'url' | 'script' | 'code') => {
@@ -456,7 +398,7 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
     }
   };
 
-  const isConnected = session?.status === 'connected';
+  const isConnected = savedConnection?.status === 'connected' || session?.status === 'connected';
   const showConnectedScreen = isConnected && !forceShowQrEvenIfConnected;
 
   return (
@@ -510,7 +452,7 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
         {/* Tab Navigation */}
         <div className="flex border-b border-slate-200 bg-slate-50 px-4 sm:px-6 pt-3 gap-2 overflow-x-auto no-scrollbar select-none">
           <button
-            onClick={() => setActiveTab('qr')}
+            onClick={() => setActiveTab('listener')}
             className={`min-h-[44px] flex items-center gap-2 pb-3 px-3 text-xs font-black border-b-2 transition-all shrink-0 active:scale-95 ${
               activeTab === 'qr'
                 ? 'border-emerald-600 text-emerald-800'
@@ -518,7 +460,7 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
             }`}
           >
             <QrCode className="w-4 h-4" />
-            <span>1. ربط واتساب (هاتف أو باركود)</span>
+            <span>1. ربط رقم WhatsApp والمراقبة</span>
             {isConnected && <span className="w-2 h-2 rounded-full bg-emerald-500" />}
           </button>
 
@@ -874,7 +816,7 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
                               type="text"
                               value={phoneNumberInput}
                               onChange={(e) => setPhoneNumberInput(e.target.value)}
-                              placeholder="مثال: +973 3912 3456"
+                              placeholder="مثال: +973 3XXXXXXX"
                               className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs sm:text-sm font-mono font-bold text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                             />
                           </div>
@@ -1137,11 +1079,11 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
                           <span className="text-slate-600">
                             أو كود الربط بالهاتف:{' '}
                             <strong className="font-mono text-slate-900 bg-slate-100 px-1.5 py-0.5 rounded">
-                              ORD-973-8899
+                              
                             </strong>
                           </span>
                           <button
-                            onClick={() => copyToClipboard('ORD-973-8899', 'code')}
+                            
                             className="text-emerald-700 font-bold hover:underline"
                           >
                             {copiedCode ? 'تم النسخ ✓' : 'نسخ'}
@@ -1205,7 +1147,7 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
             </div>
           )}
 
-          {/* TAB 2: Android Notification Listener Service */}
+          {/* TAB 2: Native Android Notification Listener Service */}
           {activeTab === 'listener' && (
             <div className="space-y-5">
               <div className="bg-blue-50/80 border border-blue-200/90 rounded-3xl p-5 space-y-4">
@@ -1214,59 +1156,82 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
                     <Smartphone className="w-5 h-5" />
                   </div>
                   <div>
-                    <h4 className="text-sm font-black text-blue-950">
-                      خدمة قراءة إشعارات الأندرويد (Notification Listener Service)
-                    </h4>
-                    <p className="text-xs text-blue-800">
-                      قراءة كافة إشعارات طلبات واتساب في الخلفية بدون الحاجة لفتح شاشة التطبيق
-                    </p>
+                    <h4 className="text-sm font-black text-blue-950">قارئ WhatsApp الأصلي في Android</h4>
+                    <p className="text-xs text-blue-800">يلتقط إشعارات WhatsApp العادي حتى عندما يكون Orderi في الخلفية</p>
                   </div>
                 </div>
-
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  تتيح خدمة إشعارات الأندرويد التقاط أي إشعار وارد من تطبيق واتساب (القروبات والمحادثات الخاصة) لحظة وروده
-                  في شريط الإشعارات، وإرساله مباشرة إلى رادار Ordari بالخلفية حتى أثناء استخدام خرائط Google Maps أو
-                  Waze.
-                </p>
-
-                {/* Listener Endpoint URL */}
-                <div className="space-y-2 bg-white p-3.5 rounded-2xl border border-blue-200/80">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-600">رابط الخدمة لاستقبال الإشعارات:</span>
-                    <span className="text-[11px] text-blue-700 font-bold bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
-                      نشط وجاهز
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 text-xs font-mono text-slate-800 break-all select-all">
-                      {listenerEndpoint}
+                <div className="p-4 rounded-2xl bg-white border border-emerald-200 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <div className="text-xs font-black text-slate-900">رقم WhatsApp المرتبط</div>
+                      <p className="text-[11px] text-slate-500 mt-1">يُحفظ على هذا الجهاز ولا يتغير عند إغلاق Orderi.</p>
                     </div>
+                    {savedConnection?.status === 'connected' && (
+                      <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-black">موثّق بالإشعار ✓</span>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      dir="ltr"
+                      value={phoneNumberInput}
+                      onChange={(e) => setPhoneNumberInput(e.target.value)}
+                      placeholder="+973 3XXXXXXX"
+                      className="flex-1 min-w-0 px-3.5 py-3 rounded-xl border border-slate-300 bg-slate-50 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500"
+                      inputMode="tel"
+                    />
                     <button
-                      onClick={() => copyToClipboard(listenerEndpoint, 'url')}
-                      className="shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-xs"
+                      type="button"
+                      disabled={linkBusy}
+                      onClick={handleConfirmPairing}
+                      className="px-4 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs disabled:opacity-50"
                     >
-                      {copiedUrl ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                      <span>نسخ</span>
+                      {linkBusy ? 'جاري الحفظ...' : 'حفظ وربط'}
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-slate-500 leading-relaxed">
+                    ملاحظة: Android لا يسمح للتطبيق بقراءة رقم حساب WhatsApp من قاعدة بياناته. لذلك الرقم الذي تدخله يُحفظ كرقم الحساب، وتصبح عملية الربط مؤكدة عند وصول إشعار WhatsApp الحقيقي إلى Orderi.
+                  </p>
+                </div>
+
+                <div className={`p-4 rounded-2xl border ${nativeListenerEnabled ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`}>
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-xs font-black text-slate-900">{nativeListenerEnabled ? 'الخدمة مفعّلة على الهاتف ✅' : 'صلاحية قراءة الإشعارات غير مفعّلة ⚠️'}</div>
+                      <p className="text-[11px] text-slate-600 mt-1">المصدر المقبول: WhatsApp العادي فقط (com.whatsapp).</p>
+                    </div>
+                    <button type="button" onClick={async () => { try { await openWhatsAppListenerSettings(); onShowToast('فعّل Orderi من قائمة الوصول إلى الإشعارات ثم ارجع للتطبيق'); setTimeout(() => getWhatsAppListenerStatus().then(setNativeListenerEnabled).catch(() => {}), 1200); } catch { onShowToast('تعذر فتح إعدادات قراءة الإشعارات'); } }} className="shrink-0 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-black text-xs shadow-md">
+                      {nativeListenerEnabled ? 'فتح الإعدادات' : 'تفعيل الخدمة'}
                     </button>
                   </div>
                 </div>
-
-                {/* Android Steps */}
-                <div className="space-y-2 text-xs text-slate-700">
-                  <span className="font-black text-slate-900">خطوات تشغيل الخدمة على الأندرويد:</span>
-                  <ul className="space-y-1.5 list-disc list-inside text-slate-600">
-                    <li>
-                      قم بتحميل تطبيق <strong>MacroDroid</strong> أو <strong>Tasker</strong> من متجر Google Play.
-                    </li>
-                    <li>
-                      أضف مشغّل (Trigger): <strong>إشعار وارد من WhatsApp / WhatsApp Business</strong>.
-                    </li>
-                    <li>
-                      أضف إجراء (Action): <strong>طلب HTTP POST</strong> إلى الرابط أعلاه مع إرسال نص الإشعار.
-                    </li>
-                  </ul>
+                <div className="space-y-2 text-xs text-slate-700 leading-relaxed">
+                  <div className="font-black text-slate-900">طريقة العمل:</div>
+                  <div>1. WhatsApp العادي يستقبل رسالة في القروب.</div>
+                  <div>2. Android يعرض إشعار WhatsApp.</div>
+                  <div>3. خدمة Orderi الأصلية تلتقط الإشعار بدون فتح Orderi.</div>
+                  <div>4. عند عودة Orderi للواجهة تُمرر الرسالة إلى محلل الطلبات والرادار.</div>
                 </div>
+                <div className="p-3 rounded-2xl bg-white border border-blue-200 text-[11px] text-slate-600 leading-relaxed">لا نستخدم WhatsApp Web ولا QR ولا تسجيل دخول لواتساب داخل Orderi. الخدمة ترى فقط محتوى الإشعار الذي يسمح Android وWhatsApp بعرضه.</div>
+                <div className="p-4 rounded-2xl bg-white border border-slate-200 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs font-black text-slate-900">القروبات المكتشفة والمحفوظة</div>
+                    <span className="text-[10px] font-black text-emerald-700 bg-emerald-50 px-2 py-1 rounded-full">{(savedConnection?.groups || internalMyGroups).length} قروب</span>
+                  </div>
+                  {(savedConnection?.groups || internalMyGroups).length === 0 ? (
+                    <p className="text-[11px] text-slate-500">أرسل رسالة في قروب WhatsApp بعد تفعيل الخدمة، وسيظهر القروب هنا تلقائيًا.</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
+                      {(savedConnection?.groups || internalMyGroups).map((g) => (
+                        <span key={g} className="px-2.5 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-[11px] font-bold text-emerald-900">
+                          👥 {g}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <p className="text-[10px] text-slate-500">يتم اكتشاف القروب من إشعار WhatsApp الذي يرسله Android؛ لا يتم الدخول إلى قاعدة بيانات WhatsApp.</p>
+                </div>
+
+
               </div>
             </div>
           )}
@@ -1334,8 +1299,8 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
               {isPairing
                 ? '⏳ جاري الاتصال بحساب واتساب ورصد الطلبات...'
                 : isConnected
-                ? '🟢 واتساب ويب متصل ومفعل • السحب التلقائي يعمل لحظياً'
-                : '⚡ السحب التلقائي جاهز (بنقرة واحدة على هذا الهاتف أو مسح الباركود)'}
+                ? '🟢 مراقبة WhatsApp العادي مفعلة • Orderi يستقبل الإشعارات لحظياً'
+                : '⚡ مراقبة WhatsApp جاهزة على هذا الهاتف'}
             </span>
           </div>
 

@@ -336,25 +336,18 @@ export function getCurrentUser(): CaptainUser | null {
     return currentUserMemory;
   }
 
-  const raw = readStorage(
-    STORAGE_CURRENT_USER_KEY
-  );
+  const raw = readStorage(STORAGE_CURRENT_USER_KEY);
 
   if (!raw) {
-    currentUserMemory = DEFAULT_DEMO_CAPTAIN;
-    return DEFAULT_DEMO_CAPTAIN;
+    return null;
   }
 
   try {
-    const user =
-      JSON.parse(raw) as CaptainUser;
-
+    const user = JSON.parse(raw) as CaptainUser;
     currentUserMemory = user;
-
     return user;
   } catch {
-    currentUserMemory = DEFAULT_DEMO_CAPTAIN;
-    return DEFAULT_DEMO_CAPTAIN;
+    return null;
   }
 }
 

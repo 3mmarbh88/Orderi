@@ -26,92 +26,117 @@ export interface VehicleTrackingCallbacks {
  * 3. Standard-Accuracy Fallback (WiFi / Cellular networks)
  */
 export async function getDetailedCurrentPosition(): Promise<GpsResult> {
-  const isNative = Capacitor.isNativePlatform();
-
-  // 1. Native Capacitor Android Platform
-  if (isNative) {
+  // Android/iOS APK: ALWAYS use the native Capacitor GPS API.
+  // Do not fall back to navigator.geolocation inside the WebView.
+  if (Capacitor.isNativePlatform()) {
     try {
       const perm = await Geolocation.checkPermissions();
+
       if (perm.location !== 'granted') {
         const req = await Geolocation.requestPermissions();
+
         if (req.location !== 'granted') {
           return {
             success: false,
-            errorMessage: 'تم رفض إذن الوصول للموقع في إعدادات الهاتف. يرجى تفعيل الموقع لتطبيق Ordari.',
+            errorMessage:
+              'تم رفض إذن الموقع. افتح إعدادات الهاتف > التطبيقات > Orderi > الأذونات > الموقع، ثم اختر السماح أثناء استخدام التطبيق.',
             isPermissionDenied: true,
           };
         }
       }
 
-      // Try High Accuracy
       try {
         const pos = await Geolocation.getCurrentPosition({
           enableHighAccuracy: true,
-          timeout: 12000,
-          maximumAge: 30000,
+          timeout: 20000,
+          maximumAge: 15000,
         });
-        return processCoords(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy, pos.coords.speed, pos.coords.heading);
-      } catch {
-        // Fallback to low accuracy / network
-        const posFallback = await Geolocation.getCurrentPosition({
-          enableHighAccuracy: false,
-          timeout: 10000,
-          maximumAge: 180000,
-        });
-        return processCoords(posFallback.coords.latitude, posFallback.coords.longitude, posFallback.coords.accuracy, posFallback.coords.speed, posFallback.coords.heading);
+
+        return processCoords(
+          pos.coords.latitude,
+          pos.coords.longitude,
+          pos.coords.accuracy,
+          pos.coords.speed,
+          pos.coords.heading
+        );
+      } catch (highAccuracyError) {
+        console.warn('Orderi high accuracy GPS failed:', highAccuracyError);
+
+        // Network/cell assisted location through the native Android API.
+        try {
+          const pos = await Geolocation.getCurrentPosition({
+            enableHighAccuracy: false,
+            timeout: 15000,
+            maximumAge: 120000,
+          });
+
+          return processCoords(
+            pos.coords.latitude,
+            pos.coords.longitude,
+            pos.coords.accuracy,
+            pos.coords.speed,
+            pos.coords.heading
+          );
+        } catch (fallbackError: any) {
+          console.warn('Orderi native GPS fallback failed:', fallbackError);
+
+          return {
+            success: false,
+            errorMessage:
+              'تعذر تحديد موقعك حالياً. تأكد من تشغيل "الموقع" في الهاتف ومن منح Orderi صلاحية الموقع، ثم حاول مرة أخرى.',
+            isPermissionDenied:
+              String(fallbackError?.message || '').toLowerCase().includes('permission'),
+          };
+        }
       }
     } catch (err: any) {
-      console.warn('Capacitor native geolocation error:', err);
+      console.error('Orderi native geolocation error:', err);
+
+      return {
+        success: false,
+        errorMessage:
+          'تعذر الوصول إلى خدمة الموقع في الهاتف. تأكد من تشغيل GPS ومنح Orderi إذن الموقع.',
+        isPermissionDenied: false,
+      };
     }
   }
 
-  // 2. Web Browser & PWA Environment
+  // Browser/PWA only. This branch is never used by the native APK.
   if (typeof window === 'undefined' || !navigator.geolocation) {
     return {
       success: false,
-      errorMessage: 'خدمة تحديد الموقع GPS غير مدعومة في جهازك أو متصفحك.',
+      errorMessage: 'خدمة تحديد الموقع غير متوفرة.',
     };
   }
 
   return new Promise<GpsResult>((resolve) => {
-    // Attempt 1: High Accuracy GPS (10 seconds timeout)
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        resolve(processCoords(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy, pos.coords.speed, pos.coords.heading));
-      },
-      (err1) => {
-        // If permission explicitly denied, do not retry
-        if (err1.code === 1) {
-          resolve({
-            success: false,
-            errorMessage: 'تم رفض إذن تحديد الموقع. يرجى السماح للمتصفح بالوصول للموقع عبر شريط العنوان بالأعلى.',
-            isPermissionDenied: true,
-          });
-          return;
-        }
-
-        // Attempt 2: Immediate fallback to Network / WiFi / Cell-Tower Geolocation (almost always works indoor/car)
-        navigator.geolocation.getCurrentPosition(
-          (posFallback) => {
-            resolve(processCoords(posFallback.coords.latitude, posFallback.coords.longitude, posFallback.coords.accuracy, posFallback.coords.speed, posFallback.coords.heading));
-          },
-          (err2) => {
-            let msg = 'تعذر التقاط إشارة GPS. تأكد من تشغيل زر الموقع (Location) في هاتفك أو حدد منطقتك يدوياً.';
-            if (err2.code === 1) {
-              msg = 'تم رفض إذن الوصول لموقعك الحالي.';
-            } else if (err2.code === 3) {
-              msg = 'استغرق التقاط إشارة GPS وقتاً طويلاً. يمكنك اختيار منطقتك في البحرين يدوياً بنقرة واحدة.';
-            }
-            resolve({
-              success: false,
-              errorMessage: msg,
-              isPermissionDenied: err2.code === 1,
-            });
-          },
-          { enableHighAccuracy: false, timeout: 12000, maximumAge: 300000 }
+        resolve(
+          processCoords(
+            pos.coords.latitude,
+            pos.coords.longitude,
+            pos.coords.accuracy,
+            pos.coords.speed,
+            pos.coords.heading
+          )
         );
       },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+      (err) => {
+        resolve({
+          success: false,
+          errorMessage:
+            err.code === 1
+              ? 'تم رفض إذن الموقع.'
+              : 'تعذر تحديد الموقع.',
+          isPermissionDenied: err.code === 1,
+        });
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 30000,
+      }
     );
   });
 }
@@ -160,14 +185,99 @@ export class VehicleLiveTracker {
       this.stop();
     }
 
-    if (typeof window === 'undefined' || !navigator.geolocation) {
-      callbacks.onError?.('خدمة تحديد الموقع GPS غير متوفرة في هذا الجهاز');
-      return false;
-    }
-
     this.isActive = true;
 
     try {
+      // Native Android/iOS watcher inside the APK.
+      if (Capacitor.isNativePlatform()) {
+        Geolocation.watchPosition(
+          {
+            enableHighAccuracy: true,
+            timeout: 20000,
+            maximumAge: 5000,
+          },
+          (position, err) => {
+            if (!this.isActive) return;
+
+            if (err || !position) {
+              console.warn('Orderi native GPS watcher:', err);
+              if (err?.message?.toLowerCase().includes('permission')) {
+                callbacks.onError?.('تم إيقاف صلاحية تتبع الموقع');
+              }
+              return;
+            }
+
+            const lat = position.coords.latitude;
+            const lon = position.coords.longitude;
+            const speedKmh =
+              position.coords.speed && position.coords.speed > 0
+                ? Math.round(position.coords.speed * 3.6)
+                : 0;
+
+            callbacks.onSpeedUpdate?.(speedKmh);
+
+            let shouldUpdate = false;
+            if (this.lastLat === null || this.lastLon === null) {
+              shouldUpdate = true;
+            } else {
+              const distanceMoved = calculateDistanceKm(
+                this.lastLat,
+                this.lastLon,
+                lat,
+                lon
+              );
+              if (
+                distanceMoved >= 0.2 ||
+                (speedKmh > 15 && distanceMoved >= 0.15)
+              ) {
+                shouldUpdate = true;
+              }
+            }
+
+            const nearest = findNearestArea(lat, lon);
+            const isAreaChanged =
+              this.lastAreaName !== null &&
+              this.lastAreaName !== nearest.area.name;
+
+            if (shouldUpdate || isAreaChanged) {
+              this.lastLat = lat;
+              this.lastLon = lon;
+              this.lastAreaName = nearest.area.name;
+
+              callbacks.onLocationChange(
+                {
+                  latitude: lat,
+                  longitude: lon,
+                  areaName: nearest.area.name,
+                  speedKmh,
+                  heading: position.coords.heading || undefined,
+                  accuracyMeters: position.coords.accuracy
+                    ? Math.round(position.coords.accuracy)
+                    : undefined,
+                  lastUpdated: new Date().toLocaleTimeString('ar-BH', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                  }),
+                },
+                isAreaChanged
+              );
+            }
+          }
+        ).then((id) => {
+          if (this.isActive) this.watchId = id;
+        });
+
+        return true;
+      }
+
+      // Browser/PWA watcher only.
+      if (typeof window === 'undefined' || !navigator.geolocation) {
+        callbacks.onError?.('خدمة تحديد الموقع غير متوفرة');
+        this.isActive = false;
+        return false;
+      }
+
       this.watchId = navigator.geolocation.watchPosition(
         (pos) => {
           if (!this.isActive) return;
@@ -237,7 +347,9 @@ export class VehicleLiveTracker {
 
   public stop(): void {
     if (this.watchId !== null) {
-      if (typeof this.watchId === 'number') {
+      if (Capacitor.isNativePlatform()) {
+        Geolocation.clearWatch({ id: String(this.watchId) }).catch(() => {});
+      } else if (typeof this.watchId === 'number') {
         navigator.geolocation.clearWatch(this.watchId);
       }
       this.watchId = null;

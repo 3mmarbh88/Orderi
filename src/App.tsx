@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
+import { Capacitor } from '@capacitor/core';
+import { Geolocation } from '@capacitor/geolocation';
 import { 
   Radar, 
   Filter, 
@@ -60,6 +62,9 @@ import {
   saveDiscoveredGroupLinks, 
   extractGroupLinksFromText 
 } from './utils/groupLinkDetector';
+import { getWhatsAppConnection, markWhatsAppVerified } from './utils/whatsappConnection';
+import { isNativeAndroid, OrderiNotificationListener, WhatsAppNativeEvent } from './native/orderiNotificationListener';
+import { getWhatsAppListenerStatus } from './native/whatsappListener';
 import { 
   sendBackgroundOrderNotification, 
   requestScreenWakeLock, 
@@ -90,7 +95,7 @@ const DEFAULT_FILTER: OrderFilter = {
   autoBlockBlacklist: true,
 };
 
-export default function App() {
+function OrderiApp() {
   // 1. Persistent Filter State (Merged with DEFAULT_FILTER to guarantee all fields exist)
   const [filter, setFilter] = useState<OrderFilter>(() => {
     try {
@@ -207,7 +212,7 @@ export default function App() {
   const [settingsInitialSection, setSettingsInitialSection] = useState<string | null>(null);
   const [autoSyncInitialTab, setAutoSyncInitialTab] = useState<'qr' | 'listener' | 'webhook'>('qr');
   const [isStreamConnected, setIsStreamConnected] = useState(false);
-  const [isWhatsAppWebConnected, setIsWhatsAppWebConnected] = useState(false);
+  const [isWhatsAppConnected, setIsWhatsAppConnected] = useState(false);
   const [webhookOrdersCount, setWebhookOrdersCount] = useState(0);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -255,7 +260,7 @@ export default function App() {
     setStoredCurrentUser(null);
     setCurrentUser(null);
     setIsBarrierDismissed(false);
-    setIsWhatsAppWebConnected(false);
+    setIsWhatsAppConnected(false);
     setLiveRadarActive(false);
     try {
       (window as any)?.Capacitor?.Plugins?.App?.exitApp?.();
@@ -263,6 +268,11 @@ export default function App() {
     try {
       window.close();
     } catch {}
+    // If Android refuses programmatic exit, reload so the authentication gate
+    // becomes the first screen again.
+    setTimeout(() => {
+      try { window.location.reload(); } catch {}
+    }, 150);
   };
 
   const currentUserRef = useRef<CaptainUser | null>(currentUser);
@@ -320,16 +330,15 @@ export default function App() {
       .catch(() => {});
   }, []);
 
-  // Check initial WhatsApp Web Gateway session status
+  // Native WhatsApp connection is restored from the device-local connection record.
+  // No WhatsApp Web gateway session is used by the Android listener flow.
   useEffect(() => {
-    fetch('/api/whatsapp/session')
-      .then((res) => res.json())
-      .then((data) => {
-        if (data?.session?.status === 'connected') {
-          setIsWhatsAppWebConnected(true);
-        }
-      })
-      .catch(() => {});
+    const syncNativeConnection = () => {
+      setIsWhatsAppConnected(getWhatsAppConnection()?.status === 'connected');
+    };
+    syncNativeConnection();
+    const timer = window.setInterval(syncNativeConnection, 1500);
+    return () => window.clearInterval(timer);
   }, []);
 
   // Sync Screen Wake Lock state if requested in filter
@@ -553,112 +562,70 @@ export default function App() {
     setOrders((prev) => [newOrder, ...prev.filter(o => o.id !== newOrder.id).slice(0, 39)]);
   };
 
-  // 6. Dual-Channel Real-time Sync: EventSource + Active Polling Fallback
+  // Native Android WhatsApp listener: receives com.whatsapp notifications even while Orderi is backgrounded.
   useEffect(() => {
-    let eventSource: EventSource | null = null;
-    let reconnectTimer: any = null;
+    if (!isNativeAndroid()) return;
+    let removed = false;
+    let listenerHandle: { remove: () => Promise<void> } | null = null;
 
-    const connectToLiveStream = () => {
-      try {
-        eventSource = new EventSource('/api/whatsapp/stream');
-
-        eventSource.onopen = () => {
-          setIsStreamConnected(true);
+    const convertNativeEvent = (event: WhatsAppNativeEvent) => {
+      const groupName = (event.conversationTitle || event.title || '').trim() || 'محادثة خاصة 👤';
+      const rawText = [event.bigText, event.text, event.subText]
+        .filter(Boolean)
+        .join('\n')
+        .trim();
+      if (!rawText && !event.title) return;
+      // A real WhatsApp notification verifies that the native listener is seeing WhatsApp on this device.
+      markWhatsAppVerified(event.isGroup ? groupName : undefined);
+      setIsWhatsAppConnected(true);
+      import('./utils/orderParser').then(({ parseWhatsAppOrderText }) => {
+        const parsed = parseWhatsAppOrderText(rawText || event.title || '');
+        const order = {
+          id: `android-wa-${event.id}`,
+          from: parsed.from,
+          to: parsed.to,
+          price: parsed.price,
+          rawText: rawText || event.title || '',
+          groupName,
+          senderName: event.title || 'WhatsApp',
+          senderPhone: parsed.phone,
+          receivedAt: new Date(event.receivedAt || Date.now()),
+          confidence: parsed.confidence,
+          type: 'whatsapp_notification',
+          notes: parsed.notes,
+          status: 'pending' as const,
+          source: 'android_notification' as const,
+          isDirectPrivate: !event.isGroup,
         };
-
-        eventSource.onmessage = (event) => {
-          try {
-            const payload = JSON.parse(event.data);
-
-            if (payload.type === 'CONNECTED') {
-              setIsStreamConnected(true);
-            } else if (payload.type === 'SESSION_CONNECTED') {
-              setIsWhatsAppWebConnected(true);
-              setIsStreamConnected(true);
-              showToast(`📱 تم ربط جلسة واتساب ويب بنجاح (${payload.session?.connectedPhone || ''})`);
-            } else if (payload.type === 'SESSION_DISCONNECTED') {
-              setIsWhatsAppWebConnected(false);
-              showToast('تم فصل جلسة واتساب ويب');
-            } else if (payload.type === 'BROADCAST_REPLY_SENT') {
-              refreshWaitingBroadcasts();
-              showToast(`📢 تم نشر رد (تم) على إعلانك في القروبات (${payload.targetGroups?.length || 0}) بنجاح!`);
-            } else if (payload.type === 'GROUP_LINK_DETECTED' && payload.groupLink) {
-              const detectedLink: DiscoveredGroupLink = payload.groupLink;
-              setDiscoveredGroupLinks((prev) => {
-                const exists = prev.some((l) => l.inviteCode === detectedLink.inviteCode);
-                if (exists) return prev;
-                const next = [detectedLink, ...prev];
-                saveDiscoveredGroupLinks(next);
-                return next;
-              });
-              setActiveGroupLinkPrompt(detectedLink);
-              if (filterRef.current.soundEnabled) {
-                playAlertTone('whatsapp', filterRef.current.soundVolume ?? 80);
-              }
-              showToast(`🔗 رصد رابط قروب توصيل جديد: ${detectedLink.title}`);
-            } else if (payload.type === 'NEW_ORDER' && payload.order) {
-              handleProcessIncomingRawOrder(payload.order, false);
-            }
-          } catch (err) {
-            console.error('[Ordari Stream Error]', err);
-          }
-        };
-
-        eventSource.onerror = () => {
-          if (eventSource) {
-            eventSource.close();
-          }
-          clearTimeout(reconnectTimer);
-          reconnectTimer = setTimeout(connectToLiveStream, 4000);
-        };
-      } catch {
-        clearTimeout(reconnectTimer);
-        reconnectTimer = setTimeout(connectToLiveStream, 5000);
-      }
+        if (parsed.canCreateOrder) handleProcessIncomingRawOrder(order, false);
+      }).catch(() => {});
     };
 
-    connectToLiveStream();
-
-    // Active polling fallback: guarantees connection & order sync even on restrictive mobile networks
-    const pollServerSync = async () => {
+    const setup = async () => {
       try {
-        const [recentRes, sessionRes] = await Promise.all([
-          fetch('/api/whatsapp/recent'),
-          fetch('/api/whatsapp/session'),
-        ]);
-
-        if (recentRes.ok) {
-          const recentData = await recentRes.json();
-          if (recentData?.success && Array.isArray(recentData.orders)) {
-            setIsStreamConnected(true);
-            recentData.orders.forEach((rawOrd: any) => {
-              handleProcessIncomingRawOrder(rawOrd, false);
-            });
-          }
-        }
-
-        if (sessionRes.ok) {
-          const sessionData = await sessionRes.json();
-          if (sessionData?.session?.status === 'connected') {
-            setIsWhatsAppWebConnected(true);
-            setIsStreamConnected(true);
-          }
-        }
-      } catch {
-        // Ignored
+        const pending = await OrderiNotificationListener.getPending();
+        if (!removed) pending.events.forEach(convertNativeEvent);
+        listenerHandle = await OrderiNotificationListener.addListener('whatsappNotification', convertNativeEvent);
+      } catch (e) {
+        console.warn('[Orderi] Native WhatsApp listener unavailable', e);
       }
     };
-
-    const pollTimer = setInterval(pollServerSync, 3500);
-
+    setup();
     return () => {
-      if (eventSource) {
-        eventSource.close();
-      }
-      clearTimeout(reconnectTimer);
-      clearInterval(pollTimer);
+      removed = true;
+      if (listenerHandle) listenerHandle.remove().catch(() => {});
     };
   }, []);
+
+  // WhatsApp order ingestion is handled by the native Android notification listener.
+  // Legacy WhatsApp Web/SSE polling is intentionally disabled to prevent duplicate orders.
+  useEffect(() => {
+    if (!isNativeAndroid()) return;
+    getWhatsAppListenerStatus().then((enabled) => {
+      setIsStreamConnected(enabled);
+    }).catch(() => setIsStreamConnected(false));
+  }, []);
+
 
   // Toast feedback helper
   const showToast = (msg: string) => {
@@ -690,7 +657,7 @@ export default function App() {
       showToast(`📍 تم تحديد موقعك: أقرب منطقة هي ${result.location.areaName} (${result.distanceKm} كم)`);
     } else {
       if (result.isPermissionDenied) {
-        showToast('⚠️ تم رفض إذن الموقع: يرجى تفعيل إذن الـ GPS في المتصفح أو إعدادات الهاتف لتحديد موقعك تلقائياً 📍');
+        showToast('⚠️ تم رفض إذن الموقع: يرجى تفعيل إذن الموقع لـ Orderi من إعدادات الهاتف لتحديد موقعك تلقائياً 📍');
       } else {
         showToast(result.errorMessage || 'تعذر الوصول إلى GPS. يمكنك اختيار منطقتك يدوياً بنقرة واحدة من الإعدادات');
       }
@@ -1192,14 +1159,14 @@ export default function App() {
         onTabChange={(tab) => setActiveTab(tab)}
         onOpenBackgroundModal={() => setIsBackgroundModalOpen(true)}
         onOpenAutoSyncModal={() => {
-          setAutoSyncInitialTab('qr');
+          setAutoSyncInitialTab('listener');
           setIsAutoSyncModalOpen(true);
         }}
         onOpenDiscoveredGroupsModal={() => setIsDiscoveredGroupsModalOpen(true)}
         onOpenAPKModal={() => setIsAPKModalOpen(true)}
         newDiscoveredGroupsCount={discoveredGroupLinks.filter((g) => g.status === 'new').length}
         isStreamConnected={isStreamConnected}
-        isWhatsAppWebConnected={isWhatsAppWebConnected}
+        isWhatsAppConnected={isWhatsAppConnected}
         onRequestGps={handleRequestGps}
         isGpsLoading={isGpsLoading}
         isCarTrackingActive={isCarTrackingActive}
@@ -1228,11 +1195,11 @@ export default function App() {
           onOpenBroadcast={() => setActiveTab('broadcast')}
           onOpenBackgroundModal={() => setIsBackgroundModalOpen(true)}
           onOpenAutoSyncModal={() => {
-            setAutoSyncInitialTab('qr');
+            setAutoSyncInitialTab('listener');
             setIsAutoSyncModalOpen(true);
           }}
           isStreamConnected={isStreamConnected}
-          isWhatsAppWebConnected={isWhatsAppWebConnected}
+          isWhatsAppConnected={isWhatsAppConnected}
           onToggleIgnoreNonMatching={handleToggleIgnoreNonMatching}
           isCarTrackingActive={isCarTrackingActive}
           onToggleCarTracking={handleToggleCarTracking}
@@ -1485,13 +1452,13 @@ export default function App() {
                     <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-2.5 pt-2 max-w-xl mx-auto w-full">
                       <button
                         onClick={() => {
-                          setAutoSyncInitialTab('qr');
+                          setAutoSyncInitialTab('listener');
                           setIsAutoSyncModalOpen(true);
                         }}
                         className="w-full sm:flex-1 min-h-[44px] px-4 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
                       >
                         <QrCode className="w-4 h-4 text-emerald-200 shrink-0" />
-                        <span>ربط واتساب ويب (QR) 📲</span>
+                        <span>ربط WhatsApp العادي (QR) 📲</span>
                       </button>
 
                       <button
@@ -1652,7 +1619,7 @@ export default function App() {
           setActiveTab('settings');
         }}
         onSessionConnected={(sessionData, initialOrders) => {
-          setIsWhatsAppWebConnected(true);
+          setIsWhatsAppConnected(true);
           setIsStreamConnected(true);
           setActiveTab('radar');
           if (initialOrders && Array.isArray(initialOrders) && initialOrders.length > 0) {
@@ -1748,4 +1715,53 @@ export default function App() {
 
     </div>
   );
+}
+
+
+/**
+ * Native-first authentication gate.
+ * A fresh installation always opens on the login screen.
+ * Android location permission is requested by the native Capacitor plugin,
+ * never by the browser WebView.
+ */
+export default function App() {
+  const [authenticated, setAuthenticated] = useState<boolean>(
+    () => !!getCurrentUser()
+  );
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+
+    // Ask Android for the location permission at first launch.
+    // Android still controls the actual system dialog and the user can deny it.
+    Geolocation.checkPermissions()
+      .then(async (perm) => {
+        if (perm.location !== 'granted') {
+          try {
+            await Geolocation.requestPermissions();
+          } catch (error) {
+            console.warn('Orderi location permission request:', error);
+          }
+        }
+      })
+      .catch((error) => {
+        console.warn('Orderi permission check:', error);
+      });
+  }, []);
+
+  if (!authenticated) {
+    return (
+      <AuthModal
+        isOpen={true}
+        onClose={() => {}}
+        onSuccess={(user) => {
+          setStoredCurrentUser(user);
+          setAuthenticated(true);
+        }}
+        initialTab="login"
+      />
+    );
+  }
+
+  return <OrderiApp />;
 }

@@ -32,7 +32,7 @@ interface HeroRadarProps {
   onOpenAutoSyncModal?: () => void;
   onToggleRadar?: () => void;
   isStreamConnected?: boolean;
-  isWhatsAppWebConnected?: boolean;
+  isWhatsAppConnected?: boolean;
   onToggleIgnoreNonMatching?: () => void;
   isCarTrackingActive?: boolean;
   onToggleCarTracking?: () => void;
@@ -56,7 +56,7 @@ export function HeroRadar({
   onOpenAutoSyncModal,
   onToggleRadar,
   isStreamConnected = false,
-  isWhatsAppWebConnected = false,
+  isWhatsAppConnected = false,
   onToggleIgnoreNonMatching,
   isCarTrackingActive = true,
   onToggleCarTracking,

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Capacitor } from '@capacitor/core';
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -10,7 +11,16 @@ export function usePWAInstall() {
   const [isInstalled, setIsInstalled] = useState(false);
   const [isIOS, setIsIOS] = useState(false);
 
+  const isNativeApp = Capacitor.isNativePlatform();
+
   useEffect(() => {
+    // Native Android/iOS APK is already installed; never offer browser/PWA installation.
+    if (isNativeApp) {
+      setIsInstalled(true);
+      setDeferredPrompt(null);
+      return;
+    }
+
     // Detect standalone mode (already installed)
     const isStandalone =
       typeof window !== 'undefined' &&
@@ -40,7 +50,7 @@ export function usePWAInstall() {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
       window.removeEventListener('appinstalled', handleAppInstalled);
     };
-  }, []);
+  }, [isNativeApp]);
 
   const install = async () => {
     if (!deferredPrompt) return false;
@@ -55,9 +65,9 @@ export function usePWAInstall() {
   };
 
   return {
-    isInstallable: !!deferredPrompt,
+    isInstallable: !isNativeApp && !!deferredPrompt,
     isInstalled,
-    isIOS,
+    isIOS: isNativeApp ? false : isIOS,
     install,
   };
 }

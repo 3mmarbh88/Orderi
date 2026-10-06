@@ -57,7 +57,7 @@ interface HeaderProps {
   onOpenAPKModal?: () => void;
   newDiscoveredGroupsCount?: number;
   isStreamConnected?: boolean;
-  isWhatsAppWebConnected?: boolean;
+  isWhatsAppConnected?: boolean;
   onRequestGps: () => void;
   isGpsLoading: boolean;
   isCarTrackingActive?: boolean;
@@ -88,7 +88,7 @@ export function Header({
   onOpenAPKModal,
   newDiscoveredGroupsCount = 0,
   isStreamConnected = false,
-  isWhatsAppWebConnected = false,
+  isWhatsAppConnected = false,
   onRequestGps,
   isGpsLoading,
   isCarTrackingActive = true,
@@ -283,18 +283,18 @@ export function Header({
                 <button
                   onClick={onOpenAutoSyncModal}
                   className={`h-9 sm:h-10 flex items-center justify-center gap-1 px-2 sm:px-3 rounded-xl text-xs font-black transition-all shadow-2xs border active:scale-95 ${
-                    isWhatsAppWebConnected
+                    isWhatsAppConnected
                       ? 'bg-emerald-600 text-white border-emerald-500 shadow-emerald-600/30'
                       : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-950 border-emerald-300'
                   }`}
-                  title="ربط واتساب ويب بالباركود وقراءة الإشعارات"
+                  title="ربط WhatsApp العادي بالباركود وقراءة الإشعارات"
                 >
-                  <QrCode className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 ${isWhatsAppWebConnected ? 'text-white' : 'text-emerald-600'}`} />
+                  <QrCode className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 ${isWhatsAppConnected ? 'text-white' : 'text-emerald-600'}`} />
                   <span className="relative flex h-1.5 w-1.5 sm:h-2 sm:w-2">
-                    <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${isWhatsAppWebConnected || isStreamConnected ? 'bg-emerald-400 opacity-75' : 'bg-amber-400 opacity-75'}`} />
-                    <span className={`relative inline-flex rounded-full h-1.5 w-1.5 sm:h-2 sm:w-2 ${isWhatsAppWebConnected || isStreamConnected ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                    <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${isWhatsAppConnected || isStreamConnected ? 'bg-emerald-400 opacity-75' : 'bg-amber-400 opacity-75'}`} />
+                    <span className={`relative inline-flex rounded-full h-1.5 w-1.5 sm:h-2 sm:w-2 ${isWhatsAppConnected || isStreamConnected ? 'bg-emerald-500' : 'bg-amber-500'}`} />
                   </span>
-                  <span className="hidden sm:inline text-xs">{isWhatsAppWebConnected ? 'متصل' : 'ربط'}</span>
+                  <span className="hidden sm:inline text-xs">{isWhatsAppConnected ? 'متصل' : 'ربط'}</span>
                 </button>
               )}
 
