@@ -19,6 +19,7 @@ interface OrderiNotificationListenerPlugin {
   isEnabled(): Promise<{ enabled: boolean }>;
   openSettings(): Promise<void>;
   getPending(): Promise<{ events: WhatsAppNativeEvent[] }>;
+  moveToBackground(): Promise<void>;
   addListener(
     eventName: 'whatsappNotification',
     listenerFunc: (event: WhatsAppNativeEvent) => void,

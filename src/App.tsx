@@ -65,6 +65,7 @@ import {
 import { getWhatsAppConnection, markWhatsAppVerified } from './utils/whatsappConnection';
 import { isNativeAndroid, OrderiNotificationListener, WhatsAppNativeEvent } from './native/orderiNotificationListener';
 import { getWhatsAppListenerStatus } from './native/whatsappListener';
+import { isDuplicateOrder } from './utils/orderDedup';
 import { 
   sendBackgroundOrderNotification, 
   requestScreenWakeLock, 
@@ -215,6 +216,60 @@ function OrderiApp() {
   const [isWhatsAppConnected, setIsWhatsAppConnected] = useState(false);
   const [webhookOrdersCount, setWebhookOrdersCount] = useState(0);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [isRadarRefreshing, setIsRadarRefreshing] = useState(false);
+
+  // Pull-to-refresh: re-read pending native WhatsApp events and refresh the
+  // locally stored radar feed without creating duplicates.
+  const refreshRadar = async () => {
+    if (isRadarRefreshing) return;
+    setIsRadarRefreshing(true);
+    try {
+      const saved = localStorage.getItem('orderi_real_orders');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          setOrders(parsed
+            .filter((o: any) => o.source !== 'simulation')
+            .map((o: any) => ({ ...o, receivedAt: new Date(o.receivedAt) }))
+            .slice(0, 40));
+        }
+      }
+
+      if (isNativeAndroid()) {
+        const pending = await OrderiNotificationListener.getPending();
+        // Existing fingerprint protection makes this safe even if Android
+        // returns notifications that were already processed.
+        if (pending?.events?.length) {
+          const { parseWhatsAppOrderText } = await import('./utils/orderParser');
+          pending.events.slice(-30).forEach((event: WhatsAppNativeEvent) => {
+            const groupName = (event.conversationTitle || event.title || '').trim() || 'محادثة خاصة 👤';
+            const rawText = [event.bigText, event.text, event.subText, event.rawText]
+              .filter(Boolean).join('\n').trim();
+            const parsed = parseWhatsAppOrderText(rawText || event.title || '');
+            if (parsed.canCreateOrder) {
+              handleProcessIncomingRawOrder({
+                id: `android-wa-${event.id}`,
+                from: parsed.from, to: parsed.to, price: parsed.price,
+                rawText: rawText || event.title || '', groupName,
+                senderName: event.title || 'WhatsApp', senderPhone: parsed.phone,
+                receivedAt: new Date(event.receivedAt || Date.now()),
+                confidence: parsed.confidence, type: 'whatsapp_notification',
+                notes: parsed.notes, status: 'pending',
+                source: 'android_notification',
+                isDirectPrivate: !event.isGroup,
+              }, true);
+            }
+          });
+        }
+      }
+      showToast('🔄 تم تحديث الرادار والطلبات');
+    } catch (e) {
+      console.warn('[Orderi] Radar refresh failed', e);
+      showToast('تعذر تحديث الرادار');
+    } finally {
+      setTimeout(() => setIsRadarRefreshing(false), 450);
+    }
+  };
 
   // Persistent list of groups detected from phone notifications / orders
   const [persistedDetectedGroups, setPersistedDetectedGroups] = useState<string[]>(() => {
@@ -441,6 +496,7 @@ function OrderiApp() {
   const handleProcessIncomingRawOrder = (raw: any, isInitialBatch = false) => {
     if (!raw || !raw.id) return;
     if (processedOrderIdsRef.current.has(raw.id)) return;
+
     processedOrderIdsRef.current.add(raw.id);
 
     // Block order processing if the program is not activated
@@ -504,6 +560,13 @@ function OrderiApp() {
 
     // Check if WhatsApp group is allowed by driver's group filter
     if (!isOrderGroupAllowedRef(raw.groupName)) {
+      return;
+    }
+
+    // Deduplicate only after the order passes activation, blacklist and group
+    // filters. This prevents an ignored group from "claiming" an order that
+    // later appears in one of the driver's monitored groups.
+    if (isDuplicateOrder(raw)) {
       return;
     }
 
@@ -1192,6 +1255,8 @@ function OrderiApp() {
             showToast(!liveRadarActive ? 'تم تشغيل الرادار ومراقبة الطلبات فوراً 🟢' : 'تم إيقاف الرادار مؤقتاً ⏸️');
           }}
           onOpenSettings={() => setActiveTab('settings')}
+          onPullRefresh={refreshRadar}
+          isRefreshing={isRadarRefreshing}
           onOpenBroadcast={() => setActiveTab('broadcast')}
           onOpenBackgroundModal={() => setIsBackgroundModalOpen(true)}
           onOpenAutoSyncModal={() => {
@@ -1595,6 +1660,13 @@ function OrderiApp() {
           handleUpdateFilter(updated);
         }}
         onShowToast={showToast}
+        onRunInBackground={async () => {
+          if (isNativeAndroid()) {
+            await OrderiNotificationListener.moveToBackground();
+          } else {
+            try { window.dispatchEvent(new Event('orderi-background')); } catch {}
+          }
+        }}
       />
 
       {/* WhatsApp Automated Webhook & Auto-Sync Modal (QR Web Session & Android Notification Listener) */}

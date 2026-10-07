@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { 
   Radar, 
   MapPin, 
@@ -39,6 +39,8 @@ interface HeroRadarProps {
   onRequestGps?: () => void;
   isGpsLoading?: boolean;
   carSpeedKmh?: number;
+  onPullRefresh?: () => Promise<void> | void;
+  isRefreshing?: boolean;
 }
 
 export function HeroRadar({
@@ -63,12 +65,38 @@ export function HeroRadar({
   onRequestGps,
   isGpsLoading = false,
   carSpeedKmh = 0,
+  onPullRefresh,
+  isRefreshing = false,
 }: HeroRadarProps) {
+  const pullStartY = useRef<number | null>(null);
+  const pullDistance = useRef(0);
   const [mobileExpanded, setMobileExpanded] = useState(false);
 
   return (
-    <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl bg-slate-900 text-white p-3.5 sm:p-6 lg:p-7 shadow-xl shadow-slate-950/20 border border-slate-800 w-full max-w-full">
+    <div
+      onTouchStart={(e) => {
+        if (window.scrollY <= 2) pullStartY.current = e.touches[0]?.clientY ?? null;
+      }}
+      onTouchMove={(e) => {
+        if (pullStartY.current === null) return;
+        pullDistance.current = Math.max(0, (e.touches[0]?.clientY ?? 0) - pullStartY.current);
+      }}
+      onTouchEnd={() => {
+        if (pullStartY.current !== null && pullDistance.current >= 70 && onPullRefresh) {
+          void onPullRefresh();
+        }
+        pullStartY.current = null;
+        pullDistance.current = 0;
+      }}
+      className="relative overflow-hidden rounded-2xl sm:rounded-3xl bg-slate-900 text-white p-3.5 sm:p-6 lg:p-7 shadow-xl shadow-slate-950/20 border border-slate-800 w-full max-w-full">
       
+      {isRefreshing && (
+        <div className="absolute top-0 inset-x-0 z-30 flex items-center justify-center gap-2 py-2 bg-emerald-600/95 text-white text-xs font-black shadow-lg">
+          <RefreshCw className="w-4 h-4 animate-spin" />
+          <span>جاري تحديث طلبات الرادار...</span>
+        </div>
+      )}
+
       {/* Decorative ambient gradients */}
       <div className="absolute left-[-40px] top-[-40px] w-80 h-80 rounded-full bg-blue-600/10 blur-3xl pointer-events-none" />
       <div className="absolute right-[-40px] bottom-[-40px] w-80 h-80 rounded-full bg-emerald-600/10 blur-3xl pointer-events-none" />

@@ -33,6 +33,7 @@ interface BackgroundModeModalProps {
   keepScreenAwake: boolean;
   onToggleKeepScreenAwake: (enabled: boolean) => void;
   onShowToast: (msg: string) => void;
+  onRunInBackground?: () => Promise<void> | void;
 }
 
 export const BackgroundModeModal: React.FC<BackgroundModeModalProps> = ({
@@ -281,6 +282,34 @@ export const BackgroundModeModal: React.FC<BackgroundModeModalProps> = ({
             </div>
           )}
         </div>
+
+        {/* Native Android background mode */}
+        {onRunInBackground && (
+          <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                  <BellRing className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-slate-900">تشغيل الرادار وإخفاء التطبيق</h4>
+                  <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                    يخفي Orderi الآن ويترك مستمع واتساب يعمل في الخلفية. ستظهر إشعارات منبثقة عند وصول طلب مطابق.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={async () => {
+                  await onRunInBackground();
+                  onShowToast('تم إخفاء Orderi وتشغيل الرادار في الخلفية ✅');
+                }}
+                className="shrink-0 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs shadow-md transition-all"
+              >
+                تشغيل في الخلفية
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Feature 2: Screen Wake Lock */}
         <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/90 space-y-3">

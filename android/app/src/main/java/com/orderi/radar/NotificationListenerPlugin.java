@@ -69,6 +69,18 @@ public class NotificationListenerPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void moveToBackground(PluginCall call) {
+        try {
+            if (getActivity() != null) {
+                getActivity().moveTaskToBack(true);
+            }
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("Unable to move Orderi to background", e);
+        }
+    }
+
+    @PluginMethod
     public void getPending(PluginCall call) {
         JSObject ret = new JSObject();
         JSArray arr = new JSArray();
