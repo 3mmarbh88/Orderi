@@ -18,21 +18,12 @@ export function evaluateOrderMatch(
   filter: OrderFilter,
   driverLocation: MatcherLocation | null
 ): OrderMatchBreakdown {
-  // 1. Start Area Match (35%)
-  const startMatched = filter.startAreas.length === 0 || filter.startAreas.includes(from);
-
-  // 2. Destination Match (30%)
-  const destinationMatched = filter.destinations.length === 0 || filter.destinations.includes(to);
-
-  // 3. Price Match (20%)
-  const priceMatched = price >= filter.minimumPrice;
-
-  // 4. Distance Calculation and Match (15%)
-  let distanceKm: number | null = null;
-  let distanceMatched = false;
-
   const fromAreaObj = findAreaByName(from);
   const toAreaObj = findAreaByName(to);
+
+  // 1. Pickup Location Match (مكان الاستلام من موقعي الحالي ونطاق التغطية والمسافة المقبولة)
+  let distanceKm: number | null = null;
+  let startMatched = false;
 
   if (driverLocation && fromAreaObj) {
     distanceKm = calculateDistanceKm(
@@ -41,11 +32,22 @@ export function evaluateOrderMatch(
       fromAreaObj.latitude,
       fromAreaObj.longitude
     );
-    distanceMatched = distanceKm <= filter.coverageKm;
+    startMatched = distanceKm <= filter.coverageKm;
   } else if (!driverLocation) {
-    // If no GPS is set, treat distance as neutral
-    distanceMatched = true;
+    // If no GPS/current location is determined yet, accept pending location fix
+    startMatched = true;
+  } else {
+    // If driver location exists but specific area coordinate not recognized
+    startMatched = true;
   }
+
+  const distanceMatched = startMatched;
+
+  // 2. Destination Match (وجهات التسليم المطلوبة)
+  const destinationMatched = filter.destinations.length === 0 || filter.destinations.includes(to);
+
+  // 3. Price Match (الحد الأدنى للأجرة)
+  const priceMatched = price >= filter.minimumPrice;
 
   // Distance between pickup and destination
   let pickupToDeliveryDistanceKm: number | undefined = undefined;
@@ -79,12 +81,14 @@ export function evaluateOrderMatch(
     timeMatched = true;
   }
 
-  // Score calculation
+  // Score calculation:
+  // مكان الاستلام من موقعي الحالي ونطاق التغطية والمسافة: 45%
+  // وجهة التسليم المطلوبة: 35%
+  // الحد الأدنى للأجرة: 20%
   let score = 0;
-  if (startMatched) score += 35;
-  if (destinationMatched) score += 30;
+  if (startMatched) score += 45;
+  if (destinationMatched) score += 35;
   if (priceMatched) score += 20;
-  if (distanceMatched) score += 15;
 
   let statusLabel: OrderMatchBreakdown['statusLabel'] = 'غير مطابق';
   let statusColor: OrderMatchBreakdown['statusColor'] = 'slate';

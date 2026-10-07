@@ -43,7 +43,7 @@ export interface StoreContact {
 export interface OrderFilter {
   coverageKm: number;
   minimumPrice: number;
-  startAreas: string[];
+  startAreas?: string[];
   destinations: string[];
   startTime: string; // HH:mm format
   endTime: string;   // HH:mm format
@@ -75,6 +75,7 @@ export interface OrderFilter {
   broadcastDefaultDoneText?: string;
   broadcastIncludeQuote?: boolean;
   broadcastCustomNotes?: string;
+  preventDuplicateOrders?: boolean;
 }
 
 export interface AIMatchAnalysis {
@@ -131,6 +132,8 @@ export interface ParsedOrder {
   isDirectPrivate?: boolean;
   aiAnalysis?: AIMatchAnalysis;
   isAnalyzingAi?: boolean;
+  crossPostedGroups?: string[];
+  duplicateCount?: number;
 }
 
 export interface DriverStats {

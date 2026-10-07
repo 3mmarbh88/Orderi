@@ -20,7 +20,8 @@ import {
   ShieldAlert,
   Zap,
   Lightbulb,
-  AlertTriangle
+  AlertTriangle,
+  Layers
 } from 'lucide-react';
 import { ParsedOrder } from '../types';
 import { MatcherLocation } from '../utils/matcher';
@@ -209,6 +210,15 @@ export function OrderCard({
                     <span>خاص دايركت 👤</span>
                   </span>
                 )}
+                {order.crossPostedGroups && order.crossPostedGroups.length > 1 && (
+                  <span 
+                    className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-purple-100 text-purple-900 border border-purple-300 shadow-2xs"
+                    title={`تم نشر هذا الطلب في ${order.crossPostedGroups.length} قروبات وتم دمجه لمنع التكرار`}
+                  >
+                    <Layers className="w-3 h-3 text-purple-700" />
+                    <span>مكرر في {order.crossPostedGroups.length} قروبات (تم دمجه ✓)</span>
+                  </span>
+                )}
               </div>
 
               <div className="flex items-center gap-2 text-xs text-slate-500 mt-1">
@@ -217,9 +227,16 @@ export function OrderCard({
                   <span>{timeAgo(order.receivedAt)}</span>
                 </span>
                 <span>•</span>
-                <span className="flex items-center gap-1 truncate max-w-[140px] sm:max-w-[190px]">
+                <span 
+                  className="flex items-center gap-1 truncate max-w-[140px] sm:max-w-[200px]" 
+                  title={order.crossPostedGroups && order.crossPostedGroups.length > 1 ? order.crossPostedGroups.join(' • ') : order.groupName}
+                >
                   <Users className="w-3 h-3 text-slate-400" />
-                  <span>{order.groupName}</span>
+                  <span>
+                    {order.crossPostedGroups && order.crossPostedGroups.length > 1
+                      ? `${order.crossPostedGroups.length} قروبات: ${order.crossPostedGroups.join('، ')}`
+                      : order.groupName}
+                  </span>
                 </span>
               </div>
             </div>
@@ -293,17 +310,19 @@ export function OrderCard({
           {/* Sleek Criteria Match Status Row */}
           <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
             <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border font-bold ${
-              match.startMatched ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-slate-100 text-slate-600 border-slate-200'
+              match.startMatched ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-rose-50 text-rose-800 border-rose-200'
             }`}>
-              {match.startMatched ? <Check className="w-3 h-3 text-emerald-600" /> : <X className="w-3 h-3 text-slate-400" />}
-              <span>الانطلاق: {order.from}</span>
+              {match.startMatched ? <Check className="w-3 h-3 text-emerald-600" /> : <X className="w-3 h-3 text-rose-500" />}
+              <span>
+                الاستلام من موقعك: {match.distanceKm !== null ? `${match.distanceKm.toFixed(1)} كم (${match.startMatched ? 'ضمن نطاقك' : 'خارج نطاقك'})` : (order.from || 'البحرين')}
+              </span>
             </span>
 
             <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border font-bold ${
               match.destinationMatched ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-slate-100 text-slate-600 border-slate-200'
             }`}>
               {match.destinationMatched ? <Check className="w-3 h-3 text-emerald-600" /> : <X className="w-3 h-3 text-slate-400" />}
-              <span>الوجهة: {order.to}</span>
+              <span>الوجهة: {order.to || 'الكل'}</span>
             </span>
 
             <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border font-bold ${
@@ -311,13 +330,6 @@ export function OrderCard({
             }`}>
               {match.priceMatched ? <Check className="w-3 h-3 text-emerald-600" /> : <X className="w-3 h-3 text-slate-400" />}
               <span>السعر ({order.price} د.ب)</span>
-            </span>
-
-            <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border font-bold ${
-              match.distanceMatched ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-slate-100 text-slate-600 border-slate-200'
-            }`}>
-              {match.distanceMatched ? <Check className="w-3 h-3 text-emerald-600" /> : <X className="w-3 h-3 text-slate-400" />}
-              <span>المسافة ({match.distanceKm ? `${match.distanceKm.toFixed(1)} كم` : 'جاهز'})</span>
             </span>
           </div>
 
@@ -370,6 +382,21 @@ export function OrderCard({
               </button>
             )}
           </div>
+
+          {/* Multi-group deduplication notice banner */}
+          {order.crossPostedGroups && order.crossPostedGroups.length > 1 && (
+            <div className="p-2.5 rounded-xl bg-purple-50 border border-purple-200/90 text-purple-950 flex items-start gap-2 text-xs">
+              <Layers className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
+              <div className="min-w-0 space-y-0.5">
+                <span className="font-black text-purple-900 block text-[11px]">
+                  🛡️ تم منع التكرار: نُشر هذا الإعلان في {order.crossPostedGroups.length} قروبات واتساب وتم دمجه
+                </span>
+                <p className="text-[10px] text-purple-800 truncate">
+                  القروبات: {order.crossPostedGroups.join(' • ')}
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Original WhatsApp Message Accordion */}
           <div className="rounded-xl bg-slate-50 border border-slate-200/70 p-3">

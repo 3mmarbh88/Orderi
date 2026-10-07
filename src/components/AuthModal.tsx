@@ -441,7 +441,7 @@ export function AuthModal({
 
   return (
     <div 
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/75 backdrop-blur-sm animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 bg-white sm:bg-slate-950/80 sm:backdrop-blur-sm animate-in fade-in duration-200"
       onClick={onClose}
     >
 
@@ -552,27 +552,16 @@ export function AuthModal({
       )}
 
       {/* ======================================================
-          Main Auth Card
+          Main Auth Card - Full screen on mobile devices
           ====================================================== */}
 
       <div 
-        className="w-full max-w-md bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-200/90 overflow-hidden flex flex-col max-h-[92vh] pb-safe"
+        className="w-full h-full sm:h-auto sm:max-h-[92vh] sm:max-w-md bg-white sm:rounded-3xl sm:shadow-2xl sm:border sm:border-slate-200/90 overflow-hidden flex flex-col pb-safe"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Mobile Sheet Drag Handle */}
-        <div className="sm:hidden w-10 h-1.5 bg-slate-300 rounded-full mx-auto mt-2 -mb-1" />
-
         {/* Header */}
 
-        <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-950 p-5 sm:p-6 text-white text-right relative shrink-0">
-
-          <button
-            type="button"
-            onClick={onClose}
-            className="absolute top-4 left-4 p-2 rounded-xl bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
+        <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-950 p-5 sm:p-6 pt-[calc(1.25rem+env(safe-area-inset-top,0px))] sm:pt-6 text-white text-right relative shrink-0">
 
           <div className="flex items-center gap-3">
 

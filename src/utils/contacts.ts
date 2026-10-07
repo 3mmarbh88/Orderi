@@ -67,7 +67,7 @@ export const DEFAULT_CONTACTS: StoreContact[] = [
   {
     id: 'contact-vip-1',
     name: 'متجر لافندر للزهور (السيف)',
-    phone: '39441122',
+    phone: '+973 3944 1122',
     type: 'vip',
     notes: 'تحويل بنفت فوري عند الاستلام، تغليف ممتاز',
     addedAt: new Date().toISOString(),
@@ -75,17 +75,9 @@ export const DEFAULT_CONTACTS: StoreContact[] = [
   {
     id: 'contact-vip-2',
     name: 'حلويات المملكة (الرفاع)',
-    phone: '36889900',
+    phone: '+973 3688 9900',
     type: 'vip',
     notes: 'أجرة مرتفعة، جاهز دائماً في الموعد',
-    addedAt: new Date().toISOString(),
-  },
-  {
-    id: 'contact-bl-1',
-    name: 'معلن وهمي / إلغاء مستمر',
-    phone: '31000000',
-    type: 'blacklist',
-    notes: 'قام بإلغاء 3 مشاوير بعد الوصول وتأخير متكرر',
     addedAt: new Date().toISOString(),
   },
 ];

@@ -29,6 +29,7 @@ interface HeroRadarProps {
   onOpenSettings: () => void;
   onOpenBroadcast?: () => void;
   onOpenBackgroundModal?: () => void;
+  onRunInBackground?: () => Promise<void> | void;
   onOpenAutoSyncModal?: () => void;
   onToggleRadar?: () => void;
   isStreamConnected?: boolean;
@@ -55,6 +56,7 @@ export function HeroRadar({
   onOpenSettings,
   onOpenBroadcast,
   onOpenBackgroundModal,
+  onRunInBackground,
   onOpenAutoSyncModal,
   onToggleRadar,
   isStreamConnected = false,
@@ -170,12 +172,18 @@ export function HeroRadar({
               </button>
             )}
 
-            {/* 2. Background Mode Trigger */}
-            {onOpenBackgroundModal && (
+            {/* 2. Background Mode Trigger - عند الضغط يغلق ويخفي البرنامج للعمل في الخلفية */}
+            {(onRunInBackground || onOpenBackgroundModal) && (
               <button
-                onClick={onOpenBackgroundModal}
+                onClick={async () => {
+                  if (onRunInBackground) {
+                    await onRunInBackground();
+                  } else if (onOpenBackgroundModal) {
+                    onOpenBackgroundModal();
+                  }
+                }}
                 className="flex-1 sm:flex-none min-h-[44px] flex items-center justify-center gap-1.5 px-3 py-2.5 sm:px-3.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 font-bold text-xs transition-all active:scale-[0.98] cursor-pointer"
-                title="إعدادات وتشغيل الرادار في الخلفية وتثبيت التطبيق"
+                title="إغلاق وإخفاء البرنامج للعمل في الخلفية لمراقبة الطلبات"
               >
                 <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                 <span className="truncate">في الخلفية ⚡</span>
@@ -300,16 +308,12 @@ export function HeroRadar({
             <RefreshCw className={`w-2.5 h-2.5 text-slate-400 hover:text-white ${isGpsLoading ? 'animate-spin text-amber-400' : ''}`} />
           </button>
 
-          <div className="flex items-center gap-1.5 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg sm:rounded-xl bg-slate-800/80 border border-slate-700/70">
-            <span>التغطية: <strong className="text-white font-bold">{filter.coverageKm} كم</strong></span>
+          <div className="flex items-center gap-1.5 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg sm:rounded-xl bg-slate-800/80 border border-slate-700/70 text-emerald-300">
+            <span>الاستلام: <strong className="text-white font-bold">من موقعي (خلال {filter.coverageKm} كم)</strong></span>
           </div>
 
           <div className="flex items-center gap-1.5 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg sm:rounded-xl bg-slate-800/80 border border-slate-700/70">
             <span>الحد الأدنى: <strong className="text-white font-bold">{filter.minimumPrice.toFixed(1)} د.ب</strong></span>
-          </div>
-
-          <div className="flex items-center gap-1.5 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg sm:rounded-xl bg-slate-800/80 border border-slate-700/70">
-            <span>الانطلاق: <strong className="text-white font-bold">{filter.startAreas.length > 0 ? `${filter.startAreas.length} منطقة` : 'الكل'}</strong></span>
           </div>
 
           <div className="flex items-center gap-1.5 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg sm:rounded-xl bg-slate-800/80 border border-slate-700/70">

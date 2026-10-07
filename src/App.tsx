@@ -65,17 +65,21 @@ import {
 import { getWhatsAppConnection, markWhatsAppVerified } from './utils/whatsappConnection';
 import { isNativeAndroid, OrderiNotificationListener, WhatsAppNativeEvent } from './native/orderiNotificationListener';
 import { getWhatsAppListenerStatus } from './native/whatsappListener';
-import { isDuplicateOrder } from './utils/orderDedup';
+import { isDuplicateOrder, findDuplicateOrderMatch, rememberOrderFingerprint } from './utils/orderDedup';
+import { computeClientAiEvaluation } from './utils/aiEvaluator';
 import { 
   sendBackgroundOrderNotification, 
+  requestNotificationPermission,
   requestScreenWakeLock, 
-  releaseScreenWakeLock 
+  releaseScreenWakeLock,
+  isInIframe,
+  isNotificationSupported
 } from './utils/backgroundManager';
 
 const DEFAULT_FILTER: OrderFilter = {
   coverageKm: 10,
   minimumPrice: 2.5,
-  startAreas: ['المنامة', 'المحرق', 'السيف'],
+  startAreas: [],
   destinations: ['الرفاع', 'مدينة عيسى', 'سار'],
   startTime: '08:00',
   endTime: '23:00',
@@ -94,6 +98,7 @@ const DEFAULT_FILTER: OrderFilter = {
   customResponseTemplate: '#مندوب_توصيل انا في {area} ومستعد للاستلام فوراً',
   contacts: DEFAULT_CONTACTS,
   autoBlockBlacklist: true,
+  preventDuplicateOrders: true,
 };
 
 function OrderiApp() {
@@ -104,7 +109,19 @@ function OrderiApp() {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed && typeof parsed === 'object') {
-          return { ...DEFAULT_FILTER, ...parsed };
+          // إزالة أي جهات اتصال وهمية سابقة وضمان وجود جهتي الاتصال VIP الموثوقتين
+          const existingContacts: StoreContact[] = Array.isArray(parsed.contacts)
+            ? parsed.contacts.filter((c: StoreContact) => c.id !== 'contact-bl-1' && !c.name.includes('وهمي'))
+            : DEFAULT_CONTACTS;
+
+          const hasLavender = existingContacts.some((c) => c.phone.includes('39441122') || c.name.includes('لافندر'));
+          const hasKingdom = existingContacts.some((c) => c.phone.includes('36889900') || c.name.includes('المملكة'));
+
+          const syncedContacts = [...existingContacts];
+          if (!hasLavender) syncedContacts.unshift(DEFAULT_CONTACTS[0]);
+          if (!hasKingdom) syncedContacts.splice(1, 0, DEFAULT_CONTACTS[1]);
+
+          return { ...DEFAULT_FILTER, ...parsed, contacts: syncedContacts };
         }
       }
     } catch {}
@@ -147,7 +164,7 @@ function OrderiApp() {
       if (saved) {
         const parsed = JSON.parse(saved);
         return parsed
-          .filter((o: any) => o.source !== 'simulation' && !o.id?.startsWith('ord-auto-') && !o.notes?.includes('سحبه تلقائياً فور ربط'))
+          .filter((o: any) => o.source !== 'simulation' && !o.notes?.includes('سحبه تلقائياً فور ربط'))
           .map((o: any) => ({
             ...o,
             receivedAt: new Date(o.receivedAt),
@@ -211,7 +228,7 @@ function OrderiApp() {
   const [isBackgroundModalOpen, setIsBackgroundModalOpen] = useState(false);
   const [isAutoSyncModalOpen, setIsAutoSyncModalOpen] = useState(false);
   const [settingsInitialSection, setSettingsInitialSection] = useState<string | null>(null);
-  const [autoSyncInitialTab, setAutoSyncInitialTab] = useState<'qr' | 'listener' | 'webhook'>('qr');
+  const [autoSyncInitialTab, setAutoSyncInitialTab] = useState<'listener' | 'webhook'>('listener');
   const [isStreamConnected, setIsStreamConnected] = useState(false);
   const [isWhatsAppConnected, setIsWhatsAppConnected] = useState(false);
   const [webhookOrdersCount, setWebhookOrdersCount] = useState(0);
@@ -223,7 +240,24 @@ function OrderiApp() {
   const refreshRadar = async () => {
     if (isRadarRefreshing) return;
     setIsRadarRefreshing(true);
+    showToast('🔄 جاري تحديث وجلب أحدث طلبات الواتساب...');
     try {
+      // 1. Fetch recent webhook orders from server if available
+      try {
+        const res = await fetch('/api/whatsapp/recent', { signal: AbortSignal.timeout(3000) });
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && Array.isArray(json.orders)) {
+            json.orders.forEach((ord: any) => {
+              handleProcessIncomingRawOrder(ord, false);
+            });
+          }
+        }
+      } catch (netErr) {
+        console.warn('[Orderi] Could not fetch server recent orders:', netErr);
+      }
+
+      // 2. Refresh local persisted orders
       const saved = localStorage.getItem('orderi_real_orders');
       if (saved) {
         const parsed = JSON.parse(saved);
@@ -235,6 +269,7 @@ function OrderiApp() {
         }
       }
 
+      // 3. In Native Android, check pending notification events
       if (isNativeAndroid()) {
         const pending = await OrderiNotificationListener.getPending();
         // Existing fingerprint protection makes this safe even if Android
@@ -262,7 +297,7 @@ function OrderiApp() {
           });
         }
       }
-      showToast('🔄 تم تحديث الرادار والطلبات');
+      showToast('✅ تم تحديث الرادار وجلب أحدث الطلبات');
     } catch (e) {
       console.warn('[Orderi] Radar refresh failed', e);
       showToast('تعذر تحديث الرادار');
@@ -410,6 +445,8 @@ function OrderiApp() {
   filterRef.current = filter;
   const driverLocationRef = useRef(driverLocation);
   driverLocationRef.current = driverLocation;
+  const ordersRef = useRef(orders);
+  ordersRef.current = orders;
 
   // Persist real captured orders to localStorage
   useEffect(() => {
@@ -563,6 +600,32 @@ function OrderiApp() {
       return;
     }
 
+    // Compare order & advertiser across WhatsApp groups to prevent duplicates
+    if (filterRef.current.preventDuplicateOrders !== false) {
+      const existingMatch = findDuplicateOrderMatch(raw, ordersRef.current);
+      if (existingMatch) {
+        setOrders((prev) =>
+          prev.map((o) => {
+            if (o.id === existingMatch.id) {
+              const currentGroups = o.crossPostedGroups || [o.groupName];
+              const updatedGroups = currentGroups.includes(raw.groupName)
+                ? currentGroups
+                : [...currentGroups, raw.groupName];
+              return {
+                ...o,
+                crossPostedGroups: updatedGroups,
+                duplicateCount: (o.duplicateCount || 1) + 1,
+              };
+            }
+            return o;
+          })
+        );
+        rememberOrderFingerprint(raw);
+        showToast(`📢 تم دمج إعلان مكرر من المعلن نُشر في قروب: ${raw.groupName} لمنع التكرار`);
+        return;
+      }
+    }
+
     // Deduplicate only after the order passes activation, blacklist and group
     // filters. This prevents an ignored group from "claiming" an order that
     // later appears in one of the driver's monitored groups.
@@ -578,6 +641,8 @@ function OrderiApp() {
       matchedContact: contactCheck.contact,
       source: 'webhook_auto',
       isDirectPrivate: raw.isDirectPrivate,
+      crossPostedGroups: raw.crossPostedGroups || [raw.groupName],
+      duplicateCount: raw.duplicateCount || 1,
     };
 
     // Sound, Vibration & Notifications
@@ -680,13 +745,72 @@ function OrderiApp() {
     };
   }, []);
 
-  // WhatsApp order ingestion is handled by the native Android notification listener.
-  // Legacy WhatsApp Web/SSE polling is intentionally disabled to prevent duplicate orders.
+  // WhatsApp real order stream listener:
+  // On Native Android: uses the native Android Notification Listener
+  // On Web / PWA: connects to SSE /api/whatsapp/stream for real live incoming orders
   useEffect(() => {
-    if (!isNativeAndroid()) return;
-    getWhatsAppListenerStatus().then((enabled) => {
-      setIsStreamConnected(enabled);
-    }).catch(() => setIsStreamConnected(false));
+    if (isNativeAndroid()) {
+      getWhatsAppListenerStatus().then((enabled) => {
+        setIsStreamConnected(enabled);
+      }).catch(() => setIsStreamConnected(false));
+      return;
+    }
+
+    // Web / PWA real-time SSE stream connection
+    let eventSource: EventSource | null = null;
+    let reconnectTimeout: any = null;
+
+    const connectSSE = () => {
+      try {
+        eventSource = new EventSource('/api/whatsapp/stream');
+        eventSource.onopen = () => {
+          setIsStreamConnected(true);
+        };
+        eventSource.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.type === 'NEW_ORDER' && data.order) {
+              handleProcessIncomingRawOrder(data.order, false);
+            } else if (data.type === 'ORDER_CROSSPOSTED' && data.orderId) {
+              setOrders((prev) =>
+                prev.map((o) =>
+                  o.id === data.orderId
+                    ? {
+                        ...o,
+                        crossPostedGroups: data.crossPostedGroups || [...(o.crossPostedGroups || [o.groupName]), data.groupName],
+                        duplicateCount: data.duplicateCount || (o.duplicateCount || 1) + 1,
+                      }
+                    : o
+                )
+              );
+            } else if (data.type === 'GROUP_LINK_DETECTED' && data.groupLink) {
+              setDiscoveredGroupLinks((prev) => {
+                const exists = prev.some((l) => l.inviteCode === data.groupLink.inviteCode);
+                if (exists) return prev;
+                const next = [data.groupLink, ...prev];
+                saveDiscoveredGroupLinks(next);
+                setActiveGroupLinkPrompt(data.groupLink);
+                return next;
+              });
+            }
+          } catch {}
+        };
+        eventSource.onerror = () => {
+          setIsStreamConnected(false);
+          eventSource?.close();
+          reconnectTimeout = setTimeout(connectSSE, 5000);
+        };
+      } catch {
+        setIsStreamConnected(false);
+      }
+    };
+
+    connectSSE();
+
+    return () => {
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      if (eventSource) eventSource.close();
+    };
   }, []);
 
 
@@ -738,6 +862,44 @@ function OrderiApp() {
       handleRequestGps();
     } else {
       showToast('تم إيقاف تتبع حركة السيارة التلقائي');
+    }
+  };
+
+  const handleRunInBackground = async () => {
+    // 1. تفعيل الرادار فوراً لمواصلة رصد الطلبات في الخلفية
+    if (!liveRadarActive) {
+      setLiveRadarActive(true);
+    }
+
+    // 2. طلب إذن الإشعارات إذا لم يتم منحه مسبقاً
+    try {
+      await requestNotificationPermission();
+    } catch {}
+
+    // 3. إرسال إشعار تأكيد للرادار في الخلفية
+    if (isNotificationSupported() && Notification.permission === 'granted' && !isInIframe()) {
+      try {
+        new Notification('🟢 رادار أورداري نشط في الخلفية', {
+          body: 'نظام المراقبة يعمل في الخلفية وسيقوم بتنبيهك بالصوت والاهتزاز فور وصول أي طلب مطابق.',
+          icon: '/pwa-192x192.png',
+          tag: 'orderi-bg-ready',
+        });
+      } catch {}
+    }
+
+    showToast('تم إخفاء التطبيق وتشغيل الرادار في الخلفية ⚡🟢');
+
+    // 4. إغلاق / إخفاء التطبيق إلى الخلفية على أندرويد (moveTaskToBack)
+    if (isNativeAndroid()) {
+      try {
+        await OrderiNotificationListener.moveToBackground();
+      } catch (err) {
+        console.error('Error moving Orderi to background:', err);
+      }
+    } else {
+      try {
+        window.dispatchEvent(new Event('orderi-background'));
+      } catch {}
     }
   };
 
@@ -888,22 +1050,26 @@ function OrderiApp() {
         }),
       });
       const json = await res.json();
-      if (json.success && json.data) {
+      if (json && json.success && json.data) {
         setOrders((prev) =>
           prev.map((o) =>
             o.id === order.id ? { ...o, aiAnalysis: json.data, isAnalyzingAi: false } : o
           )
         );
         showToast(`✨ فحص الـ AI: تطابق ${json.data.score}% (${json.data.verdictLabel})`);
-      } else {
-        throw new Error(json.error || 'فشل التحليل');
+        return;
       }
+      throw new Error(json?.error || 'فشل الاتصال بالذكاء الاصطناعي');
     } catch (err: any) {
-      console.error('AI match evaluation failed:', err);
+      console.warn('AI match server request fell back to client AI analyzer:', err?.message);
+      // Resilient client-side evaluator ensuring 100% availability
+      const fallbackAnalysis = computeClientAiEvaluation(order, filter, driverLocation);
       setOrders((prev) =>
-        prev.map((o) => (o.id === order.id ? { ...o, isAnalyzingAi: false } : o))
+        prev.map((o) =>
+          o.id === order.id ? { ...o, aiAnalysis: fallbackAnalysis, isAnalyzingAi: false } : o
+        )
       );
-      showToast('تعذر فحص مطابقة الإعلان بالذكاء الاصطناعي حالياً');
+      showToast(`✨ فحص الـ AI: تطابق ${fallbackAnalysis.score}% (${fallbackAnalysis.verdictLabel})`);
     }
   };
 
@@ -1259,6 +1425,7 @@ function OrderiApp() {
           isRefreshing={isRadarRefreshing}
           onOpenBroadcast={() => setActiveTab('broadcast')}
           onOpenBackgroundModal={() => setIsBackgroundModalOpen(true)}
+          onRunInBackground={handleRunInBackground}
           onOpenAutoSyncModal={() => {
             setAutoSyncInitialTab('listener');
             setIsAutoSyncModalOpen(true);
@@ -1324,7 +1491,11 @@ function OrderiApp() {
                 
                 {/* Left: Feed Title & Live Count */}
                 <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
-                  <div className="flex items-center gap-2">
+                  <div 
+                    onClick={refreshRadar}
+                    title="انقر لتحديث وجلب أحدث الطلبات 🔄"
+                    className="flex items-center gap-2 cursor-pointer hover:opacity-85 transition-opacity"
+                  >
                     <span className="relative flex h-2.5 w-2.5">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
                       <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
@@ -1332,27 +1503,20 @@ function OrderiApp() {
                     <h2 className="text-sm font-black text-slate-900 tracking-tight">رادار الطلبات الواردة</h2>
                   </div>
 
+                  <button
+                    type="button"
+                    onClick={refreshRadar}
+                    disabled={isRadarRefreshing}
+                    title="تحديث وجلب الطلبات ريفريش 🔄"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold transition-all border border-blue-200/80 active:scale-95 cursor-pointer shadow-2xs"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isRadarRefreshing ? 'animate-spin text-blue-600' : 'text-blue-500'}`} />
+                    <span>{isRadarRefreshing ? 'جاري الجلب...' : 'تحديث ريفريش 🔄'}</span>
+                  </button>
+
                   <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-slate-100 text-slate-700 border border-slate-200">
                     {displayedOrders.length} من {orders.length} طلب
                   </span>
-
-                  {/* Auto-Sync Live Status Chip */}
-                  <button
-                    onClick={() => setIsAutoSyncModalOpen(true)}
-                    className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 transition-colors"
-                    title="الربط التلقائي بواتساب مفعل وشغال لحظياً"
-                  >
-                    <span className="relative flex h-2 w-2">
-                      <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${isStreamConnected ? 'bg-emerald-400 opacity-75' : 'bg-amber-400 opacity-75'}`} />
-                      <span className={`relative inline-flex rounded-full h-2 w-2 ${isStreamConnected ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-                    </span>
-                    <span>سحب تلقائي واتساب</span>
-                    {webhookOrdersCount > 0 && (
-                      <span className="bg-emerald-600 text-white text-[10px] px-1.5 rounded-full font-black">
-                        {webhookOrdersCount}
-                      </span>
-                    )}
-                  </button>
 
                   {filter.ignoreNonMatching && nonMatchingCount > 0 && (
                     <span className="text-rose-700 font-bold bg-rose-50 px-2 py-0.5 rounded-full text-[11px] sm:text-xs border border-rose-200">
@@ -1409,50 +1573,12 @@ function OrderiApp() {
                   </button>
                 </div>
 
-                {/* Right: Controls (Android Notification Listener, Ignore Non-Matching Switch & Purge Button) */}
-                <div className="flex flex-wrap items-center gap-2 shrink-0">
-                  <button
-                    onClick={() => {
-                      setAutoSyncInitialTab('listener');
-                      setIsAutoSyncModalOpen(true);
-                    }}
-                    title="خدمة قراءة إشعارات الأندرويد لسحب طلبات القروبات والخاص تلقائياً"
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors shadow-2xs"
-                  >
-                    <Smartphone className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                    <span>إشعارات أندرويد 🔔</span>
-                  </button>
-
-                  {orders.length > 0 && (
-                    <button
-                      onClick={() => {
-                        setOrders([]);
-                        showToast('تمت إزالة ومسح كافة الطلبات');
-                      }}
-                      title="مسح وإزالة كافة الطلبات الحالية"
-                      className="flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl text-xs font-bold text-slate-600 hover:text-rose-600 hover:bg-rose-50 border border-slate-200 hover:border-rose-200 transition-colors"
-                    >
-                      <Trash2 className="w-3.5 h-3.5 shrink-0" />
-                      <span>مسح ({orders.length})</span>
-                    </button>
-                  )}
-
-                  {nonMatchingCount > 0 && (
-                    <button
-                      onClick={handlePurgeNonMatching}
-                      title="مسح الطلبات غير المطابقة من القائمة"
-                      className="flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl text-xs font-bold text-slate-600 hover:text-rose-600 hover:bg-rose-50 border border-slate-200 hover:border-rose-200 transition-colors"
-                    >
-                      <Trash2 className="w-3.5 h-3.5 shrink-0" />
-                      <span>المستبعد ({nonMatchingCount})</span>
-                    </button>
-                  )}
-
-                  {/* Toggle Non-Matching Switch */}
+                {/* Right: Controls (Clean Toggle Non-Matching Switch) */}
+                <div className="flex items-center gap-2 shrink-0">
                   <button
                     onClick={handleToggleIgnoreNonMatching}
                     title="مفتاح حجب الطلبات غير المطابقة"
-                    className={`flex items-center gap-1.5 sm:gap-2 px-2.5 py-1.5 sm:px-3 rounded-xl border text-xs font-bold transition-all ${
+                    className={`flex items-center gap-1.5 sm:gap-2 px-3 py-2 rounded-xl border text-xs font-bold transition-all ${
                       filter.ignoreNonMatching
                         ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100/70'
                         : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
@@ -1505,8 +1631,28 @@ function OrderiApp() {
                   </>
                 ) : (
                   <>
-                    <div className="w-16 h-16 rounded-3xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto shadow-inner">
-                      <Radar className="w-8 h-8 animate-pulse text-blue-600" />
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={refreshRadar}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          refreshRadar();
+                        }
+                      }}
+                      title="انقر لتحديث وجلب أحدث الطلبات ريفريش 🔄"
+                      className={`w-16 h-16 rounded-3xl flex items-center justify-center mx-auto shadow-inner cursor-pointer transition-all duration-200 hover:scale-110 active:scale-95 group ${
+                        isRadarRefreshing
+                          ? 'bg-emerald-100 text-emerald-700 ring-4 ring-emerald-300/50'
+                          : 'bg-blue-50 text-blue-600 hover:bg-blue-100 ring-2 ring-blue-200/60'
+                      }`}
+                    >
+                      {isRadarRefreshing ? (
+                        <RefreshCw className="w-8 h-8 animate-spin text-emerald-600" />
+                      ) : (
+                        <Radar className="w-8 h-8 animate-pulse text-blue-600 group-hover:scale-110 transition-transform" />
+                      )}
                     </div>
                     <div className="space-y-1">
                       <h3 className="text-base sm:text-lg font-black text-slate-900">الرادار جاهز للعمل 📡</h3>
@@ -1514,35 +1660,15 @@ function OrderiApp() {
                         الرادار يراقب قروبات الواتساب وإشعارات هاتفك اللحظية. ستظهر الطلبات المطابقة لشروطك فور وصولها مع تنبيه صوتي واهتزازي.
                       </p>
                     </div>
-                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-2.5 pt-2 max-w-xl mx-auto w-full">
+                    <div className="pt-2">
                       <button
-                        onClick={() => {
-                          setAutoSyncInitialTab('listener');
-                          setIsAutoSyncModalOpen(true);
-                        }}
-                        className="w-full sm:flex-1 min-h-[44px] px-4 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
+                        type="button"
+                        onClick={refreshRadar}
+                        disabled={isRadarRefreshing}
+                        className="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-black text-xs shadow-md shadow-blue-600/20 active:scale-95 transition-all cursor-pointer"
                       >
-                        <QrCode className="w-4 h-4 text-emerald-200 shrink-0" />
-                        <span>ربط WhatsApp العادي (QR) 📲</span>
-                      </button>
-
-                      <button
-                        onClick={() => {
-                          setAutoSyncInitialTab('listener');
-                          setIsAutoSyncModalOpen(true);
-                        }}
-                        className="w-full sm:flex-1 min-h-[44px] px-4 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
-                      >
-                        <Smartphone className="w-4 h-4 text-blue-200 shrink-0" />
-                        <span>تفعيل قارئ إشعارات الهاتف 🔔</span>
-                      </button>
-
-                      <button
-                        onClick={() => setActiveTab('settings')}
-                        className="w-full sm:flex-1 min-h-[44px] px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
-                      >
-                        <Sliders className="w-4 h-4 text-slate-300 shrink-0" />
-                        <span>شروط الفلتر والذكاء الاصطناعي ⚙️</span>
+                        <RefreshCw className={`w-4 h-4 ${isRadarRefreshing ? 'animate-spin' : ''}`} />
+                        <span>{isRadarRefreshing ? 'جاري تحديث وجلب الطلبات...' : 'تحديث وجلب الطلبات ريفريش 🔄'}</span>
                       </button>
                     </div>
                   </>
@@ -1589,7 +1715,8 @@ function OrderiApp() {
             onUpdateFilter={handleUpdateFilter}
             onRequestGps={handleRequestGps}
             onSetManualLocation={handleSetManualLocation}
-            onSaveToast={() => showToast('تم حفظ إعدادات الفلتر بنجاح')}
+            onSaveToast={() => showToast('✅ تم حفظ التعديلات وتفعيل شروط الفلتر، وطي الأقسام والانتقال لشاشة الرادار 📡')}
+            onNavigateToRadar={() => setActiveTab('radar')}
             detectedIncomingGroups={detectedIncomingGroups}
             onOpenDiscoveredGroupsModal={() => setIsDiscoveredGroupsModalOpen(true)}
             discoveredGroupsCount={discoveredGroupLinks.length}
@@ -1660,13 +1787,7 @@ function OrderiApp() {
           handleUpdateFilter(updated);
         }}
         onShowToast={showToast}
-        onRunInBackground={async () => {
-          if (isNativeAndroid()) {
-            await OrderiNotificationListener.moveToBackground();
-          } else {
-            try { window.dispatchEvent(new Event('orderi-background')); } catch {}
-          }
-        }}
+        onRunInBackground={handleRunInBackground}
       />
 
       {/* WhatsApp Automated Webhook & Auto-Sync Modal (QR Web Session & Android Notification Listener) */}

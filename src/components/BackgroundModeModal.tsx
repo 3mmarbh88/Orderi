@@ -42,6 +42,7 @@ export const BackgroundModeModal: React.FC<BackgroundModeModalProps> = ({
   keepScreenAwake,
   onToggleKeepScreenAwake,
   onShowToast,
+  onRunInBackground,
 }) => {
   const [permission, setPermission] = useState<NotificationPermission>(getNotificationPermission());
   const [isWakeLockActive, setIsWakeLockActive] = useState(keepScreenAwake);
