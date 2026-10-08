@@ -1,4 +1,5 @@
 import { AreaLocation } from '../types';
+import { BAHRAIN_LANDMARKS, findLandmarkByName } from './bahrainLandmarks';
 
 export const BAHRAIN_AREAS: AreaLocation[] = [
   // العاصمة (Capital Governorate)
@@ -108,10 +109,28 @@ export function calculateDistanceKm(
 export function findAreaByName(name: string): AreaLocation | undefined {
   if (!name) return undefined;
   const normalized = normalizeArabicText(name);
-  return BAHRAIN_AREAS.find((area) => {
+
+  // 1. Direct match with standard Bahrain areas
+  const directArea = BAHRAIN_AREAS.find((area) => {
     const areaNorm = normalizeArabicText(area.name);
     return areaNorm === normalized || areaNorm.includes(normalized) || normalized.includes(areaNorm);
   });
+  if (directArea) return directArea;
+
+  // 2. Intelligent match with Bahrain malls & landmarks (e.g. مودامول، السيف مول، سيتي سنتر، الأفنيوز)
+  const landmark = findLandmarkByName(name);
+  if (landmark) {
+    return {
+      id: landmark.id,
+      name: landmark.name,
+      nameEn: landmark.nameEn,
+      governorate: landmark.governorate as any,
+      latitude: landmark.latitude,
+      longitude: landmark.longitude,
+    };
+  }
+
+  return undefined;
 }
 
 export function normalizeArabicText(text: string): string {

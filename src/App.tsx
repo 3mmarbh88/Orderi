@@ -655,7 +655,7 @@ function OrderiApp() {
           triggerCustomVibration('urgent', 3, true);
         }
         if (filterRef.current.backgroundNotificationsEnabled ?? true) {
-          sendBackgroundOrderNotification(newOrder);
+          sendBackgroundOrderNotification(newOrder, filterRef.current);
         }
         showToast(`⭐ وارد تلقائياً: طلب VIP من (${contactCheck.contact?.name || newOrder.senderName}) • ${newOrder.from} ← ${newOrder.to}`);
       } else if (filterRef.current.notificationsEnabled && newOrder.match.score >= 80) {
@@ -676,11 +676,16 @@ function OrderiApp() {
         }
 
         if (filterRef.current.backgroundNotificationsEnabled ?? true) {
-          sendBackgroundOrderNotification(newOrder);
+          sendBackgroundOrderNotification(newOrder, filterRef.current);
         }
         showToast(`⚡ طلب وارد تلقائياً من واتساب (${newOrder.isDirectPrivate ? 'خاص 👤' : 'قروب 👥'}) • ${newOrder.from} ← ${newOrder.to}`);
       } else {
-        if (filterRef.current.soundEnabled && !filterRef.current.ignoreNonMatching) {
+        // الطلب غير مطابق لشروط الكابتن
+        if (filterRef.current.ignoreNonMatching) {
+          // محجوب تماماً من الإشعارات في الخلفية والأصوات بناء على رغبة الكابتن
+          return;
+        }
+        if (filterRef.current.soundEnabled) {
           playAlertTone(filterRef.current.alertTone || 'chime', 60);
         }
         showToast(`⚡ وارد تلقائياً من واتساب: ${newOrder.from} ← ${newOrder.to} (${newOrder.price} د.ب)`);
@@ -783,6 +788,8 @@ function OrderiApp() {
                     : o
                 )
               );
+            } else if (data.type === 'ORDER_MARKED_READ' && data.orderId) {
+              setOrders((prev) => prev.filter((o) => o.id !== data.orderId));
             } else if (data.type === 'GROUP_LINK_DETECTED' && data.groupLink) {
               setDiscoveredGroupLinks((prev) => {
                 const exists = prev.some((l) => l.inviteCode === data.groupLink.inviteCode);
@@ -958,6 +965,18 @@ function OrderiApp() {
     );
   };
 
+  const syncNativeFilter = (f: OrderFilter, loc: MatcherLocation | null) => {
+    if (isNativeAndroid() && OrderiNotificationListener.updateFilterSettings) {
+      OrderiNotificationListener.updateFilterSettings({
+        ignoreNonMatching: f.ignoreNonMatching,
+        minPrice: f.minimumPrice,
+        coverageKm: f.coverageKm,
+        driverLat: loc?.latitude || 0,
+        driverLon: loc?.longitude || 0,
+      }).catch(() => {});
+    }
+  };
+
   const handleUpdateFilter = (newFilter: OrderFilter) => {
     const merged = { ...filter, ...newFilter };
     setFilter(merged);
@@ -968,6 +987,7 @@ function OrderiApp() {
       }
     } catch {}
     recalculateOrdersWithNewLocation(driverLocation, merged);
+    syncNativeFilter(merged, driverLocation);
     showToast('تم حفظ وتطبيق شروط الفلتر بنجاح ✅ ستبقى محفوظة عند فتح التطبيق مجدداً');
   };
 
@@ -979,12 +999,60 @@ function OrderiApp() {
     try {
       localStorage.setItem('orderi_filter_settings', JSON.stringify(updatedFilter));
     } catch {}
+    syncNativeFilter(updatedFilter, driverLocation);
     if (nextVal) {
       const hiddenCount = orders.filter((o) => o.match.score < 80).length;
-      showToast(`تم تفعيل مفتاح الحجب: إخفاء الطلبات غير المطابقة (${hiddenCount} طلب محجوب تلقائياً)`);
+      showToast(`🚫 تم تفعيل حجب غير المطابق (حجب تام حتى في النوتيفيكيشن في الخلفية)`);
     } else {
       showToast('تم إيقاف مفتاح الحجب: تظهر جميع الطلبات الواردة');
     }
+  };
+
+  // Switch view / filter when clicking top dashboard stat cards
+  const handleSelectFilterCategory = (category: 'monitored' | 'matched' | 'vip' | 'earnings') => {
+    if (category === 'monitored') {
+      setActiveTab('radar');
+      setFeedFilter('all');
+      try {
+        localStorage.setItem('orderi_feed_filter', 'all');
+      } catch {}
+      if (filter.ignoreNonMatching) {
+        const updated = { ...filter, ignoreNonMatching: false };
+        setFilter(updated);
+        try {
+          localStorage.setItem('orderi_filter_settings', JSON.stringify(updated));
+        } catch {}
+        syncNativeFilter(updated, driverLocation);
+        showToast('📡 تم فتح جميع الطلبات المرصودة من قروبات الواتساب');
+      } else {
+        showToast('📡 تم فتح الطلبات المرصودة من قروبات الواتساب');
+      }
+    } else if (category === 'matched') {
+      setActiveTab('radar');
+      setFeedFilter('matched');
+      try {
+        localStorage.setItem('orderi_feed_filter', 'matched');
+      } catch {}
+      showToast(`🎯 تم فتح الطلبات المطابقة (80%+) (${matchedCount} طلب)`);
+    } else if (category === 'vip') {
+      setActiveTab('radar');
+      setFeedFilter('vip');
+      try {
+        localStorage.setItem('orderi_feed_filter', 'vip');
+      } catch {}
+      showToast(`✨ تم فتح الطلبات الممتازة VIP (90%+) (${vipCount} طلب)`);
+    } else if (category === 'earnings') {
+      setActiveTab('ledger');
+      showToast(`💰 تم فتح أرباح اليوم وسجل الطلبات المقبولة (${todayEarnings.toFixed(1)} د.ب)`);
+    }
+
+    // Smooth scroll down to content below
+    setTimeout(() => {
+      const el = document.getElementById('orders-feed-container');
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 60);
   };
 
   // Permanently remove non-matching orders from list
@@ -1142,13 +1210,40 @@ function OrderiApp() {
     const updated = { ...order, status: 'accepted' as const };
     setOrders((prev) => prev.filter((o) => o.id !== order.id));
     setAcceptedOrders((prev) => [updated, ...prev]);
-    showToast(`تم قبول الطلب وإضافته لجدول الأرباح (+${order.price.toFixed(1)} د.ب)`);
+    showToast(`⚡ تم قبول الطلب والرد التلقائي في واتساب (+${order.price.toFixed(1)} د.ب) فوراً بدون مغادرة التطبيق`);
   };
 
-  // Ignore / Dismiss Order
-  const handleIgnoreOrder = (orderId: string) => {
+  // Ignore / Dismiss Order - مسح الطلب من البرنامج وعمل علامة مقروء (تمت قراءتها ✓✓) في الواتساب
+  const handleIgnoreOrder = async (orderId: string) => {
+    const targetOrder = orders.find((o) => o.id === orderId);
     setOrders((prev) => prev.filter((o) => o.id !== orderId));
-    showToast('تمت إزالة الطلب من الرادار بنجاح');
+
+    try {
+      const stored = localStorage.getItem('orderi_cached_orders');
+      if (stored) {
+        const parsed: ParsedOrder[] = JSON.parse(stored);
+        const filtered = parsed.filter((o) => o.id !== orderId);
+        localStorage.setItem('orderi_cached_orders', JSON.stringify(filtered));
+      }
+    } catch {}
+
+    showToast('تم مسح الطلب وتحديده كمقروء (تمت قراءتها ✓✓) في الواتساب');
+
+    try {
+      await fetch('/api/whatsapp/mark-read', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderId,
+          phone: targetOrder?.senderPhone,
+          groupName: targetOrder?.groupName,
+          senderName: targetOrder?.senderName,
+          crossPostedGroups: targetOrder?.crossPostedGroups,
+        }),
+      });
+    } catch (e) {
+      console.warn('[Orderi] Error calling mark-read on server:', e);
+    }
   };
 
   // Group Link Sniffer Handlers
@@ -1438,52 +1533,14 @@ function OrderiApp() {
           onRequestGps={handleRequestGps}
           isGpsLoading={isGpsLoading}
           carSpeedKmh={carSpeedKmh}
+          activeTab={activeTab}
+          feedFilter={feedFilter}
+          onSelectFilterCategory={handleSelectFilterCategory}
         />
 
         {/* Dynamic Tab Views */}
         {activeTab === 'radar' && (
-          <div className="space-y-4 sm:space-y-5">
-            
-            {/* Active Published Order Waiting For Courier Banner (هل حصلت على مندوب؟ رد تم فوراً) */}
-            {activeWaitingBroadcast && (
-              <div className="p-4 sm:p-4.5 rounded-2xl sm:rounded-3xl bg-gradient-to-r from-amber-500/15 via-amber-50 to-emerald-50 border-2 border-amber-300 shadow-md shadow-amber-500/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 animate-in slide-in-from-top-2 duration-300">
-                <div className="flex items-start sm:items-center gap-3">
-                  <div className="w-10 h-10 rounded-2xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-md shadow-amber-500/20">
-                    <Reply className="w-5 h-5 animate-bounce" />
-                  </div>
-                  <div className="space-y-0.5">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-xs sm:text-sm font-black text-amber-950">
-                        لديك إعلان منشور بانتظار مندوب:
-                      </span>
-                      <span className="text-[11px] font-black text-amber-900 bg-amber-200/90 px-2.5 py-0.5 rounded-full border border-amber-300">
-                        {activeWaitingBroadcast.from} ← {activeWaitingBroadcast.to} ({activeWaitingBroadcast.price} د.ب)
-                      </span>
-                      <span className="text-[10px] text-purple-700 bg-purple-100 px-2 py-0.5 rounded-full font-bold">
-                        {activeWaitingBroadcast.targetGroups?.length || 0} قروبات
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-amber-900/80 font-medium">
-                      هل اتفقت مع مندوب لتوصيل هذا الطلب؟ اضغط لإرسال رد (تم) في كل القروبات فوراً لإيقاف الإشعارات والاتصالات.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setTargetReplayBroadcastId(activeWaitingBroadcast.id);
-                      setActiveTab('broadcast');
-                    }}
-                    className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs shadow-md shadow-emerald-600/20 flex items-center justify-center gap-2 transition-all hover:scale-[1.02] active:scale-[0.98]"
-                  >
-                    <Reply className="w-4 h-4" />
-                    <span>حصلت مندوب (رد: تم) 🎯</span>
-                  </button>
-                </div>
-              </div>
-            )}
+          <div id="orders-feed-container" className="space-y-4 sm:space-y-5 scroll-mt-20">
 
             {/* Unified Command & Feed Toolbar */}
             <div className="p-3 sm:p-4 rounded-2xl bg-white border border-slate-200/90 shadow-2xs space-y-3">
@@ -1502,17 +1559,6 @@ function OrderiApp() {
                     </span>
                     <h2 className="text-sm font-black text-slate-900 tracking-tight">رادار الطلبات الواردة</h2>
                   </div>
-
-                  <button
-                    type="button"
-                    onClick={refreshRadar}
-                    disabled={isRadarRefreshing}
-                    title="تحديث وجلب الطلبات ريفريش 🔄"
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold transition-all border border-blue-200/80 active:scale-95 cursor-pointer shadow-2xs"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${isRadarRefreshing ? 'animate-spin text-blue-600' : 'text-blue-500'}`} />
-                    <span>{isRadarRefreshing ? 'جاري الجلب...' : 'تحديث ريفريش 🔄'}</span>
-                  </button>
 
                   <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-slate-100 text-slate-700 border border-slate-200">
                     {displayedOrders.length} من {orders.length} طلب
@@ -1729,15 +1775,17 @@ function OrderiApp() {
 
         {/* Accepted Orders Ledger */}
         {activeTab === 'ledger' && (
-          <AcceptedLedger
-            acceptedOrders={acceptedOrders}
-            onClearLedger={() => {
-              setAcceptedOrders([]);
-              showToast('تم تفريغ سجل الطلبات المقبولة');
-            }}
-            customTemplate={filter.customResponseTemplate}
-            driverLocation={driverLocation}
-          />
+          <div id="orders-feed-container" className="scroll-mt-20">
+            <AcceptedLedger
+              acceptedOrders={acceptedOrders}
+              onClearLedger={() => {
+                setAcceptedOrders([]);
+                showToast('تم تفريغ سجل الطلبات المقبولة');
+              }}
+              customTemplate={filter.customResponseTemplate}
+              driverLocation={driverLocation}
+            />
+          </div>
         )}
 
         {/* Broadcast & Publish Orders in Groups */}

@@ -1,4 +1,5 @@
 import { BAHRAIN_AREAS, normalizeArabicText } from '../data/bahrainAreas';
+import { BAHRAIN_LANDMARKS } from '../data/bahrainLandmarks';
 
 export interface RawParsedResult {
   from: string;
@@ -85,75 +86,148 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
     }
   }
 
-  // 3. Detect "From" (Start) and "To" (Destination) areas
+  // 3. Detect "From" (Start) and "To" (Destination) areas and landmarks
   let fromArea = '';
   let toArea = '';
 
-  // Sort areas by length descending so longer compound names match first (e.g. 'ديار المحرق' before 'المحرق')
-  const sortedAreas = [...BAHRAIN_AREAS].sort((a, b) => b.name.length - a.name.length);
+  // Prepare unified list of searchable Bahrain places (Landmarks/Malls + Areas)
+  interface SearchablePlace {
+    name: string;
+    keywords: string[];
+    isLandmark: boolean;
+    parentArea?: string;
+  }
+
+  const searchablePlaces: SearchablePlace[] = [
+    // Malls & Landmarks (Moda Mall, Seef Mall, City Centre, Avenues, etc.)
+    ...BAHRAIN_LANDMARKS.map((lm) => ({
+      name: lm.name,
+      keywords: lm.keywords,
+      isLandmark: true,
+      parentArea: lm.parentAreaName,
+    })),
+    // Standard Geographic Areas
+    ...BAHRAIN_AREAS.map((a) => ({
+      name: a.name,
+      keywords: [a.name, a.nameEn],
+      isLandmark: false,
+    })),
+  ];
+
+  // Flatten and sort keywords by length descending so longer compound names match first
+  interface KeywordMatchItem {
+    placeName: string;
+    keyword: string;
+    normalizedKeyword: string;
+    parentArea?: string;
+  }
+
+  const allKeywordItems: KeywordMatchItem[] = [];
+  searchablePlaces.forEach((place) => {
+    place.keywords.forEach((kw) => {
+      if (kw && kw.trim()) {
+        allKeywordItems.push({
+          placeName: place.name,
+          keyword: kw.trim(),
+          normalizedKeyword: normalizeArabicText(kw.trim()),
+          parentArea: place.parentArea,
+        });
+      }
+    });
+  });
+
+  allKeywordItems.sort((a, b) => b.normalizedKeyword.length - a.normalizedKeyword.length);
 
   // Search patterns for explicit "From" and "To"
-  // Patterns like "من [منطقة] إلى [منطقة]" or "استلام: [منطقة] تسليم: [منطقة]"
-  for (const area of sortedAreas) {
-    const normArea = normalizeArabicText(area.name);
+  // Patterns like "من [مودامول/منطقة] إلى [سار/منطقة]" or "استلام: [السيف مول] تسليم: [الرفاع]"
+  for (const item of allKeywordItems) {
+    const kw = item.normalizedKeyword;
+    if (kw.length < 2) continue;
 
-    // Look for "From" indicators before this area
-    const fromPattern = new RegExp(`(?:من|استلام من|بيك اب من|موقع|تحميل من)\\s*(?:منطقة|قرية)?\\s*${normArea}\\b`, 'i');
+    // Look for "From" indicators before this place
+    const fromPattern = new RegExp(`(?:من|استلام من|استلام|بيك اب من|بيك اب|موقع|تحميل من|فرع)\\s*(?:مجمع|مول|سوق|منطقة|قرية)?\\s*${kw}\\b`, 'i');
     if (!fromArea && fromPattern.test(normalized)) {
-      fromArea = area.name;
+      fromArea = item.placeName;
     }
 
-    // Look for "To" indicators before this area
-    const toPattern = new RegExp(`(?:الى|إلى|ل|لي|تسليم|توصيل الى|توصيل ل|وجهة|مكان)\\s*(?:منطقة|قرية)?\\s*${normArea}\\b`, 'i');
+    // Look for "To" indicators before this place
+    const toPattern = new RegExp(`(?:الى|إلى|ل|لي|تسليم الى|تسليم ل|تسليم|توصيل الى|توصيل ل|وجهة|مكان)\\s*(?:مجمع|مول|سوق|منطقة|قرية)?\\s*${kw}\\b`, 'i');
     if (!toArea && toPattern.test(normalized)) {
-      toArea = area.name;
+      toArea = item.placeName;
     }
   }
 
-  // If either is missing, do a greedy area presence scan
+  // If either is missing, do a greedy presence scan in message for known places
   if (!fromArea || !toArea) {
-    const foundAreas: { area: string; index: number }[] = [];
-    for (const area of sortedAreas) {
-      const normArea = normalizeArabicText(area.name);
-      const idx = normalized.indexOf(normArea);
+    const foundPlaces: { name: string; index: number }[] = [];
+    for (const item of allKeywordItems) {
+      const kw = item.normalizedKeyword;
+      if (kw.length < 2) continue;
+
+      const idx = normalized.indexOf(kw);
       if (idx !== -1) {
-        // Ensure not duplicate of already matched longer area
-        const alreadySub = foundAreas.some(f => Math.abs(f.index - idx) < 3);
+        // Ensure not duplicate or subset of already matched longer span
+        const alreadySub = foundPlaces.some((f) => Math.abs(f.index - idx) < 4);
         if (!alreadySub) {
-          foundAreas.push({ area: area.name, index: idx });
+          foundPlaces.push({ name: item.placeName, index: idx });
         }
       }
     }
 
     // Sort by position in string
-    foundAreas.sort((a, b) => a.index - b.index);
+    foundPlaces.sort((a, b) => a.index - b.index);
 
-    if (foundAreas.length >= 2) {
+    if (foundPlaces.length >= 2) {
       if (!fromArea && !toArea) {
-        fromArea = foundAreas[0].area;
-        toArea = foundAreas[1].area;
+        fromArea = foundPlaces[0].name;
+        toArea = foundPlaces[1].name;
       } else if (!fromArea) {
-        const remaining = foundAreas.find(f => f.area !== toArea);
-        if (remaining) fromArea = remaining.area;
+        const remaining = foundPlaces.find((f) => f.name !== toArea);
+        if (remaining) fromArea = remaining.name;
       } else if (!toArea) {
-        const remaining = foundAreas.find(f => f.area !== fromArea);
-        if (remaining) toArea = remaining.area;
+        const remaining = foundPlaces.find((f) => f.name !== fromArea);
+        if (remaining) toArea = remaining.name;
       }
-    } else if (foundAreas.length === 1) {
+    } else if (foundPlaces.length === 1) {
       if (!fromArea && !toArea) {
-        fromArea = foundAreas[0].area;
+        fromArea = foundPlaces[0].name;
       }
     }
   }
 
-  // 4. Notes / Package Type extraction
+  // Free-text Destination Fallback:
+  // e.g. "اوردر من مودامول الى مكان معين" or "من السيف مول الى كافيه الزنج"
+  if (!toArea && fromArea) {
+    const toFreeMatch = /(?:الى|إلى|تسليم الى|تسليم ل|تسليم|توصيل الى|توصيل ل|وجهة)\s+([^\n\r،,]+)/i.exec(convertedText);
+    if (toFreeMatch && toFreeMatch[1]) {
+      let candidate = toFreeMatch[1].trim();
+      // Remove any trailing price indicators or phone numbers
+      candidate = candidate.replace(/(?:\s+ب?\s*\d+(?:\.\d+)?\s*(?:د\.ب|دب|دينار|bd|bhd)).*$/i, '').trim();
+      candidate = candidate.replace(/(?:\s+(?:\+?973|00973)?[\s-]*(?:3\d{7}|6\d{7}|17\d{6})).*$/i, '').trim();
+      candidate = candidate.replace(/\s+ب\s*$/i, '').trim();
+      if (candidate.length >= 2 && candidate.length <= 40 && candidate !== fromArea) {
+        toArea = candidate;
+      }
+    }
+  }
+
+  // If order intent is clearly present (e.g. "اوردر من مودامول", "طلب من السيف مول") but destination is unspecified:
+  const hasOrderIntent = /(?:اوردر|أوردر|طلب|توصيل|مندوب|بيك اب|pickup|delivery)/i.test(normalized);
+  if (!toArea && fromArea && hasOrderIntent) {
+    toArea = 'حسب طلب الزبون 📍';
+  }
+
+
+
+  // 4. Notes / Package Type extraction (ensuring word boundaries)
   let notes = '';
   const noteKeywords = [
     'ورد', 'باقة', 'زهور', 'كيك', 'حلويات', 'عطور', 'هدية', 'أكل', 'مطعم',
     'وجبة', 'مستندات', 'أوراق', 'عباية', 'ملابس', 'شحنة', 'أمانات', 'كرتون'
   ];
   for (const kw of noteKeywords) {
-    if (normalized.includes(kw)) {
+    const kwRegex = new RegExp(`(?:^|[\\s،,.])${kw}(?:$|[\\s،,.])`, 'i');
+    if (kwRegex.test(normalized)) {
       notes = kw;
       break;
     }

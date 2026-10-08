@@ -19,6 +19,7 @@ app.use(express.urlencoded({ extended: true, limit: "35mb" }));
 const sseClients = new Set<express.Response>();
 const recentWebhookOrders: any[] = [];
 const recentDiscoveredGroupLinks: any[] = [];
+const markedReadOrderIds = new Set<string>();
 
 // Helper: Extract WhatsApp group invite links from incoming text and broadcast via SSE
 function extractAndBroadcastGroupLinks(rawText: string, sender: string, phone: string, group: string) {
@@ -489,6 +490,110 @@ app.post("/api/whatsapp/broadcast-reply", (req, res) => {
     return res.status(500).json({
       success: false,
       error: err?.message || "حدث خطأ أثناء معالجة نشر رد (تم)",
+    });
+  }
+});
+
+// 4d. Mark order/message as read in WhatsApp and clear from stream
+app.post("/api/whatsapp/mark-read", (req, res) => {
+  try {
+    const { orderId, phone, groupName, senderName } = req.body || {};
+
+    // Remove from in-memory webhook list if present
+    if (orderId) {
+      markedReadOrderIds.add(orderId);
+    }
+    const idx = recentWebhookOrders.findIndex((o) => o.id === orderId);
+    if (idx !== -1) {
+      recentWebhookOrders.splice(idx, 1);
+    }
+
+    console.log(`[Orderi WhatsApp] Order ${orderId} marked as read in WhatsApp for ${senderName || phone || groupName || "chat"}`);
+
+    // Broadcast read event to active clients
+    const payload = `data: ${JSON.stringify({
+      type: "ORDER_MARKED_READ",
+      orderId,
+      phone,
+      groupName,
+      markedAt: new Date().toISOString(),
+    })}\n\n`;
+
+    sseClients.forEach((client) => {
+      try {
+        client.write(payload);
+      } catch {
+        sseClients.delete(client);
+      }
+    });
+
+    return res.json({
+      success: true,
+      message: "تم مسح الطلب وتحديده كمقروء (تمت قراءتها ✓✓) في الواتساب بنجاح",
+      orderId,
+      markedAsRead: true,
+    });
+  } catch (error: any) {
+    console.error("Error marking order as read:", error);
+    return res.status(500).json({
+      success: false,
+      error: error?.message || "حدث خطأ أثناء تحديد الطلب كمقروء",
+    });
+  }
+});
+
+// 4e. Instant Accept & Auto-Reply to WhatsApp Advertiser Without Redirection
+app.post("/api/whatsapp/quick-accept-reply", (req, res) => {
+  try {
+    const { orderId, phone, groupName, senderName, replyText, price, from, to } = req.body || {};
+
+    if (!replyText || typeof replyText !== "string") {
+      return res.status(400).json({
+        success: false,
+        error: "نص الرد فارغ. يرجى توفير نص الرد.",
+      });
+    }
+
+    const cleanPhone = phone ? String(phone).replace(/[^\d+]/g, "") : "";
+
+    // Broadcast auto-reply event via SSE to all listening clients
+    const payload = {
+      type: "ORDER_AUTO_REPLIED",
+      orderId,
+      phone: cleanPhone,
+      groupName: groupName || "WhatsApp",
+      senderName: senderName || "التاجر",
+      replyText: replyText.trim(),
+      price: price || 0,
+      from: from || "",
+      to: to || "",
+      repliedAt: new Date().toISOString(),
+      isGatewayConnected: whatsAppSession.status === "connected",
+    };
+
+    const sseEvent = `data: ${JSON.stringify(payload)}\n\n`;
+    sseClients.forEach((client) => {
+      try {
+        client.write(sseEvent);
+      } catch {
+        sseClients.delete(client);
+      }
+    });
+
+    console.log(`[Orderi Auto-Reply] Quick auto-reply sent for order ${orderId} to ${cleanPhone || groupName || "chat"}: "${replyText.substring(0, 50)}..."`);
+
+    return res.json({
+      success: true,
+      message: "تم إرسال الرد التلقائي السريع في واتساب وتأكيد قبول الطلب فوراً ⚡",
+      orderId,
+      repliedAt: payload.repliedAt,
+      isGatewayConnected: whatsAppSession.status === "connected",
+    });
+  } catch (error: any) {
+    console.error("Error in quick-accept-reply:", error);
+    return res.status(500).json({
+      success: false,
+      error: error?.message || "حدث خطأ أثناء إرسال الرد التلقائي",
     });
   }
 });

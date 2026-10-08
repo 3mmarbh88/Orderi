@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { 
   Check, 
   X, 
@@ -21,11 +21,13 @@ import {
   Zap,
   Lightbulb,
   AlertTriangle,
-  Layers
+  Layers,
+  RefreshCw
 } from 'lucide-react';
 import { ParsedOrder } from '../types';
 import { MatcherLocation } from '../utils/matcher';
 import { AIMatchModal } from './AIMatchModal';
+import { findLandmarkByName } from '../data/bahrainLandmarks';
 
 interface OrderCardProps {
   key?: string;
@@ -57,6 +59,9 @@ export function OrderCard({
   const isGood = match.score >= 80;
   const isMyBroadcast = order.type === 'إعلاني الخاص';
 
+  const fromLandmark = findLandmarkByName(order.from);
+  const toLandmark = findLandmarkByName(order.to);
+
   // Standardized response message
   const myArea = driverLocation?.areaName || 'البحرين';
   const courierMessage = `#مندوب_توصيل انا في (${myArea})`;
@@ -83,11 +88,36 @@ export function OrderCard({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleConfirmAccept = () => {
-    onAccept(order);
-    setShowAcceptDialog(false);
-    if (waUrl) {
-      window.open(waUrl, '_blank', 'noopener,noreferrer');
+  const [isAutoReplying, setIsAutoReplying] = useState(false);
+
+  const handleQuickAutoReply = async (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setIsAutoReplying(true);
+
+    try {
+      // 1. قبول الطلب وإضافته لجدول الأرباح فوراً
+      onAccept(order);
+      setShowAcceptDialog(false);
+
+      // 2. إرسال الرد في واتساب بأقصى سرعة بدون تحويل المستخدم خارج التطبيق
+      await fetch('/api/whatsapp/quick-accept-reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderId: order.id,
+          phone: order.senderPhone,
+          groupName: order.groupName,
+          senderName: order.senderName,
+          replyText: fullWhatsAppMessage,
+          price: order.price,
+          from: order.from,
+          to: order.to,
+        }),
+      });
+    } catch (err) {
+      console.warn('[Orderi] Quick auto-reply error:', err);
+    } finally {
+      setIsAutoReplying(false);
     }
   };
 
@@ -265,13 +295,18 @@ export function OrderCard({
                 <div className="flex items-center gap-1.5 text-[11px] font-bold text-blue-700 mb-0.5">
                   <span className="w-2 h-2 rounded-full bg-blue-600 ring-3 ring-blue-100 inline-block shrink-0" />
                   <span>الاستلام</span>
+                  {fromLandmark && (
+                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded bg-blue-100 text-blue-900 text-[10px] font-extrabold border border-blue-200">
+                      🏬 {fromLandmark.parentAreaName}
+                    </span>
+                  )}
                 </div>
-                <div className="text-sm sm:text-base font-black text-slate-900 truncate">
-                  {order.from || 'غير محدد'}
+                <div className="text-sm sm:text-base font-black text-slate-900 truncate flex items-center gap-1.5">
+                  <span>{order.from || 'غير محدد'}</span>
                 </div>
                 {match.distanceKm !== null && (
                   <span className="text-[11px] font-medium text-slate-500 block">
-                    يبعد {match.distanceKm.toFixed(1)} كم
+                    يبعد {match.distanceKm.toFixed(1)} كم {fromLandmark ? `(${fromLandmark.parentAreaName})` : ''}
                   </span>
                 )}
               </div>
@@ -291,6 +326,11 @@ export function OrderCard({
               {/* Destination (To) */}
               <div className="flex-1 min-w-0 text-left">
                 <div className="flex items-center justify-end gap-1.5 text-[11px] font-bold text-rose-600 mb-0.5">
+                  {toLandmark && (
+                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded bg-rose-100 text-rose-900 text-[10px] font-extrabold border border-rose-200">
+                      🏬 {toLandmark.parentAreaName}
+                    </span>
+                  )}
                   <span>التسليم</span>
                   <MapPin className="w-3 h-3 text-rose-600 shrink-0" />
                 </div>
@@ -314,7 +354,7 @@ export function OrderCard({
             }`}>
               {match.startMatched ? <Check className="w-3 h-3 text-emerald-600" /> : <X className="w-3 h-3 text-rose-500" />}
               <span>
-                الاستلام من موقعك: {match.distanceKm !== null ? `${match.distanceKm.toFixed(1)} كم (${match.startMatched ? 'ضمن نطاقك' : 'خارج نطاقك'})` : (order.from || 'البحرين')}
+                الاستلام من موقعك: {match.distanceKm !== null ? `${match.distanceKm.toFixed(1)} كم (${fromLandmark ? fromLandmark.parentAreaName + ' • ' : ''}${match.startMatched ? 'ضمن نطاقك 🎯' : 'خارج نطاقك'})` : (order.from || 'البحرين')}
               </span>
             </span>
 
@@ -322,7 +362,7 @@ export function OrderCard({
               match.destinationMatched ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-slate-100 text-slate-600 border-slate-200'
             }`}>
               {match.destinationMatched ? <Check className="w-3 h-3 text-emerald-600" /> : <X className="w-3 h-3 text-slate-400" />}
-              <span>الوجهة: {order.to || 'الكل'}</span>
+              <span>الوجهة: {toLandmark ? `${order.to} (${toLandmark.parentAreaName})` : (order.to || 'الكل')}</span>
             </span>
 
             <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border font-bold ${
@@ -492,27 +532,46 @@ export function OrderCard({
 
           {/* Action Buttons: Responsive Mobile Stack / Desktop Row */}
           <div className="space-y-2 pt-1">
-            {/* Primary Action Button (Accept & Reply on WhatsApp) */}
-            <button
-              onClick={() => setShowAcceptDialog(true)}
-              className={`w-full min-h-[48px] flex items-center justify-center gap-2 py-3 px-4 rounded-xl sm:rounded-2xl text-white font-black text-sm sm:text-base shadow-md transition-all active:scale-[0.98] ${
-                isMyBroadcast 
-                  ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-emerald-600/25' 
-                  : 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/20'
-              }`}
-            >
-              {isMyBroadcast ? (
-                <>
-                  <Reply className="w-4 h-4" />
-                  <span>حصلت مندوب (رد: تم بالقروبات) 🎯</span>
-                </>
-              ) : (
-                <>
-                  <MessageCircle className="w-5 h-5 fill-white" />
-                  <span>قبول الطلب والتواصل بالواتساب</span>
-                </>
-              )}
-            </button>
+            {/* Primary Action Button (Accept & Reply on WhatsApp Instantly Without Redirection) */}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleQuickAutoReply}
+                disabled={isAutoReplying}
+                className={`flex-1 min-h-[48px] flex items-center justify-center gap-2 py-3 px-3.5 sm:px-4 rounded-xl sm:rounded-2xl text-white font-black text-xs sm:text-sm shadow-md transition-all active:scale-[0.98] cursor-pointer ${
+                  isMyBroadcast 
+                    ? 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 shadow-purple-600/25' 
+                    : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-emerald-600/25'
+                }`}
+              >
+                {isAutoReplying ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                    <span>جاري الرد التلقائي في واتساب...</span>
+                  </>
+                ) : isMyBroadcast ? (
+                  <>
+                    <Reply className="w-4 h-4" />
+                    <span>حصلت مندوب (رد: تم فوراً) 🎯</span>
+                  </>
+                ) : (
+                  <>
+                    <Zap className="w-4 h-4 fill-amber-300 text-amber-300 animate-pulse" />
+                    <span>قبول والرد التلقائي بالواتساب فوراً ⚡</span>
+                  </>
+                )}
+              </button>
+
+              {/* View Message Template / Dialog */}
+              <button
+                type="button"
+                onClick={() => setShowAcceptDialog(true)}
+                title="معاينة نص الرسالة وخيارات القبول"
+                className="min-h-[48px] px-3 flex items-center justify-center rounded-xl sm:rounded-2xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 transition-all active:scale-95 cursor-pointer shrink-0"
+              >
+                <MessageCircle className="w-4 h-4 text-emerald-700" />
+              </button>
+            </div>
 
             {/* Secondary Touch Actions Row */}
             <div className="flex items-center gap-2">
@@ -538,14 +597,19 @@ export function OrderCard({
                 </a>
               )}
 
-              {/* Remove / Ignore Order Button */}
+              {/* Remove / Ignore Order Button & Mark as Read in WhatsApp */}
               <button
+                type="button"
                 onClick={() => onIgnore(order.id)}
-                title="إزالة الطلب من القائمة"
-                aria-label="إزالة الطلب"
-                className="min-h-[44px] w-12 flex items-center justify-center rounded-xl bg-slate-100 hover:bg-rose-50 text-slate-400 hover:text-rose-600 border border-slate-200 hover:border-rose-200 transition-all active:scale-95"
+                title="مسح الطلب من الرادار وتحديده كمقروء (تمت قراءتها ✓✓) في الواتساب"
+                aria-label="مسح الطلب وتحديده كمقروء في الواتساب"
+                className="min-h-[44px] px-3 flex items-center justify-center gap-1.5 rounded-xl bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 border border-slate-200 hover:border-rose-200 transition-all active:scale-95 cursor-pointer shrink-0"
               >
-                <Trash2 className="w-4 h-4" />
+                <Trash2 className="w-4 h-4 text-slate-500" />
+                <span className="text-[11px] font-bold flex items-center gap-1">
+                  <span>مسح</span>
+                  <span className="text-emerald-600 font-black text-[10px]" title="تمت قراءتها في الواتساب">✓✓</span>
+                </span>
               </button>
             </div>
           </div>
@@ -572,10 +636,10 @@ export function OrderCard({
               </div>
               <div>
                 <h3 className="text-base sm:text-lg font-black text-slate-900">
-                  {isMyBroadcast ? 'نشر رد (تم) في نفس القروبات' : 'تأكيد قبول الطلب'}
+                  {isMyBroadcast ? 'نشر رد (تم) في نفس القروبات' : 'تأكيد قبول الطلب والرد التلقائي'}
                 </h3>
                 <p className="text-xs text-slate-500">
-                  {isMyBroadcast ? 'سيتم فتح WhatsApp لنشر رد (تم) في القروبات وإغلاق الطلب' : 'سيتم فتح WhatsApp وإرسال الرد السريع للمعلن'}
+                  {isMyBroadcast ? 'سيتم نشر رد (تم) فوراً في القروبات وإغلاق الطلب' : 'سيتم الرد التلقائي فوراً في واتساب وتأكيد قبول الطلب دون تحويلك خارج التطبيق ⚡'}
                 </p>
               </div>
             </div>
@@ -594,22 +658,27 @@ export function OrderCard({
               <strong className="text-base font-black text-blue-700">{order.price.toFixed(1)} د.ب</strong>
             </div>
 
-            <div className="flex items-center gap-2.5 pt-1">
+            <div className="flex flex-col sm:flex-row items-center gap-2.5 pt-1">
               <button
                 type="button"
                 onClick={() => setShowAcceptDialog(false)}
-                className="flex-1 min-h-[48px] py-3 px-4 rounded-xl border border-slate-200 text-slate-700 font-bold text-sm hover:bg-slate-50 active:scale-98 transition-all"
+                className="w-full sm:w-auto px-4 py-3 rounded-xl border border-slate-200 text-slate-700 font-bold text-xs sm:text-sm hover:bg-slate-50 active:scale-98 transition-all order-2 sm:order-1"
               >
                 إلغاء
               </button>
 
               <button
                 type="button"
-                onClick={handleConfirmAccept}
-                className="flex-1 min-h-[48px] flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-sm shadow-md shadow-emerald-600/20 active:scale-98 transition-all"
+                onClick={handleQuickAutoReply}
+                disabled={isAutoReplying}
+                className="w-full sm:flex-1 min-h-[48px] flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs sm:text-sm shadow-md shadow-emerald-600/20 active:scale-98 transition-all cursor-pointer order-1 sm:order-2"
               >
-                <span>{isMyBroadcast ? 'نشر رد (تم) 🚀' : 'متابعة إلى WhatsApp'}</span>
-                <ExternalLink className="w-4 h-4" />
+                {isAutoReplying ? (
+                  <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                ) : (
+                  <Zap className="w-4 h-4 fill-amber-300 text-amber-300" />
+                )}
+                <span>{isMyBroadcast ? 'نشر رد (تم) فوراً 🎯' : 'قبول الطلب والرد التلقائي فوراً في واتساب ⚡'}</span>
               </button>
             </div>
 

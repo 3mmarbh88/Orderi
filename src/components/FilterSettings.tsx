@@ -119,6 +119,17 @@ export function FilterSettings({
   const [customAreaInput, setCustomAreaInput] = useState('');
   const [notifPermission, setNotifPermission] = useState<NotificationPermission>(getNotificationPermission());
   const [showNotifGuideModal, setShowNotifGuideModal] = useState<boolean>(false);
+  const [vibratingPatternId, setVibratingPatternId] = useState<VibrationPatternId | 'current' | null>(null);
+
+  const handleTestVibration = (patternId?: VibrationPatternId, intensity?: number) => {
+    const targetPattern = patternId || localFilter.vibrationPattern || 'standard';
+    const targetIntensity = intensity ?? localFilter.vibrationIntensity ?? 2;
+    setVibratingPatternId(patternId ? patternId : 'current');
+    const durMs = triggerCustomVibration(targetPattern, targetIntensity);
+    setTimeout(() => {
+      setVibratingPatternId(null);
+    }, Math.max(durMs, 600));
+  };
 
   // Sync with parent filter prop when it changes
   useEffect(() => {
@@ -465,222 +476,6 @@ export function FilterSettings({
       {/* Accordion List Container */}
       <div className="space-y-3 sm:space-y-4 w-full max-w-full min-w-0">
         
-        {/* 0. Accordion: الحساب والترخيص (دخول بالهاتف والبصمة وكود التفعيل) */}
-        <div className="rounded-2xl sm:rounded-3xl bg-gradient-to-br from-white via-emerald-50/20 to-teal-50/30 border border-emerald-200/90 shadow-2xs overflow-hidden transition-all">
-          <button
-            type="button"
-            onClick={() => toggleSection('auth')}
-            className="w-full min-h-[60px] flex items-center justify-between p-4 sm:p-5 text-right bg-white hover:bg-slate-50/80 transition-colors cursor-pointer select-none"
-          >
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-10 h-10 rounded-2xl bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0 border border-emerald-200 shadow-2xs">
-                <Fingerprint className="w-5 h-5" />
-              </div>
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <h3 className="text-sm sm:text-base font-black text-slate-900 truncate">
-                    الحساب والترخيص (دخول بالهاتف والبصمة وكود التفعيل)
-                  </h3>
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
-                    currentUser?.isActivated 
-                       ? 'bg-emerald-100 text-emerald-800' 
-                       : 'bg-amber-100 text-amber-800'
-                  }`}>
-                    {currentUser ? (currentUser.isActivated ? 'حساب VIP 🇧🇭' : 'بانتظار التفعيل') : 'تسجيل / تفعيل'}
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-500 truncate mt-0.5">
-                  {currentUser ? (
-                    <>الاسم: <strong className="text-emerald-700 font-bold">{currentUser.name}</strong> · الهاتف: +973 {currentUser.phone} · الخطة: {currentUser.licensePlan || 'نشط'}</>
-                  ) : (
-                    'الدخول برقم الهاتف وكلمة المرور، مستشعر البصمة البيومترية، وإدخال كود التفعيل المعتمد'
-                  )}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 shrink-0 mr-2">
-              <span className="hidden sm:inline text-xs font-bold text-slate-400">
-                {openSections.auth ? 'إخفاء' : 'إدارة الحساب'}
-              </span>
-              <div className={`w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 transition-transform duration-200 ${openSections.auth ? 'rotate-180 bg-emerald-50 text-emerald-700' : ''}`}>
-                <ChevronDown className="w-4 h-4" />
-              </div>
-            </div>
-          </button>
-
-          {openSections.auth && (
-            <div className="p-4 sm:p-6 border-t border-emerald-100 space-y-4 bg-slate-50/40 animate-in fade-in duration-150">
-              
-              {/* Profile Overview Card */}
-              {currentUser ? (
-                <div className="p-4 sm:p-5 rounded-2xl bg-white border border-emerald-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-2xl bg-emerald-600 text-white flex items-center justify-center font-black text-lg shadow-md shadow-emerald-600/20 shrink-0">
-                      <User className="w-6 h-6" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h4 className="text-base font-black text-slate-900">{currentUser.name}</h4>
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-200">
-                          {currentUser.isActivated ? 'ترخيص معتمد ✅' : 'يحتاج تفعيل'}
-                        </span>
-                      </div>
-                      <p className="text-xs text-slate-500 mt-0.5">
-                        رقم الهاتف: <strong className="text-slate-700 font-mono" dir="ltr">+973 {currentUser.phone}</strong> · وسيلة التوصيل: <strong className="text-slate-800">{getVehicleTypeLabel(currentUser.vehicleType)}</strong>
-                      </p>
-                      <p className="text-[11px] text-emerald-700 font-bold mt-1">
-                        خطة الترخيص: {currentUser.licensePlan || 'ترخيص VIP سنوي'}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => onOpenAuthModal?.('activate')}
-                      className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-xs transition-all flex items-center gap-1.5 active:scale-95"
-                    >
-                      <KeyRound className="w-3.5 h-3.5" />
-                      <span>تجديد / إدخال كود التفعيل</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onOpenAuthModal?.('login')}
-                      className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition-all active:scale-95"
-                    >
-                      تبديل الحساب
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">
-                      <Lock className="w-6 h-6" />
-                    </div>
-                    <div>
-                      <h4 className="text-sm sm:text-base font-black text-slate-900">لم تقم بتسجيل الدخول بعد</h4>
-                      <p className="text-xs text-slate-500 mt-0.5">سجل دخولك برقم الهاتف أو البصمة لحفظ إعدادات الرادار وربط ترخيص البرنامج</p>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => onOpenAuthModal?.('login')}
-                      className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs shadow-xs transition-all flex items-center gap-1.5 active:scale-95"
-                    >
-                      <Lock className="w-3.5 h-3.5" />
-                      <span>تسجيل الدخول (هاتف وباسوورد)</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onOpenAuthModal?.('register')}
-                      className="px-4 py-2.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs border border-blue-200 transition-all active:scale-95"
-                    >
-                      حساب جديد
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* 3 Quick Action Cards for Login / Biometrics / Activation Code */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <button
-                  type="button"
-                  onClick={() => onOpenAuthModal?.('login')}
-                  className="p-3.5 rounded-2xl bg-white hover:bg-emerald-50/40 border border-slate-200 hover:border-emerald-300 text-right transition-all group shadow-2xs"
-                >
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-xs font-black text-slate-900">دخول الهاتف وكلمة المرور</span>
-                    <Lock className="w-4 h-4 text-emerald-600 group-hover:scale-110 transition-transform" />
-                  </div>
-                  <p className="text-[11px] text-slate-500 leading-relaxed">
-                    تسجيل الدخول برقم واتساب البحرين (+973) مع كلمة المرور الخاصة بك.
-                  </p>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => onOpenAuthModal?.('login')}
-                  className="p-3.5 rounded-2xl bg-white hover:bg-emerald-50/40 border border-slate-200 hover:border-emerald-300 text-right transition-all group shadow-2xs"
-                >
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-xs font-black text-slate-900">المصادقة السريعة بالبصمة</span>
-                    <Fingerprint className="w-4 h-4 text-emerald-600 group-hover:scale-110 transition-transform" />
-                  </div>
-                  <p className="text-[11px] text-slate-500 leading-relaxed">
-                    تسجيل دخول فوري وآمن بنقرة إصبع عبر مستشعر البصمة أو Face ID.
-                  </p>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => onOpenAuthModal?.('activate')}
-                  className="p-3.5 rounded-2xl bg-white hover:bg-emerald-50/40 border border-slate-200 hover:border-emerald-300 text-right transition-all group shadow-2xs"
-                >
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-xs font-black text-slate-900">كود التفعيل وترخيص البرنامج</span>
-                    <KeyRound className="w-4 h-4 text-emerald-600 group-hover:scale-110 transition-transform" />
-                  </div>
-                  <p className="text-[11px] text-slate-500 leading-relaxed">
-                    إدخال كود الترخيص الرسمي لفتح ميزات السحب الآلي وفحص AI.
-                  </p>
-                </button>
-              </div>
-
-              {/* Features Unlocked & WhatsApp Activation Request */}
-              <div className="p-3 sm:p-4 rounded-2xl bg-white border border-slate-200/90 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-black text-slate-800">الميزات المفعلة عند إدخال كود التفعيل:</span>
-                  <span className="text-[10px] text-emerald-700 font-bold">رادار Ordari 🇧🇭</span>
-                </div>
-
-                <ul className="space-y-1.5 text-xs text-slate-700">
-                  <li className="flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                    <span>سحب فوري لكافة طلبات مجموعات واتساب على نفس الهاتف</span>
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                    <span>فحص الذكاء الاصطناعي بـ Gemini AI لشروط التوصيل</span>
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                    <span>العمل في الخلفية واستقبال الإشعارات فوق خرائط Google</span>
-                  </li>
-                </ul>
-
-                <div className="pt-2 border-t border-slate-100 flex flex-col sm:flex-row gap-2">
-                  {/* WhatsApp Direct Contact Button to Request Activation Code */}
-                  <a
-                    href={ACTIVATION_WHATSAPP_LINK}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex-1 py-2.5 px-4 rounded-xl bg-[#25D366] hover:bg-[#20ba59] text-white font-black text-xs shadow-xs transition-all flex items-center justify-center gap-2 active:scale-95 group"
-                  >
-                    <svg className="w-4 h-4 fill-current shrink-0 group-hover:scale-110 transition-transform" viewBox="0 0 24 24">
-                      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L0 24l6.335-1.662c1.746.953 3.71 1.456 5.711 1.457h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
-                    </svg>
-                    <span>تواصل عبر واتساب للحصول على كود التفعيل</span>
-                  </a>
-
-                  <button
-                    type="button"
-                    onClick={() => onOpenAuthModal?.('activate')}
-                    className="py-2.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition-all active:scale-95 flex items-center justify-center gap-1.5"
-                  >
-                    <KeyRound className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>إدخال كود التفعيل</span>
-                  </button>
-                </div>
-              </div>
-
-            </div>
-          )}
-        </div>
-
         {/* 1. Accordion: موقعك الحالي في البحرين */}
         <div className="rounded-2xl sm:rounded-3xl bg-white border border-slate-200/90 shadow-2xs overflow-hidden transition-all">
           <button
@@ -1671,11 +1466,15 @@ export function FilterSettings({
 
             <button
               type="button"
-              onClick={() => triggerCustomVibration(localFilter.vibrationPattern || 'standard', localFilter.vibrationIntensity ?? 2)}
-              className="flex items-center gap-1 text-xs font-bold text-indigo-700 bg-white border border-indigo-200 px-3 py-1.5 rounded-xl shadow-xs hover:bg-indigo-50 self-start sm:self-auto"
+              onClick={() => handleTestVibration()}
+              className={`flex items-center gap-1.5 text-xs font-bold px-3.5 py-2 rounded-xl shadow-xs transition-all cursor-pointer self-start sm:self-auto ${
+                vibratingPatternId
+                  ? 'bg-indigo-600 text-white border border-indigo-700 animate-pulse ring-2 ring-indigo-300 shadow-md'
+                  : 'text-indigo-700 bg-white border border-indigo-200 hover:bg-indigo-50 active:scale-95'
+              }`}
             >
-              <Vibrate className="w-3.5 h-3.5" />
-              <span>تجربة نمط الهزاز الحالي</span>
+              <Vibrate className={`w-4 h-4 ${vibratingPatternId ? 'animate-bounce text-amber-300' : 'text-indigo-600'}`} />
+              <span>{vibratingPatternId ? '📳 جاري الاهتزاز الآن...' : 'تجربة نمط الهزاز الحالي ⚡'}</span>
             </button>
           </div>
 
@@ -1693,9 +1492,9 @@ export function FilterSettings({
                   type="button"
                   onClick={() => {
                     setLocalFilter({ ...localFilter, vibrationIntensity: item.level });
-                    triggerCustomVibration(localFilter.vibrationPattern || 'standard', item.level);
+                    handleTestVibration(localFilter.vibrationPattern || 'standard', item.level);
                   }}
-                  className={`py-1.5 px-2 rounded-xl text-xs font-bold border transition-all ${
+                  className={`py-1.5 px-2 rounded-xl text-xs font-bold border transition-all cursor-pointer active:scale-95 ${
                     (localFilter.vibrationIntensity ?? 2) === item.level
                       ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
                       : 'bg-white text-indigo-900 border-indigo-200 hover:bg-indigo-50'
@@ -1709,28 +1508,72 @@ export function FilterSettings({
 
           {/* Pattern Selector */}
           <div className="space-y-2">
-            <span className="text-xs font-bold text-indigo-900 block">نمط الاهتزاز المفضل:</span>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-indigo-900 block">نمط الاهتزاز المفضل:</span>
+              {vibratingPatternId && (
+                <span className="text-[11px] font-black text-indigo-700 animate-pulse flex items-center gap-1">
+                  <Vibrate className="w-3.5 h-3.5" />
+                  <span>نبضات الهزاز نشطة...</span>
+                </span>
+              )}
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
               {VIBRATION_PRESETS.map((p) => {
                 const isSelected = (localFilter.vibrationPattern || 'standard') === p.id;
+                const isThisVibrating = vibratingPatternId === p.id || (vibratingPatternId === 'current' && isSelected);
                 return (
                   <div
                     key={p.id}
                     onClick={() => {
                       setLocalFilter({ ...localFilter, vibrationPattern: p.id });
-                      triggerCustomVibration(p.id, localFilter.vibrationIntensity ?? 2);
+                      handleTestVibration(p.id, localFilter.vibrationIntensity ?? 2);
                     }}
-                    className={`p-3 rounded-xl border cursor-pointer transition-all ${
-                      isSelected
+                    className={`p-3.5 rounded-xl border cursor-pointer transition-all relative select-none ${
+                      isThisVibrating
+                        ? 'bg-indigo-50 border-indigo-600 shadow-md ring-2 ring-indigo-400 scale-[1.02]'
+                        : isSelected
                         ? 'bg-white border-indigo-600 shadow-xs ring-1 ring-indigo-500'
-                        : 'bg-white/80 hover:bg-white border-indigo-100'
+                        : 'bg-white/80 hover:bg-white border-indigo-100 hover:border-indigo-200'
                     }`}
                   >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs font-bold text-indigo-950">{p.name}</span>
-                      <span className={`w-2 h-2 rounded-full ${isSelected ? 'bg-indigo-600' : 'bg-slate-300'}`} />
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <Vibrate className={`w-3.5 h-3.5 ${isThisVibrating ? 'animate-bounce text-indigo-600' : isSelected ? 'text-indigo-600' : 'text-slate-400'}`} />
+                        <span className="text-xs font-bold text-indigo-950">{p.name}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        {isThisVibrating && (
+                          <span className="text-[10px] font-black px-1.5 py-0.5 rounded-full bg-indigo-600 text-white animate-pulse">
+                            يهتز 📳
+                          </span>
+                        )}
+                        <span className={`w-2 h-2 rounded-full ${isSelected ? 'bg-indigo-600' : 'bg-slate-300'}`} />
+                      </div>
                     </div>
-                    <p className="text-[10px] text-indigo-800/70">{p.description}</p>
+                    <p className="text-[10px] text-indigo-800/80 leading-relaxed mb-2">{p.description}</p>
+                    
+                    {/* Quick Test Action Button */}
+                    <div className="pt-2 border-t border-indigo-100/70 flex items-center justify-between">
+                      <span className="text-[10px] font-medium text-slate-500">
+                        {p.durations.length === 1 ? 'نبضة واحدة' : `${Math.ceil(p.durations.length / 2)} نبضات`}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setLocalFilter({ ...localFilter, vibrationPattern: p.id });
+                          handleTestVibration(p.id, localFilter.vibrationIntensity ?? 2);
+                        }}
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border transition-all flex items-center gap-1 cursor-pointer active:scale-95 ${
+                          isThisVibrating
+                            ? 'bg-indigo-600 text-white border-indigo-600'
+                            : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200/80'
+                        }`}
+                      >
+                        <Vibrate className="w-2.5 h-2.5" />
+                        <span>{isThisVibrating ? 'جاري الهز...' : 'تجربة ⚡'}</span>
+                      </button>
+                    </div>
                   </div>
                 );
               })}
@@ -2480,6 +2323,222 @@ export function FilterSettings({
                   </div>
                 </div>
                 <PWAInstallButton variant="header" />
+              </div>
+
+            </div>
+          )}
+        </div>
+
+        {/* 10. Accordion: الحساب والترخيص (دخول بالهاتف والبصمة وكود التفعيل) */}
+        <div className="rounded-2xl sm:rounded-3xl bg-gradient-to-br from-white via-emerald-50/20 to-teal-50/30 border border-emerald-200/90 shadow-2xs overflow-hidden transition-all">
+          <button
+            type="button"
+            onClick={() => toggleSection('auth')}
+            className="w-full min-h-[60px] flex items-center justify-between p-4 sm:p-5 text-right bg-white hover:bg-slate-50/80 transition-colors cursor-pointer select-none"
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-2xl bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0 border border-emerald-200 shadow-2xs">
+                <Fingerprint className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm sm:text-base font-black text-slate-900 truncate">
+                    الحساب والترخيص (دخول بالهاتف والبصمة وكود التفعيل)
+                  </h3>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                    currentUser?.isActivated 
+                       ? 'bg-emerald-100 text-emerald-800' 
+                       : 'bg-amber-100 text-amber-800'
+                  }`}>
+                    {currentUser ? (currentUser.isActivated ? 'حساب VIP 🇧🇭' : 'بانتظار التفعيل') : 'تسجيل / تفعيل'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                  {currentUser ? (
+                    <>الاسم: <strong className="text-emerald-700 font-bold">{currentUser.name}</strong> · الهاتف: +973 {currentUser.phone} · الخطة: {currentUser.licensePlan || 'نشط'}</>
+                  ) : (
+                    'الدخول برقم الهاتف وكلمة المرور، مستشعر البصمة البيومترية، وإدخال كود التفعيل المعتمد'
+                  )}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0 mr-2">
+              <span className="hidden sm:inline text-xs font-bold text-slate-400">
+                {openSections.auth ? 'إخفاء' : 'إدارة الحساب'}
+              </span>
+              <div className={`w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 transition-transform duration-200 ${openSections.auth ? 'rotate-180 bg-emerald-50 text-emerald-700' : ''}`}>
+                <ChevronDown className="w-4 h-4" />
+              </div>
+            </div>
+          </button>
+
+          {openSections.auth && (
+            <div className="p-4 sm:p-6 border-t border-emerald-100 space-y-4 bg-slate-50/40 animate-in fade-in duration-150">
+              
+              {/* Profile Overview Card */}
+              {currentUser ? (
+                <div className="p-4 sm:p-5 rounded-2xl bg-white border border-emerald-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-2xl bg-emerald-600 text-white flex items-center justify-center font-black text-lg shadow-md shadow-emerald-600/20 shrink-0">
+                      <User className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-base font-black text-slate-900">{currentUser.name}</h4>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-200">
+                          {currentUser.isActivated ? 'ترخيص معتمد ✅' : 'يحتاج تفعيل'}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        رقم الهاتف: <strong className="text-slate-700 font-mono" dir="ltr">+973 {currentUser.phone}</strong> · وسيلة التوصيل: <strong className="text-slate-800">{getVehicleTypeLabel(currentUser.vehicleType)}</strong>
+                      </p>
+                      <p className="text-[11px] text-emerald-700 font-bold mt-1">
+                        خطة الترخيص: {currentUser.licensePlan || 'ترخيص VIP سنوي'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onOpenAuthModal?.('activate')}
+                      className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-xs transition-all flex items-center gap-1.5 active:scale-95"
+                    >
+                      <KeyRound className="w-3.5 h-3.5" />
+                      <span>تجديد / إدخال كود التفعيل</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onOpenAuthModal?.('login')}
+                      className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition-all active:scale-95"
+                    >
+                      تبديل الحساب
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">
+                      <Lock className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm sm:text-base font-black text-slate-900">لم تقم بتسجيل الدخول بعد</h4>
+                      <p className="text-xs text-slate-500 mt-0.5">سجل دخولك برقم الهاتف أو البصمة لحفظ إعدادات الرادار وربط ترخيص البرنامج</p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onOpenAuthModal?.('login')}
+                      className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs shadow-xs transition-all flex items-center gap-1.5 active:scale-95"
+                    >
+                      <Lock className="w-3.5 h-3.5" />
+                      <span>تسجيل الدخول (هاتف وباسوورد)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onOpenAuthModal?.('register')}
+                      className="px-4 py-2.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs border border-blue-200 transition-all active:scale-95"
+                    >
+                      حساب جديد
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* 3 Quick Action Cards for Login / Biometrics / Activation Code */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <button
+                  type="button"
+                  onClick={() => onOpenAuthModal?.('login')}
+                  className="p-3.5 rounded-2xl bg-white hover:bg-emerald-50/40 border border-slate-200 hover:border-emerald-300 text-right transition-all group shadow-2xs"
+                >
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-xs font-black text-slate-900">دخول الهاتف وكلمة المرور</span>
+                    <Lock className="w-4 h-4 text-emerald-600 group-hover:scale-110 transition-transform" />
+                  </div>
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    تسجيل الدخول برقم واتساب البحرين (+973) مع كلمة المرور الخاصة بك.
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => onOpenAuthModal?.('login')}
+                  className="p-3.5 rounded-2xl bg-white hover:bg-emerald-50/40 border border-slate-200 hover:border-emerald-300 text-right transition-all group shadow-2xs"
+                >
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-xs font-black text-slate-900">المصادقة السريعة بالبصمة</span>
+                    <Fingerprint className="w-4 h-4 text-emerald-600 group-hover:scale-110 transition-transform" />
+                  </div>
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    تسجيل دخول فوري وآمن بنقرة إصبع عبر مستشعر البصمة أو Face ID.
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => onOpenAuthModal?.('activate')}
+                  className="p-3.5 rounded-2xl bg-white hover:bg-emerald-50/40 border border-slate-200 hover:border-emerald-300 text-right transition-all group shadow-2xs"
+                >
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-xs font-black text-slate-900">كود التفعيل وترخيص البرنامج</span>
+                    <KeyRound className="w-4 h-4 text-emerald-600 group-hover:scale-110 transition-transform" />
+                  </div>
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    إدخال كود الترخيص الرسمي لفتح ميزات السحب الآلي وفحص AI.
+                  </p>
+                </button>
+              </div>
+
+              {/* Features Unlocked & WhatsApp Activation Request */}
+              <div className="p-3 sm:p-4 rounded-2xl bg-white border border-slate-200/90 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black text-slate-800">الميزات المفعلة عند إدخال كود التفعيل:</span>
+                  <span className="text-[10px] text-emerald-700 font-bold">رادار Ordari 🇧🇭</span>
+                </div>
+
+                <ul className="space-y-1.5 text-xs text-slate-700">
+                  <li className="flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                    <span>سحب فوري لكافة طلبات مجموعات واتساب على نفس الهاتف</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                    <span>فحص الذكاء الاصطناعي بـ Gemini AI لشروط التوصيل</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                    <span>العمل في الخلفية واستقبال الإشعارات فوق خرائط Google</span>
+                  </li>
+                </ul>
+
+                <div className="pt-2 border-t border-slate-100 flex flex-col sm:flex-row gap-2">
+                  {/* WhatsApp Direct Contact Button to Request Activation Code */}
+                  <a
+                    href={ACTIVATION_WHATSAPP_LINK}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-1 py-2.5 px-4 rounded-xl bg-[#25D366] hover:bg-[#20ba59] text-white font-black text-xs shadow-xs transition-all flex items-center justify-center gap-2 active:scale-95 group"
+                  >
+                    <svg className="w-4 h-4 fill-current shrink-0 group-hover:scale-110 transition-transform" viewBox="0 0 24 24">
+                      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L0 24l6.335-1.662c1.746.953 3.71 1.456 5.711 1.457h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+                    </svg>
+                    <span>تواصل عبر واتساب للحصول على كود التفعيل</span>
+                  </a>
+
+                  <button
+                    type="button"
+                    onClick={() => onOpenAuthModal?.('activate')}
+                    className="py-2.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition-all active:scale-95 flex items-center justify-center gap-1.5"
+                  >
+                    <KeyRound className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>إدخال كود التفعيل</span>
+                  </button>
+                </div>
               </div>
 
             </div>

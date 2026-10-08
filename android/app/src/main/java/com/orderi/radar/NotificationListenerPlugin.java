@@ -97,4 +97,26 @@ public class NotificationListenerPlugin extends Plugin {
         ret.put("events", arr);
         call.resolve(ret);
     }
+
+    @PluginMethod
+    public void updateFilterSettings(PluginCall call) {
+        try {
+            boolean ignoreNonMatching = call.getBoolean("ignoreNonMatching", false);
+            double minPrice = call.getDouble("minPrice", 0.0);
+            double coverageKm = call.getDouble("coverageKm", 10.0);
+            double driverLat = call.getDouble("driverLat", 0.0);
+            double driverLon = call.getDouble("driverLon", 0.0);
+            android.content.SharedPreferences.Editor editor = getContext()
+                    .getSharedPreferences("orderi_filter_settings", Context.MODE_PRIVATE).edit();
+            editor.putBoolean("ignore_non_matching", ignoreNonMatching);
+            editor.putFloat("min_price", (float) minPrice);
+            editor.putFloat("coverage_km", (float) coverageKm);
+            editor.putFloat("driver_lat", (float) driverLat);
+            editor.putFloat("driver_lon", (float) driverLon);
+            editor.apply();
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("Could not update native filter settings", e);
+        }
+    }
 }

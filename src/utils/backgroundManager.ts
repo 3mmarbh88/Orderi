@@ -1,4 +1,4 @@
-import { ParsedOrder } from '../types';
+import { ParsedOrder, OrderFilter } from '../types';
 
 let wakeLockSentinel: any = null;
 let isWakeLockRequested = false;
@@ -63,9 +63,21 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
  * Dispatches a native OS system notification for a matched order
  * Formatted exactly like native WhatsApp notifications with group/sender name, WhatsApp icon and sound
  */
-export function sendBackgroundOrderNotification(order: ParsedOrder): void {
+export function sendBackgroundOrderNotification(order: ParsedOrder, filter?: OrderFilter): void {
   if (!isNotificationSupported()) return;
   if (Notification.permission !== 'granted') return;
+
+  // حجب كامل للإشعارات في الخلفية للطلبات غير المطابقة لشروط الكابتن
+  if (filter?.ignoreNonMatching) {
+    if (!order.match || order.match.score < 80 || !order.match.priceMatched || !order.match.distanceMatched || !order.match.startMatched) {
+      return; // حجب كامل لمنع إزعاج الكابتن بطلبات خارج نطاقه أو سعره
+    }
+  }
+
+  // منع إرسال إشعار في الخلفية إذا كانت نسبة المطابقة أقل من 80% (إلا إذا كان متجر VIP موثوق)
+  if (order.match && order.match.score < 80 && order.contactStatus !== 'vip') {
+    return;
+  }
 
   try {
     const isVip = order.contactStatus === 'vip';

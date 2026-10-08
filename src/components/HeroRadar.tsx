@@ -42,6 +42,9 @@ interface HeroRadarProps {
   carSpeedKmh?: number;
   onPullRefresh?: () => Promise<void> | void;
   isRefreshing?: boolean;
+  activeTab?: string;
+  feedFilter?: 'all' | 'matched' | 'vip' | 'trusted_vip';
+  onSelectFilterCategory?: (category: 'monitored' | 'matched' | 'vip' | 'earnings') => void;
 }
 
 export function HeroRadar({
@@ -69,10 +72,26 @@ export function HeroRadar({
   carSpeedKmh = 0,
   onPullRefresh,
   isRefreshing = false,
+  activeTab = 'radar',
+  feedFilter = 'all',
+  onSelectFilterCategory,
 }: HeroRadarProps) {
   const pullStartY = useRef<number | null>(null);
   const pullDistance = useRef(0);
   const [mobileExpanded, setMobileExpanded] = useState(false);
+
+  const activeCategory: 'monitored' | 'matched' | 'vip' | 'earnings' | null =
+    activeTab === 'ledger'
+      ? 'earnings'
+      : activeTab === 'radar'
+      ? feedFilter === 'vip'
+        ? 'vip'
+        : feedFilter === 'matched'
+        ? 'matched'
+        : feedFilter === 'all'
+        ? 'monitored'
+        : null
+      : null;
 
   return (
     <div
@@ -203,71 +222,182 @@ export function HeroRadar({
         </div>
 
         {/* Compact Mobile Stats Strip (Always visible on mobile to save vertical space) */}
-        <div className="sm:hidden grid grid-cols-3 gap-1.5 p-2 rounded-xl bg-slate-800/80 border border-slate-700/60 text-center">
-          <div className="p-1">
+        <div className="sm:hidden grid grid-cols-4 gap-1 p-1.5 rounded-xl bg-slate-800/80 border border-slate-700/60 text-center select-none">
+          <button
+            type="button"
+            onClick={() => onSelectFilterCategory?.('monitored')}
+            className={`p-1 rounded-lg transition-all active:scale-95 cursor-pointer text-center ${
+              activeCategory === 'monitored'
+                ? 'bg-blue-600/30 border border-blue-400 text-white shadow-xs'
+                : 'hover:bg-slate-700/40 text-slate-300'
+            }`}
+            title="انقر لفتح وعرض كافة الطلبات المرصودة"
+          >
             <span className="text-[10px] text-slate-400 block font-medium">المرصودة</span>
-            <span className="text-base font-black text-white">{totalMonitored}</span>
-          </div>
-          <div className="p-1 border-x border-slate-700/60">
+            <span className="text-sm font-black text-white">{totalMonitored}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onSelectFilterCategory?.('matched')}
+            className={`p-1 rounded-lg transition-all active:scale-95 cursor-pointer text-center ${
+              activeCategory === 'matched'
+                ? 'bg-emerald-600/30 border border-emerald-400 text-emerald-300 shadow-xs'
+                : 'hover:bg-slate-700/40 text-slate-300'
+            }`}
+            title="انقر لفتح وعرض الطلبات المطابقة (80%+)"
+          >
             <span className="text-[10px] text-emerald-400 block font-medium">المطابقة</span>
-            <span className="text-base font-black text-emerald-400">{totalMatched}</span>
-          </div>
-          <div className="p-1">
-            <span className="text-[10px] text-amber-400 block font-medium">أرباح اليوم</span>
-            <span className="text-base font-black text-amber-300">{todayEarnings.toFixed(1)} <small className="text-[9px]">د.ب</small></span>
-          </div>
+            <span className="text-sm font-black text-emerald-400">{totalMatched}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onSelectFilterCategory?.('vip')}
+            className={`p-1 rounded-lg transition-all active:scale-95 cursor-pointer text-center ${
+              activeCategory === 'vip'
+                ? 'bg-amber-600/30 border border-amber-400 text-amber-300 shadow-xs'
+                : 'hover:bg-slate-700/40 text-slate-300'
+            }`}
+            title="انقر لفتح وعرض الطلبات الممتازة VIP (90%+)"
+          >
+            <span className="text-[10px] text-amber-400 block font-medium">VIP</span>
+            <span className="text-sm font-black text-amber-400">{vipOrdersCount}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onSelectFilterCategory?.('earnings')}
+            className={`p-1 rounded-lg transition-all active:scale-95 cursor-pointer text-center ${
+              activeCategory === 'earnings'
+                ? 'bg-emerald-600/30 border border-emerald-400 text-emerald-300 shadow-xs'
+                : 'hover:bg-slate-700/40 text-slate-300'
+            }`}
+            title="انقر لفتح أرباح اليوم وسجل الطلبات المقبولة"
+          >
+            <span className="text-[10px] text-amber-300 block font-medium">الأرباح</span>
+            <span className="text-sm font-black text-amber-300">{todayEarnings.toFixed(1)} <small className="text-[8px]">د.ب</small></span>
+          </button>
         </div>
 
         {/* 4 Primary Stats Tiles (Visible on desktop, or when expanded on mobile) */}
-        <div className={`${mobileExpanded ? 'grid' : 'hidden sm:grid'} grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4 animate-in fade-in duration-200`}>
+        <div className={`${mobileExpanded ? 'grid' : 'hidden sm:grid'} grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4 animate-in fade-in duration-200 select-none`}>
           
-          <div className="rounded-xl sm:rounded-2xl bg-slate-800/60 border border-slate-700/60 p-3 sm:p-4 transition-colors hover:bg-slate-800/80">
-            <div className="flex items-center justify-between text-slate-400 text-[11px] sm:text-xs font-semibold">
-              <span>الطلبات المرصودة</span>
-              <TrendingUp className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-400" />
+          {/* Card 1: الطلبات المرصودة */}
+          <button
+            type="button"
+            onClick={() => onSelectFilterCategory?.('monitored')}
+            className={`w-full text-right rounded-xl sm:rounded-2xl p-3 sm:p-4 transition-all duration-200 cursor-pointer active:scale-[0.98] border group ${
+              activeCategory === 'monitored'
+                ? 'bg-slate-800/95 border-blue-500 shadow-lg shadow-blue-950/40 ring-2 ring-blue-500/50'
+                : 'bg-slate-800/60 border-slate-700/60 hover:bg-slate-800/90 hover:border-slate-600'
+            }`}
+            title="انقر لفتح وعرض جميع الطلبات المرصودة من قروبات الواتساب بالأسفل"
+          >
+            <div className="flex items-center justify-between text-[11px] sm:text-xs font-semibold">
+              <span className={activeCategory === 'monitored' ? 'text-blue-300 font-bold' : 'text-slate-400 group-hover:text-slate-300'}>
+                الطلبات المرصودة
+              </span>
+              <TrendingUp className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-400 group-hover:scale-110 transition-transform" />
             </div>
             <div className="mt-1.5 sm:mt-2 flex items-baseline gap-1">
               <span className="text-xl sm:text-3xl font-black text-white">{totalMonitored}</span>
               <span className="text-[10px] sm:text-xs text-slate-400">طلب</span>
             </div>
-            <p className="mt-0.5 text-[10px] sm:text-[11px] text-slate-400 truncate">من قروبات الواتساب</p>
-          </div>
+            <div className="mt-0.5 flex items-center justify-between text-[10px] sm:text-[11px]">
+              <span className="text-slate-400 truncate">من قروبات الواتساب</span>
+              <span className="text-blue-400 font-bold text-[10px] sm:text-[11px] opacity-80 group-hover:opacity-100 flex items-center gap-0.5">
+                تصفح ⬇️
+              </span>
+            </div>
+          </button>
 
-          <div className="rounded-xl sm:rounded-2xl bg-slate-800/60 border border-slate-700/60 p-3 sm:p-4 transition-colors hover:bg-slate-800/80">
-            <div className="flex items-center justify-between text-slate-400 text-[11px] sm:text-xs font-semibold">
-              <span>المطابقة (80%+)</span>
-              <CheckCircle2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-400" />
+          {/* Card 2: المطابقة (80%+) */}
+          <button
+            type="button"
+            onClick={() => onSelectFilterCategory?.('matched')}
+            className={`w-full text-right rounded-xl sm:rounded-2xl p-3 sm:p-4 transition-all duration-200 cursor-pointer active:scale-[0.98] border group ${
+              activeCategory === 'matched'
+                ? 'bg-slate-800/95 border-emerald-500 shadow-lg shadow-emerald-950/40 ring-2 ring-emerald-500/50'
+                : 'bg-slate-800/60 border-slate-700/60 hover:bg-slate-800/90 hover:border-slate-600'
+            }`}
+            title="انقر لفتح وعرض الطلبات المطابقة لموقعك وسعرك (80%+) بالأسفل"
+          >
+            <div className="flex items-center justify-between text-[11px] sm:text-xs font-semibold">
+              <span className={activeCategory === 'matched' ? 'text-emerald-300 font-bold' : 'text-slate-400 group-hover:text-slate-300'}>
+                المطابقة (80%+)
+              </span>
+              <CheckCircle2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-400 group-hover:scale-110 transition-transform" />
             </div>
             <div className="mt-1.5 sm:mt-2 flex items-baseline gap-1">
               <span className="text-xl sm:text-3xl font-black text-emerald-400">{totalMatched}</span>
               <span className="text-[10px] sm:text-xs text-slate-400">مطابق</span>
             </div>
-            <p className="mt-0.5 text-[10px] sm:text-[11px] text-slate-400 truncate">توافق موقعك وسعرك</p>
-          </div>
+            <div className="mt-0.5 flex items-center justify-between text-[10px] sm:text-[11px]">
+              <span className="text-slate-400 truncate">توافق موقعك وسعرك</span>
+              <span className="text-emerald-400 font-bold text-[10px] sm:text-[11px] opacity-80 group-hover:opacity-100 flex items-center gap-0.5">
+                تصفح ⬇️
+              </span>
+            </div>
+          </button>
 
-          <div className="rounded-xl sm:rounded-2xl bg-slate-800/60 border border-slate-700/60 p-3 sm:p-4 transition-colors hover:bg-slate-800/80">
-            <div className="flex items-center justify-between text-slate-400 text-[11px] sm:text-xs font-semibold">
-              <span>ممتازة VIP (90%+)</span>
-              <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400" />
+          {/* Card 3: ممتازة VIP (90%+) */}
+          <button
+            type="button"
+            onClick={() => onSelectFilterCategory?.('vip')}
+            className={`w-full text-right rounded-xl sm:rounded-2xl p-3 sm:p-4 transition-all duration-200 cursor-pointer active:scale-[0.98] border group ${
+              activeCategory === 'vip'
+                ? 'bg-slate-800/95 border-amber-500 shadow-lg shadow-amber-950/40 ring-2 ring-amber-500/50'
+                : 'bg-slate-800/60 border-slate-700/60 hover:bg-slate-800/90 hover:border-slate-600'
+            }`}
+            title="انقر لفتح وعرض الطلبات الممتازة VIP (90%+) بالأسفل"
+          >
+            <div className="flex items-center justify-between text-[11px] sm:text-xs font-semibold">
+              <span className={activeCategory === 'vip' ? 'text-amber-300 font-bold' : 'text-slate-400 group-hover:text-slate-300'}>
+                ممتازة VIP (90%+)
+              </span>
+              <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400 group-hover:scale-110 transition-transform" />
             </div>
             <div className="mt-1.5 sm:mt-2 flex items-baseline gap-1">
               <span className="text-xl sm:text-3xl font-black text-amber-400">{vipOrdersCount}</span>
               <span className="text-[10px] sm:text-xs text-slate-400">طلب</span>
             </div>
-            <p className="mt-0.5 text-[10px] sm:text-[11px] text-slate-400 truncate">أعلى أولوية وأرباح</p>
-          </div>
+            <div className="mt-0.5 flex items-center justify-between text-[10px] sm:text-[11px]">
+              <span className="text-slate-400 truncate">أعلى أولوية وأرباح</span>
+              <span className="text-amber-400 font-bold text-[10px] sm:text-[11px] opacity-80 group-hover:opacity-100 flex items-center gap-0.5">
+                تصفح ⬇️
+              </span>
+            </div>
+          </button>
 
-          <div className="rounded-xl sm:rounded-2xl bg-slate-800/60 border border-slate-700/60 p-3 sm:p-4 transition-colors hover:bg-slate-800/80">
-            <div className="flex items-center justify-between text-slate-400 text-[11px] sm:text-xs font-semibold">
-              <span>أرباح اليوم</span>
-              <Coins className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-400" />
+          {/* Card 4: أرباح اليوم */}
+          <button
+            type="button"
+            onClick={() => onSelectFilterCategory?.('earnings')}
+            className={`w-full text-right rounded-xl sm:rounded-2xl p-3 sm:p-4 transition-all duration-200 cursor-pointer active:scale-[0.98] border group ${
+              activeCategory === 'earnings'
+                ? 'bg-slate-800/95 border-emerald-400 shadow-lg shadow-emerald-950/40 ring-2 ring-emerald-400/50'
+                : 'bg-slate-800/60 border-slate-700/60 hover:bg-slate-800/90 hover:border-slate-600'
+            }`}
+            title="انقر لفتح سجل أرباح اليوم والطلبات المقبولة بالأسفل"
+          >
+            <div className="flex items-center justify-between text-[11px] sm:text-xs font-semibold">
+              <span className={activeCategory === 'earnings' ? 'text-emerald-300 font-bold' : 'text-slate-400 group-hover:text-slate-300'}>
+                أرباح اليوم
+              </span>
+              <Coins className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-400 group-hover:scale-110 transition-transform" />
             </div>
             <div className="mt-1.5 sm:mt-2 flex items-baseline gap-1">
               <span className="text-xl sm:text-3xl font-black text-white">{todayEarnings.toFixed(1)}</span>
               <span className="text-[10px] sm:text-xs text-emerald-400 font-bold">د.ب</span>
             </div>
-            <p className="mt-0.5 text-[10px] sm:text-[11px] text-slate-400 truncate">{acceptedCount} طلبات مقبولة</p>
-          </div>
+            <div className="mt-0.5 flex items-center justify-between text-[10px] sm:text-[11px]">
+              <span className="text-slate-400 truncate">{acceptedCount} طلبات مقبولة</span>
+              <span className="text-emerald-400 font-bold text-[10px] sm:text-[11px] opacity-80 group-hover:opacity-100 flex items-center gap-0.5">
+                فتح السجل ⬇️
+              </span>
+            </div>
+          </button>
 
         </div>
 

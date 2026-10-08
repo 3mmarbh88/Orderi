@@ -128,6 +128,73 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
 
         if (!looksLikeOrder) return;
 
+        // Check if ignore_non_matching is active in native SharedPreferences
+        SharedPreferences filterPrefs = getSharedPreferences("orderi_filter_settings", MODE_PRIVATE);
+        boolean ignoreNonMatching = filterPrefs.getBoolean("ignore_non_matching", false);
+        float minPrice = filterPrefs.getFloat("min_price", 0.0f);
+
+        if (ignoreNonMatching && minPrice > 0) {
+            java.util.regex.Matcher priceMatcher = java.util.regex.Pattern.compile("(\\d+(?:\\.\\d+)?)\\s*(?:د\\.ب|دب|دينار|bd|bhd)").matcher(normalized);
+            if (priceMatcher.find()) {
+                try {
+                    float parsedPrice = Float.parseFloat(priceMatcher.group(1));
+                    if (parsedPrice < minPrice) {
+                        return; // حجب الطلب غير المطابق في السعر في الخلفية
+                    }
+                } catch (Exception ignored) {}
+            }
+        }
+
+        // Check distance against coverage radius if driver location is set
+        if (ignoreNonMatching) {
+            float coverageKm = filterPrefs.getFloat("coverage_km", 10.0f);
+            float driverLat = filterPrefs.getFloat("driver_lat", 0.0f);
+            float driverLon = filterPrefs.getFloat("driver_lon", 0.0f);
+
+            if (driverLat != 0.0f && driverLon != 0.0f) {
+                Double targetLat = null;
+                Double targetLon = null;
+
+                if (normalized.contains("مودا") || normalized.contains("مودامول") || normalized.contains("شيراتون")) {
+                    targetLat = 26.2370; targetLon = 50.5820; // مودا مول / المنامة
+                } else if (normalized.contains("سيف") || normalized.contains("السيف")) {
+                    targetLat = 26.2410; targetLon = 50.5360; // مجمع السيف
+                } else if (normalized.contains("سيتي سنتر") || normalized.contains("ستي سنتر")) {
+                    targetLat = 26.2345; targetLon = 50.5510; // سيتي سنتر
+                } else if (normalized.contains("افنيوز") || normalized.contains("الأفنيوز")) {
+                    targetLat = 26.2425; targetLon = 50.5780; // الأفنيوز
+                } else if (normalized.contains("منامه") || normalized.contains("المنامة")) {
+                    targetLat = 26.2235; targetLon = 50.5876;
+                } else if (normalized.contains("محرق") || normalized.contains("المحرق")) {
+                    targetLat = 26.2572; targetLon = 50.6119;
+                } else if (normalized.contains("رفاع") || normalized.contains("الرفاع")) {
+                    targetLat = 26.1300; targetLon = 50.5550;
+                } else if (normalized.contains("حمد") || normalized.contains("مدينة حمد")) {
+                    targetLat = 26.1150; targetLon = 50.5069;
+                } else if (normalized.contains("عيسى") || normalized.contains("مدينة عيسى")) {
+                    targetLat = 26.1736; targetLon = 50.5478;
+                } else if (normalized.contains("ستره") || normalized.contains("سترة")) {
+                    targetLat = 26.1547; targetLon = 50.6206;
+                } else if (normalized.contains("سار")) {
+                    targetLat = 26.2050; targetLon = 50.5100;
+                }
+
+                if (targetLat != null && targetLon != null) {
+                    double dLat = Math.toRadians(targetLat - driverLat);
+                    double dLon = Math.toRadians(targetLon - driverLon);
+                    double a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                            Math.cos(Math.toRadians(driverLat)) * Math.cos(Math.toRadians(targetLat)) *
+                            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+                    double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                    double distKm = 6371.0 * c;
+
+                    if (distKm > coverageKm) {
+                        return; // حجب الطلب خارج نطاق التغطية في الخلفية
+                    }
+                }
+            }
+        }
+
         String fingerprint = normalized
                 .replaceAll("(?:\\+?973|00973)?\\s*[36]\\d{7}", "")
                 .replaceAll("\\d{1,2}[:.]\\d{2}", "")
