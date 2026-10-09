@@ -1594,7 +1594,7 @@ function OrderiApp() {
     const priceText = (!order.price || order.price <= 0 || order.isPriceUnspecified)
       ? '(بالاتفاق مع العميل 🤝)'
       : `(+${order.price.toFixed(1)} د.ب)`;
-    showToast(`⚡ تم قبول الطلب والرد التلقائي في واتساب ${priceText} فوراً بدون مغادرة التطبيق`);
+    showToast(`⚡ تم قبول الطلب والرد التلقائي في الخاص مع صاحب الإعلان 👤 (وليس بالقروب) ${priceText}`);
   };
 
   // Ignore / Dismiss Order - مسح الطلب من البرنامج وعمل علامة مقروء (تمت قراءتها ✓✓) في الواتساب

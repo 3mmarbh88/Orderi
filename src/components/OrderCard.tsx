@@ -209,9 +209,11 @@ export function OrderCard({
   const fromLandmark = findLandmarkByName(order.from);
   const toLandmark = findLandmarkByName(order.to);
 
-  // Standardized response message
+  // Standardized response message for Private Direct chat with advertiser
   const myArea = driverLocation?.areaName || 'البحرين';
-  const courierMessage = `#مندوب_توصيل انا في (${myArea})`;
+  const baseCourierText = customTemplate && customTemplate.trim()
+    ? customTemplate.replace(/{area}/g, myArea)
+    : `#مندوب_توصيل انا في (${myArea})`;
   
   // Replay (تم) message for user's own published broadcast orders
   const replayDoneMessage = `(تم) ✅ تم العثور على مندوب
@@ -220,13 +222,25 @@ export function OrderCard({
 
 شكراً لكم جميعاً!`;
 
-  const fullWhatsAppMessage = isMyBroadcast ? replayDoneMessage : courierMessage;
+  // Private direct response to the advertiser:
+  // الرد يُرسل في الخاص للمعلن مباشرة مع الإشارة للطلب المنشور بالقروب
+  const privateAdvertiserMessage = `السلام عليكم، بخصوص طلبك (${order.from} ← ${order.to}):\n${baseCourierText} ومستعد للاستلام والتوصيل فوراً 🚗`;
 
-  const cleanPhone = order.senderPhone.replace(/[^\d+]/g, '');
+  const fullWhatsAppMessage = isMyBroadcast ? replayDoneMessage : privateAdvertiserMessage;
+
+  // Extract phone number from sender or detected in message text
+  const cleanPhone = order.senderPhone ? order.senderPhone.replace(/[^\d+]/g, '') : '';
+  const phoneFromText = (order.rawText && /(?:973)?[\s-]*(3\d{7}|6\d{7}|17\d{6})/g.exec(order.rawText)?.[0]?.replace(/\D/g, '')) || '';
+  const effectivePhone = (cleanPhone && cleanPhone !== '97300000000' && cleanPhone.length >= 8)
+    ? cleanPhone
+    : phoneFromText ? (phoneFromText.startsWith('973') ? phoneFromText : '973' + phoneFromText)
+    : cleanPhone;
+
+  // Direct private WhatsApp chat with advertiser
   const waUrl = isMyBroadcast
     ? `https://api.whatsapp.com/send?text=${encodeURIComponent(fullWhatsAppMessage)}`
-    : cleanPhone
-    ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(fullWhatsAppMessage)}`
+    : effectivePhone && effectivePhone !== '97300000000'
+    ? `https://wa.me/${effectivePhone}?text=${encodeURIComponent(fullWhatsAppMessage)}`
     : `https://api.whatsapp.com/send?text=${encodeURIComponent(fullWhatsAppMessage)}`;
 
   const handleCopy = () => {
@@ -246,24 +260,24 @@ export function OrderCard({
       onAccept(order);
       setShowAcceptDialog(false);
 
-      // 2. إرسال الرد النيتيف في واتساب تلقائياً في الخلفية (صلاحية Accessibility / RemoteInput)
+      // 2. إرسال الرد النيتيف في واتساب تلقائياً في الخاص مع المعلن (وليس في القروب)
       try {
         await sendNativeQuickReply({
-          groupName: order.groupName,
-          phone: order.senderPhone,
+          phone: effectivePhone || order.senderPhone, // Send directly to the advertiser in private!
           message: fullWhatsAppMessage,
         });
       } catch (nativeErr) {
         console.warn('[Orderi Native Quick Reply]', nativeErr);
       }
 
-      // 3. إرسال الرد في واتساب عبر السيرفر بأقصى سرعة بدون تحويل المستخدم خارج التطبيق
+      // 3. إرسال الرد في واتساب عبر السيرفر في الخاص مباشرة لصاحب الإعلان
       await fetch('/api/whatsapp/quick-accept-reply', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           orderId: order.id,
-          phone: order.senderPhone,
+          phone: effectivePhone || order.senderPhone,
+          targetType: 'private_direct', // Private chat with the advertiser, NOT group!
           groupName: order.groupName,
           senderName: order.senderName,
           replyText: fullWhatsAppMessage,
@@ -889,7 +903,7 @@ export function OrderCard({
                   {isAutoReplying ? (
                     <>
                       <RefreshCw className="w-4 h-4 animate-spin text-white" />
-                      <span>جاري الرد التلقائي في واتساب...</span>
+                      <span>جاري إرسال الرد في الخاص للمعلن...</span>
                     </>
                   ) : isMyBroadcast ? (
                     <>
@@ -899,7 +913,15 @@ export function OrderCard({
                   ) : (
                     <>
                       <Zap className="w-4 h-4 fill-amber-300 text-amber-300 animate-pulse" />
-                      <span>قبول والرد التلقائي بالواتساب فوراً ⚡</span>
+                      <div className="flex flex-col items-center leading-tight">
+                        <span className="flex items-center gap-1">
+                          <span>قبول والرد في الخاص للمعلن</span>
+                          <span className="text-[11px] font-bold text-amber-200">👤⚡</span>
+                        </span>
+                        <span className="text-[10px] font-normal text-emerald-100">
+                          (إرسال بالخاص مباشرة وليس بالقروب 🔒)
+                        </span>
+                      </div>
                     </>
                   )}
                 </button>
@@ -909,7 +931,7 @@ export function OrderCard({
               <button
                 type="button"
                 onClick={() => setShowAcceptDialog(true)}
-                title={isConfirmedPassenger ? "معاينة نص الإعلان وتفاصيل الحظر" : "معاينة نص الرسالة وخيارات القبول"}
+                title={isConfirmedPassenger ? "معاينة نص الإعلان وتفاصيل الحظر" : "معاينة نص الرسالة وخيارات القبول بالخاص"}
                 className={`min-h-[48px] px-3 flex items-center justify-center rounded-xl sm:rounded-2xl border transition-all active:scale-95 cursor-pointer shrink-0 ${
                   isConfirmedPassenger
                     ? 'bg-red-50 hover:bg-red-100 text-red-800 border-red-200'
@@ -922,10 +944,24 @@ export function OrderCard({
 
             {/* Secondary Touch Actions Row */}
             <div className="flex items-center gap-2">
+              {/* Direct WhatsApp chat with advertiser in Private */}
+              {effectivePhone && (
+                <a
+                  href={waUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="فتح المحادثة الخاصة في واتساب مباشرة مع صاحب الإعلان"
+                  className="min-h-[44px] flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold border border-emerald-200 transition-all active:scale-95"
+                >
+                  <MessageCircle className="w-4 h-4 text-emerald-600" />
+                  <span>خاص واتساب 👤</span>
+                </a>
+              )}
+
               {/* Quick Copy Response */}
               <button
                 onClick={handleCopy}
-                title={isMyBroadcast ? 'نسخ صيغة رد (تم)' : 'نسخ صيغة الرد السريع'}
+                title={isMyBroadcast ? 'نسخ صيغة رد (تم)' : 'نسخ صيغة الرد الخاص'}
                 className="min-h-[44px] flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold border border-slate-200 transition-all active:scale-95"
               >
                 {copied ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4 text-slate-500" />}
@@ -933,9 +969,9 @@ export function OrderCard({
               </button>
 
               {/* Direct Phone Call if available */}
-              {order.senderPhone && (
+              {effectivePhone && (
                 <a
-                  href={`tel:+${order.senderPhone}`}
+                  href={`tel:+${effectivePhone}`}
                   title="اتصال هاتفي مباشر بالمعلن"
                   className="min-h-[44px] flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold border border-blue-200 transition-all active:scale-95"
                 >
@@ -984,17 +1020,47 @@ export function OrderCard({
               </div>
               <div>
                 <h3 className="text-base sm:text-lg font-black text-slate-900">
-                  {isMyBroadcast ? 'نشر رد (تم) في نفس القروبات' : 'تأكيد قبول الطلب والرد التلقائي'}
+                  {isMyBroadcast ? 'نشر رد (تم) في نفس القروبات' : 'قبول الطلب وإرسال الرد في الخاص 👤'}
                 </h3>
                 <p className="text-xs text-slate-500">
-                  {isMyBroadcast ? 'سيتم نشر رد (تم) فوراً في القروبات وإغلاق الطلب' : 'سيتم الرد التلقائي فوراً في واتساب وتأكيد قبول الطلب دون تحويلك خارج التطبيق ⚡'}
+                  {isMyBroadcast 
+                    ? 'سيتم نشر رد (تم) فوراً في القروبات وإغلاق الطلب' 
+                    : 'الرد يُرسل في المحادثة الخاصة مع صاحب الإعلان مباشرة (وليس في القروب) 🔒'}
                 </p>
               </div>
             </div>
 
+            {/* Target Destination Info Badge */}
+            {!isMyBroadcast && (
+              <div className="p-3.5 rounded-2xl bg-emerald-50/90 border border-emerald-200 text-xs text-emerald-950 space-y-2 shadow-2xs">
+                <div className="flex items-center justify-between font-bold">
+                  <span className="flex items-center gap-1.5 text-emerald-900">
+                    <Lock className="w-4 h-4 text-emerald-700" />
+                    <span>وجهة الرد التلقائي:</span>
+                  </span>
+                  <span className="bg-emerald-600 text-white text-[10px] px-2.5 py-0.5 rounded-full font-black shadow-xs">
+                    خاص مباشر (دايركت) 👤
+                  </span>
+                </div>
+                <div className="text-[11px] text-emerald-900 space-y-1 pt-0.5 leading-relaxed">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-600">المعلن (المستلم):</span>
+                    <strong className="font-bold text-slate-900">{order.senderName || 'صاحب الإعلان'} ({effectivePhone || order.senderPhone})</strong>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-600">قروب الإعلان:</span>
+                    <strong className="text-slate-800">{order.groupName || 'قروب واتساب'}</strong>
+                  </div>
+                  <div className="mt-1 text-emerald-900 font-bold bg-white/80 p-2 rounded-xl border border-emerald-200/70">
+                    🔒 خصوصية تامة: لن يُنشر أي رد داخل قروب الواتساب، بل سيتم فتح المحادثة الخاصة مع المعلن مباشرة للتنسيق والاتفاق.
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="p-3.5 sm:p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
               <span className="text-xs font-bold text-slate-500 block">
-                {isMyBroadcast ? 'صيغة رد (تم) باقتباس الإعلان:' : 'معاينة الرسالة المتكاملة المرسلة للواتساب:'}
+                {isMyBroadcast ? 'صيغة رد (تم) باقتباس الإعلان:' : 'معاينة نص الرسالة المرسلة في الخاص للمعلن:'}
               </span>
               <div className="p-3 rounded-xl bg-white border border-slate-200 text-xs text-slate-800 leading-relaxed font-mono whitespace-pre-wrap max-h-40 sm:max-h-48 overflow-y-auto">
                 {fullWhatsAppMessage}
@@ -1050,10 +1116,10 @@ export function OrderCard({
                 )}
                 <span>
                   {isConfirmedPassenger
-                    ? 'قبول الطلب والرد التلقائي بالواتساب ⚡ (تحذير: أشخاص ⚠️)'
+                    ? 'قبول والرد في الخاص للمعلن ⚡ (تحذير: أشخاص ⚠️)'
                     : isMyBroadcast
                     ? 'نشر رد (تم) فوراً 🎯'
-                    : 'قبول الطلب والرد التلقائي فوراً في واتساب ⚡'}
+                    : 'تأكيد القبول والرد في الخاص للمعلن 👤⚡'}
                 </span>
               </button>
             </div>
