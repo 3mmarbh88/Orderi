@@ -1,14 +1,18 @@
 import { BAHRAIN_AREAS, normalizeArabicText } from '../data/bahrainAreas';
 import { BAHRAIN_LANDMARKS } from '../data/bahrainLandmarks';
+import { detectPassengerDelivery } from './passengerClassifier';
+import { PassengerDetection } from '../types';
 
 export interface RawParsedResult {
   from: string;
   to: string;
   price: number;
+  isPriceUnspecified?: boolean;
   phone: string;
   notes: string;
   confidence: number;
   canCreateOrder: boolean;
+  passengerDetection: PassengerDetection;
 }
 
 /**
@@ -33,10 +37,18 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
       from: '',
       to: '',
       price: 0,
+      isPriceUnspecified: true,
       phone: '',
       notes: '',
       confidence: 0,
       canCreateOrder: false,
+      passengerDetection: {
+        level: 'goods_safe',
+        label: 'توصيل بضائع معتمد',
+        matchedPhrases: [],
+        reason: 'النص فارغ',
+        isForbidden: false,
+      },
     };
   }
 
@@ -233,22 +245,28 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
     }
   }
 
+  // 5. Detect Passenger Transport vs Goods Delivery (أشخاص / ركاب مقابل بضائع)
+  const passengerDetection = detectPassengerDelivery(rawText);
+
   // Calculate confidence
   let confidence = 0;
-  if (fromArea) confidence += 35;
-  if (toArea) confidence += 35;
-  if (price > 0) confidence += 20;
+  if (fromArea) confidence += 40;
+  if (toArea) confidence += 40;
+  if (price > 0) confidence += 10;
   if (phone) confidence += 10;
 
   const canCreateOrder = !!fromArea && !!toArea;
+  const isPriceUnspecified = !price || price <= 0;
 
   return {
     from: fromArea,
     to: toArea,
-    price: price || 2.5, // Default fallback price if not explicitly provided
+    price: price > 0 ? price : 0,
+    isPriceUnspecified,
     phone,
     notes,
     confidence,
     canCreateOrder,
+    passengerDetection,
   };
 }

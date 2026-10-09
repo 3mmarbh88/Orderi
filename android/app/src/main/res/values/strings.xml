@@ -4,4 +4,5 @@
     <string name="title_activity_main">Orderi</string>
     <string name="package_name">com.orderi.radar</string>
     <string name="custom_url_scheme">com.orderi.radar</string>
+    <string name="accessibility_service_description">تتيح لتطبيق أوردري إرسال رسائل القبول التلقائي لطلبات التوصيل مباشرة إلى مجموعات واتساب العادي في الخلفية دون الحاجة لفتح التطبيق يدوياً.</string>
 </resources>

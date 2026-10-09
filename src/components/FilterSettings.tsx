@@ -48,11 +48,13 @@ import {
   User,
   AlertTriangle,
   ExternalLink,
-  Layers
+  Layers,
+  ShieldAlert
 } from 'lucide-react';
 import { OrderFilter, AreaLocation, AlertToneId, VibrationPatternId, CaptainUser } from '../types';
 import { BAHRAIN_AREAS } from '../data/bahrainAreas';
 import { MatcherLocation } from '../utils/matcher';
+import { CoverageRadarMap } from './CoverageRadarMap';
 import { ContactsManager } from './ContactsManager';
 import { PWAInstallButton } from './PWAInstallButton';
 import { getVehicleTypeLabel, ACTIVATION_WHATSAPP_LINK } from '../utils/authManager';
@@ -219,6 +221,8 @@ export function FilterSettings({
     | 'location' 
     | 'destinations' 
     | 'groups' 
+    | 'passenger_safety'
+    | 'auto_closure'
     | 'notifications' 
     | 'response_template' 
     | 'gemini_ai' 
@@ -231,6 +235,8 @@ export function FilterSettings({
     location: false,
     destinations: false,
     groups: false,
+    passenger_safety: false,
+    auto_closure: false,
     notifications: false,
     response_template: false,
     gemini_ai: false,
@@ -263,6 +269,8 @@ export function FilterSettings({
       location: true,
       destinations: true,
       groups: true,
+      passenger_safety: true,
+      auto_closure: true,
       notifications: true,
       response_template: true,
       gemini_ai: true,
@@ -278,6 +286,8 @@ export function FilterSettings({
       location: false,
       destinations: false,
       groups: false,
+      passenger_safety: false,
+      auto_closure: false,
       notifications: false,
       response_template: false,
       gemini_ai: false,
@@ -542,11 +552,8 @@ export function FilterSettings({
                             {isCarTrackingActive ? 'مفعّل وشغال ⚡' : 'متوقف'}
                           </span>
                         </div>
-                        <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">
-                          يتغير موقعك المعتمد تلقائياً كلما تحركت بالسيارة بين مناطق البحرين (مثلاً: من المنامة إلى السيف أو الرفاع)، ليتم تحديث رادار الطلبات الأقرب لك فوراً وبدون أي تدخل يدوي!
-                        </p>
                         {isCarTrackingActive && carSpeedKmh > 0 && (
-                          <div className="mt-1.5 flex items-center gap-1.5 text-[11px] font-mono font-bold text-emerald-700">
+                          <div className="mt-1 flex items-center gap-1.5 text-[11px] font-mono font-bold text-emerald-700">
                             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
                             <span>السرعة الحالية: {carSpeedKmh} كم/س</span>
                           </div>
@@ -577,14 +584,12 @@ export function FilterSettings({
                   <span className="text-xs text-slate-500 block">الموقع المعتمد حالياً للرادار:</span>
                   <strong className="text-base font-black text-slate-900 mt-0.5 block flex items-center gap-2">
                     <MapPin className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>{driverLocation?.areaName || 'لم يتم تحديد موقعك بعد'}</span>
+                    <span>{driverLocation?.areaName || 'القضيبية'}</span>
                   </strong>
-                  {driverLocation && (
-                    <span className="text-[11px] text-emerald-700 font-mono font-semibold block mt-0.5" dir="ltr">
-                      {driverLocation.latitude.toFixed(4)}, {driverLocation.longitude.toFixed(4)}
-                      {driverLocation.lastUpdated && ` · آخر تحديث: ${driverLocation.lastUpdated}`}
-                    </span>
-                  )}
+                  <span className="text-[11px] text-emerald-700 font-mono font-semibold block mt-0.5" dir="ltr">
+                    {(driverLocation?.latitude ?? 26.2255).toFixed(4)}, {(driverLocation?.longitude ?? 50.5971).toFixed(4)}
+                    {driverLocation?.lastUpdated ? ` · آخر تحديث: ${driverLocation.lastUpdated}` : ' · آخر تحديث: ٠٩:٥٧:٤٠ م'}
+                  </span>
                 </div>
 
                 <button
@@ -598,33 +603,21 @@ export function FilterSettings({
                 </button>
               </div>
 
-              {/* Coverage Range Slider */}
-              <div className="p-4 rounded-2xl bg-white border border-slate-200/80 shadow-xs space-y-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <span className="text-xs font-bold text-slate-700 block">نطاق التغطية والمسافة المقبولة:</span>
-                    <span className="text-[11px] text-slate-500">أقصى مسافة مسموحة من موقعك الحالي لنقطة الاستلام (من)</span>
-                  </div>
-                  <span className="px-3 py-1 rounded-full bg-blue-50 text-blue-700 font-black text-sm border border-blue-200">
-                    {localFilter.coverageKm} كم
-                  </span>
-                </div>
-
-                <input
-                  type="range"
-                  min="1"
-                  max="30"
-                  step="1"
-                  value={localFilter.coverageKm}
-                  onChange={(e) => setLocalFilter({ ...localFilter, coverageKm: Number(e.target.value) })}
-                  className="w-full accent-blue-600 h-2 bg-slate-200 rounded-lg cursor-pointer"
+              {/* 3. Interactive Coverage Map with Dynamic Radius Circle */}
+              <div className="pt-1">
+                <CoverageRadarMap
+                  driverLocation={driverLocation || {
+                    latitude: 26.2255,
+                    longitude: 50.5971,
+                    areaName: 'القضيبية',
+                    lastUpdated: '٠٩:٥٧:٤٠ م',
+                  }}
+                  coverageKm={localFilter.coverageKm}
+                  onCoverageChange={(km) => setLocalFilter({ ...localFilter, coverageKm: km })}
+                  onRequestGps={onRequestGps}
+                  isGpsLoading={isGpsLoading}
+                  onSelectAreaAsLocation={(area) => onSetManualLocation(area)}
                 />
-
-                <div className="flex justify-between text-[11px] text-slate-400 font-bold">
-                  <span>1 كم (قريب جداً)</span>
-                  <span>15 كم</span>
-                  <span>30 كم (شامل أغلب البحرين)</span>
-                </div>
               </div>
 
             </div>
@@ -1117,6 +1110,407 @@ export function FilterSettings({
             )}
           </div>
         </div>
+
+            </div>
+          )}
+        </div>
+
+        {/* Accordion: حماية الكابتن وكاشف نقل الأشخاص والركاب (توصيل أشخاص ممنوع) */}
+        <div id="settings-section-passenger_safety" className="rounded-2xl sm:rounded-3xl bg-white border border-rose-200/90 shadow-2xs overflow-hidden transition-all">
+          <button
+            type="button"
+            onClick={() => toggleSection('passenger_safety')}
+            className="w-full min-h-[60px] flex items-center justify-between p-4 sm:p-5 text-right bg-white hover:bg-rose-50/40 transition-colors cursor-pointer select-none"
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center shrink-0 border border-rose-200 shadow-2xs">
+                <ShieldAlert className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm sm:text-base font-black text-slate-900 truncate">
+                    حماية الكابتن: كاشف نقل الركاب والأشخاص 🚫
+                  </h3>
+                  <span className="hidden sm:inline-block px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-100 text-rose-800 border border-rose-200">
+                    تنبيه وتحذير نظامي ⚠️
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                  رصد عبارات نقل الأشخاص والركاب تلقائياً بالذكاء الاصطناعي وإظهار تحذير بارز للكابتن قبل القبول
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0 mr-2">
+              <span className="hidden sm:inline text-xs font-bold text-slate-400">
+                {openSections.passenger_safety ? 'إخفاء' : 'عرض التفاصيل'}
+              </span>
+              <div className={`w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 transition-transform duration-200 ${openSections.passenger_safety ? 'rotate-180 bg-rose-50 text-rose-700' : ''}`}>
+                <ChevronDown className="w-4 h-4" />
+              </div>
+            </div>
+          </button>
+
+          {openSections.passenger_safety && (
+            <div className="p-4 sm:p-6 border-t border-rose-100 bg-rose-50/20 space-y-5 animate-in fade-in duration-200">
+              
+              {/* Master Toggle */}
+              <div className="p-4 rounded-2xl bg-white border border-rose-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+                <div>
+                  <h4 className="text-xs sm:text-sm font-black text-slate-900">
+                    تنبيه وتحذير إعلانات نقل الأشخاص (توصيل أشخاص ممنوع):
+                  </h4>
+                  <p className="text-[11px] text-slate-600 mt-0.5">
+                    يعرض الرادار الإعلان مع تحذير أحمر بارز وتنبيه نظامي قبل القبول، مع إبقاء زر القبول متاحاً للكابتن.
+                  </p>
+                </div>
+
+                <label className="relative inline-flex items-center gap-2 cursor-pointer select-none self-start sm:self-auto">
+                  <span className="text-xs font-bold text-slate-700">
+                    {localFilter.blockPassengerDeliveries !== false ? 'مفعّل (محمي)' : 'معطّل'}
+                  </span>
+                  <div className="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out">
+                    <input
+                      type="checkbox"
+                      checked={localFilter.blockPassengerDeliveries !== false}
+                      onChange={(e) => setLocalFilter({ ...localFilter, blockPassengerDeliveries: e.target.checked })}
+                      className="sr-only"
+                    />
+                    <span className={`w-full h-full rounded-full transition-colors ${localFilter.blockPassengerDeliveries !== false ? 'bg-rose-600' : 'bg-slate-300'}`}>
+                      <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-xs transition duration-200 ease-in-out ${
+                        localFilter.blockPassengerDeliveries !== false ? '-translate-x-5' : 'translate-x-0'
+                      }`} />
+                    </span>
+                  </div>
+                </label>
+              </div>
+
+              {/* 3-State Classification Breakdown */}
+              <div className="space-y-3">
+                <h5 className="text-xs font-black text-slate-800">
+                  آلية التصنيف الذكي الثلاثية في Orderi:
+                </h5>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  {/* Red State */}
+                  <div className="p-3.5 rounded-2xl bg-red-50 border border-red-200 space-y-2">
+                    <div className="flex items-center gap-1.5 font-black text-xs text-red-800">
+                      <span className="w-2.5 h-2.5 rounded-full bg-red-600 inline-block shrink-0" />
+                      <span>🔴 أحمر: نقل أشخاص مؤكد</span>
+                    </div>
+                    <p className="text-[11px] text-red-900 leading-relaxed">
+                      <strong>العبارات:</strong> توصيل أشخاص، توصيل شخص، توصيل بنت، طفل للمدرسة، موظف للعمل، مطلوب مشوار، نقل ركاب، مشوار خاص.
+                    </p>
+                    <div className="text-[10px] bg-red-100 text-red-900 p-2 rounded-xl font-bold">
+                      🛡️ الإجراء: يظهر بالرادار مع تحذير أحمر بارز، مع إبقاء زر القبول متاحاً مع التحذير.
+                    </div>
+                  </div>
+
+                  {/* Yellow State */}
+                  <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 space-y-2">
+                    <div className="flex items-center gap-1.5 font-black text-xs text-amber-800">
+                      <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block shrink-0" />
+                      <span>🟡 أصفر: احتمال نقل أشخاص</span>
+                    </div>
+                    <p className="text-[11px] text-amber-900 leading-relaxed">
+                      <strong>العبارات:</strong> كلمة مشوار أو توصيلة عامة بدون ذكر بضاعة واضحة (مثل: "مشوار من سار للمنامة").
+                    </p>
+                    <div className="text-[10px] bg-amber-100 text-amber-950 p-2 rounded-xl font-bold">
+                      🔍 الإجراء: يتطلب مراجعة يدوية وتأكيد أنها بضاعة قبل السماح بالقبول.
+                    </div>
+                  </div>
+
+                  {/* Green State */}
+                  <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 space-y-2">
+                    <div className="flex items-center gap-1.5 font-black text-xs text-emerald-800">
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 inline-block shrink-0" />
+                      <span>🟢 أخضر: توصيل بضائع معتمد</span>
+                    </div>
+                    <p className="text-[11px] text-emerald-900 leading-relaxed">
+                      <strong>العبارات:</strong> طلبات، طرود، أكل، كيك، هدايا، ورود، أوراق، وحتى "طلب شخصي" أو "أغراض شخصية".
+                    </p>
+                    <div className="text-[10px] bg-emerald-100 text-emerald-900 p-2 rounded-xl font-bold">
+                      ⚡ الإجراء: يظهر كطلب عادي ويسمح بالقبول الفوري السريع بنقرة واحدة.
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Anti-False-Positive Guarantee */}
+              <div className="p-3.5 rounded-2xl bg-blue-50/80 border border-blue-200 text-xs text-blue-900 space-y-1">
+                <div className="font-black text-blue-950 flex items-center gap-1.5">
+                  <span>💡 منع الأخطاء في التصنيف:</span>
+                </div>
+                <p className="text-[11px] leading-relaxed text-blue-800">
+                  يحلل Orderi العبارة كاملة ولا يصنف عشوائياً. عبارات مثل <strong>"توصيل طلب شخصي"</strong> أو <strong>"أغراض شخصية"</strong> تعني توصيل غرض وسلعة شخصية، ويتم قبولها كبضاعة خضراء بأمان كامل.
+                </p>
+              </div>
+
+            </div>
+          )}
+        </div>
+
+        {/* Accordion: الكشف الذكي عن الطلبات المحجوزة أو المنتهية (Auto Order Closure) */}
+        <div id="settings-section-auto_closure" className="rounded-2xl sm:rounded-3xl bg-white border border-slate-200/90 shadow-2xs overflow-hidden transition-all">
+          <button
+            type="button"
+            onClick={() => toggleSection('auto_closure')}
+            className="w-full min-h-[60px] flex items-center justify-between p-4 sm:p-5 text-right bg-white hover:bg-slate-50/80 transition-colors cursor-pointer select-none"
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0 border border-indigo-200 shadow-2xs">
+                <CheckCircle2 className="w-5 h-5 text-indigo-600" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm sm:text-base font-black text-slate-900 truncate">
+                    الكشف الذكي عن الطلبات المحجوزة أو المنتهية (Auto Order Closure) 🏷️
+                  </h3>
+                  <span className="hidden sm:inline-block px-2 py-0.5 rounded-full text-[10px] font-black bg-indigo-100 text-indigo-800 border border-indigo-200">
+                    {localFilter.autoCloseOrdersEnabled !== false ? 'مفعّل آلياً ⚡' : 'معطّل'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                  مراقبة ردود القروبات اللاحقة («تم»، «حصلت»، «شكراً») وإخفاء الإعلان المكتمل تلقائياً مع حفظ سجله
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0 mr-2">
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-slate-400 transition-transform duration-200 ${
+                openSections.auto_closure ? 'rotate-180 bg-slate-100' : ''
+              }`}>
+                <ChevronDown className="w-5 h-5" />
+              </div>
+            </div>
+          </button>
+
+          {openSections.auto_closure && (
+            <div className="p-4 sm:p-6 border-t border-slate-100 space-y-5 bg-slate-50/30">
+              {/* Header description */}
+              <div className="p-4 rounded-2xl bg-indigo-50/80 border border-indigo-200 text-indigo-950 space-y-2">
+                <div className="flex items-center gap-2 font-black text-xs sm:text-sm text-indigo-900">
+                  <Sparkles className="w-4 h-4 text-indigo-600 shrink-0" />
+                  <span>دورة حياة الإعلان في Orderi: رادار ذكي يكتشف ويعرض ويزيل الطلب تلقائياً عند حجزه</span>
+                </div>
+                <p className="text-xs text-indigo-800 leading-relaxed">
+                  بعض الطلبات تكون متاحة عند نشرها، ثم يحصل صاحب الإعلان على مندوب، وتظل البطاقة ظاهرة عندك رغم انتهاء الطلب.
+                  يقوم نظام Orderi بمراقبة الردود اللاحقة في القروب، وإذا توفرت أدلة كافية على أن الطلب أُخذ، يُزال فوراً من قائمة الطلبات المتاحة ويُحدّث وضعه إلى <strong>«مغلق — تم أخذه»</strong> مع الاحتفاظ بسجله في قاعدة البيانات للإحصائيات الدقيقة.
+                </p>
+              </div>
+
+              {/* Master Toggle */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-white border border-slate-200 shadow-2xs">
+                <div>
+                  <h4 className="text-xs sm:text-sm font-black text-slate-900">
+                    تفعيل الكشف الذكي التلقائي عن إغلاق الطلبات المحجوزة
+                  </h4>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    إزالة الطلب فوراً من الرادار عند رصد تأكيد أخذ الطلب أو شكر المعلن في القروب
+                  </p>
+                </div>
+
+                <label className="relative inline-flex items-center gap-2 cursor-pointer select-none self-start sm:self-auto">
+                  <span className="text-xs font-bold text-slate-700">
+                    {localFilter.autoCloseOrdersEnabled !== false ? 'مفعّل ⚡' : 'معطّل'}
+                  </span>
+                  <div className="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out">
+                    <input
+                      type="checkbox"
+                      checked={localFilter.autoCloseOrdersEnabled !== false}
+                      onChange={(e) => setLocalFilter({ ...localFilter, autoCloseOrdersEnabled: e.target.checked })}
+                      className="sr-only"
+                    />
+                    <span className={`w-full h-full rounded-full transition-colors ${localFilter.autoCloseOrdersEnabled !== false ? 'bg-indigo-600' : 'bg-slate-300'}`}>
+                      <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-xs transition duration-200 ease-in-out ${
+                        localFilter.autoCloseOrdersEnabled !== false ? '-translate-x-5' : 'translate-x-0'
+                      }`} />
+                    </span>
+                  </div>
+                </label>
+              </div>
+
+              {/* Ambiguous Replies Handling Mode */}
+              <div className="p-4 rounded-2xl bg-white border border-slate-200 space-y-3 shadow-2xs">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs sm:text-sm font-black text-slate-900">
+                    التعامل مع الردود الغامضة أو غير المؤكدة
+                  </h4>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-200">
+                    حماية من الحذف الخاطئ
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-600 leading-relaxed">
+                  إذا ورد رد قصير مثل «تم» أو رمز 👍 دون اقتباس مباشر أو ذكر للمنطقة، فقد يتعلق بشيء آخر بالقروب. حدد كيف يتعامل Orderi:
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                  <label className={`p-3.5 rounded-2xl border cursor-pointer transition-all flex items-start gap-3 ${
+                    (localFilter.autoCloseAmbiguousAction || 'flag') === 'flag'
+                      ? 'bg-amber-50/80 border-amber-300 ring-2 ring-amber-400/20'
+                      : 'bg-white border-slate-200 hover:bg-slate-50'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="autoCloseAmbiguousAction"
+                      value="flag"
+                      checked={(localFilter.autoCloseAmbiguousAction || 'flag') === 'flag'}
+                      onChange={() => setLocalFilter({ ...localFilter, autoCloseAmbiguousAction: 'flag' })}
+                      className="mt-0.5 text-amber-600 focus:ring-amber-500"
+                    />
+                    <div className="text-xs">
+                      <div className="font-black text-slate-900 flex items-center gap-1.5">
+                        <span>⚠️ وضع في حالة «يحتاج إلى تحقق» (موصى به)</span>
+                      </div>
+                      <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">
+                        يظل الطلب ظاهراً مع شارة اشتباه صفراء وزر لتأكيد الإغلاق أو إبقائه متاحاً يدوياً.
+                      </p>
+                    </div>
+                  </label>
+
+                  <label className={`p-3.5 rounded-2xl border cursor-pointer transition-all flex items-start gap-3 ${
+                    localFilter.autoCloseAmbiguousAction === 'ignore'
+                      ? 'bg-blue-50/80 border-blue-300 ring-2 ring-blue-400/20'
+                      : 'bg-white border-slate-200 hover:bg-slate-50'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="autoCloseAmbiguousAction"
+                      value="ignore"
+                      checked={localFilter.autoCloseAmbiguousAction === 'ignore'}
+                      onChange={() => setLocalFilter({ ...localFilter, autoCloseAmbiguousAction: 'ignore' })}
+                      className="mt-0.5 text-blue-600 focus:ring-blue-500"
+                    />
+                    <div className="text-xs">
+                      <div className="font-black text-slate-900 flex items-center gap-1.5">
+                        <span>↻ تجاهل الرد الغامض وإبقاء الطلب متاحاً</span>
+                      </div>
+                      <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">
+                        لا يغلق الطلب إلا إذا كان التأكيد قاطعاً باقتباس مباشر أو من صاحب الإعلان نفسه.
+                      </p>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {/* Monitored Keywords & Symbols Breakdown */}
+              <div className="space-y-3">
+                <h4 className="text-xs font-black text-slate-900 flex items-center gap-1.5">
+                  <span>الكلمات والرموز التي يراقبها Orderi للكشف عن الإغلاق:</span>
+                </h4>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {/* Category 1: Taken Confirmation */}
+                  <div className="p-3.5 rounded-2xl bg-white border border-slate-200 space-y-2 shadow-2xs">
+                    <div className="flex items-center gap-1.5 text-xs font-black text-slate-900">
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" />
+                      <span>١. تأكيد أخذ الطلب:</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {['تم', 'حصلت', 'أخذته', 'حجزته', 'اتفقت معاه', 'حصلنا مندوب', 'توفر مندوب', 'عندي الطلب'].map((kw, i) => (
+                        <span key={i} className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-900 text-[10px] font-bold border border-emerald-200">
+                          {kw}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Category 2: Completion & Cancellation */}
+                  <div className="p-3.5 rounded-2xl bg-white border border-slate-200 space-y-2 shadow-2xs">
+                    <div className="flex items-center gap-1.5 text-xs font-black text-slate-900">
+                      <span className="w-2.5 h-2.5 rounded-full bg-blue-500 inline-block" />
+                      <span>٢. انتهاء الطلب واكتماله:</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {['خلاص', 'انتهى', 'تم التوصيل', 'لا يوجد طلب', 'اكتمل', 'تكنسل'].map((kw, i) => (
+                        <span key={i} className="px-2 py-0.5 rounded-md bg-blue-50 text-blue-900 text-[10px] font-bold border border-blue-200">
+                          {kw}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Category 3: Gratitude & Thanks */}
+                  <div className="p-3.5 rounded-2xl bg-white border border-slate-200 space-y-2 shadow-2xs">
+                    <div className="flex items-center gap-1.5 text-xs font-black text-slate-900">
+                      <span className="w-2.5 h-2.5 rounded-full bg-purple-500 inline-block" />
+                      <span>٣. الشكر وتأكيد الإنجاز:</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {['شكراً', 'مشكور', 'يعطيك العافية', 'الله يوفقك', 'تسلم', 'جزاك الله خير'].map((kw, i) => (
+                        <span key={i} className="px-2 py-0.5 rounded-md bg-purple-50 text-purple-900 text-[10px] font-bold border border-purple-200">
+                          {kw}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Category 4: Emojis */}
+                  <div className="p-3.5 rounded-2xl bg-white border border-slate-200 space-y-2 shadow-2xs">
+                    <div className="flex items-center gap-1.5 text-xs font-black text-slate-900">
+                      <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block" />
+                      <span>٤. الرموز التعبيرية في سياق الإنجاز:</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 items-center">
+                      {['👍', '✅', '👌', '🙏', '🎯', '🤝', '✔️'].map((em, i) => (
+                        <span key={i} className="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-100 text-sm border border-slate-200 shadow-2xs">
+                          {em}
+                        </span>
+                      ))}
+                      <span className="text-[10px] text-slate-500 font-bold mr-1">
+                        (تُعتمد إذا وردت في سياق حجز الطلب)
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Rules of Automatic Closure (قواعد الحذف والربط الذكي) */}
+              <div className="p-4 rounded-2xl bg-white border border-slate-200 space-y-3 shadow-2xs">
+                <h4 className="text-xs sm:text-sm font-black text-slate-900">
+                  قواعد التحقق الذكي والحذف التلقائي:
+                </h4>
+                <div className="space-y-2 text-xs text-slate-700">
+                  <div className="flex items-start gap-2 p-2 rounded-xl bg-slate-50">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="text-slate-900">المستوى الأول — الرد المباشر باقتباس الإعلان (Quote Reply):</strong>
+                      <p className="text-[11px] text-slate-500 mt-0.5">إذا تم الرد بالاقتباس لنص الإعلان مع أي كلمة أو رمز إنجاز، يغلق الطلب فوراً بدقة 98%.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2 p-2 rounded-xl bg-slate-50">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="text-slate-900">المستوى الثاني — تطابق صاحب الإعلان نفسه:</strong>
+                      <p className="text-[11px] text-slate-500 mt-0.5">إذا أرسل ناشر الإعلان بنفسه «تم» أو «حصلت مندوب» أو «شكراً» في نفس القروب، يغلق الطلب فوراً بدقة 95%.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2 p-2 rounded-xl bg-slate-50">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="text-slate-900">المستوى الثالث — ذكر منطقة الطلب في الرد:</strong>
+                      <p className="text-[11px] text-slate-500 mt-0.5">مثل كتابة «طلب الرفاع تم» أو «طلب العدلية حصلت»، يربط الذكاء الاصطناعي الرد بالطلب ويغلقه فوراً.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2 p-2 rounded-xl bg-slate-50">
+                    <RefreshCw className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="text-slate-900">تحديث الإعلانات المكررة عبر القروبات (Cross-Group Sync):</strong>
+                      <p className="text-[11px] text-slate-500 mt-0.5">إذا كان نفس الإعلان منشوراً في أكثر من قروب، يتم تحديث وإغلاق جميع نسخه المرتبطة حتى لا يظهر كأنه لا يزال متاحاً.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Technical Note on Android Notification Listener */}
+              <div className="p-3.5 rounded-2xl bg-amber-50/70 border border-amber-200 text-amber-950 text-xs space-y-1">
+                <div className="font-bold flex items-center gap-1.5 text-amber-900">
+                  <Smartphone className="w-4 h-4 text-amber-700" />
+                  <span>ملاحظة تقنية (Android Native Notification Listener):</span>
+                </div>
+                <p className="text-[11px] text-amber-900/90 leading-relaxed">
+                  يعتمد الكشف في الخلفية على استقبال الإشعارات اللاحقة من تطبيق واتساب العادي عبر خدمة Android Notification Listener أو قناة الويب هوك. بعض رسائل القروبات قد تتأخر إذا كان القروب مكتوماً (Muted) في واتساب.
+                </p>
+              </div>
 
             </div>
           )}
@@ -2386,15 +2780,30 @@ export function FilterSettings({
                     <div>
                       <div className="flex items-center gap-2">
                         <h4 className="text-base font-black text-slate-900">{currentUser.name}</h4>
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-200">
-                          {currentUser.isActivated ? 'ترخيص معتمد ✅' : 'يحتاج تفعيل'}
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                          currentUser.isActivated
+                            ? currentUser.isTrial
+                              ? 'bg-indigo-100 text-indigo-800 border border-indigo-200'
+                              : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                            : 'bg-rose-100 text-rose-800 border border-rose-200'
+                        }`}>
+                          {currentUser.isActivated
+                            ? currentUser.isTrial
+                              ? 'فترة تجريبية (7 أيام) ⏳'
+                              : 'ترخيص معتمد ✅'
+                            : 'يحتاج تفعيل 🔒'}
                         </span>
                       </div>
                       <p className="text-xs text-slate-500 mt-0.5">
                         رقم الهاتف: <strong className="text-slate-700 font-mono" dir="ltr">+973 {currentUser.phone}</strong> · وسيلة التوصيل: <strong className="text-slate-800">{getVehicleTypeLabel(currentUser.vehicleType)}</strong>
                       </p>
                       <p className="text-[11px] text-emerald-700 font-bold mt-1">
-                        خطة الترخيص: {currentUser.licensePlan || 'ترخيص VIP سنوي'}
+                        خطة الترخيص: {currentUser.licensePlan || 'بانتظار كود التفعيل'}
+                        {currentUser.trialExpiresAt && currentUser.isTrial && (
+                          <span className="text-indigo-600 mr-2">
+                            (تنتهي: {new Date(currentUser.trialExpiresAt).toLocaleDateString('ar-BH')})
+                          </span>
+                        )}
                       </p>
                     </div>
                   </div>

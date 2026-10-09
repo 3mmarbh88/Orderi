@@ -99,7 +99,9 @@ export function evaluateOrderMatch(
   }
 
   // 3. Price Match (الحد الأدنى للأجرة)
-  const priceMatched = price >= filter.minimumPrice;
+  // إذا لم يذكر المعلن السعر في القروب، نتجاهل شرط السعر ونعتبره مطابقاً بالاتفاق حسب رغبة الكابتن
+  const isPriceUnspecified = !price || price <= 0;
+  const priceMatched = isPriceUnspecified || price >= filter.minimumPrice;
 
   // Distance between pickup and destination
   let pickupToDeliveryDistanceKm: number | undefined = undefined;

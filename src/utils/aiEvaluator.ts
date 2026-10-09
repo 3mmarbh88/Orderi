@@ -19,7 +19,8 @@ export function computeClientAiEvaluation(
   const coverageKm = typeof filter.coverageKm === 'number' ? filter.coverageKm : 15;
   const destinations = filter.destinations || [];
 
-  const isPriceOk = price >= minPrice;
+  const isPriceUnspecified = !price || price <= 0 || !!order.isPriceUnspecified;
+  const isPriceOk = isPriceUnspecified || price >= minPrice;
   const isStartOk = from ? true : false;
   const isDestOk = destinations.length === 0 || (to && destinations.includes(to));
 
@@ -29,7 +30,10 @@ export function computeClientAiEvaluation(
   const redFlags: string[] = [];
 
   // Price analysis
-  if (isPriceOk) {
+  if (isPriceUnspecified) {
+    calcScore += 18;
+    matched.push('السعر غير محدد في الإعلان (بالاتفاق مع العميل 🤝) - متطابق مع شروطك وتم تجاهل شرط السعر');
+  } else if (isPriceOk) {
     calcScore += 18;
     matched.push(`الأجرة المعروضة (${price.toFixed(1)} د.ب) تغطي أو تتجاوز حدك الأدنى (${minPrice.toFixed(1)} د.ب)`);
   } else {

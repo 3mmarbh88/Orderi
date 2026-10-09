@@ -9,26 +9,27 @@ import {
   Fingerprint,
   Phone,
   User,
-  X,
   Sparkles,
+  Clock,
+  AlertTriangle,
+  Eye,
 } from 'lucide-react';
 import { CaptainUser } from '../types';
 import {
   applyActivationCode,
   authenticateWithBiometrics,
   getCurrentUser,
-  setCurrentUser,
-  DEFAULT_DEMO_CAPTAIN,
+  getTrialRecordForPhone,
+  getRemainingTrialTime,
+  startTrialForPhone,
   ACTIVATION_WHATSAPP_LINK,
 } from '../utils/authManager';
 
 interface ActivationLockBarrierProps {
   currentUser: CaptainUser | null;
   onActivated: (user: CaptainUser) => void;
-  onOpenAuthModal: (
-    tab: 'login' | 'register' | 'activate'
-  ) => void;
-  onClose?: () => void;
+  onOpenAuthModal: (tab: 'login' | 'register' | 'activate') => void;
+  onOpenUnactivated: () => void;
 }
 
 export function WhatsAppIcon({
@@ -51,78 +52,119 @@ export function ActivationLockBarrier({
   currentUser,
   onActivated,
   onOpenAuthModal,
-  onClose,
+  onOpenUnactivated,
 }: ActivationLockBarrierProps) {
   const [code, setCode] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
 
+  // 7-Day Trial State linked to phone & timestamp of click
+  const [trialPhone, setTrialPhone] = useState(currentUser?.phone || '');
+  const [trialErrorMsg, setTrialErrorMsg] = useState('');
+  const [trialSuccessMsg, setTrialSuccessMsg] = useState('');
+  const [isStartingTrial, setIsStartingTrial] = useState(false);
+
+  // Check trial record for the phone
+  const activePhone = (trialPhone || currentUser?.phone || '').trim();
+  const existingTrial = activePhone ? getTrialRecordForPhone(activePhone) : null;
+  const isTrialExpired = existingTrial
+    ? new Date(existingTrial.expiresAt).getTime() <= Date.now()
+    : false;
+  const isTrialActive = existingTrial ? !isTrialExpired : false;
+  const remainingTime = existingTrial
+    ? getRemainingTrialTime(existingTrial.expiresAt)
+    : null;
+
   /*
    * ============================================================
-   * Server activation
+   * 7-Day Trial Handler
    * ============================================================
    */
-  const handleActivate = async (
-    targetCode?: string
-  ) => {
-    const codeToUse = (
-      targetCode || code
-    ).trim().toUpperCase();
-
-    if (!codeToUse) {
-      setErrorMsg(
-        'يرجى إدخال كود التفعيل لتشغيل البرنامج'
-      );
+  const handleStartTrial = () => {
+    const phoneToUse = (trialPhone || currentUser?.phone || '').trim();
+    if (!phoneToUse || phoneToUse.length < 8) {
+      setTrialErrorMsg('يرجى إدخال رقم هاتف واتساب بحريني صالح (8 أرقام)');
       return;
     }
 
-    setErrorMsg('');
-    setIsLoading(true);
+    setTrialErrorMsg('');
+    setIsStartingTrial(true);
 
-    if (
-      typeof navigator !== 'undefined' &&
-      'vibrate' in navigator
-    ) {
+    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
       try {
         navigator.vibrate(30);
       } catch {}
     }
 
     try {
-      const activeUser =
-        currentUser || getCurrentUser();
+      const res = startTrialForPhone(phoneToUse, currentUser?.name);
+      if (res.success && res.user) {
+        setTrialSuccessMsg(
+          'تم تفعيل الفترة التجريبية (7 أيام) بنجاح! الرادار والـ GPS يعملان الآن ⚡'
+        );
+
+        if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+          try {
+            navigator.vibrate([40, 80, 40]);
+          } catch {}
+        }
+
+        setTimeout(() => {
+          onActivated(res.user!);
+        }, 800);
+      } else {
+        setTrialErrorMsg(
+          res.error || 'تعذر بدء الفترة التجريبية. يرجى المحاولة مرة أخرى.'
+        );
+      }
+    } catch (err) {
+      setTrialErrorMsg(
+        err instanceof Error ? err.message : 'فشل بدء الفترة التجريبية'
+      );
+    } finally {
+      setIsStartingTrial(false);
+    }
+  };
+
+  /*
+   * ============================================================
+   * Server activation
+   * ============================================================
+   */
+  const handleActivate = async (targetCode?: string) => {
+    const codeToUse = (targetCode || code).trim().toUpperCase();
+
+    if (!codeToUse) {
+      setErrorMsg('يرجى إدخال كود التفعيل لتشغيل البرنامج');
+      return;
+    }
+
+    setErrorMsg('');
+    setIsLoading(true);
+
+    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+      try {
+        navigator.vibrate(30);
+      } catch {}
+    }
+
+    try {
+      const activeUser = currentUser || getCurrentUser();
 
       if (!activeUser) {
-        setErrorMsg(
-          'يجب تسجيل الدخول أولاً قبل تفعيل كود الاشتراك'
-        );
+        setErrorMsg('يجب تسجيل الدخول أولاً قبل تفعيل كود الاشتراك');
         return;
       }
 
-      /*
-       * applyActivationCode أصبح async
-       * ويرسل الكود مباشرة إلى Orderi Server.
-       */
-      const res =
-        await applyActivationCode(
-          activeUser.id,
-          codeToUse
-        );
+      const res = await applyActivationCode(activeUser.id, codeToUse);
 
       if (res.success && res.user) {
         setIsSuccess(true);
 
-        if (
-          typeof navigator !== 'undefined' &&
-          'vibrate' in navigator
-        ) {
+        if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
           try {
-            navigator.vibrate([
-              40,
-              80,
-              40,
-            ]);
+            navigator.vibrate([40, 80, 40]);
           } catch {}
         }
 
@@ -131,8 +173,7 @@ export function ActivationLockBarrier({
         }, 700);
       } else {
         setErrorMsg(
-          res.error ||
-            'كود التفعيل غير صالح أو منتهي أو مستخدم مسبقاً'
+          res.error || 'كود التفعيل غير صالح أو منتهي أو مستخدم مسبقاً'
         );
       }
     } catch (error) {
@@ -156,32 +197,27 @@ export function ActivationLockBarrier({
     setIsLoading(true);
 
     try {
-      const res =
-        await authenticateWithBiometrics();
+      const res = await authenticateWithBiometrics();
 
       if (res.success && res.user) {
         if (res.user.isActivated) {
           setIsSuccess(true);
-
           setTimeout(() => {
             onActivated(res.user!);
           }, 500);
         } else {
           setErrorMsg(
-            'تم التحقق من الحساب، لكن الاشتراك غير مفعل. أدخل كود التفعيل.'
+            'تم التحقق من الحساب، لكن الاشتراك غير مفعل. أدخل كود التفعيل أو ابدأ الفترة التجريبية.'
           );
         }
       } else {
         setErrorMsg(
-          res.error ||
-            'تعذر التحقق من الحساب. يرجى تسجيل الدخول مرة أخرى.'
+          res.error || 'تعذر التحقق من الحساب. يرجى تسجيل الدخول مرة أخرى.'
         );
       }
     } catch (error) {
       setErrorMsg(
-        error instanceof Error
-          ? error.message
-          : 'فشل التحقق من الحساب'
+        error instanceof Error ? error.message : 'فشل التحقق من الحساب'
       );
     } finally {
       setIsLoading(false);
@@ -190,22 +226,16 @@ export function ActivationLockBarrier({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/85 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200 select-none">
-
-      {/* Background */}
+      {/* Background glow effects */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
-
       <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-80 h-80 bg-rose-500/10 rounded-full blur-3xl pointer-events-none" />
 
       {/* Main card */}
       <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border-2 border-rose-300/80 overflow-hidden relative z-10 flex flex-col my-auto max-h-[95vh]">
-
-        {/* Header */}
+        {/* Header - No close (إغلاق) button as requested */}
         <div className="bg-gradient-to-r from-slate-900 via-rose-950 to-slate-950 p-5 sm:p-6 text-white text-right relative">
-
           <div className="flex items-center justify-between gap-3">
-
             <div className="flex items-center gap-3">
-
               <div className="w-12 h-12 rounded-2xl bg-white p-0.5 shadow-lg shadow-rose-900/40 shrink-0 flex items-center justify-center border-2 border-rose-400">
                 <img
                   src="/logo.png"
@@ -216,157 +246,240 @@ export function ActivationLockBarrier({
 
               <div>
                 <div className="flex items-center gap-2">
-
                   <h3 className="text-xl font-black tracking-tight text-white">
                     Orderi
                   </h3>
-
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-500 text-white flex items-center gap-1 shadow-xs">
                     <Lock className="w-3 h-3" />
                     <span>البرنامج مقفل</span>
                   </span>
-
                 </div>
-
                 <p className="text-xs text-rose-200 mt-0.5 font-bold">
-                  بانتظار كود التفعيل لتشغيل رادار الطلبات 🇧🇭
+                  بانتظار كود التفعيل أو الفترة التجريبية لتشغيل الرادار 🇧🇭
                 </p>
               </div>
-
             </div>
 
-            <div className="flex items-center gap-1.5 shrink-0">
-              <div className="w-10 h-10 rounded-2xl bg-rose-500/20 border border-rose-400/40 flex items-center justify-center text-rose-300 shrink-0">
-                <ShieldAlert className="w-5 h-5 text-rose-400" />
-              </div>
-              {onClose && (
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="p-2 rounded-xl text-white/80 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
-                  title="الدخول إلى شاشة البرنامج"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              )}
+            <div className="w-10 h-10 rounded-2xl bg-rose-500/20 border border-rose-400/40 flex items-center justify-center text-rose-300 shrink-0">
+              <ShieldAlert className="w-5 h-5 text-rose-400" />
             </div>
-
           </div>
         </div>
 
         {/* Content */}
         <div className="p-5 sm:p-6 overflow-y-auto space-y-4">
+          {/* ============================================================
+              1. SECTION: 7-DAY TRIAL PERIOD
+              مرتبطة برقم الهاتف وتاريخ الضغط، وتختفي عند انتهاء الـ 7 أيام
+              ============================================================ */}
+          {isTrialExpired ? (
+            /* انتهت الفترة التجريبية -> يختفي خيار الفترة التجريبية ويظهر إشعار بالانتهاء */
+            <div className="p-4 rounded-2xl bg-amber-50 border-2 border-amber-300 text-right space-y-2 shadow-2xs animate-in fade-in">
+              <div className="flex items-center gap-2 text-xs sm:text-sm font-black text-amber-950">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>انتهت الفترة التجريبية (7 أيام) المخصصة لهذا الرقم</span>
+              </div>
+              <p className="text-xs text-amber-900 leading-relaxed font-medium">
+                لقد انتهت فترة الـ 7 أيام المجانية المرتبطة برقم هاتفك (
+                <span className="font-mono font-bold" dir="ltr">
+                  +973 {activePhone}
+                </span>
+                ). خيار التجربة المجانية لم يعد متاحاً. يرجى إدخال كود التفعيل المعتمد أو التواصل عبر واتساب للاشتراك.
+              </p>
+            </div>
+          ) : isTrialActive ? (
+            /* الفترة التجريبية نشطة حالياً */
+            <div className="p-4 rounded-2xl bg-emerald-50 border-2 border-emerald-400 text-right space-y-2.5 shadow-2xs animate-in fade-in">
+              <div className="flex items-center justify-between">
+                <span className="text-xs sm:text-sm font-black text-emerald-950 flex items-center gap-1.5">
+                  <Clock className="w-4 h-4 text-emerald-600" />
+                  <span>فترتك التجريبية نشطة حالياً ⏳</span>
+                </span>
+                <span className="text-[10px] bg-emerald-600 text-white font-black px-2.5 py-0.5 rounded-full shadow-2xs">
+                  متبقي {remainingTime?.formatted}
+                </span>
+              </div>
+              <p className="text-xs text-emerald-900 font-medium leading-relaxed">
+                رقم الهاتف المرتبط:{' '}
+                <strong className="font-mono" dir="ltr">
+                  +973 {activePhone}
+                </strong>
+                . تنتهي التجربة بتاريخ{' '}
+                <strong>
+                  {new Date(existingTrial!.expiresAt).toLocaleDateString('ar-BH')}
+                </strong>
+                . يمكنك استخدام كافة ميزات رادار الواتساب والـ GPS.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  const res = startTrialForPhone(
+                    activePhone,
+                    currentUser?.name
+                  );
+                  if (res.success && res.user) {
+                    onActivated(res.user);
+                  }
+                }}
+                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 text-white font-black text-xs sm:text-sm shadow-md shadow-emerald-600/25 flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer"
+              >
+                <Sparkles className="w-4 h-4 text-emerald-200" />
+                <span>متابعة العمل بالاشتراك التجريبي (الرادار والـ GPS نشطان) 🚀</span>
+              </button>
+            </div>
+          ) : (
+            /* لم تبدأ الفترة التجريبية بعد -> عرض خيار بدء الفترة التجريبية 7 أيام */
+            <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-indigo-50 via-purple-50/50 to-white border-2 border-indigo-200 text-right space-y-3 shadow-xs animate-in fade-in">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs sm:text-sm font-black text-indigo-950 flex items-center gap-1.5">
+                  <Sparkles className="w-4 h-4 text-indigo-600 shrink-0" />
+                  <span>فترة تجريبية مجانية لمدة 7 أيام 🎁</span>
+                </span>
+                <span className="text-[10px] font-black bg-indigo-600 text-white px-2 py-0.5 rounded-full shadow-2xs">
+                  7 أيام كاملة ⚡
+                </span>
+              </div>
 
-          {/* Direct Entry for editing and viewing program screen */}
-          <div className="p-4 rounded-2xl bg-emerald-50 border-2 border-emerald-300 text-right space-y-2 shadow-xs">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs sm:text-sm font-black text-emerald-950 flex items-center gap-1.5">
-                <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>شاشة البرنامج جاهزة للمعاينة والتعديل</span>
+              <p className="text-xs text-indigo-900 leading-relaxed font-medium">
+                جرب برنامج Orderi مع تشغيل كامل لرادار سحب طلبات الواتساب ومستشعر الـ GPS مجاناً لمدة 7 أيام تبدأ فورياً من لحظة الضغط، مرتبطة برقم هاتفك.
+              </p>
+
+              {/* Phone input confirmation */}
+              <div className="space-y-1.5 pt-1">
+                <label className="text-[11px] font-black text-slate-700 block">
+                  رقم هاتف واتساب البحرين لربط التجربة:
+                </label>
+                <div className="relative flex items-center">
+                  <input
+                    type="tel"
+                    value={trialPhone}
+                    onChange={(e) => {
+                      setTrialPhone(e.target.value);
+                      setTrialErrorMsg('');
+                    }}
+                    placeholder="33XXXXXX"
+                    dir="ltr"
+                    className="w-full px-4 py-2.5 rounded-xl border border-indigo-200 bg-white font-mono font-bold text-sm text-slate-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-400/20 outline-none"
+                    disabled={isStartingTrial}
+                  />
+                  <span className="absolute left-3 text-xs font-bold text-slate-400 pointer-events-none">
+                    +973
+                  </span>
+                </div>
+              </div>
+
+              {trialErrorMsg && (
+                <div className="p-2.5 rounded-xl bg-rose-100 border border-rose-200 text-rose-800 text-xs font-bold flex items-center gap-1.5">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{trialErrorMsg}</span>
+                </div>
+              )}
+
+              {trialSuccessMsg && (
+                <div className="p-2.5 rounded-xl bg-emerald-100 border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>{trialSuccessMsg}</span>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={handleStartTrial}
+                disabled={isStartingTrial}
+                className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-700 hover:from-indigo-700 hover:to-purple-800 text-white font-black text-xs sm:text-sm shadow-md shadow-indigo-600/25 flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer disabled:opacity-50"
+              >
+                {isStartingTrial ? (
+                  <span className="animate-pulse">جاري تفعيل التجربة...</span>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4 text-indigo-200" />
+                    <span>تفعيل الفترة التجريبية (7 أيام) وتشغيل البرنامج فوراً ⚡</span>
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+
+          {/* ============================================================
+              2. SECTION: OPEN APP WITHOUT ACTIVATION (VIEW ONLY)
+              واذا لم يتم تفعيل البرنامج يفتح البرنامج ولكن لايعمل الرادار بالواتساب ولا يعمل الـ GPS
+              ============================================================ */}
+          <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-right space-y-2 shadow-2xs">
+            <div className="flex items-center justify-between text-xs font-bold text-slate-700">
+              <span className="flex items-center gap-1.5 text-slate-800 font-black">
+                <Eye className="w-4 h-4 text-slate-500 shrink-0" />
+                <span>فتح البرنامج بدون تفعيل (وضع المشاهدة)</span>
               </span>
-              <span className="text-[10px] bg-emerald-600 text-white font-bold px-2 py-0.5 rounded-full shrink-0">
-                دخول فوري ⚡
+              <span className="text-[10px] bg-slate-200 text-slate-600 px-2 py-0.5 rounded-full font-bold">
+                الرادار والـ GPS معطلان 🔒
               </span>
             </div>
-            <p className="text-xs text-emerald-900 leading-relaxed font-medium">
-              اضغط على الزر التالي للدخول المباشر لشاشة البرنامج لتعديل الإعدادات ومراقبة الطلبات والرادار:
+            <p className="text-[11px] text-slate-500 leading-relaxed">
+              يمكنك الدخول إلى شاشة البرنامج واستعراض الإعدادات وقوائم الطلبات، مع بقاء رادار الواتساب ومستشعر الـ GPS معطلين تماماً حتى يتم تفعيل البرنامج أو بدء التجربة المجانية.
             </p>
             <button
               type="button"
-              onClick={() => {
-                const active = currentUser || DEFAULT_DEMO_CAPTAIN;
-                const activatedUser: CaptainUser = {
-                  ...active,
-                  isActivated: true,
-                  licensePlan: active.licensePlan || 'الترخيص الشامل VIP - غير محدود 🇧🇭'
-                };
-                setCurrentUser(activatedUser);
-                onActivated(activatedUser);
-                onClose?.();
-              }}
-              className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-700 hover:to-teal-700 text-white font-black text-xs sm:text-sm shadow-md shadow-emerald-600/25 flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer"
+              onClick={onOpenUnactivated}
+              className="w-full py-2.5 px-3 rounded-xl bg-slate-200/80 hover:bg-slate-300 text-slate-800 font-bold text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98]"
             >
-              <Sparkles className="w-4 h-4 text-emerald-200" />
-              <span>الدخول المباشر إلى شاشة البرنامج (وضع التعديل) 🚀</span>
+              <Eye className="w-4 h-4 text-slate-600" />
+              <span>المتابعة إلى شاشة البرنامج (مع بقاء الرادار والـ GPS معطلين)</span>
             </button>
           </div>
 
-          {/* Warning */}
+          {/* ============================================================
+              3. SECTION: ACTIVATION CODE ENTRY
+              ============================================================ */}
           <div className="p-4 rounded-2xl bg-rose-50/90 border-2 border-rose-200 text-right space-y-1.5 shadow-2xs">
-
             <div className="flex items-center gap-2 font-black text-rose-950 text-xs sm:text-sm">
               <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-              <span>
-                تنبيه: البرنامج يحتاج إلى اشتراك فعال
-              </span>
+              <span>أو تفعيل البرنامج عبر كود الترخيص الرسمي:</span>
             </div>
-
             <p className="text-xs text-rose-800 leading-relaxed font-medium">
-              أدخل كود التفعيل المخصص لحسابك.
-              سيتم التحقق من الكود مباشرة عبر سيرفر
-              Orderi، ولن يتم تشغيل البرنامج إلا إذا
-              كان الاشتراك صالحاً.
+              أدخل كود التفعيل المخصص لحسابك لتشغيل البرنامج دائماً، أو تواصل عبر واتساب للحصول على كود جديد.
             </p>
-
           </div>
 
-          {/* WhatsApp */}
+          {/* WhatsApp Direct Link */}
           <div className="pt-0.5">
-
             <a
               href={ACTIVATION_WHATSAPP_LINK}
               target="_blank"
               rel="noopener noreferrer"
-              className="w-full py-3.5 px-4 rounded-2xl bg-[#25D366] hover:bg-[#20ba59] text-white font-black text-xs sm:text-sm shadow-md shadow-[#25D366]/25 transition-all flex items-center justify-center gap-2 active:scale-[0.98] group"
+              className="w-full py-3 px-4 rounded-2xl bg-[#25D366] hover:bg-[#20ba59] text-white font-black text-xs sm:text-sm shadow-md shadow-[#25D366]/25 transition-all flex items-center justify-center gap-2 active:scale-[0.98] group"
             >
               <WhatsAppIcon className="w-5 h-5 fill-current shrink-0 group-hover:scale-110 transition-transform" />
-
-              <span>
-                تواصل عبر واتساب للحصول على كود التفعيل
-              </span>
+              <span>تواصل عبر واتساب للحصول على كود التفعيل</span>
             </a>
-
           </div>
 
           {/* Error */}
           {errorMsg && (
             <div className="flex items-center gap-2 p-3 rounded-2xl bg-rose-100 border border-rose-300 text-rose-900 text-xs font-bold animate-in fade-in">
-
               <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
-
               <span>{errorMsg}</span>
-
             </div>
           )}
 
           {/* Success */}
           {isSuccess && (
             <div className="flex items-center gap-2 p-3 rounded-2xl bg-emerald-100 border border-emerald-300 text-emerald-900 text-xs font-bold animate-in fade-in">
-
-              <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-600" />
-
-              <span>
-                تم تفعيل الاشتراك بنجاح! جاري تشغيل Orderi...
-              </span>
-
+              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+              <span>تم تفعيل الاشتراك بنجاح! جاري تشغيل Orderi...</span>
             </div>
           )}
 
-          {/* Current account */}
+          {/* Current account summary */}
           {currentUser && (
             <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 text-right flex items-center justify-between">
-
               <div className="flex items-center gap-2.5">
-
                 <div className="w-8 h-8 rounded-xl bg-slate-200 text-slate-700 flex items-center justify-center font-bold text-xs shrink-0">
                   <User className="w-4 h-4" />
                 </div>
-
                 <div>
                   <span className="text-xs font-black text-slate-900 block">
                     {currentUser.name}
                   </span>
-
                   <span
                     className="text-[11px] text-slate-500 font-mono"
                     dir="ltr"
@@ -374,17 +487,15 @@ export function ActivationLockBarrier({
                     +973 {currentUser.phone}
                   </span>
                 </div>
-
               </div>
 
               <span className="text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-lg">
-                الاشتراك غير مفعل
+                غير مفعل
               </span>
-
             </div>
           )}
 
-          {/* Activation form */}
+          {/* Activation Form */}
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -392,40 +503,26 @@ export function ActivationLockBarrier({
             }}
             className="space-y-3"
           >
-
             <div className="space-y-1.5 text-right">
-
               <label className="text-xs font-black text-slate-800 flex items-center justify-between">
-                <span>
-                  أدخل كود التفعيل المعتمد:
-                </span>
-
+                <span>أدخل كود التفعيل المعتمد:</span>
                 <span className="text-[10px] text-emerald-700 font-bold">
                   أحرف وأرقام
                 </span>
               </label>
 
               <div className="relative flex items-center">
-
                 <input
                   type="text"
                   value={code}
-                  onChange={(e) =>
-                    setCode(
-                      e.target.value.toUpperCase()
-                    )
-                  }
+                  onChange={(e) => setCode(e.target.value.toUpperCase())}
                   placeholder="أدخل كود التفعيل هنا"
                   dir="ltr"
                   className="w-full px-4 py-3.5 rounded-2xl border-2 border-slate-300 bg-slate-50 font-mono font-black text-base text-slate-900 text-center tracking-wider focus:bg-white focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 outline-none transition-all"
-                  autoFocus
                   disabled={isLoading || isSuccess}
                 />
-
                 <KeyRound className="w-5 h-5 text-slate-400 absolute left-4 pointer-events-none" />
-
               </div>
-
             </div>
 
             <button
@@ -438,68 +535,24 @@ export function ActivationLockBarrier({
               }
               className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-sm sm:text-base shadow-xl shadow-emerald-600/30 transition-all flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-50 cursor-pointer"
             >
-
               {isLoading ? (
-                <>
-                  <span className="animate-pulse">
-                    جاري التحقق من السيرفر...
-                  </span>
-                </>
+                <span className="animate-pulse">جاري التحقق من السيرفر...</span>
               ) : (
                 <>
                   <KeyRound className="w-5 h-5" />
-                  <span>
-                    تفعيل الاشتراك وتشغيل البرنامج
-                  </span>
+                  <span>تفعيل الاشتراك وتشغيل البرنامج</span>
                 </>
               )}
-
             </button>
-
           </form>
 
-          {/* Features */}
-          <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/90 text-right space-y-2">
-
-            <span className="font-black text-slate-800 text-xs block">
-              بعد نجاح التفعيل:
-            </span>
-
-            <ul className="space-y-1.5 text-slate-700 text-xs">
-
-              <li className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>
-                  يتم فتح جميع ميزات Orderi
-                </span>
-              </li>
-
-              <li className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>
-                  يتم حفظ مدة الاشتراك من السيرفر
-                </span>
-              </li>
-
-              <li className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>
-                  يمكن للسيرفر إيقاف الاشتراك عند انتهائه
-                </span>
-              </li>
-
-            </ul>
-
-          </div>
-
-          {/* Actions */}
+          {/* Quick Actions: Biometrics & Login */}
           <div className="pt-2 border-t border-slate-100 grid grid-cols-2 gap-2">
-
             <button
               type="button"
               onClick={() => void handleBiometricUnlock()}
               disabled={isLoading}
-              className="p-2.5 rounded-xl bg-slate-50 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 text-slate-700 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
+              className="p-2.5 rounded-xl bg-slate-50 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 text-slate-700 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer"
             >
               <Fingerprint className="w-4 h-4 text-emerald-600" />
               <span>الدخول بالبصمة</span>
@@ -507,44 +560,31 @@ export function ActivationLockBarrier({
 
             <button
               type="button"
-              onClick={() =>
-                onOpenAuthModal('login')
-              }
-              className="p-2.5 rounded-xl bg-slate-50 hover:bg-blue-50 border border-slate-200 hover:border-blue-300 text-slate-700 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors"
+              onClick={() => onOpenAuthModal('login')}
+              className="p-2.5 rounded-xl bg-slate-50 hover:bg-blue-50 border border-slate-200 hover:border-blue-300 text-slate-700 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
             >
               <Phone className="w-4 h-4 text-blue-600" />
               <span>تسجيل الدخول</span>
             </button>
-
           </div>
 
           <div className="text-center">
-
             <button
               type="button"
-              onClick={() =>
-                onOpenAuthModal('register')
-              }
-              className="text-xs font-bold text-emerald-700 hover:underline inline-flex items-center gap-1"
+              onClick={() => onOpenAuthModal('register')}
+              className="text-xs font-bold text-emerald-700 hover:underline inline-flex items-center gap-1 cursor-pointer"
             >
-              <span>
-                ليس لديك حساب؟ إنشاء حساب جديد
-              </span>
-
+              <span>ليس لديك حساب؟ إنشاء حساب جديد</span>
               <ArrowRight className="w-3 h-3 rotate-180" />
             </button>
-
           </div>
-
         </div>
 
         {/* Footer */}
         <div className="p-3 bg-slate-50 border-t border-slate-200 text-center text-[11px] text-slate-500 font-medium">
           Orderi — رادار طلبات التوصيل الذكي في مملكة البحرين 🇧🇭
         </div>
-
       </div>
-
     </div>
   );
 }

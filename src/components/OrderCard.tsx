@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
   Check, 
   X, 
@@ -22,12 +22,18 @@ import {
   Lightbulb,
   AlertTriangle,
   Layers,
-  RefreshCw
+  RefreshCw,
+  Lock,
+  AlertCircle,
+  CheckCircle2,
+  MoveHorizontal
 } from 'lucide-react';
 import { ParsedOrder } from '../types';
 import { MatcherLocation } from '../utils/matcher';
 import { AIMatchModal } from './AIMatchModal';
 import { findLandmarkByName } from '../data/bahrainLandmarks';
+import { sendNativeQuickReply } from '../native/whatsappListener';
+import { detectPassengerDelivery } from '../utils/passengerClassifier';
 
 interface OrderCardProps {
   key?: string;
@@ -38,6 +44,9 @@ interface OrderCardProps {
   onIgnore: (orderId: string) => void;
   onToggleContact?: (order: ParsedOrder, type: 'vip' | 'blacklist') => void;
   onEvaluateAi?: (order: ParsedOrder) => void;
+  onRestoreOrder?: (orderId: string) => void;
+  onConfirmClosure?: (orderId: string) => void;
+  onDismissClosureSuspicion?: (orderId: string) => void;
 }
 
 export function OrderCard({
@@ -48,11 +57,149 @@ export function OrderCard({
   onIgnore,
   onToggleContact,
   onEvaluateAi,
+  onRestoreOrder,
+  onConfirmClosure,
+  onDismissClosureSuspicion,
 }: OrderCardProps) {
   const [showFullText, setShowFullText] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showAcceptDialog, setShowAcceptDialog] = useState(false);
   const [showAiModal, setShowAiModal] = useState(false);
+  const [showReviewConfirmModal, setShowReviewConfirmModal] = useState(false);
+
+  // Swipe-to-delete state & handlers (سحب لليمين أو لليسار يمسح الأوردر)
+  const [dragOffset, setDragOffset] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isExiting, setIsExiting] = useState(false);
+  const startXRef = useRef(0);
+  const startYRef = useRef(0);
+  const isHorizontalSwipeRef = useRef<boolean | null>(null);
+  const hasTriggeredHapticRef = useRef(false);
+
+  const SWIPE_THRESHOLD = 80;
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (isExiting) return;
+    const target = e.target as HTMLElement;
+    if (target.closest('button, a, input, select, textarea, [role="button"]')) {
+      return;
+    }
+    const touch = e.touches[0];
+    startXRef.current = touch.clientX;
+    startYRef.current = touch.clientY;
+    isHorizontalSwipeRef.current = null;
+    hasTriggeredHapticRef.current = false;
+    setIsDragging(true);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!isDragging || isExiting) return;
+    const touch = e.touches[0];
+    const deltaX = touch.clientX - startXRef.current;
+    const deltaY = touch.clientY - startYRef.current;
+
+    if (isHorizontalSwipeRef.current === null) {
+      if (Math.abs(deltaY) > 6 && Math.abs(deltaY) > Math.abs(deltaX)) {
+        isHorizontalSwipeRef.current = false; // vertical page scroll
+        return;
+      }
+      if (Math.abs(deltaX) > 6 && Math.abs(deltaX) >= Math.abs(deltaY)) {
+        isHorizontalSwipeRef.current = true; // horizontal card swipe
+      }
+    }
+
+    if (isHorizontalSwipeRef.current) {
+      setDragOffset(deltaX);
+
+      if (Math.abs(deltaX) >= SWIPE_THRESHOLD && !hasTriggeredHapticRef.current) {
+        hasTriggeredHapticRef.current = true;
+        if (typeof navigator !== 'undefined' && navigator.vibrate) {
+          navigator.vibrate(25);
+        }
+      } else if (Math.abs(deltaX) < SWIPE_THRESHOLD && hasTriggeredHapticRef.current) {
+        hasTriggeredHapticRef.current = false;
+      }
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (!isDragging || isExiting) return;
+    setIsDragging(false);
+
+    if (Math.abs(dragOffset) >= SWIPE_THRESHOLD) {
+      setIsExiting(true);
+      const exitDirection = dragOffset > 0 ? 600 : -600;
+      setDragOffset(exitDirection);
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        navigator.vibrate([20, 35]);
+      }
+      setTimeout(() => {
+        onIgnore(order.id);
+      }, 220);
+    } else {
+      setDragOffset(0);
+    }
+    isHorizontalSwipeRef.current = null;
+  };
+
+  // Mouse drag support for desktop
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (isExiting) return;
+    const target = e.target as HTMLElement;
+    if (target.closest('button, a, input, select, textarea, [role="button"]')) {
+      return;
+    }
+    startXRef.current = e.clientX;
+    startYRef.current = e.clientY;
+    isHorizontalSwipeRef.current = null;
+    hasTriggeredHapticRef.current = false;
+    setIsDragging(true);
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging || isExiting) return;
+    const deltaX = e.clientX - startXRef.current;
+    const deltaY = e.clientY - startYRef.current;
+
+    if (isHorizontalSwipeRef.current === null) {
+      if (Math.abs(deltaY) > 6 && Math.abs(deltaY) > Math.abs(deltaX)) {
+        isHorizontalSwipeRef.current = false;
+        return;
+      }
+      if (Math.abs(deltaX) > 6) {
+        isHorizontalSwipeRef.current = true;
+      }
+    }
+
+    if (isHorizontalSwipeRef.current) {
+      setDragOffset(deltaX);
+      if (Math.abs(deltaX) >= SWIPE_THRESHOLD && !hasTriggeredHapticRef.current) {
+        hasTriggeredHapticRef.current = true;
+      }
+    }
+  };
+
+  const handleMouseUp = () => {
+    if (!isDragging || isExiting) return;
+    setIsDragging(false);
+
+    if (Math.abs(dragOffset) >= SWIPE_THRESHOLD) {
+      setIsExiting(true);
+      const exitDirection = dragOffset > 0 ? 600 : -600;
+      setDragOffset(exitDirection);
+      setTimeout(() => {
+        onIgnore(order.id);
+      }, 220);
+    } else {
+      setDragOffset(0);
+    }
+    isHorizontalSwipeRef.current = null;
+  };
+
+  // Passenger transport detection status (كاشف نقل الركاب والأشخاص)
+  const passenger = order.passengerDetection || detectPassengerDelivery(order.rawText);
+  const isConfirmedPassenger = passenger.level === 'confirmed_passenger';
+  const isSuspiciousPassenger = passenger.level === 'suspicious_passenger';
 
   const { match } = order;
   const isVip = match.score >= 90;
@@ -99,7 +246,18 @@ export function OrderCard({
       onAccept(order);
       setShowAcceptDialog(false);
 
-      // 2. إرسال الرد في واتساب بأقصى سرعة بدون تحويل المستخدم خارج التطبيق
+      // 2. إرسال الرد النيتيف في واتساب تلقائياً في الخلفية (صلاحية Accessibility / RemoteInput)
+      try {
+        await sendNativeQuickReply({
+          groupName: order.groupName,
+          phone: order.senderPhone,
+          message: fullWhatsAppMessage,
+        });
+      } catch (nativeErr) {
+        console.warn('[Orderi Native Quick Reply]', nativeErr);
+      }
+
+      // 3. إرسال الرد في واتساب عبر السيرفر بأقصى سرعة بدون تحويل المستخدم خارج التطبيق
       await fetch('/api/whatsapp/quick-accept-reply', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -131,19 +289,134 @@ export function OrderCard({
 
   return (
     <>
+      {/* Swipe to Delete Container */}
       <div 
-        className={`relative overflow-hidden rounded-2xl bg-white border transition-all duration-200 hover:shadow-md ${
-          order.contactStatus === 'vip'
-            ? 'border-amber-400 ring-2 ring-amber-400/20 shadow-md'
-            : order.contactStatus === 'blacklist'
-            ? 'border-rose-400 ring-2 ring-rose-400/20 bg-rose-50/20 shadow-xs'
-            : isVip 
-            ? 'border-emerald-500/40 ring-1 ring-emerald-500/20 shadow-xs' 
-            : isGood
-            ? 'border-blue-300/80 shadow-xs'
-            : 'border-slate-200 shadow-2xs'
+        className={`relative overflow-hidden rounded-2xl transition-all duration-300 select-none ${
+          isExiting ? 'max-h-0 opacity-0 mb-0 py-0 scale-95 overflow-hidden' : 'mb-0'
         }`}
       >
+        {/* Background Reveal Layer during horizontal swipe */}
+        <div 
+          className="absolute inset-0 bg-gradient-to-r from-rose-600 via-rose-500 to-rose-600 flex items-center justify-between px-6 rounded-2xl text-white font-bold pointer-events-none z-0"
+          aria-hidden="true"
+        >
+          {/* Revealed when dragging right (dragOffset > 0) */}
+          <div className={`flex items-center gap-2.5 transition-all duration-150 ${dragOffset > 20 ? 'opacity-100 scale-105' : 'opacity-30 scale-90'}`}>
+            <div className="w-10 h-10 rounded-full bg-white/25 flex items-center justify-center backdrop-blur-xs shadow-inner">
+              <Trash2 className="w-5 h-5 text-white" />
+            </div>
+            <div className="text-right">
+              <span className="text-xs sm:text-sm font-black block">
+                {Math.abs(dragOffset) >= SWIPE_THRESHOLD ? 'حرّر لمسح الطلب الآن 🗑️' : 'اسحب للمسح'}
+              </span>
+              <span className="text-[10px] text-white/90">يمسح الطلب ويحدده كمقروء ✓✓</span>
+            </div>
+          </div>
+
+          {/* Revealed when dragging left (dragOffset < 0) */}
+          <div className={`flex items-center gap-2.5 transition-all duration-150 ${dragOffset < -20 ? 'opacity-100 scale-105' : 'opacity-30 scale-90'}`}>
+            <div className="text-left">
+              <span className="text-xs sm:text-sm font-black block">
+                {Math.abs(dragOffset) >= SWIPE_THRESHOLD ? 'حرّر لمسح الطلب الآن 🗑️' : 'اسحب للمسح'}
+              </span>
+              <span className="text-[10px] text-white/90">يمسح الطلب ويحدده كمقروء ✓✓</span>
+            </div>
+            <div className="w-10 h-10 rounded-full bg-white/25 flex items-center justify-center backdrop-blur-xs shadow-inner">
+              <Trash2 className="w-5 h-5 text-white" />
+            </div>
+          </div>
+        </div>
+
+        {/* Foreground Interactive Order Card */}
+        <div 
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          onTouchCancel={handleTouchEnd}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
+          style={{
+            transform: `translateX(${dragOffset}px)`,
+            transition: isDragging ? 'none' : 'transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.2s ease',
+            opacity: isExiting ? 0 : 1,
+            touchAction: 'pan-y',
+          }}
+          className={`relative z-10 overflow-hidden rounded-2xl bg-white border transition-shadow duration-200 hover:shadow-md cursor-grab active:cursor-grabbing ${
+            order.status === 'closed_taken'
+              ? 'border-slate-300 bg-slate-50/50 opacity-95 shadow-2xs'
+              : order.status === 'suspicious_closed'
+              ? 'border-amber-400 ring-2 ring-amber-400/20 bg-amber-50/10 shadow-xs'
+              : isConfirmedPassenger
+              ? 'border-red-500 ring-2 ring-red-500/25 bg-red-50/10 shadow-sm'
+              : isSuspiciousPassenger
+              ? 'border-amber-400 ring-2 ring-amber-400/20 shadow-xs'
+              : order.contactStatus === 'vip'
+              ? 'border-amber-400 ring-2 ring-amber-400/20 shadow-md'
+              : order.contactStatus === 'blacklist'
+              ? 'border-rose-400 ring-2 ring-rose-400/20 bg-rose-50/20 shadow-xs'
+              : isVip 
+              ? 'border-emerald-500/40 ring-1 ring-emerald-500/20 shadow-xs' 
+              : isGood
+              ? 'border-blue-300/80 shadow-xs'
+              : 'border-slate-200 shadow-2xs'
+          }`}
+        >
+        {/* Closed & Taken Order Banner */}
+        {order.status === 'closed_taken' && (
+          <div className="bg-gradient-to-r from-slate-700 via-slate-800 to-slate-900 text-white px-4 py-2 flex items-center justify-between text-xs font-black shadow-xs">
+            <div className="flex items-center gap-2 truncate">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span className="truncate">🏷️ مغلق تلقائياً — تم أخذ الطلب في القروب («{order.closureEvidence?.replyText || 'تم'}»)</span>
+            </div>
+            <span className="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full shrink-0 font-bold">
+              مكتمل ومحجوز
+            </span>
+          </div>
+        )}
+
+        {/* Suspicious Closed Banner */}
+        {order.status === 'suspicious_closed' && (
+          <div className="bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 text-white px-4 py-2 flex items-center justify-between text-xs font-black shadow-xs">
+            <div className="flex items-center gap-2 truncate">
+              <AlertCircle className="w-4 h-4 text-amber-200 shrink-0" />
+              <span className="truncate font-black">⚠️ اشتباه حجز: ورد رد بالقروب («{order.closureEvidence?.replyText || 'تم'}»)</span>
+            </div>
+            <span className="text-[10px] bg-black/30 px-2 py-0.5 rounded-full shrink-0 font-bold">
+              تحقق يدوي
+            </span>
+          </div>
+        )}
+
+        {/* Red Warning Banner: Passenger Delivery Forbidden */}
+        {isConfirmedPassenger && (
+          <div className="bg-gradient-to-r from-red-600 via-rose-600 to-red-700 text-white px-4 py-2.5 flex items-center justify-between text-xs font-black shadow-xs">
+            <div className="flex items-center gap-2 truncate">
+              <AlertTriangle className="w-4 h-4 shrink-0 text-amber-300 animate-pulse" />
+              <span className="truncate text-xs sm:text-sm font-black tracking-wide">
+                تحذير: توصيل أشخاص ممنوع 🚫
+              </span>
+            </div>
+            <span className="text-[10px] bg-black/40 px-2 py-0.5 rounded-full shrink-0 font-bold border border-white/20">
+              تحذير ركاب ⚠️ • القبول متاح
+            </span>
+          </div>
+        )}
+
+        {/* Amber Warning Banner: Suspicious Passenger Delivery */}
+        {!isConfirmedPassenger && isSuspiciousPassenger && (
+          <div className="bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-600 text-amber-950 px-4 py-2 flex items-center justify-between text-xs font-black shadow-xs">
+            <div className="flex items-center gap-1.5 truncate">
+              <AlertCircle className="w-4 h-4 shrink-0 text-amber-950" />
+              <span className="truncate font-bold">⚠️ احتمال نقل أشخاص (مراجعة مطلوبة قبل القبول)</span>
+            </div>
+            <span className="text-[10px] bg-amber-950/20 px-2 py-0.5 rounded-full shrink-0 font-bold">
+              مراجعة يدوية
+            </span>
+          </div>
+        )}
+
         {/* VIP Store Banner */}
         {order.contactStatus === 'vip' && (
           <div className="bg-gradient-to-r from-amber-400 via-amber-300 to-yellow-400 text-amber-950 px-4 py-2 flex items-center justify-between text-xs font-black shadow-xs">
@@ -268,19 +541,36 @@ export function OrderCard({
                       : order.groupName}
                   </span>
                 </span>
+                <span>•</span>
+                <span 
+                  className="inline-flex items-center gap-1 text-[10px] text-slate-400 bg-slate-100 hover:bg-rose-50 hover:text-rose-600 px-1.5 py-0.5 rounded-md select-none transition-colors"
+                  title="اسحب لليمين أو لليسار لمسح الطلب"
+                >
+                  <MoveHorizontal className="w-2.5 h-2.5 text-slate-400" />
+                  <span>اسحب للمسح</span>
+                </span>
               </div>
             </div>
           </div>
 
           {/* Price Badge */}
           <div className="shrink-0 text-left">
-            <div className="px-3.5 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200/70 text-left">
-              <span className="text-[10px] text-emerald-800 font-bold block text-center">أجرة التوصيل</span>
-              <div className="flex items-baseline justify-center gap-1">
-                <span className="text-xl font-black text-emerald-700 tracking-tight">{order.price.toFixed(1)}</span>
-                <span className="text-[11px] font-bold text-emerald-600">د.ب</span>
+            {(!order.price || order.price <= 0 || order.isPriceUnspecified) ? (
+              <div className="px-3 py-1.5 rounded-xl bg-amber-50/90 border border-amber-200/90 text-center shadow-2xs">
+                <span className="text-[10px] text-amber-800 font-bold block text-center">أجرة التوصيل</span>
+                <div className="flex items-center justify-center gap-1 mt-0.5">
+                  <span className="text-xs sm:text-sm font-black text-amber-900 tracking-tight whitespace-nowrap">بالاتفاق 🤝</span>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="px-3.5 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200/70 text-left shadow-2xs">
+                <span className="text-[10px] text-emerald-800 font-bold block text-center">أجرة التوصيل</span>
+                <div className="flex items-baseline justify-center gap-1">
+                  <span className="text-xl font-black text-emerald-700 tracking-tight">{order.price.toFixed(1)}</span>
+                  <span className="text-[11px] font-bold text-emerald-600">د.ب</span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -345,32 +635,6 @@ export function OrderCard({
               </div>
 
             </div>
-          </div>
-
-          {/* Sleek Criteria Match Status Row */}
-          <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-            <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border font-bold ${
-              match.startMatched ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-rose-50 text-rose-800 border-rose-200'
-            }`}>
-              {match.startMatched ? <Check className="w-3 h-3 text-emerald-600" /> : <X className="w-3 h-3 text-rose-500" />}
-              <span>
-                الاستلام من موقعك: {match.distanceKm !== null ? `${match.distanceKm.toFixed(1)} كم (${fromLandmark ? fromLandmark.parentAreaName + ' • ' : ''}${match.startMatched ? 'ضمن نطاقك 🎯' : 'خارج نطاقك'})` : (order.from || 'البحرين')}
-              </span>
-            </span>
-
-            <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border font-bold ${
-              match.destinationMatched ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-slate-100 text-slate-600 border-slate-200'
-            }`}>
-              {match.destinationMatched ? <Check className="w-3 h-3 text-emerald-600" /> : <X className="w-3 h-3 text-slate-400" />}
-              <span>الوجهة: {toLandmark ? `${order.to} (${toLandmark.parentAreaName})` : (order.to || 'الكل')}</span>
-            </span>
-
-            <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border font-bold ${
-              match.priceMatched ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-slate-100 text-slate-600 border-slate-200'
-            }`}>
-              {match.priceMatched ? <Check className="w-3 h-3 text-emerald-600" /> : <X className="w-3 h-3 text-slate-400" />}
-              <span>السعر ({order.price} د.ب)</span>
-            </span>
           </div>
 
           {/* AI Match with Captain's Conditions (Gemini AI Feature) */}
@@ -534,42 +798,125 @@ export function OrderCard({
           <div className="space-y-2 pt-1">
             {/* Primary Action Button (Accept & Reply on WhatsApp Instantly Without Redirection) */}
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleQuickAutoReply}
-                disabled={isAutoReplying}
-                className={`flex-1 min-h-[48px] flex items-center justify-center gap-2 py-3 px-3.5 sm:px-4 rounded-xl sm:rounded-2xl text-white font-black text-xs sm:text-sm shadow-md transition-all active:scale-[0.98] cursor-pointer ${
-                  isMyBroadcast 
-                    ? 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 shadow-purple-600/25' 
-                    : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-emerald-600/25'
-                }`}
-              >
-                {isAutoReplying ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin text-white" />
-                    <span>جاري الرد التلقائي في واتساب...</span>
-                  </>
-                ) : isMyBroadcast ? (
-                  <>
-                    <Reply className="w-4 h-4" />
-                    <span>حصلت مندوب (رد: تم فوراً) 🎯</span>
-                  </>
-                ) : (
-                  <>
-                    <Zap className="w-4 h-4 fill-amber-300 text-amber-300 animate-pulse" />
-                    <span>قبول والرد التلقائي بالواتساب فوراً ⚡</span>
-                  </>
-                )}
-              </button>
+              {order.status === 'closed_taken' ? (
+                <div className="flex items-center gap-2 w-full">
+                  <div className="flex-1 min-h-[48px] flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl sm:rounded-2xl bg-slate-100 border border-slate-300 text-slate-700 font-bold text-xs">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    <span>الطلب مغلق — تم أخذه في القروب 🏷️</span>
+                  </div>
+                  {onRestoreOrder && (
+                    <button
+                      type="button"
+                      onClick={() => onRestoreOrder(order.id)}
+                      className="min-h-[48px] px-3.5 py-2.5 rounded-xl sm:rounded-2xl bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs border border-blue-200 transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer shrink-0"
+                      title="استعادة هذا الطلب إلى الرادار المتاح إذا كان لا يزال متاحاً"
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                      <span>إعادة للرادار</span>
+                    </button>
+                  )}
+                </div>
+              ) : order.status === 'suspicious_closed' ? (
+                <div className="space-y-2 w-full">
+                  <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-950 text-xs flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 truncate">
+                      <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                      <span className="truncate">رد محتمل بالقروب: «{order.closureEvidence?.replyText || 'تم'}» ({order.closureEvidence?.senderName || 'عضو'})</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {onConfirmClosure && (
+                      <button
+                        type="button"
+                        onClick={() => onConfirmClosure(order.id)}
+                        className="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs transition-all cursor-pointer shadow-xs"
+                      >
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                        <span>تأكيد إغلاقه (تم أخذه) ✓</span>
+                      </button>
+                    )}
+                    {onDismissClosureSuspicion && (
+                      <button
+                        type="button"
+                        onClick={() => onDismissClosureSuspicion(order.id)}
+                        className="min-h-[44px] px-3.5 py-2 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold text-xs border border-amber-300 transition-all cursor-pointer"
+                      >
+                        لا يزال متاحاً ↺
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ) : isConfirmedPassenger ? (
+                <button
+                  type="button"
+                  onClick={handleQuickAutoReply}
+                  disabled={isAutoReplying}
+                  className="flex-1 min-h-[48px] flex items-center justify-center gap-2 py-3 px-3.5 sm:px-4 rounded-xl sm:rounded-2xl text-white bg-gradient-to-r from-red-600 via-rose-600 to-red-700 hover:from-red-500 hover:to-rose-500 font-black text-xs sm:text-sm shadow-md shadow-rose-900/30 transition-all active:scale-[0.98] cursor-pointer"
+                  title="تحذير: توصيل أشخاص ممنوع، انقر لقبول الطلب والرد بالواتساب"
+                >
+                  {isAutoReplying ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                      <span>جاري الرد التلقائي بالواتساب...</span>
+                    </>
+                  ) : (
+                    <>
+                      <AlertTriangle className="w-4 h-4 text-amber-300 animate-pulse" />
+                      <span>قبول الطلب ⚡ (تحذير: توصيل أشخاص ⚠️)</span>
+                    </>
+                  )}
+                </button>
+              ) : isSuspiciousPassenger ? (
+                <button
+                  type="button"
+                  onClick={() => setShowReviewConfirmModal(true)}
+                  className="flex-1 min-h-[48px] flex items-center justify-center gap-2 py-3 px-3.5 sm:px-4 rounded-xl sm:rounded-2xl text-amber-950 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 hover:to-yellow-300 font-black text-xs sm:text-sm shadow-md transition-all active:scale-[0.98] cursor-pointer"
+                >
+                  <AlertTriangle className="w-4 h-4 text-amber-950" />
+                  <span>مراجعة وتأكيد (بضاعة وليست أشخاص) للقبول ⚠️</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleQuickAutoReply}
+                  disabled={isAutoReplying}
+                  className={`flex-1 min-h-[48px] flex items-center justify-center gap-2 py-3 px-3.5 sm:px-4 rounded-xl sm:rounded-2xl text-white font-black text-xs sm:text-sm shadow-md transition-all active:scale-[0.98] cursor-pointer ${
+                    isMyBroadcast 
+                      ? 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 shadow-purple-600/25' 
+                      : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-emerald-600/25'
+                  }`}
+                >
+                  {isAutoReplying ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                      <span>جاري الرد التلقائي في واتساب...</span>
+                    </>
+                  ) : isMyBroadcast ? (
+                    <>
+                      <Reply className="w-4 h-4" />
+                      <span>حصلت مندوب (رد: تم فوراً) 🎯</span>
+                    </>
+                  ) : (
+                    <>
+                      <Zap className="w-4 h-4 fill-amber-300 text-amber-300 animate-pulse" />
+                      <span>قبول والرد التلقائي بالواتساب فوراً ⚡</span>
+                    </>
+                  )}
+                </button>
+              )}
 
               {/* View Message Template / Dialog */}
               <button
                 type="button"
                 onClick={() => setShowAcceptDialog(true)}
-                title="معاينة نص الرسالة وخيارات القبول"
-                className="min-h-[48px] px-3 flex items-center justify-center rounded-xl sm:rounded-2xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 transition-all active:scale-95 cursor-pointer shrink-0"
+                title={isConfirmedPassenger ? "معاينة نص الإعلان وتفاصيل الحظر" : "معاينة نص الرسالة وخيارات القبول"}
+                className={`min-h-[48px] px-3 flex items-center justify-center rounded-xl sm:rounded-2xl border transition-all active:scale-95 cursor-pointer shrink-0 ${
+                  isConfirmedPassenger
+                    ? 'bg-red-50 hover:bg-red-100 text-red-800 border-red-200'
+                    : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-200'
+                }`}
               >
-                <MessageCircle className="w-4 h-4 text-emerald-700" />
+                <MessageCircle className={`w-4 h-4 ${isConfirmedPassenger ? 'text-red-700' : 'text-emerald-700'}`} />
               </button>
             </div>
 
@@ -616,6 +963,7 @@ export function OrderCard({
 
         </div>
       </div>
+    </div>
 
       {/* Accept Order Modal Confirmation */}
       {showAcceptDialog && (
@@ -655,8 +1003,24 @@ export function OrderCard({
 
             <div className="p-3 rounded-xl bg-blue-50/80 border border-blue-200/70 text-xs text-blue-900 flex items-center justify-between">
               <span>{isMyBroadcast ? 'قيمة الطلب المنشور:' : 'أجرة التوصيل المسجلة:'}</span>
-              <strong className="text-base font-black text-blue-700">{order.price.toFixed(1)} د.ب</strong>
+              <strong className="text-sm font-black text-blue-700">
+                {(!order.price || order.price <= 0 || order.isPriceUnspecified)
+                  ? 'غير محددة في الإعلان (تجاهل السعر • بالاتفاق 🤝)'
+                  : `${order.price.toFixed(1)} د.ب`}
+              </strong>
             </div>
+
+            {isConfirmedPassenger && (
+              <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-950 flex items-center justify-between text-xs">
+                <div className="flex items-center gap-1.5 font-black text-red-700">
+                  <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                  <span>تحذير: توصيل أشخاص ممنوع 🚫</span>
+                </div>
+                <span className="text-[10px] font-bold text-red-800 bg-red-100 px-2 py-0.5 rounded-full border border-red-200">
+                  تحذير ركاب • القبول متاح للكابتن
+                </span>
+              </div>
+            )}
 
             <div className="flex flex-col sm:flex-row items-center gap-2.5 pt-1">
               <button
@@ -664,24 +1028,106 @@ export function OrderCard({
                 onClick={() => setShowAcceptDialog(false)}
                 className="w-full sm:w-auto px-4 py-3 rounded-xl border border-slate-200 text-slate-700 font-bold text-xs sm:text-sm hover:bg-slate-50 active:scale-98 transition-all order-2 sm:order-1"
               >
-                إلغاء
+                إغلاق
               </button>
 
               <button
                 type="button"
                 onClick={handleQuickAutoReply}
                 disabled={isAutoReplying}
-                className="w-full sm:flex-1 min-h-[48px] flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs sm:text-sm shadow-md shadow-emerald-600/20 active:scale-98 transition-all cursor-pointer order-1 sm:order-2"
+                className={`w-full sm:flex-1 min-h-[48px] flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-white font-black text-xs sm:text-sm shadow-md active:scale-98 transition-all cursor-pointer order-1 sm:order-2 ${
+                  isConfirmedPassenger
+                    ? 'bg-gradient-to-r from-red-600 to-rose-700 hover:from-red-500 hover:to-rose-600 shadow-rose-900/30'
+                    : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-emerald-600/20'
+                }`}
               >
                 {isAutoReplying ? (
                   <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                ) : isConfirmedPassenger ? (
+                  <AlertTriangle className="w-4 h-4 text-amber-300" />
                 ) : (
                   <Zap className="w-4 h-4 fill-amber-300 text-amber-300" />
                 )}
-                <span>{isMyBroadcast ? 'نشر رد (تم) فوراً 🎯' : 'قبول الطلب والرد التلقائي فوراً في واتساب ⚡'}</span>
+                <span>
+                  {isConfirmedPassenger
+                    ? 'قبول الطلب والرد التلقائي بالواتساب ⚡ (تحذير: أشخاص ⚠️)'
+                    : isMyBroadcast
+                    ? 'نشر رد (تم) فوراً 🎯'
+                    : 'قبول الطلب والرد التلقائي فوراً في واتساب ⚡'}
+                </span>
               </button>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* Suspicious Passenger Manual Review Dialog */}
+      {showReviewConfirmModal && (
+        <div 
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-200"
+          onClick={() => setShowReviewConfirmModal(false)}
+        >
+          <div 
+            className="w-full max-w-md bg-white rounded-t-3xl sm:rounded-3xl p-5 sm:p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[90vh] overflow-y-auto pb-safe"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Mobile Sheet Drag Handle */}
+            <div className="sm:hidden w-10 h-1.5 bg-slate-300 rounded-full mx-auto -mt-1 mb-2" />
+
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-6 h-6 text-amber-600" />
+              </div>
+              <div>
+                <h3 className="text-base sm:text-lg font-black text-slate-900">
+                  مراجعة يدوية: احتمال نقل ركاب
+                </h3>
+                <p className="text-xs text-slate-500">
+                  تحقق من نص الإعلان للتأكد من أنه توصيل بضائع وليس نقل أشخاص
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 space-y-2">
+              <span className="text-xs font-bold text-amber-900 block">
+                نص الإعلان الوارد من الواتساب:
+              </span>
+              <div className="p-3 rounded-xl bg-white border border-amber-200 text-xs text-slate-800 leading-relaxed font-mono whitespace-pre-wrap max-h-36 overflow-y-auto">
+                {order.rawText}
+              </div>
+              {passenger.matchedPhrases.length > 0 && (
+                <div className="text-[11px] text-amber-800 font-bold">
+                  السبب المرصود: {passenger.matchedPhrases.join('، ')}
+                </div>
+              )}
+            </div>
+
+            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800 leading-relaxed">
+              ⚠️ تنبيه: نقل الأشخاص والركاب ممنوع. لا تقبل الطلب إلا إذا تأكدت أنه بضاعة أو غرض شخصي أو وجبة وليس راكباً.
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setShowReviewConfirmModal(false)}
+                className="w-full sm:w-auto px-4 py-3 rounded-xl border border-slate-200 text-slate-700 font-bold text-xs sm:text-sm hover:bg-slate-50 active:scale-98 transition-all"
+              >
+                إلغاء (نقل أشخاص)
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowReviewConfirmModal(false);
+                  handleQuickAutoReply();
+                }}
+                className="w-full sm:flex-1 min-h-[46px] flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs sm:text-sm shadow-md shadow-emerald-600/20 active:scale-98 transition-all cursor-pointer"
+              >
+                <Check className="w-4 h-4 text-white" />
+                <span>تأكيد أنه بضاعة والقبول بالواتساب ⚡</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

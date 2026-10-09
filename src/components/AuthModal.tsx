@@ -1242,11 +1242,9 @@ export function AuthModal({
         </div>
 
         {/* Footer */}
-
         <div className="p-4 bg-slate-50 border-t border-slate-200/80 flex items-center justify-between text-xs text-slate-500">
-
           <span>
-            Orderi 🇧🇭
+            Orderi — رادار طلبات البحرين 🇧🇭
           </span>
 
           <button
@@ -1254,9 +1252,8 @@ export function AuthModal({
             onClick={onClose}
             className="font-bold text-slate-700 hover:text-slate-900 px-3 py-1.5 rounded-xl hover:bg-slate-200/60 transition-colors"
           >
-            إغلاق
+            المتابعة للشاشة
           </button>
-
         </div>
 
       </div>

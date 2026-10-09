@@ -76,6 +76,9 @@ export interface OrderFilter {
   broadcastIncludeQuote?: boolean;
   broadcastCustomNotes?: string;
   preventDuplicateOrders?: boolean;
+  blockPassengerDeliveries?: boolean;
+  autoCloseOrdersEnabled?: boolean;
+  autoCloseAmbiguousAction?: 'flag' | 'ignore';
 }
 
 export interface AIMatchAnalysis {
@@ -110,11 +113,32 @@ export interface OrderMatchBreakdown {
   pickupToDeliveryDistanceKm?: number;
 }
 
+export type PassengerRiskLevel = 'confirmed_passenger' | 'suspicious_passenger' | 'goods_safe';
+
+export interface PassengerDetection {
+  level: PassengerRiskLevel;
+  label: string;
+  matchedPhrases: string[];
+  reason: string;
+  isForbidden: boolean;
+}
+
+export interface ClosureEvidence {
+  replyText: string;
+  senderName: string;
+  groupName: string;
+  timestamp: string;
+  confidence: number;
+  isQuote: boolean;
+  matchedKeywords: string[];
+}
+
 export interface ParsedOrder {
   id: string;
   from: string;
   to: string;
   price: number;
+  isPriceUnspecified?: boolean;
   rawText: string;
   groupName: string;
   senderName: string;
@@ -123,7 +147,7 @@ export interface ParsedOrder {
   confidence: number;
   type: string;
   notes?: string;
-  status: 'pending' | 'accepted' | 'ignored';
+  status: 'pending' | 'accepted' | 'ignored' | 'closed_taken' | 'suspicious_closed';
   match: OrderMatchBreakdown;
   ratePerKm?: number;
   contactStatus?: 'vip' | 'blacklist' | 'normal';
@@ -134,6 +158,10 @@ export interface ParsedOrder {
   isAnalyzingAi?: boolean;
   crossPostedGroups?: string[];
   duplicateCount?: number;
+  passengerDetection?: PassengerDetection;
+  closedAt?: Date | string;
+  closureReason?: string;
+  closureEvidence?: ClosureEvidence;
 }
 
 export interface DriverStats {
@@ -174,6 +202,9 @@ export interface CaptainUser {
   biometricsEnabled?: boolean;
   biometricCredentialId?: string;
   createdAt: string;
+  isTrial?: boolean;
+  trialStartedAt?: string;
+  trialExpiresAt?: string;
 }
 
 export interface ActivationCodeInfo {

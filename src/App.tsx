@@ -67,6 +67,8 @@ import { isNativeAndroid, OrderiNotificationListener, WhatsAppNativeEvent } from
 import { getWhatsAppListenerStatus } from './native/whatsappListener';
 import { isDuplicateOrder, findDuplicateOrderMatch, rememberOrderFingerprint } from './utils/orderDedup';
 import { computeClientAiEvaluation } from './utils/aiEvaluator';
+import { detectPassengerDelivery } from './utils/passengerClassifier';
+import { checkIncomingMessageForClosure, ClosureMatchResult } from './utils/orderClosureDetector';
 import { 
   sendBackgroundOrderNotification, 
   requestNotificationPermission,
@@ -99,6 +101,9 @@ const DEFAULT_FILTER: OrderFilter = {
   contacts: DEFAULT_CONTACTS,
   autoBlockBlacklist: true,
   preventDuplicateOrders: true,
+  blockPassengerDeliveries: true,
+  autoCloseOrdersEnabled: true,
+  autoCloseAmbiguousAction: 'flag',
 };
 
 function OrderiApp() {
@@ -149,7 +154,7 @@ function OrderiApp() {
 
   // 3. Navigation & Feed Filter
   const [activeTab, setActiveTab] = useState<'radar' | 'settings' | 'ledger' | 'broadcast' | 'map'>('radar');
-  const [feedFilter, setFeedFilter] = useState<'all' | 'matched' | 'vip' | 'trusted_vip'>(() => {
+  const [feedFilter, setFeedFilter] = useState<'all' | 'matched' | 'vip' | 'trusted_vip' | 'passengers' | 'closed'>(() => {
     try {
       const saved = localStorage.getItem('orderi_feed_filter');
       if (saved) return saved as any;
@@ -163,15 +168,249 @@ function OrderiApp() {
       const saved = localStorage.getItem('orderi_real_orders');
       if (saved) {
         const parsed = JSON.parse(saved);
-        return parsed
-          .filter((o: any) => o.source !== 'simulation' && !o.notes?.includes('سحبه تلقائياً فور ربط'))
-          .map((o: any) => ({
-            ...o,
-            receivedAt: new Date(o.receivedAt),
-          }));
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed
+            .filter((o: any) => o.source !== 'simulation' && !o.notes?.includes('سحبه تلقائياً فور ربط'))
+            .map((o: any) => ({
+              ...o,
+              receivedAt: new Date(o.receivedAt),
+              passengerDetection: o.passengerDetection || detectPassengerDelivery(o.rawText || `${o.from} ${o.to}`),
+            }));
+        }
       }
     } catch {}
-    return [];
+
+    // Showcase sample orders displaying the 3 classification states
+    return [
+      {
+        id: 'ord-showcase-adliya-goods-0',
+        from: 'العدلية',
+        to: 'الرفاع',
+        price: 3.0,
+        rawText: 'العدلية ← الرفاع\nطلب جديد\nالسعر: 3 د.ب · من قروب واتساب\nتوصيل حلويات وهدايا',
+        groupName: 'قروب واتساب (توصيل البحرين 🇧🇭)',
+        senderName: 'متجر حلويات العدلية',
+        senderPhone: '97339112244',
+        receivedAt: new Date(Date.now() - 2 * 60 * 1000),
+        confidence: 96,
+        type: 'طلب قروب واتساب',
+        notes: 'حلويات وهدايا',
+        status: 'pending',
+        match: {
+          score: 92,
+          startMatched: true,
+          destinationMatched: true,
+          priceMatched: true,
+          distanceMatched: true,
+          timeMatched: true,
+          distanceKm: 2.1,
+          statusLabel: 'طلب ممتاز',
+          statusColor: 'emerald',
+          pickupToDeliveryDistanceKm: 12.4,
+        },
+        contactStatus: 'normal',
+        source: 'webhook_auto',
+        passengerDetection: {
+          level: 'goods_safe',
+          label: 'توصيل بضائع معتمد',
+          matchedPhrases: ['بضاعة محددة (حلويات وهدايا)'],
+          reason: 'إعلان توصيل بضائع معتمد، متاح للقبول بنقرة واحدة.',
+          isForbidden: false,
+        },
+      },
+      {
+        id: 'ord-showcase-passenger-1',
+        from: 'العدلية',
+        to: 'الرفاع',
+        price: 3.0,
+        rawText: 'شخص من العدلية إلى الرفاع\nالسعر: 3.000 د.ب\nتوصيل مشوار خاص',
+        groupName: 'قروب واتساب (توصيل البحرين 🇧🇭)',
+        senderName: 'معلن مشاوير',
+        senderPhone: '97333001122',
+        receivedAt: new Date(Date.now() - 3 * 60 * 1000),
+        confidence: 95,
+        type: 'طلب قروب واتساب',
+        notes: 'مشوار ركاب',
+        status: 'pending',
+        match: {
+          score: 85,
+          startMatched: true,
+          destinationMatched: true,
+          priceMatched: true,
+          distanceMatched: true,
+          timeMatched: true,
+          distanceKm: 2.1,
+          statusLabel: 'مطابق جداً',
+          statusColor: 'blue',
+          pickupToDeliveryDistanceKm: 12.4,
+        },
+        contactStatus: 'normal',
+        source: 'webhook_auto',
+        passengerDetection: {
+          level: 'confirmed_passenger',
+          label: 'تحذير: توصيل أشخاص ممنوع',
+          matchedPhrases: ['مسار راكب بين مناطق', 'مشوار خاص'],
+          reason: 'تحذير: إعلان نقل ركاب/أشخاص.',
+          isForbidden: false,
+        },
+      },
+      {
+        id: 'ord-showcase-goods-2',
+        from: 'السيف',
+        to: 'المحرق',
+        price: 3.5,
+        rawText: 'توصيل باقة ورد وهدية من السيف مول إلى المحرق\nالسعر: 3.500 د.ب',
+        groupName: 'قروب مناديب العاصمة والمحرق',
+        senderName: 'متجر الزهور الملكية',
+        senderPhone: '97339441122',
+        receivedAt: new Date(Date.now() - 7 * 60 * 1000),
+        confidence: 98,
+        type: 'طلب قروب واتساب',
+        notes: 'ورد وهدية',
+        status: 'pending',
+        match: {
+          score: 95,
+          startMatched: true,
+          destinationMatched: true,
+          priceMatched: true,
+          distanceMatched: true,
+          timeMatched: true,
+          distanceKm: 3.4,
+          statusLabel: 'طلب ممتاز',
+          statusColor: 'emerald',
+          pickupToDeliveryDistanceKm: 9.8,
+        },
+        contactStatus: 'vip',
+        source: 'webhook_auto',
+        passengerDetection: {
+          level: 'goods_safe',
+          label: 'توصيل بضائع معتمد',
+          matchedPhrases: ['بضاعة محددة (ورد وهدية)'],
+          reason: 'إعلان توصيل بضائع وهدايا معتمد.',
+          isForbidden: false,
+        },
+      },
+      {
+        id: 'ord-showcase-unpriced-3',
+        from: 'العدلية',
+        to: 'الرفاع',
+        price: 0,
+        isPriceUnspecified: true,
+        rawText: 'مطلوب مندوب توصيل شحنة وأمانات فوراً من العدلية إلى الرفاع (بالاتفاق)',
+        groupName: 'قروب مناديب وتوصيل البحرين',
+        senderName: 'متجر العدلية للهدايا',
+        senderPhone: '97336112233',
+        receivedAt: new Date(Date.now() - 10 * 60 * 1000),
+        confidence: 90,
+        type: 'طلب قروب واتساب',
+        notes: 'شحنة وأمانات',
+        status: 'pending',
+        match: {
+          score: 85,
+          startMatched: true,
+          destinationMatched: true,
+          priceMatched: true,
+          distanceMatched: true,
+          timeMatched: true,
+          distanceKm: 2.3,
+          statusLabel: 'مطابق جداً',
+          statusColor: 'blue',
+          pickupToDeliveryDistanceKm: 11.2,
+        },
+        contactStatus: 'normal',
+        source: 'webhook_auto',
+        passengerDetection: {
+          level: 'goods_safe',
+          label: 'توصيل بضائع معتمد',
+          matchedPhrases: ['بضاعة وأمانات'],
+          reason: 'إعلان توصيل شحنة وأمانات معتمد.',
+          isForbidden: false,
+        },
+      },
+      {
+        id: 'ord-showcase-suspicious-4',
+        from: 'سار',
+        to: 'المنامة',
+        price: 3.0,
+        rawText: 'مطلوب سيارة ومشوار سريع من سار إلى المنامة\nالسعر: 3.000 د.ب',
+        groupName: 'كباتن المحافظة الشمالية',
+        senderName: 'عميل واتساب',
+        senderPhone: '97338556677',
+        receivedAt: new Date(Date.now() - 18 * 60 * 1000),
+        confidence: 85,
+        type: 'طلب قروب واتساب',
+        notes: 'مشوار',
+        status: 'pending',
+        match: {
+          score: 82,
+          startMatched: true,
+          destinationMatched: true,
+          priceMatched: true,
+          distanceMatched: true,
+          timeMatched: true,
+          distanceKm: 5.6,
+          statusLabel: 'مطابق جزئياً',
+          statusColor: 'amber',
+          pickupToDeliveryDistanceKm: 11.2,
+        },
+        contactStatus: 'normal',
+        source: 'webhook_auto',
+        passengerDetection: {
+          level: 'suspicious_passenger',
+          label: 'احتمال نقل أشخاص (مراجعة مطلوبة)',
+          matchedPhrases: ['ذكر كلمة مشوار', 'طلب سيارة وسائق'],
+          reason: 'يحتوي الإعلان على عبارة مشوار عامة بدون تحديد البضاعة. يتطلب مراجعة الكابتن قبل القبول.',
+          isForbidden: false,
+        },
+      },
+      {
+        id: 'ord-showcase-closed-5',
+        from: 'البسيتين',
+        to: 'أم الحصم',
+        price: 2.5,
+        rawText: 'توصيل عطور ومكياج من البسيتين إلى أم الحصم\nالسعر: 2.500 د.ب',
+        groupName: 'قروب كباتن المحرق والمنامة',
+        senderName: 'متجر جلامور',
+        senderPhone: '97339887766',
+        receivedAt: new Date(Date.now() - 35 * 60 * 1000),
+        confidence: 94,
+        type: 'طلب قروب واتساب',
+        notes: 'عطور',
+        status: 'closed_taken',
+        closedAt: new Date(Date.now() - 5 * 60 * 1000),
+        closureReason: 'تم رصد رد من صاحب الإعلان بالقروب يفيد بالحصول على مندوب: "تم حصلت مندوب شكراً 🙏"',
+        closureEvidence: {
+          replyText: 'تم حصلت مندوب شكراً 🙏',
+          senderName: 'متجر جلامور',
+          groupName: 'قروب كباتن المحرق والمنامة',
+          timestamp: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+          confidence: 96,
+          isQuote: false,
+          matchedKeywords: ['تم', 'حصلت مندوب', 'شكراً', '🙏'],
+        },
+        match: {
+          score: 88,
+          startMatched: true,
+          destinationMatched: true,
+          priceMatched: true,
+          distanceMatched: true,
+          timeMatched: true,
+          distanceKm: 4.8,
+          statusLabel: 'مطابق جداً',
+          statusColor: 'blue',
+          pickupToDeliveryDistanceKm: 10.5,
+        },
+        contactStatus: 'normal',
+        source: 'webhook_auto',
+        passengerDetection: {
+          level: 'goods_safe',
+          label: 'توصيل بضائع معتمد',
+          matchedPhrases: ['عطور ومكياج'],
+          reason: 'إعلان توصيل بضائع معتمد.',
+          isForbidden: false,
+        },
+      },
+    ];
   });
   const [acceptedOrders, setAcceptedOrders] = useState<ParsedOrder[]>(() => {
     try {
@@ -285,6 +524,7 @@ function OrderiApp() {
               handleProcessIncomingRawOrder({
                 id: `android-wa-${event.id}`,
                 from: parsed.from, to: parsed.to, price: parsed.price,
+                isPriceUnspecified: parsed.isPriceUnspecified,
                 rawText: rawText || event.title || '', groupName,
                 senderName: event.title || 'WhatsApp', senderPhone: parsed.phone,
                 receivedAt: new Date(event.receivedAt || Date.now()),
@@ -633,8 +873,15 @@ function OrderiApp() {
       return;
     }
 
+    // Detect Passenger Delivery status (كاشف نقل الركاب والأشخاص)
+    const passengerDetection = raw.passengerDetection || detectPassengerDelivery(raw.rawText || `${raw.from} ${raw.to}`, {
+      isBlockForbiddenEnabled: filterRef.current.blockPassengerDeliveries !== false,
+    });
+
     const newOrder: ParsedOrder = {
       ...raw,
+      price: typeof raw.price === 'number' && raw.price > 0 ? raw.price : 0,
+      isPriceUnspecified: raw.isPriceUnspecified ?? (!raw.price || raw.price <= 0),
       receivedAt: new Date(raw.receivedAt || Date.now()),
       match,
       contactStatus: contactCheck.status,
@@ -643,11 +890,18 @@ function OrderiApp() {
       isDirectPrivate: raw.isDirectPrivate,
       crossPostedGroups: raw.crossPostedGroups || [raw.groupName],
       duplicateCount: raw.duplicateCount || 1,
+      passengerDetection,
     };
 
     // Sound, Vibration & Notifications
     if (!isInitialBatch) {
-      if (contactCheck.status === 'vip') {
+      if (passengerDetection.level === 'confirmed_passenger') {
+        // تنبيه أحمر بنقل أشخاص: الإعلان يظهر بالرادار للعلم مع تعطيل القبول
+        showToast(`🚨 رصد إعلان نقل ركاب (${newOrder.from} ← ${newOrder.to}) • تحذير: توصيل أشخاص ممنوع 🚫`);
+        if (filterRef.current.soundEnabled) {
+          playAlertTone('urgent_siren', 65);
+        }
+      } else if (contactCheck.status === 'vip') {
         if (filterRef.current.soundEnabled) {
           playExcellentAlertSound(filterRef.current.soundVolume ?? 85);
         }
@@ -681,7 +935,7 @@ function OrderiApp() {
         showToast(`⚡ طلب وارد تلقائياً من واتساب (${newOrder.isDirectPrivate ? 'خاص 👤' : 'قروب 👥'}) • ${newOrder.from} ← ${newOrder.to}`);
       } else {
         // الطلب غير مطابق لشروط الكابتن
-        if (filterRef.current.ignoreNonMatching) {
+        if (filterRef.current.ignoreNonMatching && passengerDetection.level !== 'confirmed_passenger') {
           // محجوب تماماً من الإشعارات في الخلفية والأصوات بناء على رغبة الكابتن
           return;
         }
@@ -711,6 +965,24 @@ function OrderiApp() {
       // A real WhatsApp notification verifies that the native listener is seeing WhatsApp on this device.
       markWhatsAppVerified(event.isGroup ? groupName : undefined);
       setIsWhatsAppConnected(true);
+
+      // Check for Smart Order Closure (الكشف الذكي عن الطلبات المحجوزة أو المنتهية)
+      if (filterRef.current.autoCloseOrdersEnabled !== false) {
+        const closureMatch = checkIncomingMessageForClosure(
+          {
+            text: rawText || event.title || '',
+            senderName: event.title,
+            groupName,
+            timestamp: event.receivedAt || Date.now(),
+          },
+          ordersRef.current
+        );
+        if (closureMatch) {
+          handleAutoOrderClosure(closureMatch);
+          return;
+        }
+      }
+
       import('./utils/orderParser').then(({ parseWhatsAppOrderText }) => {
         const parsed = parseWhatsAppOrderText(rawText || event.title || '');
         const order = {
@@ -718,6 +990,7 @@ function OrderiApp() {
           from: parsed.from,
           to: parsed.to,
           price: parsed.price,
+          isPriceUnspecified: parsed.isPriceUnspecified,
           rawText: rawText || event.title || '',
           groupName,
           senderName: event.title || 'WhatsApp',
@@ -729,6 +1002,7 @@ function OrderiApp() {
           status: 'pending' as const,
           source: 'android_notification' as const,
           isDirectPrivate: !event.isGroup,
+          passengerDetection: parsed.passengerDetection,
         };
         if (parsed.canCreateOrder) handleProcessIncomingRawOrder(order, false);
       }).catch(() => {});
@@ -790,6 +1064,8 @@ function OrderiApp() {
               );
             } else if (data.type === 'ORDER_MARKED_READ' && data.orderId) {
               setOrders((prev) => prev.filter((o) => o.id !== data.orderId));
+            } else if (data.type === 'ORDER_CLOSED' && data.closureMatch) {
+              handleAutoOrderClosure(data.closureMatch);
             } else if (data.type === 'GROUP_LINK_DETECTED' && data.groupLink) {
               setDiscoveredGroupLinks((prev) => {
                 const exists = prev.some((l) => l.inviteCode === data.groupLink.inviteCode);
@@ -841,6 +1117,11 @@ function OrderiApp() {
 
   // Robust GPS Location Request with multi-tier fallback (High Accuracy -> Cellular/WiFi fallback)
   const handleRequestGps = async () => {
+    if (!isActivated) {
+      showToast('⚠️ مستشعر الـ GPS معطل: يتطلب تفعيل البرنامج أو بدء التجربة المجانية (7 أيام) 📍🔒');
+      setIsBarrierDismissed(false);
+      return;
+    }
     setIsGpsLoading(true);
     const result = await getDetailedCurrentPosition();
     setIsGpsLoading(false);
@@ -859,6 +1140,11 @@ function OrderiApp() {
   };
 
   const handleToggleCarTracking = () => {
+    if (!isActivated) {
+      showToast('⚠️ تتبع الـ GPS للسيارة معطل: يتطلب تفعيل البرنامج أو بدء التجربة المجانية (7 أيام) 🚗🔒');
+      setIsBarrierDismissed(false);
+      return;
+    }
     const next = !isCarTrackingActive;
     setIsCarTrackingActive(next);
     try {
@@ -872,7 +1158,23 @@ function OrderiApp() {
     }
   };
 
+  const handleToggleLiveRadar = () => {
+    if (!isActivated) {
+      showToast('⚠️ رادار الواتساب معطل: يتطلب إدخال كود التفعيل أو بدء التجربة المجانية (7 أيام) 🔒');
+      setIsBarrierDismissed(false);
+      return;
+    }
+    const next = !liveRadarActive;
+    setLiveRadarActive(next);
+    showToast(next ? 'تم تفعيل الرادار ومراقبة القروبات 🟢' : 'تم إيقاف الرادار مؤقتاً ⏸️');
+  };
+
   const handleRunInBackground = async () => {
+    if (!isActivated) {
+      showToast('⚠️ التشغيل في الخلفية معطل: يتطلب تفعيل البرنامج أو بدء التجربة المجانية (7 أيام) 🔒');
+      setIsBarrierDismissed(false);
+      return;
+    }
     // 1. تفعيل الرادار فوراً لمواصلة رصد الطلبات في الخلفية
     if (!liveRadarActive) {
       setLiveRadarActive(true);
@@ -1205,12 +1507,94 @@ function OrderiApp() {
     });
   };
 
+  // Auto Order Closure Handlers (الكشف الذكي عن الطلبات المحجوزة أو المنتهية)
+  const handleAutoOrderClosure = (closureMatch: ClosureMatchResult) => {
+    const { orderId, verdict, reason, evidence } = closureMatch;
+    
+    setOrders((prev) =>
+      prev.map((ord) => {
+        const isTarget = 
+          ord.id === orderId || 
+          (ord.crossPostedGroups && ord.crossPostedGroups.some((g) => evidence.groupName.includes(g)));
+        
+        if (!isTarget) return ord;
+
+        if (verdict === 'confirmed_closed') {
+          return {
+            ...ord,
+            status: 'closed_taken',
+            closedAt: new Date(),
+            closureReason: reason,
+            closureEvidence: evidence,
+          };
+        } else {
+          return {
+            ...ord,
+            status: 'suspicious_closed',
+            closureReason: reason,
+            closureEvidence: evidence,
+          };
+        }
+      })
+    );
+
+    if (verdict === 'confirmed_closed') {
+      showToast(`🏷️ تم إغلاق الطلب تلقائياً (${closureMatch.matchedOrder.from} ← ${closureMatch.matchedOrder.to}) • تم أخذه في القروب («${evidence.replyText}»)`);
+      if (filterRef.current.soundEnabled) {
+        playAlertTone('radar_beep', 60);
+      }
+    } else {
+      showToast(`⚠️ اشتباه حجز للطلب (${closureMatch.matchedOrder.from} ← ${closureMatch.matchedOrder.to}) • ورد بالقروب («${evidence.replyText}»)`);
+    }
+  };
+
+  const handleRestoreOrder = (orderId: string) => {
+    setOrders((prev) =>
+      prev.map((ord) =>
+        ord.id === orderId
+          ? { ...ord, status: 'pending', closedAt: undefined, closureReason: undefined, closureEvidence: undefined }
+          : ord
+      )
+    );
+    showToast('↻ تمت استعادة الطلب إلى قائمة الطلبات المتاحة في الرادار');
+  };
+
+  const handleConfirmClosure = (orderId: string) => {
+    setOrders((prev) =>
+      prev.map((ord) =>
+        ord.id === orderId
+          ? {
+              ...ord,
+              status: 'closed_taken',
+              closedAt: new Date(),
+              closureReason: 'تم تأكيد إغلاقه يدوياً من قبل الكابتن بناءً على رد القروب.',
+            }
+          : ord
+      )
+    );
+    showToast('✓ تم تأكيد إغلاق الطلب ونقله إلى قائمة الطلبات المغلقة');
+  };
+
+  const handleDismissClosureSuspicion = (orderId: string) => {
+    setOrders((prev) =>
+      prev.map((ord) =>
+        ord.id === orderId
+          ? { ...ord, status: 'pending', closureReason: undefined, closureEvidence: undefined }
+          : ord
+      )
+    );
+    showToast('✓ تم إلغاء الاشتباه وتثبيت الطلب كمتاح في الرادار');
+  };
+
   // Accept Order
   const handleAcceptOrder = (order: ParsedOrder) => {
     const updated = { ...order, status: 'accepted' as const };
     setOrders((prev) => prev.filter((o) => o.id !== order.id));
     setAcceptedOrders((prev) => [updated, ...prev]);
-    showToast(`⚡ تم قبول الطلب والرد التلقائي في واتساب (+${order.price.toFixed(1)} د.ب) فوراً بدون مغادرة التطبيق`);
+    const priceText = (!order.price || order.price <= 0 || order.isPriceUnspecified)
+      ? '(بالاتفاق مع العميل 🤝)'
+      : `(+${order.price.toFixed(1)} د.ب)`;
+    showToast(`⚡ تم قبول الطلب والرد التلقائي في واتساب ${priceText} فوراً بدون مغادرة التطبيق`);
   };
 
   // Ignore / Dismiss Order - مسح الطلب من البرنامج وعمل علامة مقروء (تمت قراءتها ✓✓) في الواتساب
@@ -1363,20 +1747,36 @@ function OrderiApp() {
 
   // Non-matching count (respecting group filter)
   const groupFilteredOrders = orders.filter((o) => isOrderGroupAllowed(o.groupName));
-  const nonMatchingCount = groupFilteredOrders.filter((o) => o.match.score < 80).length;
-  const matchedCount = groupFilteredOrders.filter((o) => o.match.score >= 80).length;
-  const vipCount = groupFilteredOrders.filter((o) => o.match.score >= 90).length;
-  const trustedVipCount = groupFilteredOrders.filter((o) => o.contactStatus === 'vip').length;
+  const closedCount = groupFilteredOrders.filter((o) => o.status === 'closed_taken').length;
+  const availableOrders = groupFilteredOrders.filter((o) => o.status !== 'closed_taken');
+  const nonMatchingCount = availableOrders.filter((o) => o.match.score < 80).length;
+  const matchedCount = availableOrders.filter((o) => o.match.score >= 80).length;
+  const vipCount = availableOrders.filter((o) => o.match.score >= 90).length;
+  const trustedVipCount = availableOrders.filter((o) => o.contactStatus === 'vip').length;
+  const passengerCount = availableOrders.filter((o) => o.passengerDetection?.level === 'confirmed_passenger').length;
   const todayEarnings = acceptedOrders.reduce((sum, ord) => sum + ord.price, 0);
 
   // Filtered Orders View: strictly enforce WhatsApp group filter, ignoreNonMatching and blacklist switches
   const displayedOrders = orders.filter((ord) => {
     if (filter.autoBlockBlacklist && ord.contactStatus === 'blacklist') return false;
     if (!isOrderGroupAllowed(ord.groupName)) return false;
-    if (filter.ignoreNonMatching && ord.match.score < 80 && ord.contactStatus !== 'vip') return false;
+
+    // If viewing Closed Tab: show only closed/taken orders
+    if (feedFilter === 'closed') {
+      return ord.status === 'closed_taken';
+    }
+
+    // In all available radar feeds, hide orders that have been taken/closed
+    if (ord.status === 'closed_taken') {
+      return false;
+    }
+
+    const isPassengerOrder = ord.passengerDetection?.level === 'confirmed_passenger';
+    if (!isPassengerOrder && filter.ignoreNonMatching && ord.match.score < 80 && ord.contactStatus !== 'vip') return false;
     if (feedFilter === 'matched') return ord.match.score >= 80;
     if (feedFilter === 'vip') return ord.match.score >= 90;
     if (feedFilter === 'trusted_vip') return ord.contactStatus === 'vip';
+    if (feedFilter === 'passengers') return isPassengerOrder;
     return true;
   });
 
@@ -1451,10 +1851,30 @@ function OrderiApp() {
   return (
     <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-[#F4F6FB] flex flex-col font-['Tajawal',sans-serif]">
       
+      {/* Non-Activated Warning Banner (وضع المشاهدة - الرادار والـ GPS معطلان) */}
+      {!isActivated && isBarrierDismissed && (
+        <div className="bg-gradient-to-r from-amber-600 via-rose-600 to-amber-700 text-white px-3 sm:px-6 py-2.5 shadow-md flex flex-col sm:flex-row items-center justify-between gap-2 text-xs sm:text-sm animate-in fade-in">
+          <div className="flex items-center gap-2 font-bold text-center sm:text-right">
+            <Lock className="w-4 h-4 text-white shrink-0 animate-pulse" />
+            <span>
+              ⚠️ البرنامج يعمل في وضع المشاهدة غير المفعّل: رادار الواتساب ومستشعر الـ GPS معطلان حالياً.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsBarrierDismissed(false)}
+            className="w-full sm:w-auto px-4 py-1.5 rounded-xl bg-white text-rose-700 hover:bg-rose-50 font-black text-xs shadow-xs transition-transform active:scale-95 shrink-0 flex items-center justify-center gap-1.5 cursor-pointer"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-rose-600" />
+            <span>تفعيل البرنامج أو بدء تجربة 7 أيام مجانية ⚡</span>
+          </button>
+        </div>
+      )}
+
       {/* 1. Header Bar */}
       <Header
         driverLocation={driverLocation}
-        liveRadarActive={liveRadarActive}
+        liveRadarActive={isActivated ? liveRadarActive : false}
         soundEnabled={filter.soundEnabled}
         notificationsEnabled={filter.notificationsEnabled}
         ignoreNonMatching={filter.ignoreNonMatching}
@@ -1465,10 +1885,7 @@ function OrderiApp() {
         currentUser={currentUser}
         onOpenAuthModal={handleOpenAuthModal}
         onLogout={handleLogout}
-        onToggleRadar={() => {
-          setLiveRadarActive(!liveRadarActive);
-          showToast(!liveRadarActive ? 'تم تفعيل الرادار ومراقبة القروبات 🟢' : 'تم إيقاف الرادار مؤقتاً ⏸️');
-        }}
+        onToggleRadar={handleToggleLiveRadar}
         onToggleSound={() => {
           const next = !filter.soundEnabled;
           setFilter({ ...filter, soundEnabled: next });
@@ -1490,10 +1907,10 @@ function OrderiApp() {
         onOpenAPKModal={() => setIsAPKModalOpen(true)}
         newDiscoveredGroupsCount={discoveredGroupLinks.filter((g) => g.status === 'new').length}
         isStreamConnected={isStreamConnected}
-        isWhatsAppConnected={isWhatsAppConnected}
+        isWhatsAppConnected={isActivated ? isWhatsAppConnected : false}
         onRequestGps={handleRequestGps}
         isGpsLoading={isGpsLoading}
-        isCarTrackingActive={isCarTrackingActive}
+        isCarTrackingActive={isActivated ? isCarTrackingActive : false}
         onToggleCarTracking={handleToggleCarTracking}
         carSpeedKmh={carSpeedKmh}
       />
@@ -1510,11 +1927,8 @@ function OrderiApp() {
           vipOrdersCount={vipCount}
           todayEarnings={todayEarnings}
           acceptedCount={acceptedOrders.length}
-          liveRadarActive={liveRadarActive}
-          onToggleRadar={() => {
-            setLiveRadarActive(!liveRadarActive);
-            showToast(!liveRadarActive ? 'تم تشغيل الرادار ومراقبة الطلبات فوراً 🟢' : 'تم إيقاف الرادار مؤقتاً ⏸️');
-          }}
+          liveRadarActive={isActivated ? liveRadarActive : false}
+          onToggleRadar={handleToggleLiveRadar}
           onOpenSettings={() => setActiveTab('settings')}
           onPullRefresh={refreshRadar}
           isRefreshing={isRadarRefreshing}
@@ -1617,6 +2031,30 @@ function OrderiApp() {
                     <Star className="w-3.5 h-3.5 fill-amber-300 text-amber-300" />
                     <span>متاجر VIP ({trustedVipCount})</span>
                   </button>
+
+                  <button
+                    onClick={() => setFeedFilter('passengers')}
+                    className={`min-h-[40px] px-3.5 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap shrink-0 flex items-center gap-1 active:scale-95 ${
+                      feedFilter === 'passengers'
+                        ? 'bg-rose-600 text-white shadow-2xs'
+                        : 'text-rose-700 hover:text-rose-900 hover:bg-rose-100/50'
+                    }`}
+                  >
+                    <ShieldAlert className="w-3.5 h-3.5" />
+                    <span>توصيل أشخاص ممنوع ({passengerCount})</span>
+                  </button>
+
+                  <button
+                    onClick={() => setFeedFilter('closed')}
+                    className={`min-h-[40px] px-3.5 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap shrink-0 flex items-center gap-1.5 active:scale-95 ${
+                      feedFilter === 'closed'
+                        ? 'bg-slate-800 text-white shadow-2xs'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
+                    }`}
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>المغلقة / تم أخذها ({closedCount})</span>
+                  </button>
                 </div>
 
                 {/* Right: Controls (Clean Toggle Non-Matching Switch) */}
@@ -1646,33 +2084,19 @@ function OrderiApp() {
 
             {/* Orders Feed Grid */}
             {displayedOrders.length === 0 ? (
-              <div className="p-10 text-center rounded-3xl bg-white border border-slate-200/80 space-y-4 shadow-xs">
+              <div className="p-4 sm:p-6 text-center rounded-2xl sm:rounded-3xl bg-white border border-slate-200/80 space-y-2.5 shadow-xs">
                 {filter.ignoreNonMatching && nonMatchingCount > 0 ? (
                   <>
-                    <div className="w-16 h-16 rounded-3xl bg-rose-50 text-rose-600 flex items-center justify-center mx-auto border border-rose-200">
-                      <FilterX className="w-8 h-8" />
+                    <div className="w-11 h-11 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center mx-auto border border-rose-200">
+                      <FilterX className="w-5 h-5" />
                     </div>
                     <div>
-                      <h3 className="text-base font-black text-slate-900">
+                      <h3 className="text-sm font-black text-slate-900">
                         تم حجب {nonMatchingCount} طلبات غير مطابقة لشروطك
                       </h3>
-                      <p className="text-xs text-slate-500 max-w-md mx-auto mt-1 leading-relaxed">
-                        مفتاح إلغاء غير المطابق مفعّل حالياً ويمنع ظهور الطلبات الأقل من 80% (التي لا تناسب موقعك في <strong className="text-slate-700">{driverLocation?.areaName || 'البحرين'}</strong> أو سعرها أقل من {filter.minimumPrice} د.ب).
+                      <p className="text-[11px] sm:text-xs text-slate-500 max-w-md mx-auto mt-0.5 leading-relaxed">
+                        مفتاح إلغاء غير المطابق مفعّل ويمنع ظهور الطلبات الأقل من 80% (موقعك: <strong className="text-slate-700">{driverLocation?.areaName || 'البحرين'}</strong>، الحد الأدنى: {filter.minimumPrice} د.ب).
                       </p>
-                    </div>
-                    <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
-                      <button
-                        onClick={handleToggleIgnoreNonMatching}
-                        className="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-xs transition-all"
-                      >
-                        إيقاف مفتاح الإلغاء وعرض كافة الطلبات ({orders.length})
-                      </button>
-                      <button
-                        onClick={() => setActiveTab('settings')}
-                        className="px-5 py-2.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs transition-all"
-                      >
-                        تعديل إعدادات الفلتر
-                      </button>
                     </div>
                   </>
                 ) : (
@@ -1688,34 +2112,23 @@ function OrderiApp() {
                         }
                       }}
                       title="انقر لتحديث وجلب أحدث الطلبات ريفريش 🔄"
-                      className={`w-16 h-16 rounded-3xl flex items-center justify-center mx-auto shadow-inner cursor-pointer transition-all duration-200 hover:scale-110 active:scale-95 group ${
+                      className={`w-12 h-12 rounded-2xl flex items-center justify-center mx-auto shadow-inner cursor-pointer transition-all duration-200 hover:scale-110 active:scale-95 group ${
                         isRadarRefreshing
                           ? 'bg-emerald-100 text-emerald-700 ring-4 ring-emerald-300/50'
                           : 'bg-blue-50 text-blue-600 hover:bg-blue-100 ring-2 ring-blue-200/60'
                       }`}
                     >
                       {isRadarRefreshing ? (
-                        <RefreshCw className="w-8 h-8 animate-spin text-emerald-600" />
+                        <RefreshCw className="w-6 h-6 animate-spin text-emerald-600" />
                       ) : (
-                        <Radar className="w-8 h-8 animate-pulse text-blue-600 group-hover:scale-110 transition-transform" />
+                        <Radar className="w-6 h-6 animate-pulse text-blue-600 group-hover:scale-110 transition-transform" />
                       )}
                     </div>
-                    <div className="space-y-1">
-                      <h3 className="text-base sm:text-lg font-black text-slate-900">الرادار جاهز للعمل 📡</h3>
-                      <p className="text-xs sm:text-sm text-slate-500 max-w-md mx-auto leading-relaxed">
-                        الرادار يراقب قروبات الواتساب وإشعارات هاتفك اللحظية. ستظهر الطلبات المطابقة لشروطك فور وصولها مع تنبيه صوتي واهتزازي.
+                    <div className="space-y-0.5">
+                      <h3 className="text-sm font-black text-slate-900">الرادار جاهز للعمل 📡</h3>
+                      <p className="text-[11px] sm:text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
+                        يراقب قروبات الواتساب وإشعارات الهاتف اللحظية، وتظهر الطلبات المطابقة فوراً مع تنبيه صوتي.
                       </p>
-                    </div>
-                    <div className="pt-2">
-                      <button
-                        type="button"
-                        onClick={refreshRadar}
-                        disabled={isRadarRefreshing}
-                        className="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-black text-xs shadow-md shadow-blue-600/20 active:scale-95 transition-all cursor-pointer"
-                      >
-                        <RefreshCw className={`w-4 h-4 ${isRadarRefreshing ? 'animate-spin' : ''}`} />
-                        <span>{isRadarRefreshing ? 'جاري تحديث وجلب الطلبات...' : 'تحديث وجلب الطلبات ريفريش 🔄'}</span>
-                      </button>
                     </div>
                   </>
                 )}
@@ -1732,6 +2145,9 @@ function OrderiApp() {
                     onIgnore={handleIgnoreOrder}
                     onToggleContact={handleToggleContact}
                     onEvaluateAi={handleEvaluateAiOrder}
+                    onRestoreOrder={handleRestoreOrder}
+                    onConfirmClosure={handleConfirmClosure}
+                    onDismissClosureSuspicion={handleDismissClosureSuspicion}
                   />
                 ))}
               </div>
@@ -1925,17 +2341,20 @@ function OrderiApp() {
         onShowToast={showToast}
       />
 
-      {/* Activation Lock Barrier: يمكن الدخول المباشر لشاشة البرنامج أو التخطي للتعديل */}
+      {/* Activation Lock Barrier: بانتظار كود التفعيل أو بدء التجربة المجانية 7 أيام */}
       {!isActivated && !isBarrierDismissed && (
         <ActivationLockBarrier
           currentUser={currentUser}
-          onClose={() => setIsBarrierDismissed(true)}
+          onOpenUnactivated={() => {
+            setIsBarrierDismissed(true);
+            showToast('تم فتح البرنامج في وضع المشاهدة (رادار الواتساب والـ GPS معطلان) 🔒');
+          }}
           onActivated={(user) => {
             setCurrentUser(user);
             setStoredCurrentUser(user);
             setLiveRadarActive(true);
             setIsBarrierDismissed(true);
-            showToast(`تم تفعيل Ordari بنجاح! مرحباً بك ${user.name} 🚀`);
+            showToast(`تم تفعيل Orderi بنجاح! مرحباً بك ${user.name} 🚀`);
           }}
           onOpenAuthModal={(tab) => handleOpenAuthModal(tab)}
         />

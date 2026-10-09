@@ -5,6 +5,7 @@ import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import QRCode from "qrcode";
 import { parseWhatsAppOrderText } from "./src/utils/orderParser";
+import { checkIncomingMessageForClosure, extractClosureKeywords } from "./src/utils/orderClosureDetector";
 
 dotenv.config();
 
@@ -278,6 +279,63 @@ const handleIncomingWebhook = (req: express.Request, res: express.Response) => {
     // 1. Intercept any WhatsApp group invite links inside the message
     const capturedGroupLinks = extractAndBroadcastGroupLinks(rawText, sender, phone, group || "قروب واتساب");
 
+    // Differentiate between Direct Chat (خاص) and Group Chat (قروب)
+    const isDirectChat = 
+      !group || 
+      group.trim() === "" || 
+      group === sender || 
+      group.includes("خاص") || 
+      group.toLowerCase().includes("direct") || 
+      group.toLowerCase().includes("private");
+
+    const groupDisplayName = isDirectChat ? "محادثة خاصة / تاجر مباشر 👤" : group;
+
+    // 2. Smart Closed Order Detection (الكشف الذكي عن الطلبات المحجوزة أو المنتهية)
+    const closureCheck = extractClosureKeywords(rawText);
+    if (closureCheck.hasClosureIntent) {
+      const closureMatch = checkIncomingMessageForClosure(
+        {
+          text: rawText,
+          senderName: sender,
+          senderPhone: phone,
+          groupName: groupDisplayName,
+          timestamp: Date.now(),
+        },
+        recentWebhookOrders as any
+      );
+
+      if (closureMatch) {
+        const targetOrd = recentWebhookOrders.find((o) => o.id === closureMatch.orderId);
+        if (targetOrd) {
+          targetOrd.status = closureMatch.verdict === 'confirmed_closed' ? 'closed_taken' : 'suspicious_closed';
+          targetOrd.closedAt = new Date().toISOString();
+          targetOrd.closureReason = closureMatch.reason;
+          targetOrd.closureEvidence = closureMatch.evidence;
+        }
+
+        const closePayload = `data: ${JSON.stringify({
+          type: "ORDER_CLOSED",
+          orderId: closureMatch.orderId,
+          closureMatch,
+        })}\n\n`;
+        sseClients.forEach((client) => {
+          try { client.write(closePayload); } catch { sseClients.delete(client); }
+        });
+
+        console.log(`[Orderi Closure] Order ${closureMatch.orderId} marked as ${closureMatch.verdict}: ${closureMatch.reason}`);
+
+        return res.json({
+          success: true,
+          closureDetected: true,
+          orderId: closureMatch.orderId,
+          verdict: closureMatch.verdict,
+          reason: closureMatch.reason,
+          evidence: closureMatch.evidence,
+          message: "تم رصد رد بالقروب يفيد باكتمال أو حجز الطلب وإغلاقه تلقائياً في الرادار",
+        });
+      }
+    }
+
     // Parse order delivery attributes (pickup area, destination area, price, phone, notes)
     const parsed = parseWhatsAppOrderText(rawText);
 
@@ -291,16 +349,14 @@ const handleIncomingWebhook = (req: express.Request, res: express.Response) => {
       });
     }
 
-    // Differentiate between Direct Chat (خاص) and Group Chat (قروب)
-    const isDirectChat = 
-      !group || 
-      group.trim() === "" || 
-      group === sender || 
-      group.includes("خاص") || 
-      group.toLowerCase().includes("direct") ||
-      group.toLowerCase().includes("private");
-
-    const groupDisplayName = isDirectChat ? "محادثة خاصة / تاجر مباشر 👤" : group;
+    // If message has no pickup/destination area and zero price, it's just general chat - don't create false delivery order
+    if (!parsed.from && !parsed.to && (!parsed.price || parsed.price === 0)) {
+      return res.json({
+        success: true,
+        message: "رسالة محادثة عامة بدون تفاصيل طلب توصيل، تم استبعادها بأمان",
+        isGeneralChat: true,
+      });
+    }
 
     // Check for duplicate posting across multiple WhatsApp groups by same advertiser within 20 mins
     const cleanPhoneDigits = (phone || parsed.phone || "").replace(/\D/g, "");
@@ -362,7 +418,8 @@ const handleIncomingWebhook = (req: express.Request, res: express.Response) => {
       id: `ord-real-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       from: parsed.from || "البحرين",
       to: parsed.to || "البحرين",
-      price: parsed.price || 2.5,
+      price: parsed.price > 0 ? parsed.price : 0,
+      isPriceUnspecified: !parsed.price || parsed.price <= 0,
       rawText: rawText.trim(),
       groupName: groupDisplayName,
       senderName: sender,
@@ -376,6 +433,7 @@ const handleIncomingWebhook = (req: express.Request, res: express.Response) => {
       isDirectPrivate: isDirectChat,
       crossPostedGroups: [groupDisplayName],
       duplicateCount: 1,
+      passengerDetection: parsed.passengerDetection,
     };
 
     // Keep up to 50 recent orders in memory
@@ -716,7 +774,6 @@ app.post("/api/android/notifications", (req, res) => {
     }
 
     const rawText = text.trim();
-    const parsed = parseWhatsAppOrderText(rawText);
 
     // Identify if the notification comes from a group or private contact
     const effectiveSender = sender || title || "تاجر واتساب";
@@ -725,11 +782,63 @@ app.post("/api/android/notifications", (req, res) => {
       ? "محادثة خاصة / تاجر مباشر 👤" 
       : (subText || title || "قروب واتساب أندرويد 👥");
 
+    // Smart Closure Detection on Android notification
+    const closureCheck = extractClosureKeywords(rawText);
+    if (closureCheck.hasClosureIntent) {
+      const closureMatch = checkIncomingMessageForClosure(
+        {
+          text: rawText,
+          senderName: effectiveSender,
+          groupName,
+          timestamp,
+        },
+        recentWebhookOrders as any
+      );
+
+      if (closureMatch) {
+        const targetOrd = recentWebhookOrders.find((o) => o.id === closureMatch.orderId);
+        if (targetOrd) {
+          targetOrd.status = closureMatch.verdict === 'confirmed_closed' ? 'closed_taken' : 'suspicious_closed';
+          targetOrd.closedAt = new Date().toISOString();
+          targetOrd.closureReason = closureMatch.reason;
+          targetOrd.closureEvidence = closureMatch.evidence;
+        }
+
+        const closePayload = `data: ${JSON.stringify({
+          type: "ORDER_CLOSED",
+          orderId: closureMatch.orderId,
+          closureMatch,
+        })}\n\n`;
+        sseClients.forEach((client) => {
+          try { client.write(closePayload); } catch { sseClients.delete(client); }
+        });
+
+        return res.json({
+          success: true,
+          closureDetected: true,
+          orderId: closureMatch.orderId,
+          verdict: closureMatch.verdict,
+          reason: closureMatch.reason,
+          evidence: closureMatch.evidence,
+        });
+      }
+    }
+
+    const parsed = parseWhatsAppOrderText(rawText);
+    if (!parsed.from && !parsed.to && (!parsed.price || parsed.price === 0)) {
+      return res.json({
+        success: true,
+        message: "إشعار محادثة عامة بدون تفاصيل طلب توصيل، تم استبعاده بأمان",
+        isGeneralChat: true,
+      });
+    }
+
     const order = {
       id: `ord-notif-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       from: parsed.from || "البحرين",
       to: parsed.to || "البحرين",
-      price: parsed.price || 2.5,
+      price: parsed.price > 0 ? parsed.price : 0,
+      isPriceUnspecified: !parsed.price || parsed.price <= 0,
       rawText,
       groupName,
       senderName: effectiveSender,
@@ -741,6 +850,7 @@ app.post("/api/android/notifications", (req, res) => {
       status: "pending",
       source: "android_notification_listener",
       isDirectPrivate: isDirectChat,
+      passengerDetection: parsed.passengerDetection,
     };
 
     recentWebhookOrders.unshift(order);

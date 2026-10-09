@@ -43,7 +43,7 @@ interface HeroRadarProps {
   onPullRefresh?: () => Promise<void> | void;
   isRefreshing?: boolean;
   activeTab?: string;
-  feedFilter?: 'all' | 'matched' | 'vip' | 'trusted_vip';
+  feedFilter?: 'all' | 'matched' | 'vip' | 'trusted_vip' | 'passengers' | 'closed';
   onSelectFilterCategory?: (category: 'monitored' | 'matched' | 'vip' | 'earnings') => void;
 }
 
@@ -219,65 +219,6 @@ export function HeroRadar({
             </button>
           </div>
 
-        </div>
-
-        {/* Compact Mobile Stats Strip (Always visible on mobile to save vertical space) */}
-        <div className="sm:hidden grid grid-cols-4 gap-1 p-1.5 rounded-xl bg-slate-800/80 border border-slate-700/60 text-center select-none">
-          <button
-            type="button"
-            onClick={() => onSelectFilterCategory?.('monitored')}
-            className={`p-1 rounded-lg transition-all active:scale-95 cursor-pointer text-center ${
-              activeCategory === 'monitored'
-                ? 'bg-blue-600/30 border border-blue-400 text-white shadow-xs'
-                : 'hover:bg-slate-700/40 text-slate-300'
-            }`}
-            title="انقر لفتح وعرض كافة الطلبات المرصودة"
-          >
-            <span className="text-[10px] text-slate-400 block font-medium">المرصودة</span>
-            <span className="text-sm font-black text-white">{totalMonitored}</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onSelectFilterCategory?.('matched')}
-            className={`p-1 rounded-lg transition-all active:scale-95 cursor-pointer text-center ${
-              activeCategory === 'matched'
-                ? 'bg-emerald-600/30 border border-emerald-400 text-emerald-300 shadow-xs'
-                : 'hover:bg-slate-700/40 text-slate-300'
-            }`}
-            title="انقر لفتح وعرض الطلبات المطابقة (80%+)"
-          >
-            <span className="text-[10px] text-emerald-400 block font-medium">المطابقة</span>
-            <span className="text-sm font-black text-emerald-400">{totalMatched}</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onSelectFilterCategory?.('vip')}
-            className={`p-1 rounded-lg transition-all active:scale-95 cursor-pointer text-center ${
-              activeCategory === 'vip'
-                ? 'bg-amber-600/30 border border-amber-400 text-amber-300 shadow-xs'
-                : 'hover:bg-slate-700/40 text-slate-300'
-            }`}
-            title="انقر لفتح وعرض الطلبات الممتازة VIP (90%+)"
-          >
-            <span className="text-[10px] text-amber-400 block font-medium">VIP</span>
-            <span className="text-sm font-black text-amber-400">{vipOrdersCount}</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onSelectFilterCategory?.('earnings')}
-            className={`p-1 rounded-lg transition-all active:scale-95 cursor-pointer text-center ${
-              activeCategory === 'earnings'
-                ? 'bg-emerald-600/30 border border-emerald-400 text-emerald-300 shadow-xs'
-                : 'hover:bg-slate-700/40 text-slate-300'
-            }`}
-            title="انقر لفتح أرباح اليوم وسجل الطلبات المقبولة"
-          >
-            <span className="text-[10px] text-amber-300 block font-medium">الأرباح</span>
-            <span className="text-sm font-black text-amber-300">{todayEarnings.toFixed(1)} <small className="text-[8px]">د.ب</small></span>
-          </button>
         </div>
 
         {/* 4 Primary Stats Tiles (Visible on desktop, or when expanded on mobile) */}

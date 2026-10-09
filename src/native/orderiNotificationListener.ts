@@ -18,6 +18,13 @@ export interface WhatsAppNativeEvent {
 interface OrderiNotificationListenerPlugin {
   isEnabled(): Promise<{ enabled: boolean }>;
   openSettings(): Promise<void>;
+  isAccessibilityEnabled(): Promise<{ enabled: boolean }>;
+  openAccessibilitySettings(): Promise<void>;
+  sendQuickReply(options: {
+    groupName?: string;
+    phone?: string;
+    message: string;
+  }): Promise<{ success: boolean; method: string }>;
   getPending(): Promise<{ events: WhatsAppNativeEvent[] }>;
   moveToBackground(): Promise<void>;
   updateFilterSettings?(options: {

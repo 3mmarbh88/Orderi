@@ -34,6 +34,52 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
     private static final String DEDUP_PREFS = "orderi_native_dedup";
     private static final long NATIVE_DEDUP_TTL_MS = 90_000L;
 
+    public static class ReplyActionHolder {
+        public PendingIntent pendingIntent;
+        public android.app.RemoteInput[] remoteInputs;
+        public long timestamp;
+    }
+    private static final java.util.concurrent.ConcurrentHashMap<String, ReplyActionHolder> REPLY_ACTIONS = new java.util.concurrent.ConcurrentHashMap<>();
+
+    public static boolean sendQuickReply(android.content.Context context, String targetGroupOrPhone, String replyText) {
+        if (TextUtils.isEmpty(replyText)) return false;
+
+        if (!TextUtils.isEmpty(targetGroupOrPhone)) {
+            String targetNormalized = targetGroupOrPhone.toLowerCase().trim();
+            for (java.util.Map.Entry<String, ReplyActionHolder> entry : REPLY_ACTIONS.entrySet()) {
+                String key = entry.getKey().toLowerCase().trim();
+                if (key.equals(targetNormalized) || key.contains(targetNormalized) || targetNormalized.contains(key)) {
+                    if (executeReply(context, entry.getValue(), replyText)) return true;
+                }
+            }
+        }
+
+        // Fallback: try latest action if less than 15 minutes old
+        long now = System.currentTimeMillis();
+        for (java.util.Map.Entry<String, ReplyActionHolder> entry : REPLY_ACTIONS.entrySet()) {
+            if (now - entry.getValue().timestamp < 900_000L) {
+                if (executeReply(context, entry.getValue(), replyText)) return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean executeReply(android.content.Context context, ReplyActionHolder holder, String replyText) {
+        if (holder == null || holder.pendingIntent == null || holder.remoteInputs == null) return false;
+        try {
+            Intent intent = new Intent();
+            Bundle bundle = new Bundle();
+            for (android.app.RemoteInput remoteInput : holder.remoteInputs) {
+                bundle.putCharSequence(remoteInput.getResultKey(), replyText);
+            }
+            android.app.RemoteInput.addResultsToIntent(holder.remoteInputs, intent, bundle);
+            holder.pendingIntent.send(context, 0, intent);
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
     @Override
     public void onNotificationPosted(StatusBarNotification sbn) {
         if (sbn == null || !PACKAGE_WHATSAPP.equals(sbn.getPackageName())) return;
@@ -97,6 +143,27 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
             boolean looksLikeGroup = !TextUtils.isEmpty(conversationTitle)
                     || (!TextUtils.isEmpty(title) && !TextUtils.isEmpty(text) && text.contains(": "));
             event.put("isGroup", looksLikeGroup);
+
+            // Cache WhatsApp direct reply action from notification if present
+            if (n.actions != null) {
+                for (Notification.Action action : n.actions) {
+                    if (action != null && action.getRemoteInputs() != null && action.getRemoteInputs().length > 0) {
+                        ReplyActionHolder holder = new ReplyActionHolder();
+                        holder.pendingIntent = action.actionIntent;
+                        holder.remoteInputs = action.getRemoteInputs();
+                        holder.timestamp = sbn.getPostTime();
+                        if (!TextUtils.isEmpty(resolvedTitle)) {
+                            REPLY_ACTIONS.put(resolvedTitle, holder);
+                        }
+                        if (!TextUtils.isEmpty(title)) {
+                            REPLY_ACTIONS.put(title, holder);
+                        }
+                        if (!TextUtils.isEmpty(conversationTitle)) {
+                            REPLY_ACTIONS.put(conversationTitle, holder);
+                        }
+                    }
+                }
+            }
 
             // Android-native Heads-Up notification. This runs inside the
             // NotificationListenerService, so it can fire while Orderi's

@@ -34,6 +34,19 @@
             </intent-filter>
         </service>
 
+        <service
+            android:name=".OrderiAccessibilityService"
+            android:label="Orderi - WhatsApp Auto-Accept"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/orderi_accessibility_service_config" />
+        </service>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

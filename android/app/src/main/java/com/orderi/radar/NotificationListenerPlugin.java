@@ -99,6 +99,61 @@ public class NotificationListenerPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void isAccessibilityEnabled(PluginCall call) {
+        JSObject ret = new JSObject();
+        ret.put("enabled", OrderiAccessibilityService.isAccessibilityEnabled(getContext()));
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void openAccessibilitySettings(PluginCall call) {
+        try {
+            Intent intent = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(intent);
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("Unable to open Android accessibility settings", e);
+        }
+    }
+
+    @PluginMethod
+    public void sendQuickReply(PluginCall call) {
+        try {
+            String groupName = call.getString("groupName", "");
+            String phone = call.getString("phone", "");
+            String message = call.getString("message", "");
+
+            if (android.text.TextUtils.isEmpty(message)) {
+                call.reject("Message is empty");
+                return;
+            }
+
+            // 1. Try native Notification inline reply (RemoteInput)
+            boolean sentViaRemoteInput = WhatsAppNotificationListenerService.sendQuickReply(
+                    getContext(), !android.text.TextUtils.isEmpty(groupName) ? groupName : phone, message);
+
+            if (sentViaRemoteInput) {
+                JSObject ret = new JSObject();
+                ret.put("success", true);
+                ret.put("method", "remote_input");
+                call.resolve(ret);
+                return;
+            }
+
+            // 2. Queue for Orderi Accessibility Service
+            OrderiAccessibilityService.queueMessageToSend(message);
+
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            ret.put("method", "accessibility_queued");
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("Failed to dispatch quick reply", e);
+        }
+    }
+
+    @PluginMethod
     public void updateFilterSettings(PluginCall call) {
         try {
             boolean ignoreNonMatching = call.getBoolean("ignoreNonMatching", false);

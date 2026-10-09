@@ -318,16 +318,178 @@ async function apiRequest<T extends ServerResponse>(
 
 export const DEFAULT_DEMO_CAPTAIN: CaptainUser = {
   id: 'captain_bh_owner',
-  name: 'كابتن النظام (مُفعّل)',
+  name: 'كابتن النظام',
   phone: '33123456',
   vehicleType: 'car',
-  isActivated: true,
-  licensePlan: 'الترخيص الشامل VIP - غير محدود 🇧🇭',
-  activationCode: 'BAHRAIN-VIP',
-  activatedAt: new Date().toISOString(),
-  expiresAt: new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString(),
+  isActivated: false,
+  licensePlan: 'بانتظار كود التفعيل',
   createdAt: new Date().toISOString(),
 };
+
+/*
+ * ============================================================
+ * 7-Day Trial System (مرتبطة برقم الهاتف وتاريخ الضغط)
+ * ============================================================
+ */
+
+export interface TrialRecord {
+  phone: string;
+  startedAt: string;
+  expiresAt: string;
+}
+
+export const STORAGE_TRIALS_KEY = 'orderi_phone_trials_registry';
+
+export function getAllPhoneTrials(): Record<string, TrialRecord> {
+  try {
+    const raw = readStorage(STORAGE_TRIALS_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+
+export function getTrialRecordForPhone(phone: string): TrialRecord | null {
+  const normalized = normalizeBahrainPhone(phone);
+  if (!normalized) return null;
+  const trials = getAllPhoneTrials();
+  return trials[normalized] || null;
+}
+
+export function isTrialExpiredForPhone(phone: string): boolean {
+  const trial = getTrialRecordForPhone(phone);
+  if (!trial) return false;
+  return new Date(trial.expiresAt).getTime() <= Date.now();
+}
+
+export function isTrialActiveForPhone(phone: string): boolean {
+  const trial = getTrialRecordForPhone(phone);
+  if (!trial) return false;
+  const now = Date.now();
+  return (
+    new Date(trial.startedAt).getTime() <= now &&
+    now < new Date(trial.expiresAt).getTime()
+  );
+}
+
+export function getRemainingTrialTime(expiresAt: string): {
+  days: number;
+  hours: number;
+  minutes: number;
+  isExpired: boolean;
+  formatted: string;
+} {
+  const diff = new Date(expiresAt).getTime() - Date.now();
+  if (diff <= 0) {
+    return {
+      days: 0,
+      hours: 0,
+      minutes: 0,
+      isExpired: true,
+      formatted: 'انتهت الفترة التجريبية',
+    };
+  }
+  const days = Math.floor(diff / (24 * 3600 * 1000));
+  const hours = Math.floor((diff % (24 * 3600 * 1000)) / (3600 * 1000));
+  const minutes = Math.floor((diff % (3600 * 1000)) / (60 * 1000));
+  let formatted = '';
+  if (days > 0) {
+    formatted = `${days} يوم و ${hours} ساعة`;
+  } else if (hours > 0) {
+    formatted = `${hours} ساعة و ${minutes} دقيقة`;
+  } else {
+    formatted = `${minutes} دقيقة`;
+  }
+  return { days, hours, minutes, isExpired: false, formatted };
+}
+
+export function startTrialForPhone(
+  phone: string,
+  userName?: string
+): {
+  success: boolean;
+  error?: string;
+  user?: CaptainUser;
+  trial?: TrialRecord;
+} {
+  const normalized = normalizeBahrainPhone(phone);
+  if (!normalized || normalized.length < 8) {
+    return {
+      success: false,
+      error: 'يرجى إدخال رقم هاتف بحريني صالح (8 أرقام)',
+    };
+  }
+
+  const existingTrial = getTrialRecordForPhone(normalized);
+  if (existingTrial) {
+    const expired = new Date(existingTrial.expiresAt).getTime() <= Date.now();
+    if (expired) {
+      return {
+        success: false,
+        error:
+          'انتهت الفترة التجريبية (7 أيام) المخصصة لهذا الرقم مسبقاً. خيار الفترة التجريبية لم يعد متاحاً.',
+      };
+    }
+    // Existing active trial
+    const current = getCurrentUser();
+    const updatedUser: CaptainUser = {
+      ...(current || DEFAULT_DEMO_CAPTAIN),
+      id: current?.id || `captain_${normalized}`,
+      phone: normalized,
+      name: current?.name || userName || `كابتن ${normalized}`,
+      isActivated: true,
+      isTrial: true,
+      trialStartedAt: existingTrial.startedAt,
+      trialExpiresAt: existingTrial.expiresAt,
+      licensePlan: 'فترة تجريبية مجانية (7 أيام) ⏳',
+      expiresAt: existingTrial.expiresAt,
+    };
+    setCurrentUser(updatedUser);
+    return {
+      success: true,
+      user: updatedUser,
+      trial: existingTrial,
+    };
+  }
+
+  // Create brand new 7-day trial starting now
+  const startedAt = new Date().toISOString();
+  const expiresAt = new Date(
+    Date.now() + 7 * 24 * 60 * 60 * 1000
+  ).toISOString();
+
+  const newTrial: TrialRecord = {
+    phone: normalized,
+    startedAt,
+    expiresAt,
+  };
+
+  const trials = getAllPhoneTrials();
+  trials[normalized] = newTrial;
+  writeStorage(STORAGE_TRIALS_KEY, JSON.stringify(trials));
+
+  const current = getCurrentUser();
+  const updatedUser: CaptainUser = {
+    ...(current || DEFAULT_DEMO_CAPTAIN),
+    id: current?.id || `captain_${normalized}`,
+    phone: normalized,
+    name: current?.name || userName || `كابتن ${normalized}`,
+    isActivated: true,
+    isTrial: true,
+    trialStartedAt: startedAt,
+    trialExpiresAt: expiresAt,
+    licensePlan: 'فترة تجريبية مجانية (7 أيام) ⏳',
+    expiresAt: expiresAt,
+  };
+  setCurrentUser(updatedUser);
+
+  return {
+    success: true,
+    user: updatedUser,
+    trial: newTrial,
+  };
+}
 
 let currentUserMemory: CaptainUser | null = null;
 
@@ -451,6 +613,33 @@ export function isProgramActivated(
 
   if (!current) return false;
 
+  // 1. Check trial status if marked as trial
+  if (current.isTrial) {
+    if (!current.trialExpiresAt) return false;
+    const isExpired =
+      new Date(current.trialExpiresAt).getTime() <= Date.now();
+    if (isExpired) {
+      return false;
+    }
+    return true;
+  }
+
+  // 2. Check trial registry for phone
+  if (current.phone) {
+    const trial = getTrialRecordForPhone(current.phone);
+    if (trial) {
+      const isExpired =
+        new Date(trial.expiresAt).getTime() <= Date.now();
+      if (isExpired && !current.activationCode) {
+        return false;
+      }
+      if (!isExpired && current.licensePlan?.includes('تجريبية')) {
+        return true;
+      }
+    }
+  }
+
+  // 3. Regular license check
   if (!current.isActivated) {
     return false;
   }
