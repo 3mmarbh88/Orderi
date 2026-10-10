@@ -8,6 +8,10 @@ export interface RawParsedResult {
   to: string;
   price: number;
   isPriceUnspecified?: boolean;
+  passengerCount?: number;
+  scheduledTime?: string;
+  scheduledTimeMinutes?: number;
+  isFutureSchedule?: boolean;
   phone: string;
   notes: string;
   confidence: number;
@@ -38,6 +42,7 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
       to: '',
       price: 0,
       isPriceUnspecified: true,
+      passengerCount: undefined,
       phone: '',
       notes: '',
       confidence: 0,
@@ -55,7 +60,11 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
   const convertedText = convertArabicNumerals(rawText);
   const normalized = normalizeArabicText(convertedText);
 
-  // 1. Detect Phone Number (Bahrain format: 8 digits starting with 3, 6, 17 or prefixed with 973)
+  // 1. Detect Passenger Transport vs Goods Delivery first (أشخاص / ركاب مقابل بضائع)
+  const passengerDetection = detectPassengerDelivery(rawText);
+  const passengerCount = passengerDetection.passengerCount;
+
+  // 2. Detect Phone Number (Bahrain format: 8 digits starting with 3, 6, 17 or prefixed with 973)
   let phone = '';
   const phoneRegex = /(?:\+?973|00973)?[\s-]*(3\d{7}|6\d{7}|17\d{6}|[36]\d{3}[\s-]?\d{4})/g;
   const phoneMatch = phoneRegex.exec(convertedText);
@@ -66,37 +75,54 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
     }
   }
 
-  // 2. Detect Price in BHD (دينار / د.ب / bd / bhd)
+  // 3. Smart Price Detection in BHD (دينار / د.ب / bd / bhd)
+  // القاعدة: التمييز الذكي بين عدد الأشخاص وقيمة الأوردر
+  // أي رقم يتبعه كلمة «أشخاص» أو «ركاب» لا يحسب كأجرة أبداً
   let price = 0;
-  // Patterns like: "3.5 دينار", "ب 3 د.ب", "السعر: 4", "3.0bd", "ب3", "٣ دينار"
-  const pricePatterns = [
-    /(?:السعر|سعر|ب|بقيمة|مبلغ|أجرة|اجرة|التوصيل)?\s*[:=]?\s*(\d+(?:\.\d+)?)\s*(?:دينار|د\.ب|دب|دينار بحريني|bd|bhd)/i,
-    /(?:دينار|د\.ب|دب|bd|bhd)\s*[:=]?\s*(\d+(?:\.\d+)?)/i,
-    /(?:السعر|سعر|المبلغ|الحساب)\s*[:=]?\s*(\d+(?:\.\d+)?)/i,
-    /\b(\d+(?:\.\d+)?)\s*(?:دينار|د\.ب|دب|bd|bhd)\b/i,
+  
+  // Patterns with explicit currency units:
+  // e.g. "10 دنانير", "بـ 10 دنانير", "السعر: 3.5 د.ب", "3 دينار", "3.0bd"
+  const priceWithCurrencyPatterns = [
+    // [Price prefix] [Number] [Currency]
+    /(?:السعر|سعر|الأجر|الأجرة|أجرة|الأوردر|الطلب|المبلغ|الحساب|بقيمة)?\s*[:=]?\s*(?:بـ|ب)?\s*(\d+(?:\.\d+)?)\s*(?:دينار|دنانير|د\.ب|دب|دينار بحريني|bd|bhd)/i,
+    // [Currency] [Number]
+    /(?:دينار|دنانير|د\.ب|دب|bd|bhd)\s*[:=]?\s*(\d+(?:\.\d+)?)/i,
+    // Standalone number + currency word
+    /\b(\d+(?:\.\d+)?)\s*(?:دينار|دنانير|د\.ب|دب|bd|bhd)\b/i,
   ];
 
-  for (const pattern of pricePatterns) {
+  for (const pattern of priceWithCurrencyPatterns) {
     const match = pattern.exec(convertedText);
     if (match && match[1]) {
       const parsedVal = parseFloat(match[1]);
-      if (!isNaN(parsedVal) && parsedVal > 0 && parsedVal <= 50) {
-        price = parsedVal;
-        break;
+      if (!isNaN(parsedVal) && parsedVal > 0 && parsedVal <= 100) {
+        // Double check this match isn't a passenger count
+        const afterMatch = convertedText.substring((match.index || 0) + match[0].length, (match.index || 0) + match[0].length + 20);
+        if (!/(?:أشخاص|اشخاص|ركاب|أفراد|افراد|ناس|بنات|أطفال|اطفال|عمال)/i.test(afterMatch)) {
+          price = parsedVal;
+          break;
+        }
       }
     }
   }
 
-  // If price not found with keywords, look for standalone sensible price numbers (e.g. 1.5, 2, 2.5, 3, 3.5, 4, 5)
+  // Explicit price prefix WITHOUT currency word (e.g. "السعر: 4", "الأجرة 5", "الحساب: 3.5")
+  // MUST NOT match passenger counts like "5 أشخاص"
   if (price === 0) {
-    const fallbackMatch = /(?:^|\s)(?:ب\s*)?([1-9](?:\.[0-9])?)(?:\s|$)/.exec(convertedText);
-    if (fallbackMatch && fallbackMatch[1]) {
-      const val = parseFloat(fallbackMatch[1]);
-      if (val >= 1 && val <= 15) {
-        price = val;
+    const explicitPrefixPattern = /(?:السعر|سعر|الأجر|الأجرة|أجرة|الأوردر بـ|الطلب بـ|الحساب|المبلغ|بقيمة)\s*[:=]?\s*(?:بـ|ب)?\s*(\d+(?:\.\d+)?)/i;
+    const match = explicitPrefixPattern.exec(convertedText);
+    if (match && match[1]) {
+      const parsedVal = parseFloat(match[1]);
+      const afterMatch = convertedText.substring((match.index || 0) + match[0].length, (match.index || 0) + match[0].length + 20);
+      const isPassengerCountWord = /(?:أشخاص|اشخاص|ركاب|أفراد|افراد|ناس|بنات|أطفال|اطفال|عمال)/i.test(afterMatch);
+      if (!isPassengerCountWord && !isNaN(parsedVal) && parsedVal > 0 && parsedVal <= 100) {
+        price = parsedVal;
       }
     }
   }
+
+  // عدم اختراع سعر: إذا لم يُذكر السعر صراحة أو بالعملة، يُسجل السعر على أنه 0 وغير محدد (بالاتفاق)
+  // تم إزالة التخمين العشوائي للأرقام المنفردة لضمان عدم الخلط بين عدد الركاب والسعر!
 
   // 3. Detect "From" (Start) and "To" (Destination) areas and landmarks
   let fromArea = '';
@@ -245,9 +271,45 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
     }
   }
 
-  // 5. Detect Passenger Transport vs Goods Delivery (أشخاص / ركاب مقابل بضائع)
-  const passengerDetection = detectPassengerDelivery(rawText);
+  // 4b. Smart Scheduled Delivery Time Extraction (الساعة 8 مساءً / الساعة 6 صباحاً / مطلوب مندوب الساعة...)
+  let scheduledTime: string | undefined = undefined;
+  let scheduledTimeMinutes: number | undefined = undefined;
+  let isFutureSchedule: boolean = false;
 
+  // Pattern: (الساعة|ساعة|على الساعة|في حدود الساعة|توقيت)\s*(\d{1,2}(?::\d{2})?)\s*(صباحا|صباحاً|ص|مساء|مساءً|م|العصر|الظهر|المغرب|بالليل|في الليل|الصبح)?
+  const scheduleRegex = /(?:الساعة|ساعة|على الساعة|في حدود الساعة|توقيت|موعد|وقت)\s*(\d{1,2})(?::(\d{2}))?\s*(صباحا|صباحاً|ص|مساء|مساءً|م|العصر|الظهر|المغرب|بالليل|في الليل|الصبح)?/i;
+  const scheduleMatch = scheduleRegex.exec(convertedText);
+
+  if (scheduleMatch) {
+    const rawHour = parseInt(scheduleMatch[1], 10);
+    const rawMin = scheduleMatch[2] ? parseInt(scheduleMatch[2], 10) : 0;
+    const period = (scheduleMatch[3] || '').trim();
+
+    if (rawHour >= 1 && rawHour <= 24) {
+      let isPm = false;
+      if (/مساء|مساءً|م|العصر|المغرب|بالليل|في الليل/i.test(period)) {
+        isPm = true;
+      } else if (/صباحا|صباحاً|ص|الصبح/i.test(period)) {
+        isPm = false;
+      } else if (rawHour >= 1 && rawHour <= 6) {
+        // In Gulf business contexts, e.g. "الساعة 4" or "الساعة 5" usually refers to afternoon/evening
+        isPm = true;
+      }
+
+      let hour24 = rawHour;
+      if (isPm && hour24 < 12) hour24 += 12;
+      if (!isPm && hour24 === 12) hour24 = 0;
+
+      scheduledTimeMinutes = hour24 * 60 + rawMin;
+      const displayPeriod = isPm ? 'مساءً' : 'صباحاً';
+      const displayHour = rawHour > 12 ? rawHour - 12 : rawHour;
+      const displayMin = rawMin > 0 ? `:${rawMin < 10 ? '0' + rawMin : rawMin}` : '';
+      scheduledTime = `الساعة ${displayHour}${displayMin} ${displayPeriod}`;
+      isFutureSchedule = true;
+    }
+  }
+
+  // 5. Detect Passenger Transport vs Goods Delivery is already evaluated at step 1
   // Calculate confidence
   let confidence = 0;
   if (fromArea) confidence += 40;
@@ -263,6 +325,10 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
     to: toArea,
     price: price > 0 ? price : 0,
     isPriceUnspecified,
+    passengerCount: passengerDetection.passengerCount,
+    scheduledTime,
+    scheduledTimeMinutes,
+    isFutureSchedule,
     phone,
     notes,
     confidence,

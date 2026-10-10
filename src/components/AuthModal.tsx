@@ -46,6 +46,117 @@ function WhatsAppIcon({
   );
 }
 
+const translations = {
+  ar: {
+    title: 'Orderi',
+    countryBadge: 'البحرين 🇧🇭',
+    subtitle: 'تسجيل الدخول والمصادقة وتفعيل الاشتراك',
+    tabLogin: 'تسجيل الدخول',
+    tabRegister: 'حساب جديد',
+    tabActivate: 'كود التفعيل',
+    phoneLabel: 'رقم هاتف واتساب في البحرين (المعتمد للرادار والقروبات):',
+    phoneHint: 'رقم هاتفك في واتساب لربط القروبات والمحادثات تلقائياً بالرادار',
+    passwordLabel: 'كلمة المرور:',
+    passwordHint: 'كلمة المرور الخاصة بحسابك',
+    passwordPlaceholder: 'أدخل كلمة المرور...',
+    biometricBtn: 'تسجيل الدخول بالبصمة (Fingerprint / Face ID)',
+    loginBtn: 'تسجيل الدخول إلى Orderi',
+    loggingIn: 'جاري الاتصال بالسيرفر...',
+    serverVerify: 'سيتم التحقق من الحساب والاشتراك عبر سيرفر Orderi',
+    nameLabel: 'الاسم الكامل:',
+    namePlaceholder: 'مثال: أحمد العالـي',
+    regPhoneLabel: 'رقم هاتف واتساب (لرصد القروبات والمحادثات تلقائياً):',
+    regPhoneHint: 'رقم الهاتف المسجل هو الذي يُستخدم تلقائياً لربط قروباتك ومحادثاتك في واتساب',
+    regPasswordLabel: 'إنشاء كلمة المرور:',
+    regPasswordPlaceholder: '6 أحرف أو أرقام على الأقل',
+    vehicleLabel: 'وسيلة التوصيل:',
+    car: 'سيارة',
+    bike: 'دراجة نارية',
+    pickup: 'بيكاب / ميني باص',
+    truck: 'سكسويل',
+    flatbed: 'سطحة',
+    optActivationLabel: 'كود التفعيل:',
+    optional: 'اختياري',
+    enableBiometrics: 'تفعيل تسجيل الدخول السريع بالبصمة',
+    registerBtn: 'إنشاء الحساب والمتابعة',
+    registering: 'جاري إنشاء الحساب...',
+    activateTitle: 'تفعيل اشتراك Orderi',
+    activateDesc: 'أدخل كود التفعيل المخصص لحسابك. سيتم التحقق من الكود مباشرة عبر سيرفر Orderi.',
+    enterCodeLabel: 'أدخل كود التفعيل:',
+    codePlaceholder: 'ORD-XXXXXXXX-XXXXXX',
+    activateBtn: 'تفعيل',
+    activating: 'جاري التحقق...',
+    whatsappHelp: 'تواصل عبر واتساب للحصول على كود التفعيل',
+    afterActivate: 'بعد التفعيل:',
+    feature1: 'فتح ميزات Orderi',
+    feature2: 'حفظ مدة الاشتراك على السيرفر',
+    feature3: 'التحقق من حالة الاشتراك عند الاتصال',
+    footerText: 'Orderi — رادار طلبات البحرين 🇧🇭',
+    continueBtn: 'المتابعة للشاشة',
+    scannerTitle: 'مستشعر البصمة الذكي',
+    scannerSubtitle: 'التحقق من جلسة حساب Orderi',
+    scannerScanning: 'ضع إصبعك على مستشعر البصمة...',
+    scannerSuccess: 'تم التحقق من الحساب بنجاح!',
+    scannerFailed: 'تعذر التحقق من الحساب',
+    scannerQuick: 'دخول سريع وآمن',
+    scannerCancel: 'إلغاء والعودة لتسجيل الدخول',
+  },
+  en: {
+    title: 'Orderi',
+    countryBadge: 'Bahrain 🇧🇭',
+    subtitle: 'Sign In, Authentication & License Activation',
+    tabLogin: 'Sign In',
+    tabRegister: 'New Account',
+    tabActivate: 'Activation Code',
+    phoneLabel: 'Bahrain WhatsApp Phone Number (for Radar & Groups):',
+    phoneHint: 'Your registered WhatsApp phone number for group radar sync',
+    passwordLabel: 'Password:',
+    passwordHint: 'Your account password',
+    passwordPlaceholder: 'Enter your password...',
+    biometricBtn: 'Sign In with Biometrics (Fingerprint / Face ID)',
+    loginBtn: 'Sign In to Orderi',
+    loggingIn: 'Connecting to server...',
+    serverVerify: 'Account and subscription verified via Orderi secure server',
+    nameLabel: 'Full Name:',
+    namePlaceholder: 'e.g. Ahmed Ali',
+    regPhoneLabel: 'WhatsApp Phone Number (Bahrain):',
+    regPhoneHint: 'Used to automatically link incoming WhatsApp orders & chats',
+    regPasswordLabel: 'Create Password:',
+    regPasswordPlaceholder: 'At least 6 characters or numbers',
+    vehicleLabel: 'Delivery Vehicle:',
+    car: 'Car',
+    bike: 'Motorcycle',
+    pickup: 'Pickup / Minibus',
+    truck: 'Truck',
+    flatbed: 'Flatbed',
+    optActivationLabel: 'Activation Code:',
+    optional: 'Optional',
+    enableBiometrics: 'Enable Quick Biometric Sign In',
+    registerBtn: 'Create Account & Continue',
+    registering: 'Creating account...',
+    activateTitle: 'Activate Orderi Subscription',
+    activateDesc: 'Enter the activation license code assigned to your account.',
+    enterCodeLabel: 'Enter Activation Code:',
+    codePlaceholder: 'ORD-XXXXXXXX-XXXXXX',
+    activateBtn: 'Activate',
+    activating: 'Verifying...',
+    whatsappHelp: 'Contact support on WhatsApp to get an activation code',
+    afterActivate: 'After activation:',
+    feature1: 'Unlock all Orderi live radar features',
+    feature2: 'Secure cloud subscription storage',
+    feature3: 'Automatic session validation on connect',
+    footerText: 'Orderi — Bahrain Smart Order Radar 🇧🇭',
+    continueBtn: 'Continue to App',
+    scannerTitle: 'Smart Biometric Sensor',
+    scannerSubtitle: 'Verifying Orderi Account Session',
+    scannerScanning: 'Place your finger on the sensor...',
+    scannerSuccess: 'Account verified successfully!',
+    scannerFailed: 'Verification failed',
+    scannerQuick: 'Fast & Secure Login',
+    scannerCancel: 'Cancel and return to login',
+  }
+};
+
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -62,6 +173,23 @@ export function AuthModal({
   const [tab, setTab] = useState<
     'login' | 'register' | 'activate'
   >(initialTab);
+
+  const [lang, setLang] = useState<'ar' | 'en'>(() => {
+    try {
+      return (localStorage.getItem('orderi_auth_lang') as 'ar' | 'en') || 'ar';
+    } catch {
+      return 'ar';
+    }
+  });
+
+  const handleSetLanguage = (newLang: 'ar' | 'en') => {
+    setLang(newLang);
+    try {
+      localStorage.setItem('orderi_auth_lang', newLang);
+    } catch {}
+  };
+
+  const tr = translations[lang];
 
   // ============================================================
   // Login
@@ -466,11 +594,11 @@ export function AuthModal({
 
             <div className="pt-2">
               <h4 className="text-base font-black">
-                مستشعر البصمة الذكي
+                {tr.scannerTitle}
               </h4>
 
               <p className="text-xs text-slate-400 mt-1">
-                التحقق من جلسة حساب Orderi
+                {tr.scannerSubtitle}
               </p>
             </div>
 
@@ -521,19 +649,19 @@ export function AuthModal({
               >
                 {scannerStatus ===
                   'scanning' &&
-                  'ضع إصبعك على مستشعر البصمة...'}
+                  tr.scannerScanning}
 
                 {scannerStatus ===
                   'success' &&
-                  'تم التحقق من الحساب بنجاح!'}
+                  tr.scannerSuccess}
 
                 {scannerStatus ===
                   'failed' &&
-                  'تعذر التحقق من الحساب'}
+                  tr.scannerFailed}
               </p>
 
               <p className="text-[11px] text-slate-500">
-                دخول سريع وآمن
+                {tr.scannerQuick}
               </p>
             </div>
 
@@ -542,9 +670,9 @@ export function AuthModal({
               onClick={() =>
                 setShowBiometricScanner(false)
               }
-              className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-300 transition-colors"
+              className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-300 transition-colors cursor-pointer"
             >
-              إلغاء والعودة لتسجيل الدخول
+              {tr.scannerCancel}
             </button>
 
           </div>
@@ -556,42 +684,68 @@ export function AuthModal({
           ====================================================== */}
 
       <div 
-        className="w-full h-full sm:h-auto sm:max-h-[92vh] sm:max-w-md bg-white sm:rounded-3xl sm:shadow-2xl sm:border sm:border-slate-200/90 overflow-hidden flex flex-col pb-safe"
+        dir={lang === 'ar' ? 'rtl' : 'ltr'}
+        className={`w-full h-full sm:h-auto sm:max-h-[92vh] sm:max-w-md bg-white sm:rounded-3xl sm:shadow-2xl sm:border sm:border-slate-200/90 overflow-hidden flex flex-col pb-safe ${
+          lang === 'ar' ? 'text-right' : 'text-left'
+        }`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
 
-        <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-950 p-5 sm:p-6 pt-[calc(1.25rem+env(safe-area-inset-top,0px))] sm:pt-6 text-white text-right relative shrink-0">
+        <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-950 p-5 sm:p-6 pt-[calc(1.25rem+env(safe-area-inset-top,0px))] sm:pt-6 text-white relative shrink-0">
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center justify-between gap-3">
 
-            <div className="w-12 h-12 rounded-2xl bg-white p-0.5 shadow-md shadow-emerald-500/20 shrink-0 flex items-center justify-center">
-              <img
-                src="/logo.png"
-                alt="Orderi Logo"
-                className="w-full h-full object-cover rounded-[14px]"
-              />
-            </div>
-
-            <div>
-
-              <div className="flex items-center gap-2">
-
-                <h3 className="text-lg font-black tracking-tight text-white">
-                  Orderi
-                </h3>
-
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-500 text-slate-950">
-                  البحرين 🇧🇭
-                </span>
-
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-white p-0.5 shadow-md shadow-emerald-500/20 shrink-0 flex items-center justify-center">
+                <img
+                  src="/logo.png"
+                  alt="Orderi Logo"
+                  className="w-full h-full object-cover rounded-[14px]"
+                />
               </div>
 
-              <p className="text-xs text-slate-300 mt-0.5">
-                تسجيل الدخول والمصادقة وتفعيل الاشتراك
-              </p>
-
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-lg font-black tracking-tight text-white">
+                    {tr.title}
+                  </h3>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-500 text-slate-950">
+                    {tr.countryBadge}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-300 mt-0.5">
+                  {tr.subtitle}
+                </p>
+              </div>
             </div>
+
+            {/* Language Switcher: العربية | English */}
+            <div className="inline-flex rounded-xl bg-white/10 p-1 border border-white/15 shrink-0 self-start">
+              <button
+                type="button"
+                onClick={() => handleSetLanguage('ar')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                  lang === 'ar'
+                    ? 'bg-white text-slate-950 shadow-xs'
+                    : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                العربية
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSetLanguage('en')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                  lang === 'en'
+                    ? 'bg-white text-slate-950 shadow-xs'
+                    : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                English
+              </button>
+            </div>
+
           </div>
 
           {/* Tabs */}
@@ -611,7 +765,7 @@ export function AuthModal({
                   : 'text-slate-300 hover:text-white hover:bg-white/5'
               }`}
             >
-              تسجيل الدخول
+              {tr.tabLogin}
             </button>
 
             <button
@@ -627,7 +781,7 @@ export function AuthModal({
                   : 'text-slate-300 hover:text-white hover:bg-white/5'
               }`}
             >
-              حساب جديد
+              {tr.tabRegister}
             </button>
 
             <button
@@ -644,7 +798,7 @@ export function AuthModal({
               }`}
             >
               <KeyRound className="w-3.5 h-3.5 shrink-0" />
-              <span>كود التفعيل</span>
+              <span>{tr.tabActivate}</span>
             </button>
 
           </div>
@@ -693,7 +847,7 @@ export function AuthModal({
               <div className="space-y-1.5">
 
                 <label className="text-xs font-bold text-slate-700 block">
-                  رقم هاتف واتساب في البحرين (المعتمد للرادار والقروبات):
+                  {tr.phoneLabel}
                 </label>
 
                 <div className="relative flex items-center">
@@ -712,13 +866,13 @@ export function AuthModal({
                     className="w-full pl-4 pr-24 py-3 rounded-2xl border border-slate-200 bg-slate-50 font-bold text-sm text-slate-900 focus:bg-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none"
                   />
 
-                  <div className="absolute right-3 flex items-center gap-1.5 text-xs font-black text-slate-600 border-l border-slate-200 pl-2.5">
+                  <div className={`absolute ${lang === 'ar' ? 'right-3 border-l pr-0 pl-2.5' : 'right-3 border-l pr-0 pl-2.5'} flex items-center gap-1.5 text-xs font-black text-slate-600 border-slate-200`}>
                     <span>🇧🇭 +973</span>
                   </div>
 
                 </div>
                 <span className="text-[10px] text-emerald-700 font-semibold block">
-                  رقم هاتفك في واتساب لربط القروبات والمحادثات تلقائياً بالرادار
+                  {tr.phoneHint}
                 </span>
               </div>
 
@@ -729,11 +883,11 @@ export function AuthModal({
                 <div className="flex items-center justify-between">
 
                   <label className="text-xs font-bold text-slate-700">
-                    كلمة المرور:
+                    {tr.passwordLabel}
                   </label>
 
                   <span className="text-[11px] text-slate-400 font-normal">
-                    كلمة المرور الخاصة بحسابك
+                    {tr.passwordHint}
                   </span>
 
                 </div>
@@ -752,7 +906,7 @@ export function AuthModal({
                         e.target.value
                       )
                     }
-                    placeholder="أدخل كلمة المرور..."
+                    placeholder={tr.passwordPlaceholder}
                     autoComplete="current-password"
                     className="w-full px-4 py-3 rounded-2xl border border-slate-200 bg-slate-50 font-bold text-sm text-slate-900 focus:bg-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none"
                   />
@@ -764,7 +918,7 @@ export function AuthModal({
                         !showPassword
                       )
                     }
-                    className="absolute left-3 text-slate-400 hover:text-slate-600 p-1"
+                    className={`absolute ${lang === 'ar' ? 'left-3' : 'right-3'} text-slate-400 hover:text-slate-600 p-1`}
                   >
                     {showPassword ? (
                       <EyeOff className="w-4 h-4" />
@@ -791,8 +945,7 @@ export function AuthModal({
                   <Fingerprint className="w-5 h-5 text-emerald-600" />
 
                   <span>
-                    تسجيل الدخول بالبصمة
-                    (Fingerprint / Face ID)
+                    {tr.biometricBtn}
                   </span>
                 </button>
 
@@ -811,8 +964,8 @@ export function AuthModal({
 
                   <span>
                     {isLoading
-                      ? 'جاري الاتصال بالسيرفر...'
-                      : 'تسجيل الدخول إلى Orderi'}
+                      ? tr.loggingIn
+                      : tr.loginBtn}
                   </span>
 
                 </button>
@@ -824,8 +977,7 @@ export function AuthModal({
               <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 text-center">
 
                 <span className="text-[11px] text-slate-500">
-                  سيتم التحقق من الحساب والاشتراك
-                  عبر سيرفر Orderi
+                  {tr.serverVerify}
                 </span>
 
               </div>
@@ -848,7 +1000,7 @@ export function AuthModal({
               <div className="space-y-1">
 
                 <label className="text-xs font-bold text-slate-700 block">
-                  الاسم الكامل:
+                  {tr.nameLabel}
                 </label>
 
                 <div className="relative flex items-center">
@@ -861,12 +1013,12 @@ export function AuthModal({
                         e.target.value
                       )
                     }
-                    placeholder="مثال: أحمد العالـي"
+                    placeholder={tr.namePlaceholder}
                     autoComplete="name"
                     className="w-full px-4 py-2.5 rounded-2xl border border-slate-200 bg-slate-50 font-bold text-xs text-slate-900 focus:bg-white focus:ring-2 focus:ring-emerald-500/20"
                   />
 
-                  <User className="w-4 h-4 text-slate-400 absolute left-3.5" />
+                  <User className={`w-4 h-4 text-slate-400 absolute ${lang === 'ar' ? 'left-3.5' : 'right-3.5'}`} />
 
                 </div>
               </div>
@@ -876,7 +1028,7 @@ export function AuthModal({
               <div className="space-y-1">
 
                 <label className="text-xs font-bold text-slate-700 block">
-                  رقم هاتف واتساب (لرصد القروبات والمحادثات تلقائياً):
+                  {tr.regPhoneLabel}
                 </label>
 
                 <div className="relative flex items-center">
@@ -895,13 +1047,13 @@ export function AuthModal({
                     className="w-full pl-4 pr-24 py-2.5 rounded-2xl border border-slate-200 bg-slate-50 font-bold text-xs text-slate-900 focus:bg-white focus:ring-2 focus:ring-emerald-500/20"
                   />
 
-                  <div className="absolute right-3 flex items-center gap-1 text-xs font-black text-slate-600 border-l border-slate-200 pl-2">
+                  <div className={`absolute ${lang === 'ar' ? 'right-3 border-l pr-0 pl-2' : 'right-3 border-l pr-0 pl-2'} flex items-center gap-1 text-xs font-black text-slate-600 border-slate-200`}>
                     <span>🇧🇭 +973</span>
                   </div>
 
                 </div>
                 <span className="text-[10px] text-emerald-700 font-semibold block">
-                  رقم الهاتف المسجل هو الذي يُستخدم تلقائياً لربط قروباتك ومحادثاتك في واتساب
+                  {tr.regPhoneHint}
                 </span>
               </div>
 
@@ -910,7 +1062,7 @@ export function AuthModal({
               <div className="space-y-1">
 
                 <label className="text-xs font-bold text-slate-700 block">
-                  إنشاء كلمة المرور:
+                  {tr.regPasswordLabel}
                 </label>
 
                 <div className="relative flex items-center">
@@ -927,7 +1079,7 @@ export function AuthModal({
                         e.target.value
                       )
                     }
-                    placeholder="6 أحرف أو أرقام على الأقل"
+                    placeholder={tr.regPasswordPlaceholder}
                     autoComplete="new-password"
                     className="w-full px-4 py-2.5 rounded-2xl border border-slate-200 bg-slate-50 font-bold text-xs text-slate-900 focus:bg-white focus:ring-2 focus:ring-emerald-500/20"
                   />
@@ -939,7 +1091,7 @@ export function AuthModal({
                         !showPassword
                       )
                     }
-                    className="absolute left-3 text-slate-400 p-1"
+                    className={`absolute ${lang === 'ar' ? 'left-3' : 'right-3'} text-slate-400 p-1`}
                   >
                     {showPassword ? (
                       <EyeOff className="w-4 h-4" />
@@ -957,7 +1109,7 @@ export function AuthModal({
               <div className="space-y-1.5">
 
                 <label className="text-xs font-bold text-slate-700 block">
-                  وسيلة التوصيل:
+                  {tr.vehicleLabel}
                 </label>
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -965,27 +1117,27 @@ export function AuthModal({
                   {[
                     {
                       id: 'car' as const,
-                      label: 'سيارة',
+                      label: tr.car,
                       icon: Car,
                     },
                     {
                       id: 'motorcycle' as const,
-                      label: 'دراجة نارية',
+                      label: tr.bike,
                       icon: Bike,
                     },
                     {
                       id: 'pickup_minibus' as const,
-                      label: 'بيكاب / ميني باص',
+                      label: tr.pickup,
                       icon: Bus,
                     },
                     {
                       id: 'six_wheel' as const,
-                      label: 'سكسويل',
+                      label: tr.truck,
                       icon: Truck,
                     },
                     {
                       id: 'flatbed' as const,
-                      label: 'سطحة',
+                      label: tr.flatbed,
                       icon: CarTaxiFront,
                     },
                   ].map((v) => {
@@ -1004,7 +1156,7 @@ export function AuthModal({
                             v.id
                           )
                         }
-                        className={`p-2.5 rounded-xl border flex flex-col items-center justify-center gap-1 transition-all ${
+                        className={`p-2.5 rounded-xl border flex flex-col items-center justify-center gap-1 transition-all cursor-pointer ${
                           isSelected
                             ? 'bg-emerald-50 border-emerald-500 text-emerald-950 font-black shadow-2xs ring-2 ring-emerald-500/20'
                             : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
@@ -1035,11 +1187,11 @@ export function AuthModal({
                 <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
 
                   <span>
-                    كود التفعيل:
+                    {tr.optActivationLabel}
                   </span>
 
                   <span className="text-[10px] text-slate-500 font-bold">
-                    اختياري
+                    {tr.optional}
                   </span>
 
                 </label>
@@ -1052,7 +1204,7 @@ export function AuthModal({
                       e.target.value.toUpperCase()
                     )
                   }
-                  placeholder="مثال: ORD-25425D-FC936B"
+                  placeholder="ORD-XXXX-XXXX"
                   dir="ltr"
                   className="w-full px-4 py-2 rounded-xl border border-slate-200 bg-white font-mono font-bold text-xs text-slate-900 focus:ring-2 focus:ring-emerald-500/20"
                 />
@@ -1075,7 +1227,7 @@ export function AuthModal({
                 />
 
                 <span className="text-xs text-slate-700 font-medium">
-                  تفعيل تسجيل الدخول السريع بالبصمة
+                  {tr.enableBiometrics}
                 </span>
 
               </label>
@@ -1087,15 +1239,15 @@ export function AuthModal({
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="w-full py-3.5 px-6 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-sm shadow-lg shadow-emerald-600/25 transition-all flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-50"
+                  className="w-full py-3.5 px-6 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-sm shadow-lg shadow-emerald-600/25 transition-all flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-50 cursor-pointer"
                 >
 
                   <BadgeCheck className="w-4 h-4" />
 
                   <span>
                     {isLoading
-                      ? 'جاري إنشاء الحساب...'
-                      : 'إنشاء الحساب'}
+                      ? tr.registering
+                      : tr.registerBtn}
                   </span>
 
                 </button>
@@ -1119,15 +1271,13 @@ export function AuthModal({
                   <KeyRound className="w-4 h-4 text-emerald-600" />
 
                   <span>
-                    تفعيل اشتراك Orderi
+                    {tr.activateTitle}
                   </span>
 
                 </div>
 
                 <p className="text-xs text-slate-600 leading-relaxed">
-                  أدخل كود التفعيل المخصص لحسابك.
-                  سيتم التحقق من الكود مباشرة عبر
-                  سيرفر Orderi.
+                  {tr.activateDesc}
                 </p>
 
               </div>
@@ -1137,7 +1287,7 @@ export function AuthModal({
               <div className="space-y-1.5">
 
                 <label className="text-xs font-bold text-slate-700 block">
-                  أدخل كود التفعيل:
+                  {tr.enterCodeLabel}
                 </label>
 
                 <div className="flex gap-2">
@@ -1150,7 +1300,7 @@ export function AuthModal({
                         e.target.value.toUpperCase()
                       )
                     }
-                    placeholder="ORD-XXXXXXXX-XXXXXX"
+                    placeholder={tr.codePlaceholder}
                     dir="ltr"
                     className="flex-1 px-4 py-3 rounded-2xl border border-slate-200 bg-slate-50 font-mono font-black text-sm text-slate-900 focus:bg-white focus:ring-2 focus:ring-emerald-500/20"
                   />
@@ -1164,11 +1314,11 @@ export function AuthModal({
                       isLoading ||
                       !activationInput.trim()
                     }
-                    className="px-5 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs shadow-md transition-all shrink-0 active:scale-95 disabled:opacity-50"
+                    className="px-5 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs shadow-md transition-all shrink-0 active:scale-95 disabled:opacity-50 cursor-pointer"
                   >
                     {isLoading
-                      ? 'جاري التحقق...'
-                      : 'تفعيل'}
+                      ? tr.activating
+                      : tr.activateBtn}
                   </button>
 
                 </div>
@@ -1191,7 +1341,7 @@ export function AuthModal({
                   <WhatsAppIcon className="w-5 h-5 fill-current shrink-0 group-hover:scale-110 transition-transform" />
 
                   <span>
-                    تواصل عبر واتساب للحصول على كود التفعيل
+                    {tr.whatsappHelp}
                   </span>
 
                 </a>
@@ -1203,7 +1353,7 @@ export function AuthModal({
               <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-xs space-y-1.5">
 
                 <span className="font-black text-slate-800 block">
-                  بعد التفعيل:
+                  {tr.afterActivate}
                 </span>
 
                 <ul className="space-y-1 text-slate-600 text-[11px]">
@@ -1212,7 +1362,7 @@ export function AuthModal({
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
 
                     <span>
-                      فتح ميزات Orderi
+                      {tr.feature1}
                     </span>
                   </li>
 
@@ -1220,7 +1370,7 @@ export function AuthModal({
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
 
                     <span>
-                      حفظ مدة الاشتراك على السيرفر
+                      {tr.feature2}
                     </span>
                   </li>
 
@@ -1228,7 +1378,7 @@ export function AuthModal({
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
 
                     <span>
-                      التحقق من حالة الاشتراك عند الاتصال
+                      {tr.feature3}
                     </span>
                   </li>
 
@@ -1244,15 +1394,15 @@ export function AuthModal({
         {/* Footer */}
         <div className="p-4 bg-slate-50 border-t border-slate-200/80 flex items-center justify-between text-xs text-slate-500">
           <span>
-            Orderi — رادار طلبات البحرين 🇧🇭
+            {tr.footerText}
           </span>
 
           <button
             type="button"
             onClick={onClose}
-            className="font-bold text-slate-700 hover:text-slate-900 px-3 py-1.5 rounded-xl hover:bg-slate-200/60 transition-colors"
+            className="font-bold text-slate-700 hover:text-slate-900 px-3 py-1.5 rounded-xl hover:bg-slate-200/60 transition-colors cursor-pointer"
           >
-            المتابعة للشاشة
+            {tr.continueBtn}
           </button>
         </div>
 

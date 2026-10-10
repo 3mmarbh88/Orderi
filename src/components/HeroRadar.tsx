@@ -12,7 +12,8 @@ import {
   ChevronDown,
   ChevronUp,
   Car,
-  RefreshCw
+  RefreshCw,
+  CalendarDays
 } from 'lucide-react';
 import { OrderFilter } from '../types';
 import { MatcherLocation } from '../utils/matcher';
@@ -28,6 +29,8 @@ interface HeroRadarProps {
   liveRadarActive: boolean;
   onOpenSettings: () => void;
   onOpenBroadcast?: () => void;
+  onOpenCommitments?: () => void;
+  commitmentsCount?: number;
   onOpenBackgroundModal?: () => void;
   onRunInBackground?: () => Promise<void> | void;
   onOpenAutoSyncModal?: () => void;
@@ -58,6 +61,8 @@ export function HeroRadar({
   liveRadarActive,
   onOpenSettings,
   onOpenBroadcast,
+  onOpenCommitments,
+  commitmentsCount = 0,
   onOpenBackgroundModal,
   onRunInBackground,
   onOpenAutoSyncModal,
@@ -209,7 +214,24 @@ export function HeroRadar({
               </button>
             )}
 
-            {/* 3. Filter Settings */}
+            {/* 3. Monthly Recurring Commitments & School Runs (الارتباط بالتوصيلات الشهرية) */}
+            {onOpenCommitments && (
+              <button
+                onClick={onOpenCommitments}
+                className="flex-1 sm:flex-none min-h-[44px] flex items-center justify-center gap-1.5 px-3 py-2.5 sm:px-3.5 rounded-xl bg-indigo-600/25 hover:bg-indigo-600/35 text-indigo-200 border border-indigo-500/40 font-bold text-xs transition-all active:scale-[0.98] cursor-pointer shadow-xs"
+                title="الارتباط بالتوصيلات الشهرية - مدارس وعقود وتنبيهات مواعيد"
+              >
+                <CalendarDays className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                <span className="truncate">الارتباط الشهري 🗓️</span>
+                {commitmentsCount > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full bg-indigo-500 text-white text-[10px] font-black">
+                    {commitmentsCount}
+                  </span>
+                )}
+              </button>
+            )}
+
+            {/* 4. Filter Settings */}
             <button
               onClick={onOpenSettings}
               className="flex-1 sm:flex-none min-h-[44px] flex items-center justify-center gap-1.5 px-3 py-2.5 sm:px-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-xs transition-all active:scale-[0.98] cursor-pointer"

@@ -274,12 +274,65 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         if (postTime - previousAt >= 0 && postTime - previousAt < NATIVE_DEDUP_TTL_MS) return;
         dedup.edit().putString("last_" + fingerprint.hashCode(), String.valueOf(postTime)).apply();
 
+        // 1. Identify Areas
+        String fromArea = "البحرين";
+        String toArea = "البحرين";
+        if (normalized.contains("سيف")) fromArea = "السيف";
+        else if (normalized.contains("منامه")) fromArea = "المنامة";
+        else if (normalized.contains("محرق")) fromArea = "المحرق";
+        else if (normalized.contains("عدلية") || normalized.contains("عدليه")) fromArea = "العدلية";
+        else if (normalized.contains("رفاع")) fromArea = "الرفاع";
+        else if (normalized.contains("ستره")) fromArea = "سترة";
+        else if (normalized.contains("عيسى")) fromArea = "مدينة عيسى";
+        else if (normalized.contains("حمد")) fromArea = "مدينة حمد";
+        else if (normalized.contains("سار")) fromArea = "سار";
+
+        if (normalized.contains("الى رفاع") || normalized.contains("إلى الرفاع") || normalized.contains("للرفاع")) toArea = "الرفاع";
+        else if (normalized.contains("الى محرق") || normalized.contains("إلى المحرق") || normalized.contains("للمحرق")) toArea = "المحرق";
+        else if (normalized.contains("الى منامه") || normalized.contains("إلى المنامة") || normalized.contains("للمنامة")) toArea = "المنامة";
+        else if (normalized.contains("الى سار") || normalized.contains("إلى سار") || normalized.contains("لسار")) toArea = "سار";
+        else if (normalized.contains("الى حمد") || normalized.contains("إلى مدينة حمد")) toArea = "مدينة حمد";
+        else if (normalized.contains("الى عيسى") || normalized.contains("إلى مدينة عيسى")) toArea = "مدينة عيسى";
+        else if (normalized.contains("الى عدلية") || normalized.contains("إلى العدلية")) toArea = "العدلية";
+
+        // 2. Identify Passenger Status & Count
+        boolean isPassenger = normalized.contains("أشخاص") || normalized.contains("اشخاص") || 
+                              normalized.contains("ركاب") || normalized.contains("مشوار خاص") || 
+                              normalized.contains("توصيل شخص");
+        int passengerCount = 0;
+        java.util.regex.Matcher pCountMatcher = java.util.regex.Pattern.compile("(\\d+)\\s*(?:أشخاص|اشخاص|ركاب|أفراد|ناس)").matcher(normalized);
+        if (pCountMatcher.find()) {
+            try { passengerCount = Integer.parseInt(pCountMatcher.group(1)); } catch (Exception ignored) {}
+        }
+
+        // 3. Identify Price
+        String priceDisplay = "غير محدد (بالاتفاق 🤝)";
+        float priceVal = 0.0f;
+        java.util.regex.Matcher priceMatcher = java.util.regex.Pattern.compile("(\\d+(?:\\.\\d+)?)\\s*(?:د\\.ب|دب|دينار|bd|bhd)").matcher(normalized);
+        if (priceMatcher.find()) {
+            try {
+                priceVal = Float.parseFloat(priceMatcher.group(1));
+                if (priceVal > 0) priceDisplay = priceVal + " د.ب";
+            } catch (Exception ignored) {}
+        }
+
         createOrderChannel();
 
+        String orderId = "ord-notif-" + Math.abs(fingerprint.hashCode());
         Intent launchIntent = getPackageManager().getLaunchIntentForPackage(getPackageName());
         PendingIntent pendingIntent = null;
         if (launchIntent != null) {
-            launchIntent.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            launchIntent.setAction(Intent.ACTION_VIEW);
+            launchIntent.setData(android.net.Uri.parse("orderi://order/" + orderId));
+            launchIntent.putExtra("order_id", orderId);
+            launchIntent.putExtra("from_area", fromArea);
+            launchIntent.putExtra("to_area", toArea);
+            launchIntent.putExtra("price", priceVal);
+            launchIntent.putExtra("raw_text", rawText);
+            launchIntent.putExtra("sender_name", title);
+            launchIntent.putExtra("passenger_count", passengerCount);
+            launchIntent.putExtra("is_passenger", isPassenger);
+            launchIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
             pendingIntent = PendingIntent.getActivity(
                     this, Math.abs(fingerprint.hashCode()), launchIntent,
                     Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
@@ -287,17 +340,26 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                             : PendingIntent.FLAG_UPDATE_CURRENT);
         }
 
-        String clean = rawText.length() > 120 ? rawText.substring(0, 120) + "..." : rawText;
-        String body = "🚗 " + clean;
+        String clean = rawText.length() > 90 ? rawText.substring(0, 90) + "..." : rawText;
+
+        String notifTitle = isPassenger 
+            ? "🚨 نقل ركاب " + (passengerCount > 0 ? "(" + passengerCount + " ركاب) " : "") + "• تحذير 🚫"
+            : "🚗 طلب جديد: " + fromArea + " ← " + toArea;
+
+        String notifBody = "📍 الاستلام: " + fromArea + "\n🏁 الوجهة: " + toArea + "\n💰 السعر: " + priceDisplay;
+        if (passengerCount > 0) {
+            notifBody += "\n👥 عدد الركاب: " + passengerCount;
+        }
+        notifBody += "\n💬 " + clean;
 
         Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                 ? new Notification.Builder(this, CHANNEL_ID)
                 : new Notification.Builder(this);
 
         builder.setSmallIcon(com.orderi.radar.R.drawable.orderi_notification_icon)
-                .setContentTitle("🚗 Orderi • طلب توصيل جديد")
-                .setContentText(title + (isGroup ? " • " : " • خاص • ") + body)
-                .setStyle(new Notification.BigTextStyle().bigText(body))
+                .setContentTitle(notifTitle)
+                .setContentText("📍 " + fromArea + " ← " + toArea + " • " + priceDisplay)
+                .setStyle(new Notification.BigTextStyle().bigText(notifBody))
                 .setAutoCancel(true)
                 .setCategory(Notification.CATEGORY_MESSAGE)
                 .setPriority(Notification.PRIORITY_HIGH)

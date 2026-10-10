@@ -6,11 +6,38 @@ import dotenv from "dotenv";
 import QRCode from "qrcode";
 import { parseWhatsAppOrderText } from "./src/utils/orderParser";
 import { checkIncomingMessageForClosure, extractClosureKeywords } from "./src/utils/orderClosureDetector";
+import { classifyAdvertiserPrivateReply } from "./src/utils/advertiserReplyClassifier";
 
 dotenv.config();
 
+// Process safety: prevent uncaught async errors or websocket rejections from killing the server
+process.on("uncaughtException", (err) => {
+  console.error("[Orderi Server] Uncaught exception:", err);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("[Orderi Server] Unhandled rejection:", reason);
+});
+
+// Dynamic port resolution:
+// 1. Explicit CLI argument --port takes first priority (e.g. AI Studio dev runner --port 3000)
+// 2. Cloud Run / Container environment variable PORT (e.g. 8080) in production or pre-warming
+// 3. Fallback to 3000
+function resolvePort(): number {
+  const portArgIdx = process.argv.indexOf("--port");
+  if (portArgIdx !== -1 && process.argv[portArgIdx + 1]) {
+    const parsed = parseInt(process.argv[portArgIdx + 1], 10);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+  if (process.env.PORT) {
+    const parsed = parseInt(process.env.PORT, 10);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+  return 3000;
+}
+
 const app = express();
-const PORT = 3000;
+const PORT = resolvePort();
 
 // Middleware for body parsing (allowing audio base64 payload up to 35MB)
 app.use(express.json({ limit: "35mb" }));
@@ -21,6 +48,7 @@ const sseClients = new Set<express.Response>();
 const recentWebhookOrders: any[] = [];
 const recentDiscoveredGroupLinks: any[] = [];
 const markedReadOrderIds = new Set<string>();
+const pendingOutreachOrders = new Map<string, any>();
 
 // Helper: Extract WhatsApp group invite links from incoming text and broadcast via SSE
 function extractAndBroadcastGroupLinks(rawText: string, sender: string, phone: string, group: string) {
@@ -336,6 +364,50 @@ const handleIncomingWebhook = (req: express.Request, res: express.Response) => {
       }
     }
 
+    // 0b. Check if this incoming message is a response from an advertiser we sent a quick private pitch to
+    const senderDigits = (phone || "").replace(/\D/g, "");
+    const last8Sender = senderDigits.length >= 8 ? senderDigits.slice(-8) : senderDigits;
+    if (last8Sender && pendingOutreachOrders.has(last8Sender)) {
+      const outreach = pendingOutreachOrders.get(last8Sender);
+      const replyAnalysis = classifyAdvertiserPrivateReply(rawText);
+
+      if (replyAnalysis.verdict === 'CONFIRMED_AWARDED') {
+        pendingOutreachOrders.delete(last8Sender);
+        const awardedPayload = {
+          type: "ADVERTISER_AWARDED_ORDER",
+          orderId: outreach.orderId,
+          advertiserName: outreach.senderName || sender,
+          advertiserPhone: outreach.phone,
+          replyText: rawText.trim(),
+          from: outreach.from,
+          to: outreach.to,
+          price: outreach.price,
+          awardedAt: new Date().toISOString(),
+        };
+
+        const sseEvent = `data: ${JSON.stringify(awardedPayload)}\n\n`;
+        sseClients.forEach((client) => {
+          try { client.write(sseEvent); } catch { sseClients.delete(client); }
+        });
+
+        console.log(`[Orderi Outreach] Advertiser AWARDED order ${outreach.orderId}: "${rawText}"`);
+        return res.json({
+          success: true,
+          awarded: true,
+          message: "تم استلام موافقة وتأكيد المعلن على إعطائك الطلب بنجاح! 🎯",
+          orderId: outreach.orderId,
+        });
+      } else if (replyAnalysis.verdict === 'REJECTED_OR_TAKEN') {
+        pendingOutreachOrders.delete(last8Sender);
+        console.log(`[Orderi Outreach] Advertiser replied taken/rejected for order ${outreach.orderId}: "${rawText}" -> Silently ignored.`);
+        return res.json({
+          success: true,
+          ignored: true,
+          message: "رد المعلن يفيد بأنه تم أخذه أو إلغاؤه، تم تجاهله بالكامل بأمان",
+        });
+      }
+    }
+
     // Parse order delivery attributes (pickup area, destination area, price, phone, notes)
     const parsed = parseWhatsAppOrderText(rawText);
 
@@ -433,6 +505,7 @@ const handleIncomingWebhook = (req: express.Request, res: express.Response) => {
       isDirectPrivate: isDirectChat,
       crossPostedGroups: [groupDisplayName],
       duplicateCount: 1,
+      passengerCount: parsed.passengerCount,
       passengerDetection: parsed.passengerDetection,
     };
 
@@ -638,6 +711,22 @@ app.post("/api/whatsapp/quick-accept-reply", (req, res) => {
       }
     });
 
+    // Record pending outreach to advertiser phone for monitoring subsequent private responses (تم/لك/عندك vs اخذوه/تكنسل)
+    const digits = cleanPhone.replace(/\D/g, "");
+    const last8 = digits.length >= 8 ? digits.slice(-8) : digits;
+    if (last8) {
+      pendingOutreachOrders.set(last8, {
+        orderId,
+        phone: cleanPhone,
+        groupName,
+        senderName,
+        price,
+        from,
+        to,
+        time: Date.now(),
+      });
+    }
+
     console.log(`[Orderi Auto-Reply] Quick auto-reply sent for order ${orderId} to ${cleanPhone || groupName || "chat"}: "${replyText.substring(0, 50)}..."`);
 
     return res.json({
@@ -825,6 +914,51 @@ app.post("/api/android/notifications", (req, res) => {
     }
 
     const parsed = parseWhatsAppOrderText(rawText);
+
+    // Check if this notification is a reply from an advertiser we reached out to in private
+    const notifDigits = (parsed.phone || "").replace(/\D/g, "");
+    const last8Notif = notifDigits.length >= 8 ? notifDigits.slice(-8) : notifDigits;
+    if (last8Notif && pendingOutreachOrders.has(last8Notif)) {
+      const outreach = pendingOutreachOrders.get(last8Notif);
+      const replyAnalysis = classifyAdvertiserPrivateReply(rawText);
+
+      if (replyAnalysis.verdict === 'CONFIRMED_AWARDED') {
+        pendingOutreachOrders.delete(last8Notif);
+        const awardedPayload = {
+          type: "ADVERTISER_AWARDED_ORDER",
+          orderId: outreach.orderId,
+          advertiserName: outreach.senderName || effectiveSender,
+          advertiserPhone: outreach.phone,
+          replyText: rawText.trim(),
+          from: outreach.from,
+          to: outreach.to,
+          price: outreach.price,
+          awardedAt: new Date().toISOString(),
+        };
+
+        const sseEvent = `data: ${JSON.stringify(awardedPayload)}\n\n`;
+        sseClients.forEach((client) => {
+          try { client.write(sseEvent); } catch { sseClients.delete(client); }
+        });
+
+        console.log(`[Orderi Android Outreach] Advertiser AWARDED order ${outreach.orderId}: "${rawText}"`);
+        return res.json({
+          success: true,
+          awarded: true,
+          message: "تم استلام موافقة وتأكيد المعلن على إعطائك الطلب بنجاح! 🎯",
+          orderId: outreach.orderId,
+        });
+      } else if (replyAnalysis.verdict === 'REJECTED_OR_TAKEN') {
+        pendingOutreachOrders.delete(last8Notif);
+        console.log(`[Orderi Android Outreach] Advertiser replied taken/rejected for order ${outreach.orderId}: "${rawText}" -> Silently ignored.`);
+        return res.json({
+          success: true,
+          ignored: true,
+          message: "رد المعلن يفيد بأنه تم أخذه أو إلغاؤه، تم تجاهله بالكامل بأمان",
+        });
+      }
+    }
+
     if (!parsed.from && !parsed.to && (!parsed.price || parsed.price === 0)) {
       return res.json({
         success: true,
@@ -850,6 +984,7 @@ app.post("/api/android/notifications", (req, res) => {
       status: "pending",
       source: "android_notification_listener",
       isDirectPrivate: isDirectChat,
+      passengerCount: parsed.passengerCount,
       passengerDetection: parsed.passengerDetection,
     };
 
@@ -1218,7 +1353,7 @@ async function startServer() {
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
-        hmr: process.env.DISABLE_HMR === "true" ? false : undefined,
+        hmr: false,
       },
       appType: "spa",
     });
@@ -1231,9 +1366,19 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://0.0.0.0:${PORT}`);
+  const server = app.listen(PORT, "0.0.0.0", () => {
+    console.log(`[Orderi Server] Running on http://0.0.0.0:${PORT} (ENV=${process.env.NODE_ENV || 'dev'})`);
+  });
+
+  server.on("error", (err: any) => {
+    if (err.code === "EADDRINUSE") {
+      console.warn(`[Orderi Server] Port ${PORT} currently in use; retaining existing active process.`);
+    } else {
+      console.error("[Orderi Server] HTTP server error:", err);
+    }
   });
 }
 
-startServer();
+startServer().catch((err) => {
+  console.error("[Orderi Server] Failed to initialize server:", err);
+});

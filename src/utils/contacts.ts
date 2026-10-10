@@ -61,23 +61,6 @@ export function checkOrderContactStatus(
 }
 
 /**
- * Pre-seeded starter contacts for Bahrain drivers (trusted VIP stores)
+ * Starter contacts list (Clean real production state - no mock contacts)
  */
-export const DEFAULT_CONTACTS: StoreContact[] = [
-  {
-    id: 'contact-vip-1',
-    name: 'متجر لافندر للزهور (السيف)',
-    phone: '+973 3944 1122',
-    type: 'vip',
-    notes: 'تحويل بنفت فوري عند الاستلام، تغليف ممتاز',
-    addedAt: new Date().toISOString(),
-  },
-  {
-    id: 'contact-vip-2',
-    name: 'حلويات المملكة (الرفاع)',
-    phone: '+973 3688 9900',
-    type: 'vip',
-    notes: 'أجرة مرتفعة، جاهز دائماً في الموعد',
-    addedAt: new Date().toISOString(),
-  },
-];
+export const DEFAULT_CONTACTS: StoreContact[] = [];

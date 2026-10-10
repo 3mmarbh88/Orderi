@@ -79,6 +79,8 @@ export interface OrderFilter {
   blockPassengerDeliveries?: boolean;
   autoCloseOrdersEnabled?: boolean;
   autoCloseAmbiguousAction?: 'flag' | 'ignore';
+  excludeMyOwnAds?: boolean; // استبعاد إعلاناتي الشخصية من الرادار
+  captainPhone?: string;     // رقم هاتف الكابتن الشخصي للتعرف على إعلاناته
 }
 
 export interface AIMatchAnalysis {
@@ -121,6 +123,7 @@ export interface PassengerDetection {
   matchedPhrases: string[];
   reason: string;
   isForbidden: boolean;
+  passengerCount?: number; // عدد الركاب/الأشخاص (مثل: 1, 2, 3, 5)
 }
 
 export interface ClosureEvidence {
@@ -139,6 +142,11 @@ export interface ParsedOrder {
   to: string;
   price: number;
   isPriceUnspecified?: boolean;
+  passengerCount?: number; // عدد الأشخاص/الركاب منفصلاً عن السعر
+  scheduledTime?: string; // وقت التوصيل المحدد بالساعة (e.g. "الساعة 8 مساءً" أو "08:00 مساء")
+  scheduledTimeMinutes?: number; // الدقائق من منتصف الليل (e.g. 1200 للساعة 8 مساء)
+  isFutureSchedule?: boolean; // هل الطلب محدد بوقت لاحق
+  isFromMe?: boolean; // إعلان صادر من رقم المندوب الشخصي
   rawText: string;
   groupName: string;
   senderName: string;
@@ -214,3 +222,47 @@ export interface ActivationCodeInfo {
   isVip: boolean;
   features: string[];
 }
+
+/**
+ * Monthly Recurring Commitments & School Runs (الارتباط بالتوصيلات الشهرية)
+ * e.g., School runs, daily employee shuttles, recurring point-to-point contracts.
+ */
+export type DayOfWeek = 'sun' | 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat';
+
+export interface MonthlyCommitment {
+  id: string;
+  title: string; // e.g. "توصيل مدارس - مدرسة بيان", "توصيل موظفة السيف يومياً"
+  type: 'school' | 'daily_work' | 'custom_recurring'; // نوع الارتباط
+  clientName: string; // اسم العميل أو ولي الأمر
+  clientPhone: string; // رقم الواتساب / الهاتف للتواصل
+  fromArea: string; // نقطة الاستلام اليومية
+  toArea: string; // نقطة الوصول اليومية
+  pickupTime: string; // توقيت الاستلام بالساعة والدقيقة (e.g. "06:45")
+  returnPickupTime?: string; // توقيت العودة إن وجد (e.g. "13:30")
+  durationMinutes: number; // المدة المتوقعة للرحلة بالدقائق (e.g. 45 دقيقة) لمنع التعارض مع الطلبات
+  days: DayOfWeek[]; // الأيام المتفق عليها (e.g. ['sun', 'mon', 'tue', 'wed', 'thu'])
+  monthlyFeeBhd?: number; // المبلغ الشهري المتفق عليه (د.ب)
+  reminderMinutesBefore: number; // التنبيه والتذكير قبل كم دقيقة من الموعد (e.g. 15 أو 30 دقيقة)
+  isActive: boolean; // مفعل أم معلق مؤقتاً
+  notes?: string;
+  createdAt: string;
+}
+
+/**
+ * AI-Learned Closure Expressions (الكلمات والرموز المتعلمة بالذكاء الاصطناعي لكشف الإغلاق)
+ * Stores new slang, phrases, and emojis detected and analyzed by Gemini AI
+ */
+export type ClosureCategory = 'taken' | 'completion' | 'gratitude' | 'emoji';
+
+export interface LearnedClosureExpression {
+  id: string;
+  phrase: string;
+  category: ClosureCategory;
+  meaning: string;
+  confidence: number;
+  learnedAt: string;
+  sourceContext?: string;
+  matchCount?: number;
+  isAiLearned: boolean;
+}
+

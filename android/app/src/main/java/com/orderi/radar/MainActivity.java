@@ -20,5 +20,13 @@ public class MainActivity extends BridgeActivity {
                 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 9001);
         }
+        NotificationListenerPlugin.handleOrderIntent(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(android.content.Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        NotificationListenerPlugin.handleOrderIntent(intent);
     }
 }

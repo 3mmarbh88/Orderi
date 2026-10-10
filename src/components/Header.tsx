@@ -26,7 +26,8 @@ import {
   LogOut,
   Car,
   Navigation,
-  X
+  X,
+  CalendarDays
 } from 'lucide-react';
 import { MatcherLocation } from '../utils/matcher';
 import { CaptainUser } from '../types';
@@ -54,6 +55,8 @@ interface HeaderProps {
   onOpenBackgroundModal?: () => void;
   onOpenAutoSyncModal?: () => void;
   onOpenDiscoveredGroupsModal?: () => void;
+  onOpenCommitments?: () => void;
+  commitmentsCount?: number;
   onOpenAPKModal?: () => void;
   newDiscoveredGroupsCount?: number;
   isStreamConnected?: boolean;
@@ -85,6 +88,8 @@ export function Header({
   onOpenBackgroundModal,
   onOpenAutoSyncModal,
   onOpenDiscoveredGroupsModal,
+  onOpenCommitments,
+  commitmentsCount = 0,
   onOpenAPKModal,
   newDiscoveredGroupsCount = 0,
   isStreamConnected = false,
@@ -217,6 +222,21 @@ export function Header({
                 <Share2 className="w-4 h-4 text-emerald-600" />
                 <span>نشر بالقروبات</span>
               </button>
+
+              {onOpenCommitments && (
+                <button
+                  onClick={onOpenCommitments}
+                  className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-bold transition-all text-indigo-700 hover:text-indigo-900 hover:bg-indigo-50/70"
+                >
+                  <CalendarDays className="w-4 h-4 text-indigo-600" />
+                  <span>الارتباط الشهري</span>
+                  {commitmentsCount > 0 && (
+                    <span className="px-1.5 py-0.2 text-xs rounded-full bg-indigo-600 text-white font-black">
+                      {commitmentsCount}
+                    </span>
+                  )}
+                </button>
+              )}
 
               <button
                 onClick={() => onTabChange('settings')}

@@ -1,5 +1,6 @@
 import { ParsedOrder, ClosureEvidence } from '../types';
 import { normalizeArabicText } from '../data/bahrainAreas';
+import { getAggregatedClosureDictionary } from './aiClosureLearner';
 
 /**
  * Smart Closed Order Detection Engine (الكشف الذكي عن الطلبات المحجوزة أو المنتهية)
@@ -8,25 +9,6 @@ import { normalizeArabicText } from '../data/bahrainAreas';
  * - Confirmed Closed (أُخذ / انتهى): Automatically removed from available active feed, archived in database.
  * - Suspicious Closed (اشتباه حجز): Marked for verification rather than falsely deleted.
  */
-
-// 1. Core Closure Keywords and Expressions
-const TAKEN_CONFIRMATION_KEYWORDS = [
-  'تم', 'حصلت', 'اخذته', 'أخذته', 'حجزته', 'انحجز', 'محجوز', 
-  'اتفقت', 'اتفقت معاه', 'حصلنا مندوب', 'حصلت مندوب', 'توفر مندوب', 
-  'تم الاتفاق', 'انا باخذه', 'أنا باخذه', 'عندي الطلب', 'عندي'
-];
-
-const COMPLETION_KEYWORDS = [
-  'خلاص', 'انتهى', 'تم التوصيل', 'لا يوجد طلب', 'اكتمل', 
-  'ملغي', 'الغي', 'التغى', 'تكنسل', 'كنسل'
-];
-
-const GRATITUDE_KEYWORDS = [
-  'شكرا', 'شكراً', 'مشكور', 'مشكورين', 'يعطيك العافية', 'يعطيكم العافية', 
-  'الله يوفقك', 'تسلم', 'تسلمون', 'جزاك الله خير'
-];
-
-const CLOSURE_EMOJIS = ['👍', '✅', '👌', '🙏', '🎯', '🤝', '✔️'];
 
 export interface ClosureMatchResult {
   isMatch: boolean;
@@ -39,6 +21,7 @@ export interface ClosureMatchResult {
 
 /**
  * Checks if incoming message text contains signals of closure
+ * Dynamically incorporates both baseline rules and newly learned AI dialect expressions
  */
 export function extractClosureKeywords(text: string): {
   matchedWords: string[];
@@ -48,9 +31,10 @@ export function extractClosureKeywords(text: string): {
   if (!text) return { matchedWords: [], matchedEmojis: [], hasClosureIntent: false };
   const normalized = normalizeArabicText(text);
 
-  const matchedWords: string[] = [];
-  const allKeywords = [...TAKEN_CONFIRMATION_KEYWORDS, ...COMPLETION_KEYWORDS, ...GRATITUDE_KEYWORDS];
+  const { takenKeywords, completionKeywords, gratitudeKeywords, emojis } = getAggregatedClosureDictionary();
+  const allKeywords = [...takenKeywords, ...completionKeywords, ...gratitudeKeywords];
 
+  const matchedWords: string[] = [];
   for (const kw of allKeywords) {
     const rx = new RegExp(`(?:^|[\\s،,.])${kw}(?:$|[\\s،,.])`, 'i');
     if (rx.test(normalized)) {
@@ -59,7 +43,7 @@ export function extractClosureKeywords(text: string): {
   }
 
   const matchedEmojis: string[] = [];
-  for (const em of CLOSURE_EMOJIS) {
+  for (const em of emojis) {
     if (text.includes(em)) {
       matchedEmojis.push(em);
     }

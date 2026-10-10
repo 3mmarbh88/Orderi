@@ -20,10 +20,41 @@ import org.json.JSONArray;
 
 @CapacitorPlugin(name = "OrderiNotificationListener")
 public class NotificationListenerPlugin extends Plugin {
+    private static NotificationListenerPlugin instance;
+    private static JSObject pendingOrderClick = null;
     private BroadcastReceiver receiver;
+
+    public static void handleOrderIntent(Intent intent) {
+        if (intent == null) return;
+        String orderId = intent.getStringExtra("order_id");
+        if (orderId == null && intent.getData() != null) {
+            String path = intent.getData().getPath();
+            if (path != null && path.contains("order/")) {
+                orderId = path.substring(path.indexOf("order/") + 6);
+            }
+        }
+        if (orderId != null) {
+            JSObject obj = new JSObject();
+            obj.put("orderId", orderId);
+            obj.put("from", intent.getStringExtra("from_area"));
+            obj.put("to", intent.getStringExtra("to_area"));
+            obj.put("price", intent.getFloatExtra("price", 0.0f));
+            obj.put("rawText", intent.getStringExtra("raw_text"));
+            obj.put("senderName", intent.getStringExtra("sender_name"));
+            obj.put("passengerCount", intent.getIntExtra("passenger_count", 0));
+            obj.put("isPassenger", intent.getBooleanExtra("is_passenger", false));
+
+            if (instance != null) {
+                instance.notifyListeners("openOrderDetail", obj);
+            } else {
+                pendingOrderClick = obj;
+            }
+        }
+    }
 
     @Override
     public void load() {
+        instance = this;
         receiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
@@ -38,15 +69,34 @@ public class NotificationListenerPlugin extends Plugin {
         };
         IntentFilter filter = new IntentFilter(WhatsAppNotificationListenerService.ACTION_EVENT);
         ContextCompat.registerReceiver(getContext(), receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED);
+
+        if (pendingOrderClick != null) {
+            JSObject pending = pendingOrderClick;
+            pendingOrderClick = null;
+            notifyListeners("openOrderDetail", pending);
+        }
     }
 
     @Override
     protected void handleOnDestroy() {
+        if (instance == this) instance = null;
         if (receiver != null) {
             try { getContext().unregisterReceiver(receiver); } catch (Exception ignored) {}
             receiver = null;
         }
         super.handleOnDestroy();
+    }
+
+    @PluginMethod
+    public void getClickedOrder(PluginCall call) {
+        JSObject ret = new JSObject();
+        if (pendingOrderClick != null) {
+            ret.put("order", pendingOrderClick);
+            pendingOrderClick = null;
+        } else {
+            ret.put("order", null);
+        }
+        call.resolve(ret);
     }
 
     @PluginMethod

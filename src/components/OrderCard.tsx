@@ -409,11 +409,11 @@ export function OrderCard({
             <div className="flex items-center gap-2 truncate">
               <AlertTriangle className="w-4 h-4 shrink-0 text-amber-300 animate-pulse" />
               <span className="truncate text-xs sm:text-sm font-black tracking-wide">
-                تحذير: توصيل أشخاص ممنوع 🚫
+                تحذير: توصيل أشخاص ممنوع 🚫 {order.passengerCount ? `(${order.passengerCount} ${order.passengerCount === 1 ? 'شخص' : order.passengerCount === 2 ? 'شخصين' : 'ركاب'})` : ''}
               </span>
             </div>
             <span className="text-[10px] bg-black/40 px-2 py-0.5 rounded-full shrink-0 font-bold border border-white/20">
-              تحذير ركاب ⚠️ • القبول متاح
+              {order.passengerCount ? `${order.passengerCount} ركاب 👥` : 'تحذير ركاب ⚠️'} • القبول متاح
             </span>
           </div>
         )}
@@ -1083,7 +1083,7 @@ export function OrderCard({
                   <span>تحذير: توصيل أشخاص ممنوع 🚫</span>
                 </div>
                 <span className="text-[10px] font-bold text-red-800 bg-red-100 px-2 py-0.5 rounded-full border border-red-200">
-                  تحذير ركاب • القبول متاح للكابتن
+                  تحذير ركاب • القبول متاح للمندوب
                 </span>
               </div>
             )}

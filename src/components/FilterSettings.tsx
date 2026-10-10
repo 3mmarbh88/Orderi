@@ -1115,7 +1115,7 @@ export function FilterSettings({
           )}
         </div>
 
-        {/* Accordion: حماية الكابتن وكاشف نقل الأشخاص والركاب (توصيل أشخاص ممنوع) */}
+        {/* Accordion: حماية المندوب وكاشف نقل الأشخاص والركاب (توصيل أشخاص ممنوع) */}
         <div id="settings-section-passenger_safety" className="rounded-2xl sm:rounded-3xl bg-white border border-rose-200/90 shadow-2xs overflow-hidden transition-all">
           <button
             type="button"
@@ -1129,14 +1129,14 @@ export function FilterSettings({
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <h3 className="text-sm sm:text-base font-black text-slate-900 truncate">
-                    حماية الكابتن: كاشف نقل الركاب والأشخاص 🚫
+                    حماية المندوب: كاشف نقل الركاب والأشخاص 🚫
                   </h3>
                   <span className="hidden sm:inline-block px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-100 text-rose-800 border border-rose-200">
                     تنبيه وتحذير نظامي ⚠️
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-500 truncate mt-0.5">
-                  رصد عبارات نقل الأشخاص والركاب تلقائياً بالذكاء الاصطناعي وإظهار تحذير بارز للكابتن قبل القبول
+                  رصد عبارات نقل الأشخاص والركاب تلقائياً بالذكاء الاصطناعي وإظهار تحذير بارز للمندوب قبل القبول
                 </p>
               </div>
             </div>
@@ -1161,7 +1161,7 @@ export function FilterSettings({
                     تنبيه وتحذير إعلانات نقل الأشخاص (توصيل أشخاص ممنوع):
                   </h4>
                   <p className="text-[11px] text-slate-600 mt-0.5">
-                    يعرض الرادار الإعلان مع تحذير أحمر بارز وتنبيه نظامي قبل القبول، مع إبقاء زر القبول متاحاً للكابتن.
+                    يعرض الرادار الإعلان مع تحذير أحمر بارز وتنبيه نظامي قبل القبول، مع إبقاء زر القبول متاحاً للمندوب.
                   </p>
                 </div>
 
@@ -1286,18 +1286,6 @@ export function FilterSettings({
 
           {openSections.auto_closure && (
             <div className="p-4 sm:p-6 border-t border-slate-100 space-y-5 bg-slate-50/30">
-              {/* Header description */}
-              <div className="p-4 rounded-2xl bg-indigo-50/80 border border-indigo-200 text-indigo-950 space-y-2">
-                <div className="flex items-center gap-2 font-black text-xs sm:text-sm text-indigo-900">
-                  <Sparkles className="w-4 h-4 text-indigo-600 shrink-0" />
-                  <span>دورة حياة الإعلان في Orderi: رادار ذكي يكتشف ويعرض ويزيل الطلب تلقائياً عند حجزه</span>
-                </div>
-                <p className="text-xs text-indigo-800 leading-relaxed">
-                  بعض الطلبات تكون متاحة عند نشرها، ثم يحصل صاحب الإعلان على مندوب، وتظل البطاقة ظاهرة عندك رغم انتهاء الطلب.
-                  يقوم نظام Orderi بمراقبة الردود اللاحقة في القروب، وإذا توفرت أدلة كافية على أن الطلب أُخذ، يُزال فوراً من قائمة الطلبات المتاحة ويُحدّث وضعه إلى <strong>«مغلق — تم أخذه»</strong> مع الاحتفاظ بسجله في قاعدة البيانات للإحصائيات الدقيقة.
-                </p>
-              </div>
-
               {/* Master Toggle */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-white border border-slate-200 shadow-2xs">
                 <div>
@@ -1463,55 +1451,6 @@ export function FilterSettings({
                   </div>
                 </div>
               </div>
-
-              {/* Rules of Automatic Closure (قواعد الحذف والربط الذكي) */}
-              <div className="p-4 rounded-2xl bg-white border border-slate-200 space-y-3 shadow-2xs">
-                <h4 className="text-xs sm:text-sm font-black text-slate-900">
-                  قواعد التحقق الذكي والحذف التلقائي:
-                </h4>
-                <div className="space-y-2 text-xs text-slate-700">
-                  <div className="flex items-start gap-2 p-2 rounded-xl bg-slate-50">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                    <div>
-                      <strong className="text-slate-900">المستوى الأول — الرد المباشر باقتباس الإعلان (Quote Reply):</strong>
-                      <p className="text-[11px] text-slate-500 mt-0.5">إذا تم الرد بالاقتباس لنص الإعلان مع أي كلمة أو رمز إنجاز، يغلق الطلب فوراً بدقة 98%.</p>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-2 p-2 rounded-xl bg-slate-50">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                    <div>
-                      <strong className="text-slate-900">المستوى الثاني — تطابق صاحب الإعلان نفسه:</strong>
-                      <p className="text-[11px] text-slate-500 mt-0.5">إذا أرسل ناشر الإعلان بنفسه «تم» أو «حصلت مندوب» أو «شكراً» في نفس القروب، يغلق الطلب فوراً بدقة 95%.</p>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-2 p-2 rounded-xl bg-slate-50">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                    <div>
-                      <strong className="text-slate-900">المستوى الثالث — ذكر منطقة الطلب في الرد:</strong>
-                      <p className="text-[11px] text-slate-500 mt-0.5">مثل كتابة «طلب الرفاع تم» أو «طلب العدلية حصلت»، يربط الذكاء الاصطناعي الرد بالطلب ويغلقه فوراً.</p>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-2 p-2 rounded-xl bg-slate-50">
-                    <RefreshCw className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
-                    <div>
-                      <strong className="text-slate-900">تحديث الإعلانات المكررة عبر القروبات (Cross-Group Sync):</strong>
-                      <p className="text-[11px] text-slate-500 mt-0.5">إذا كان نفس الإعلان منشوراً في أكثر من قروب، يتم تحديث وإغلاق جميع نسخه المرتبطة حتى لا يظهر كأنه لا يزال متاحاً.</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Technical Note on Android Notification Listener */}
-              <div className="p-3.5 rounded-2xl bg-amber-50/70 border border-amber-200 text-amber-950 text-xs space-y-1">
-                <div className="font-bold flex items-center gap-1.5 text-amber-900">
-                  <Smartphone className="w-4 h-4 text-amber-700" />
-                  <span>ملاحظة تقنية (Android Native Notification Listener):</span>
-                </div>
-                <p className="text-[11px] text-amber-900/90 leading-relaxed">
-                  يعتمد الكشف في الخلفية على استقبال الإشعارات اللاحقة من تطبيق واتساب العادي عبر خدمة Android Notification Listener أو قناة الويب هوك. بعض رسائل القروبات قد تتأخر إذا كان القروب مكتوماً (Muted) في واتساب.
-                </p>
-              </div>
-
             </div>
           )}
         </div>
@@ -1849,27 +1788,69 @@ export function FilterSettings({
 
         {/* 4. Vibration Patterns & Intensity Control */}
         <div className="p-4 sm:p-5 rounded-2xl bg-indigo-50/50 border border-indigo-100 space-y-4 pt-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <h4 className="text-xs font-black text-indigo-950 flex items-center gap-1.5">
-                <Vibrate className="w-4 h-4 text-indigo-600" />
-                <span>التحكم في الهزاز والاهتزاز (Vibration Controls):</span>
-              </h4>
-              <p className="text-[11px] text-indigo-900/70">تخصيص قوة ونمط اهتزاز هاتفك عند رصد الطلبات على حامل السيارة</p>
+              <div className="flex items-center gap-2">
+                <h4 className="text-xs font-black text-indigo-950 flex items-center gap-1.5">
+                  <Vibrate className="w-4 h-4 text-indigo-600" />
+                  <span>التحكم في الهزاز والاهتزاز (Vibration Controls):</span>
+                </h4>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                  localFilter.vibrationEnabled !== false
+                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                    : 'bg-slate-200 text-slate-600 border border-slate-300'
+                }`}>
+                  {localFilter.vibrationEnabled !== false ? 'مفعّل (ON) 📳' : 'معطّل (OFF) 🔕'}
+                </span>
+              </div>
+              <p className="text-[11px] text-indigo-900/70 mt-0.5">تخصيص قوة ونمط اهتزاز هاتفك عند رصد الطلبات على حامل السيارة</p>
             </div>
 
-            <button
-              type="button"
-              onClick={() => handleTestVibration()}
-              className={`flex items-center gap-1.5 text-xs font-bold px-3.5 py-2 rounded-xl shadow-xs transition-all cursor-pointer self-start sm:self-auto ${
-                vibratingPatternId
-                  ? 'bg-indigo-600 text-white border border-indigo-700 animate-pulse ring-2 ring-indigo-300 shadow-md'
-                  : 'text-indigo-700 bg-white border border-indigo-200 hover:bg-indigo-50 active:scale-95'
-              }`}
-            >
-              <Vibrate className={`w-4 h-4 ${vibratingPatternId ? 'animate-bounce text-amber-300' : 'text-indigo-600'}`} />
-              <span>{vibratingPatternId ? '📳 جاري الاهتزاز الآن...' : 'تجربة نمط الهزاز الحالي ⚡'}</span>
-            </button>
+            {/* ON / OFF Switch Buttons + Test Button */}
+            <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+              <div className="inline-flex rounded-xl bg-white p-1 border border-indigo-200 shadow-2xs">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLocalFilter({ ...localFilter, vibrationEnabled: true });
+                    handleTestVibration(localFilter.vibrationPattern || 'standard', localFilter.vibrationIntensity || 2);
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                    localFilter.vibrationEnabled !== false
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                  }`}
+                >
+                  تشغيل (ON) 📳
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLocalFilter({ ...localFilter, vibrationEnabled: false })}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                    localFilter.vibrationEnabled === false
+                      ? 'bg-rose-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                  }`}
+                >
+                  إيقاف (OFF) ✕
+                </button>
+              </div>
+
+              {localFilter.vibrationEnabled !== false && (
+                <button
+                  type="button"
+                  onClick={() => handleTestVibration()}
+                  className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl shadow-xs transition-all cursor-pointer ${
+                    vibratingPatternId
+                      ? 'bg-indigo-600 text-white border border-indigo-700 animate-pulse ring-2 ring-indigo-300 shadow-md'
+                      : 'text-indigo-700 bg-white border border-indigo-200 hover:bg-indigo-50 active:scale-95'
+                  }`}
+                >
+                  <Vibrate className={`w-3.5 h-3.5 ${vibratingPatternId ? 'animate-bounce text-amber-300' : 'text-indigo-600'}`} />
+                  <span>{vibratingPatternId ? 'جاري الاهتزاز...' : 'تجربة ⚡'}</span>
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Intensity Selector: 1 to 3 */}
@@ -2591,22 +2572,6 @@ export function FilterSettings({
                       </button>
                     )}
                   </div>
-
-                  {/* Why blocked notice & solution */}
-                  {isInIframe() && (
-                    <div className="p-3 rounded-xl bg-amber-50/90 border border-amber-200 text-amber-950 text-xs space-y-1.5">
-                      <div className="flex items-center gap-1.5 font-bold text-amber-900">
-                        <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                        <span>لماذا تظهر «محظورة بالمتصفح 🚫» في المعاينة؟</span>
-                      </div>
-                      <p className="text-[11px] text-amber-900/90 leading-relaxed">
-                        المتصفح يمنع إذن الإشعارات أمنياً داخل نافذة المعاينة (iFrame). لفك الحظر والحصول على الإشعارات المنبثقة الحقيقية فوق واتساب وخرائط Google، اضغط <strong>«فتح كامل ↗»</strong> أو ثبّت التطبيق على شاشة هاتفك.
-                      </p>
-                      <p className="text-[10px] text-emerald-800 font-bold">
-                        ✓ التنبيهات المنبثقة التفاعلية داخل شاشة التطبيق والأصوات والاهتزاز تعمل دائماً وبشكل كامل.
-                      </p>
-                    </div>
-                  )}
                 </div>
 
                 {/* Deduplication Across WhatsApp Groups Card */}
@@ -2665,6 +2630,94 @@ export function FilterSettings({
                     <p className="text-[11px] text-purple-900/80 leading-relaxed">
                       عند قيام تاجر أو معلن بنشر نفس الطلب في عدة قروبات واتساب، يتعرف البرنامج على رقم المعلن والمسار فوراً ويعرض لك طلباً واحداً فقط مع تمييزه بعلامة <strong>«مكرر في عدة قروبات (تم دمجه)»</strong> لمنع الإزعاج.
                     </p>
+                  </div>
+                </div>
+
+                {/* Exclude My Own Ads Card (استبعاد إعلاناتي الشخصية) */}
+                <div className="p-4 rounded-2xl bg-white border border-slate-200/90 shadow-xs space-y-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-3">
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                        localFilter.excludeMyOwnAds !== false ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-200 text-slate-500'
+                      }`}>
+                        <User className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-black text-slate-900">استبعاد إعلاناتي الشخصية من الرادار</span>
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-black ${
+                            localFilter.excludeMyOwnAds !== false
+                              ? 'bg-indigo-100 text-indigo-800'
+                              : 'bg-slate-200 text-slate-700'
+                          }`}>
+                            {localFilter.excludeMyOwnAds !== false ? 'مفعل للاستبعاد (ON) ✅' : 'معطل (OFF)'}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                          حجب الطلبات التي تعلن عنها بنفسك في قروبات الواتساب حتى لا يعرضها الرادار لك كأوردرات واردة أو يرسل إشعارات عنها
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLocalFilter({
+                          ...localFilter,
+                          excludeMyOwnAds: !(localFilter.excludeMyOwnAds !== false),
+                        });
+                      }}
+                      className={`relative inline-flex h-7 w-13 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+                        localFilter.excludeMyOwnAds !== false ? 'bg-indigo-600' : 'bg-slate-300'
+                      }`}
+                      title="تبديل استبعاد إعلاناتي الشخصية ON / OFF"
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out flex items-center justify-center text-[10px] font-black ${
+                          localFilter.excludeMyOwnAds !== false ? 'translate-x-6 text-indigo-700' : 'translate-x-0 text-slate-400'
+                        }`}
+                      >
+                        {localFilter.excludeMyOwnAds !== false ? 'ON' : 'OFF'}
+                      </span>
+                    </button>
+                  </div>
+
+                  {/* Captain WhatsApp Phone Input for matching */}
+                  <div className="space-y-1.5 pt-1 border-t border-slate-100">
+                    <label className="text-xs font-bold text-slate-700 block">
+                      رقم واتساب الخاص بك (للتعرف على إعلاناتك):
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="tel"
+                        dir="ltr"
+                        placeholder="33xxxxxx أو 97333xxxxxx"
+                        value={localFilter.captainPhone ?? currentUser?.phone ?? ''}
+                        onChange={(e) => {
+                          setLocalFilter({
+                            ...localFilter,
+                            captainPhone: e.target.value.trim(),
+                          });
+                        }}
+                        className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-xs font-mono font-bold bg-slate-50 focus:bg-white focus:border-indigo-500 focus:outline-hidden"
+                      />
+                      {currentUser?.phone && !localFilter.captainPhone && (
+                        <span className="text-[10px] text-slate-400">
+                          (مسجل من الحساب)
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-indigo-50/70 border border-indigo-100 text-indigo-950 text-xs space-y-1.5 leading-relaxed">
+                    <p className="font-bold text-[11px] flex items-center gap-1">
+                      <span>🎯 كيف تضمن عمل الاستبعاد بدقة؟</span>
+                    </p>
+                    <ul className="text-[11px] text-indigo-900/90 space-y-1 list-disc list-inside">
+                      <li><strong>رقم هاتفك:</strong> يقارن الرقم مع هوية مرسل الإعلان فور وصوله.</li>
+                      <li><strong>هوية الرسالة:</strong> يستفيد النظام من بيانات إشعارات واتساب عندما تكشف المرسل.</li>
+                      <li><strong>حماية إعلانات الآخرين:</strong> لا يعتمد النظام على تطابق نص الإعلان وحده، لضمان استمرار ظهور إعلانات بقية المناديب والمعلنين.</li>
+                    </ul>
                   </div>
                 </div>
 

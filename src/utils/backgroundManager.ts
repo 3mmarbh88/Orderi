@@ -81,42 +81,57 @@ export function sendBackgroundOrderNotification(order: ParsedOrder, filter?: Ord
 
   try {
     const isVip = order.contactStatus === 'vip';
+    const isPassenger = order.passengerDetection?.level === 'confirmed_passenger';
+    const count = order.passengerCount || order.passengerDetection?.passengerCount;
     
-    // WhatsApp Header: Group name or sender
-    const groupPrefix = order.groupName ? order.groupName : (isVip ? '⭐ متجر VIP موثوق' : 'قروب مناديب البحرين 🇧🇭');
-    const senderTitle = order.senderName ? `${order.senderName}` : 'طلب توصيل جديد';
-    const title = `WhatsApp • ${groupPrefix}: ${senderTitle}`;
+    // Title format: highlights route or passenger warning
+    let title = '';
+    if (isPassenger) {
+      title = `🚨 نقل ركاب ${count ? `(${count} ركاب)` : ''} • تحذير: توصيل أشخاص ممنوع 🚫`;
+    } else {
+      title = `🚗 طلب جديد: ${order.from} ← ${order.to}`;
+    }
 
     // Message snippet formatted as WhatsApp chat message
     const cleanText = order.rawText
       ? order.rawText.trim().replace(/\s+/g, ' ')
       : `مطلوب توصيل من ${order.from} إلى ${order.to}`;
-    const preview = cleanText.length > 80 ? cleanText.substring(0, 80) + '...' : cleanText;
+    const preview = cleanText.length > 70 ? cleanText.substring(0, 70) + '...' : cleanText;
 
-    const body = `🚗 (${order.price.toFixed(1)} د.ب) ${order.from} ← ${order.to}\n💬 "${preview}"`;
+    const priceText = (!order.price || order.price <= 0 || order.isPriceUnspecified)
+      ? 'غير محدد (بالاتفاق 🤝)'
+      : `${order.price.toFixed(1)} د.ب`;
+
+    // Order summary body with pickup, destination, price and original snippet
+    const bodyLines = [
+      `📍 الاستلام: ${order.from}`,
+      `🏁 الوجهة: ${order.to}`,
+      `💰 السعر: ${priceText}`,
+    ];
+    if (count && count > 0) {
+      bodyLines.push(`👥 عدد الركاب: ${count} ${count === 1 ? 'شخص' : count === 2 ? 'شخصين' : 'أشخاص'}`);
+    }
+    bodyLines.push(`💬 "${preview}"`);
+
+    const body = bodyLines.join('\n');
 
     const options: any = {
       body,
       icon: '/whatsapp-icon.png',
       badge: '/whatsapp-icon.png',
-      tag: `whatsapp-order-${order.id}`,
+      tag: `orderi-order-${order.id}`,
       renotify: true,
       silent: false,
-      vibrate: [100, 50, 100], // Signature WhatsApp double pulse
+      vibrate: [150, 75, 150], // Signature pulse
       actions: [
         {
-          action: 'reply',
-          title: 'رد في واتساب 💬',
-        },
-        {
-          action: 'accept',
-          title: 'حجز في الرادار 🚗',
+          action: 'open_order',
+          title: 'عرض وتفاصيل الأوردر 🚗',
         },
       ],
       data: {
         orderId: order.id,
-        phone: order.senderPhone,
-        url: order.senderPhone ? `https://wa.me/${order.senderPhone.replace(/[^\d+]/g, '')}` : 'https://api.whatsapp.com',
+        order,
       },
     };
 
@@ -125,7 +140,6 @@ export function sendBackgroundOrderNotification(order: ParsedOrder, filter?: Ord
       navigator.serviceWorker.ready.then((reg) => {
         reg.showNotification(title, options);
       }).catch(() => {
-        // Fallback to standard window Notification
         createWindowNotification(title, options, order);
       });
     } else {
@@ -139,12 +153,18 @@ export function sendBackgroundOrderNotification(order: ParsedOrder, filter?: Ord
 function createWindowNotification(title: string, options: any, order?: ParsedOrder) {
   const notif = new Notification(title, options);
   notif.onclick = () => {
-    window.focus();
-    if (order?.senderPhone) {
-      const clean = order.senderPhone.replace(/[^\d+]/g, '');
-      if (clean) {
-        window.open(`https://wa.me/${clean}?text=${encodeURIComponent('#مندوب_توصيل انا في ' + (order.from || 'البحرين'))}`, '_blank');
-      }
+    try {
+      window.focus();
+    } catch {}
+
+    // Dispatch event to open this specific order's details inside Orderi
+    if (order && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('orderi:open_order_detail', {
+        detail: {
+          orderId: order.id,
+          order,
+        },
+      }));
     }
     notif.close();
   };

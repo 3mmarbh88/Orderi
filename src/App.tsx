@@ -56,7 +56,16 @@ import { APKDownloadModal } from './components/APKDownloadModal';
 import { AuthModal } from './components/AuthModal';
 import { ActivationLockBarrier } from './components/ActivationLockBarrier';
 import { DiscoveredGroupLink, CaptainUser } from './types';
-import { getCurrentUser, setCurrentUser as setStoredCurrentUser, isProgramActivated } from './utils/authManager';
+import { getCurrentUser, setCurrentUser as setStoredCurrentUser, isProgramActivated, normalizeBahrainPhone } from './utils/authManager';
+import { FocusedOrderDetailModal } from './components/FocusedOrderDetailModal';
+import { OrderAwardedCelebrationModal } from './components/OrderAwardedCelebrationModal';
+import { MonthlyCommitmentsModal } from './components/MonthlyCommitmentsModal';
+import { MonthlyCommitment } from './types';
+import {
+  getStoredCommitments,
+  saveStoredCommitments,
+  checkOrderConflictWithCommitments
+} from './utils/commitmentManager';
 import { 
   getStoredDiscoveredGroupLinks, 
   saveDiscoveredGroupLinks, 
@@ -69,6 +78,7 @@ import { isDuplicateOrder, findDuplicateOrderMatch, rememberOrderFingerprint } f
 import { computeClientAiEvaluation } from './utils/aiEvaluator';
 import { detectPassengerDelivery } from './utils/passengerClassifier';
 import { checkIncomingMessageForClosure, ClosureMatchResult } from './utils/orderClosureDetector';
+import { classifyAdvertiserPrivateReply } from './utils/advertiserReplyClassifier';
 import { 
   sendBackgroundOrderNotification, 
   requestNotificationPermission,
@@ -104,6 +114,8 @@ const DEFAULT_FILTER: OrderFilter = {
   blockPassengerDeliveries: true,
   autoCloseOrdersEnabled: true,
   autoCloseAmbiguousAction: 'flag',
+  excludeMyOwnAds: true,
+  captainPhone: '',
 };
 
 function OrderiApp() {
@@ -114,23 +126,25 @@ function OrderiApp() {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed && typeof parsed === 'object') {
-          // إزالة أي جهات اتصال وهمية سابقة وضمان وجود جهتي الاتصال VIP الموثوقتين
+          // إزالة أي جهات اتصال وهمية أو تجريبية سابقة
           const existingContacts: StoreContact[] = Array.isArray(parsed.contacts)
-            ? parsed.contacts.filter((c: StoreContact) => c.id !== 'contact-bl-1' && !c.name.includes('وهمي'))
-            : DEFAULT_CONTACTS;
+            ? parsed.contacts.filter((c: StoreContact) => 
+                c.id !== 'contact-bl-1' && 
+                c.id !== 'contact-vip-1' && 
+                c.id !== 'contact-vip-2' && 
+                !c.name.includes('وهمي') && 
+                !c.name.includes('لافندر') && 
+                !c.name.includes('المملكة') &&
+                !c.phone.includes('39441122') &&
+                !c.phone.includes('36889900')
+              )
+            : [];
 
-          const hasLavender = existingContacts.some((c) => c.phone.includes('39441122') || c.name.includes('لافندر'));
-          const hasKingdom = existingContacts.some((c) => c.phone.includes('36889900') || c.name.includes('المملكة'));
-
-          const syncedContacts = [...existingContacts];
-          if (!hasLavender) syncedContacts.unshift(DEFAULT_CONTACTS[0]);
-          if (!hasKingdom) syncedContacts.splice(1, 0, DEFAULT_CONTACTS[1]);
-
-          return { ...DEFAULT_FILTER, ...parsed, contacts: syncedContacts };
+          return { ...DEFAULT_FILTER, ...parsed, contacts: existingContacts };
         }
       }
     } catch {}
-    return DEFAULT_FILTER;
+    return { ...DEFAULT_FILTER, contacts: [] };
   });
 
   // 2. Driver Location (Default: Manama or last saved position)
@@ -170,7 +184,7 @@ function OrderiApp() {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
           return parsed
-            .filter((o: any) => o.source !== 'simulation' && !o.notes?.includes('سحبه تلقائياً فور ربط'))
+            .filter((o: any) => o.source !== 'simulation' && !o.id?.startsWith('ord-showcase-') && !o.notes?.includes('سحبه تلقائياً فور ربط'))
             .map((o: any) => ({
               ...o,
               receivedAt: new Date(o.receivedAt),
@@ -180,237 +194,8 @@ function OrderiApp() {
       }
     } catch {}
 
-    // Showcase sample orders displaying the 3 classification states
-    return [
-      {
-        id: 'ord-showcase-adliya-goods-0',
-        from: 'العدلية',
-        to: 'الرفاع',
-        price: 3.0,
-        rawText: 'العدلية ← الرفاع\nطلب جديد\nالسعر: 3 د.ب · من قروب واتساب\nتوصيل حلويات وهدايا',
-        groupName: 'قروب واتساب (توصيل البحرين 🇧🇭)',
-        senderName: 'متجر حلويات العدلية',
-        senderPhone: '97339112244',
-        receivedAt: new Date(Date.now() - 2 * 60 * 1000),
-        confidence: 96,
-        type: 'طلب قروب واتساب',
-        notes: 'حلويات وهدايا',
-        status: 'pending',
-        match: {
-          score: 92,
-          startMatched: true,
-          destinationMatched: true,
-          priceMatched: true,
-          distanceMatched: true,
-          timeMatched: true,
-          distanceKm: 2.1,
-          statusLabel: 'طلب ممتاز',
-          statusColor: 'emerald',
-          pickupToDeliveryDistanceKm: 12.4,
-        },
-        contactStatus: 'normal',
-        source: 'webhook_auto',
-        passengerDetection: {
-          level: 'goods_safe',
-          label: 'توصيل بضائع معتمد',
-          matchedPhrases: ['بضاعة محددة (حلويات وهدايا)'],
-          reason: 'إعلان توصيل بضائع معتمد، متاح للقبول بنقرة واحدة.',
-          isForbidden: false,
-        },
-      },
-      {
-        id: 'ord-showcase-passenger-1',
-        from: 'العدلية',
-        to: 'الرفاع',
-        price: 3.0,
-        rawText: 'شخص من العدلية إلى الرفاع\nالسعر: 3.000 د.ب\nتوصيل مشوار خاص',
-        groupName: 'قروب واتساب (توصيل البحرين 🇧🇭)',
-        senderName: 'معلن مشاوير',
-        senderPhone: '97333001122',
-        receivedAt: new Date(Date.now() - 3 * 60 * 1000),
-        confidence: 95,
-        type: 'طلب قروب واتساب',
-        notes: 'مشوار ركاب',
-        status: 'pending',
-        match: {
-          score: 85,
-          startMatched: true,
-          destinationMatched: true,
-          priceMatched: true,
-          distanceMatched: true,
-          timeMatched: true,
-          distanceKm: 2.1,
-          statusLabel: 'مطابق جداً',
-          statusColor: 'blue',
-          pickupToDeliveryDistanceKm: 12.4,
-        },
-        contactStatus: 'normal',
-        source: 'webhook_auto',
-        passengerDetection: {
-          level: 'confirmed_passenger',
-          label: 'تحذير: توصيل أشخاص ممنوع',
-          matchedPhrases: ['مسار راكب بين مناطق', 'مشوار خاص'],
-          reason: 'تحذير: إعلان نقل ركاب/أشخاص.',
-          isForbidden: false,
-        },
-      },
-      {
-        id: 'ord-showcase-goods-2',
-        from: 'السيف',
-        to: 'المحرق',
-        price: 3.5,
-        rawText: 'توصيل باقة ورد وهدية من السيف مول إلى المحرق\nالسعر: 3.500 د.ب',
-        groupName: 'قروب مناديب العاصمة والمحرق',
-        senderName: 'متجر الزهور الملكية',
-        senderPhone: '97339441122',
-        receivedAt: new Date(Date.now() - 7 * 60 * 1000),
-        confidence: 98,
-        type: 'طلب قروب واتساب',
-        notes: 'ورد وهدية',
-        status: 'pending',
-        match: {
-          score: 95,
-          startMatched: true,
-          destinationMatched: true,
-          priceMatched: true,
-          distanceMatched: true,
-          timeMatched: true,
-          distanceKm: 3.4,
-          statusLabel: 'طلب ممتاز',
-          statusColor: 'emerald',
-          pickupToDeliveryDistanceKm: 9.8,
-        },
-        contactStatus: 'vip',
-        source: 'webhook_auto',
-        passengerDetection: {
-          level: 'goods_safe',
-          label: 'توصيل بضائع معتمد',
-          matchedPhrases: ['بضاعة محددة (ورد وهدية)'],
-          reason: 'إعلان توصيل بضائع وهدايا معتمد.',
-          isForbidden: false,
-        },
-      },
-      {
-        id: 'ord-showcase-unpriced-3',
-        from: 'العدلية',
-        to: 'الرفاع',
-        price: 0,
-        isPriceUnspecified: true,
-        rawText: 'مطلوب مندوب توصيل شحنة وأمانات فوراً من العدلية إلى الرفاع (بالاتفاق)',
-        groupName: 'قروب مناديب وتوصيل البحرين',
-        senderName: 'متجر العدلية للهدايا',
-        senderPhone: '97336112233',
-        receivedAt: new Date(Date.now() - 10 * 60 * 1000),
-        confidence: 90,
-        type: 'طلب قروب واتساب',
-        notes: 'شحنة وأمانات',
-        status: 'pending',
-        match: {
-          score: 85,
-          startMatched: true,
-          destinationMatched: true,
-          priceMatched: true,
-          distanceMatched: true,
-          timeMatched: true,
-          distanceKm: 2.3,
-          statusLabel: 'مطابق جداً',
-          statusColor: 'blue',
-          pickupToDeliveryDistanceKm: 11.2,
-        },
-        contactStatus: 'normal',
-        source: 'webhook_auto',
-        passengerDetection: {
-          level: 'goods_safe',
-          label: 'توصيل بضائع معتمد',
-          matchedPhrases: ['بضاعة وأمانات'],
-          reason: 'إعلان توصيل شحنة وأمانات معتمد.',
-          isForbidden: false,
-        },
-      },
-      {
-        id: 'ord-showcase-suspicious-4',
-        from: 'سار',
-        to: 'المنامة',
-        price: 3.0,
-        rawText: 'مطلوب سيارة ومشوار سريع من سار إلى المنامة\nالسعر: 3.000 د.ب',
-        groupName: 'كباتن المحافظة الشمالية',
-        senderName: 'عميل واتساب',
-        senderPhone: '97338556677',
-        receivedAt: new Date(Date.now() - 18 * 60 * 1000),
-        confidence: 85,
-        type: 'طلب قروب واتساب',
-        notes: 'مشوار',
-        status: 'pending',
-        match: {
-          score: 82,
-          startMatched: true,
-          destinationMatched: true,
-          priceMatched: true,
-          distanceMatched: true,
-          timeMatched: true,
-          distanceKm: 5.6,
-          statusLabel: 'مطابق جزئياً',
-          statusColor: 'amber',
-          pickupToDeliveryDistanceKm: 11.2,
-        },
-        contactStatus: 'normal',
-        source: 'webhook_auto',
-        passengerDetection: {
-          level: 'suspicious_passenger',
-          label: 'احتمال نقل أشخاص (مراجعة مطلوبة)',
-          matchedPhrases: ['ذكر كلمة مشوار', 'طلب سيارة وسائق'],
-          reason: 'يحتوي الإعلان على عبارة مشوار عامة بدون تحديد البضاعة. يتطلب مراجعة الكابتن قبل القبول.',
-          isForbidden: false,
-        },
-      },
-      {
-        id: 'ord-showcase-closed-5',
-        from: 'البسيتين',
-        to: 'أم الحصم',
-        price: 2.5,
-        rawText: 'توصيل عطور ومكياج من البسيتين إلى أم الحصم\nالسعر: 2.500 د.ب',
-        groupName: 'قروب كباتن المحرق والمنامة',
-        senderName: 'متجر جلامور',
-        senderPhone: '97339887766',
-        receivedAt: new Date(Date.now() - 35 * 60 * 1000),
-        confidence: 94,
-        type: 'طلب قروب واتساب',
-        notes: 'عطور',
-        status: 'closed_taken',
-        closedAt: new Date(Date.now() - 5 * 60 * 1000),
-        closureReason: 'تم رصد رد من صاحب الإعلان بالقروب يفيد بالحصول على مندوب: "تم حصلت مندوب شكراً 🙏"',
-        closureEvidence: {
-          replyText: 'تم حصلت مندوب شكراً 🙏',
-          senderName: 'متجر جلامور',
-          groupName: 'قروب كباتن المحرق والمنامة',
-          timestamp: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
-          confidence: 96,
-          isQuote: false,
-          matchedKeywords: ['تم', 'حصلت مندوب', 'شكراً', '🙏'],
-        },
-        match: {
-          score: 88,
-          startMatched: true,
-          destinationMatched: true,
-          priceMatched: true,
-          distanceMatched: true,
-          timeMatched: true,
-          distanceKm: 4.8,
-          statusLabel: 'مطابق جداً',
-          statusColor: 'blue',
-          pickupToDeliveryDistanceKm: 10.5,
-        },
-        contactStatus: 'normal',
-        source: 'webhook_auto',
-        passengerDetection: {
-          level: 'goods_safe',
-          label: 'توصيل بضائع معتمد',
-          matchedPhrases: ['عطور ومكياج'],
-          reason: 'إعلان توصيل بضائع معتمد.',
-          isForbidden: false,
-        },
-      },
-    ];
+    // Clean initial state: no mock/simulation orders, only live WhatsApp orders
+    return [];
   });
   const [acceptedOrders, setAcceptedOrders] = useState<ParsedOrder[]>(() => {
     try {
@@ -616,6 +401,34 @@ function OrderiApp() {
   // 8. Active Broadcast (Waiting for Courier) Replay Prompt State
   const [targetReplayBroadcastId, setTargetReplayBroadcastId] = useState<string | null>(null);
   const [activeWaitingBroadcast, setActiveWaitingBroadcast] = useState<OrderBroadcast | null>(null);
+
+  // 8b. Focused Order Detail State (Direct deep-link from phone notification clicks)
+  const [focusedOrder, setFocusedOrder] = useState<ParsedOrder | null>(null);
+
+  // 8c. Advertiser Confirmation Awarded Celebration Modal State («تم / لك / عندك»)
+  const [awardedOrderData, setAwardedOrderData] = useState<{
+    order?: ParsedOrder;
+    orderId: string;
+    advertiserName: string;
+    advertiserPhone: string;
+    replyText: string;
+    from?: string;
+    to?: string;
+    price?: number;
+  } | null>(null);
+
+  // 8d. Monthly Recurring Commitments & School Runs State (الارتباط بالتوصيلات الشهرية)
+  const [commitments, setCommitments] = useState<MonthlyCommitment[]>(() => {
+    return getStoredCommitments();
+  });
+  const [isCommitmentsModalOpen, setIsCommitmentsModalOpen] = useState(false);
+
+  // 8e. Order Conflict with Commitment Modal State (تحذير تعارض طلب مع توصيل شهري)
+  const [commitmentConflictOrder, setCommitmentConflictOrder] = useState<{
+    order: ParsedOrder;
+    conflictWarning: string;
+    commitmentTitle: string;
+  } | null>(null);
 
   // Sync active waiting broadcasts from localStorage
   const refreshWaitingBroadcasts = () => {
@@ -966,6 +779,28 @@ function OrderiApp() {
       markWhatsAppVerified(event.isGroup ? groupName : undefined);
       setIsWhatsAppConnected(true);
 
+      // Check if incoming notification is a private reply from an advertiser («تم / لك / عندك» vs «أخذوه / تكنسل»)
+      if (!event.isGroup && rawText) {
+        const replyVerdict = classifyAdvertiserPrivateReply(rawText);
+        if (replyVerdict.verdict === 'CONFIRMED_AWARDED') {
+          setAwardedOrderData({
+            orderId: `notif-reply-${Date.now()}`,
+            advertiserName: event.title || 'صاحب الإعلان',
+            advertiserPhone: '',
+            replyText: rawText.trim(),
+          });
+          showToast(`🎉 مبروك! المعلن رد عليك بالخاص وعطاك الطلب («${rawText.trim()}»)`);
+          if (filterRef.current.soundEnabled) {
+            playAlertTone('cash_register', 90);
+          }
+          return;
+        } else if (replyVerdict.verdict === 'REJECTED_OR_TAKEN') {
+          // Silent ignore - المعلن أفاد بأنه أخذوه أو تكنسل
+          console.log('[Orderi Native] Advertiser replied taken/cancelled:', rawText);
+          return;
+        }
+      }
+
       // Check for Smart Order Closure (الكشف الذكي عن الطلبات المحجوزة أو المنتهية)
       if (filterRef.current.autoCloseOrdersEnabled !== false) {
         const closureMatch = checkIncomingMessageForClosure(
@@ -1008,11 +843,85 @@ function OrderiApp() {
       }).catch(() => {});
     };
 
+    let openOrderListenerHandle: { remove: () => Promise<void> } | null = null;
+
     const setup = async () => {
       try {
         const pending = await OrderiNotificationListener.getPending();
         if (!removed) pending.events.forEach(convertNativeEvent);
         listenerHandle = await OrderiNotificationListener.addListener('whatsappNotification', convertNativeEvent);
+
+        // Listen for openOrderDetail emitted when tapping Android phone notification
+        openOrderListenerHandle = await OrderiNotificationListener.addListener('openOrderDetail', (data: any) => {
+          if (!data) return;
+          const orderId = data.orderId;
+          const existing = ordersRef.current.find((o) => o.id === orderId);
+          if (existing) {
+            setFocusedOrder(existing);
+          } else if (data.rawText || data.from) {
+            setFocusedOrder({
+              id: orderId || `ord-notif-${Date.now()}`,
+              from: data.from || 'البحرين',
+              to: data.to || 'حسب طلب الزبون 📍',
+              price: data.price || 0,
+              isPriceUnspecified: !data.price || data.price <= 0,
+              rawText: data.rawText || `${data.from || ''} ← ${data.to || ''}`,
+              groupName: 'واتساب',
+              senderName: data.senderName || 'معلن واتساب',
+              receivedAt: new Date(),
+              confidence: 90,
+              type: 'طلب واتساب',
+              notes: '',
+              status: 'pending',
+              passengerCount: data.passengerCount,
+              passengerDetection: {
+                level: data.isPassenger ? 'confirmed_passenger' : 'goods_safe',
+                label: data.isPassenger ? 'نقل أشخاص' : 'توصيل بضائع معتمد',
+                matchedPhrases: [],
+                reason: data.isPassenger ? 'إعلان نقل ركاب' : 'طلب توصيل',
+                isForbidden: !!data.isPassenger,
+                passengerCount: data.passengerCount,
+              },
+            });
+          }
+        });
+
+        // Also check if app was opened via notification intent
+        if (OrderiNotificationListener.getClickedOrder) {
+          const clicked = await OrderiNotificationListener.getClickedOrder();
+          if (clicked?.order && !removed) {
+            const data = clicked.order;
+            const existing = ordersRef.current.find((o) => o.id === data.orderId);
+            if (existing) {
+              setFocusedOrder(existing);
+            } else if (data.rawText || data.from) {
+              setFocusedOrder({
+                id: data.orderId || `ord-notif-${Date.now()}`,
+                from: data.from || 'البحرين',
+                to: data.to || 'حسب طلب الزبون 📍',
+                price: data.price || 0,
+                isPriceUnspecified: !data.price || data.price <= 0,
+                rawText: data.rawText || '',
+                groupName: 'واتساب',
+                senderName: data.senderName || 'معلن واتساب',
+                receivedAt: new Date(),
+                confidence: 90,
+                type: 'طلب واتساب',
+                notes: '',
+                status: 'pending',
+                passengerCount: data.passengerCount,
+                passengerDetection: {
+                  level: data.isPassenger ? 'confirmed_passenger' : 'goods_safe',
+                  label: data.isPassenger ? 'نقل أشخاص' : 'توصيل بضائع معتمد',
+                  matchedPhrases: [],
+                  reason: data.isPassenger ? 'إعلان نقل ركاب' : 'طلب توصيل',
+                  isForbidden: !!data.isPassenger,
+                  passengerCount: data.passengerCount,
+                },
+              });
+            }
+          }
+        }
       } catch (e) {
         console.warn('[Orderi] Native WhatsApp listener unavailable', e);
       }
@@ -1021,6 +930,7 @@ function OrderiApp() {
     return () => {
       removed = true;
       if (listenerHandle) listenerHandle.remove().catch(() => {});
+      if (openOrderListenerHandle) openOrderListenerHandle.remove().catch(() => {});
     };
   }, []);
 
@@ -1066,6 +976,23 @@ function OrderiApp() {
               setOrders((prev) => prev.filter((o) => o.id !== data.orderId));
             } else if (data.type === 'ORDER_CLOSED' && data.closureMatch) {
               handleAutoOrderClosure(data.closureMatch);
+            } else if (data.type === 'ADVERTISER_AWARDED_ORDER') {
+              // Advertiser confirmed awarding the order to captain («تم / لك / عندك»)!
+              const matchedOrder = ordersRef.current.find((o) => o.id === data.orderId);
+              setAwardedOrderData({
+                order: matchedOrder,
+                orderId: data.orderId,
+                advertiserName: data.advertiserName || 'التاجر / صاحب الإعلان',
+                advertiserPhone: data.advertiserPhone || '',
+                replyText: data.replyText || 'تم / لك',
+                from: data.from || matchedOrder?.from,
+                to: data.to || matchedOrder?.to,
+                price: data.price ?? matchedOrder?.price,
+              });
+              showToast(`🎉 مبروك! المعلن رد عليك بالخاص وعطاك الطلب («${data.replyText || 'تم'}»)`);
+              if (filterRef.current.soundEnabled) {
+                playAlertTone('cash_register', 90);
+              }
             } else if (data.type === 'GROUP_LINK_DETECTED' && data.groupLink) {
               setDiscoveredGroupLinks((prev) => {
                 const exists = prev.some((l) => l.inviteCode === data.groupLink.inviteCode);
@@ -1093,6 +1020,40 @@ function OrderiApp() {
     return () => {
       if (reconnectTimeout) clearTimeout(reconnectTimeout);
       if (eventSource) eventSource.close();
+    };
+  }, []);
+
+  // Listen for Web / PWA background notification clicks: opens order details modal directly!
+  useEffect(() => {
+    const handleOpenOrderDetailEvent = (e: any) => {
+      const detail = e.detail;
+      if (!detail) return;
+      const order = detail.order || ordersRef.current.find((o) => o.id === detail.orderId);
+      if (order) {
+        setFocusedOrder(order);
+      } else if (detail.orderId) {
+        // Fallback placeholder with the id if order object was minimal
+        setFocusedOrder({
+          id: detail.orderId,
+          from: detail.from || 'البحرين',
+          to: detail.to || 'حسب طلب الزبون 📍',
+          price: detail.price || 0,
+          isPriceUnspecified: !detail.price || detail.price <= 0,
+          rawText: detail.rawText || '',
+          groupName: 'واتساب',
+          senderName: detail.senderName || 'معلن واتساب',
+          receivedAt: new Date(),
+          confidence: 90,
+          type: 'طلب واتساب',
+          notes: '',
+          status: 'pending',
+        });
+      }
+    };
+
+    window.addEventListener('orderi:open_order_detail', handleOpenOrderDetailEvent);
+    return () => {
+      window.removeEventListener('orderi:open_order_detail', handleOpenOrderDetailEvent);
     };
   }, []);
 
@@ -1586,8 +1547,24 @@ function OrderiApp() {
     showToast('✓ تم إلغاء الاشتباه وتثبيت الطلب كمتاح في الرادار');
   };
 
-  // Accept Order
-  const handleAcceptOrder = (order: ParsedOrder) => {
+  // Accept Order with Monthly Commitment Conflict Protection (حماية من التعارض مع التوصيل الشهري)
+  const handleAcceptOrder = (order: ParsedOrder, forceAccept = false) => {
+    // Check if accepting this order conflicts with an upcoming monthly commitment today!
+    if (!forceAccept) {
+      const conflict = checkOrderConflictWithCommitments(commitments, 40);
+      if (conflict.hasConflict && conflict.commitment) {
+        setCommitmentConflictOrder({
+          order,
+          conflictWarning: conflict.warningMessage || 'لديك موعد توصيل شهري متزامن مع وقت هذا الطلب',
+          commitmentTitle: conflict.commitment.title,
+        });
+        if (filterRef.current.soundEnabled) {
+          playAlertTone('urgent_siren', 80);
+        }
+        return;
+      }
+    }
+
     const updated = { ...order, status: 'accepted' as const };
     setOrders((prev) => prev.filter((o) => o.id !== order.id));
     setAcceptedOrders((prev) => [updated, ...prev]);
@@ -1904,6 +1881,8 @@ function OrderiApp() {
           setIsAutoSyncModalOpen(true);
         }}
         onOpenDiscoveredGroupsModal={() => setIsDiscoveredGroupsModalOpen(true)}
+        onOpenCommitments={() => setIsCommitmentsModalOpen(true)}
+        commitmentsCount={commitments.filter((c) => c.isActive).length}
         onOpenAPKModal={() => setIsAPKModalOpen(true)}
         newDiscoveredGroupsCount={discoveredGroupLinks.filter((g) => g.status === 'new').length}
         isStreamConnected={isStreamConnected}
@@ -1933,6 +1912,8 @@ function OrderiApp() {
           onPullRefresh={refreshRadar}
           isRefreshing={isRadarRefreshing}
           onOpenBroadcast={() => setActiveTab('broadcast')}
+          onOpenCommitments={() => setIsCommitmentsModalOpen(true)}
+          commitmentsCount={commitments.filter((c) => c.isActive).length}
           onOpenBackgroundModal={() => setIsBackgroundModalOpen(true)}
           onRunInBackground={handleRunInBackground}
           onOpenAutoSyncModal={() => {
@@ -2367,6 +2348,98 @@ function OrderiApp() {
         onSuccess={handleAuthSuccess}
         initialTab={authModalInitialTab}
       />
+
+      {/* Focused Order Detail Modal: Opens directly upon tapping phone notifications or selecting order */}
+      {focusedOrder && (
+        <FocusedOrderDetailModal
+          order={focusedOrder}
+          customTemplate={filter.customResponseTemplate}
+          driverArea={driverLocation?.areaName || 'البحرين'}
+          onClose={() => setFocusedOrder(null)}
+          onAccept={(orderToAccept) => {
+            handleAcceptOrder(orderToAccept);
+            setFocusedOrder(null);
+          }}
+          onIgnore={(orderIdToIgnore) => {
+            handleIgnoreOrder(orderIdToIgnore);
+            setFocusedOrder(null);
+          }}
+        />
+      )}
+
+      {/* Advertiser Awarded Order Celebration Modal: Shows when advertiser responds with (تم / لك / عندك / ملصق) */}
+      {awardedOrderData && (
+        <OrderAwardedCelebrationModal
+          awardedData={awardedOrderData}
+          onClose={() => setAwardedOrderData(null)}
+        />
+      )}
+
+      {/* Monthly Recurring Commitments Modal (الارتباط بالتوصيلات الشهرية - مدارس وعقود وتنبيهات) */}
+      <MonthlyCommitmentsModal
+        isOpen={isCommitmentsModalOpen}
+        onClose={() => setIsCommitmentsModalOpen(false)}
+        commitments={commitments}
+        onSaveCommitments={(updated) => {
+          setCommitments(updated);
+          saveStoredCommitments(updated);
+        }}
+        onShowToast={showToast}
+      />
+
+      {/* Monthly Commitment Conflict Warning Dialog (تحذير تعارض طلب مع توصيل شهري لا تنساه) */}
+      {commitmentConflictOrder && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in duration-200"
+          onClick={() => setCommitmentConflictOrder(null)}
+        >
+          <div 
+            className="w-full max-w-md bg-white rounded-3xl p-6 shadow-2xl border-2 border-amber-400 space-y-4 animate-in zoom-in-95 duration-200 text-slate-800"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="w-14 h-14 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto shadow-inner">
+              <span className="text-2xl">⏰</span>
+            </div>
+
+            <div className="text-center space-y-1">
+              <span className="px-3 py-1 rounded-full bg-amber-100 text-amber-900 text-xs font-black">
+                تحذير تعارض موعد شهري ⚠️
+              </span>
+              <h3 className="text-base sm:text-lg font-black text-slate-900">
+                لديك ارتباط توصيل شهري («{commitmentConflictOrder.commitmentTitle}»)!
+              </h3>
+              <p className="text-xs text-amber-900 font-bold leading-relaxed bg-amber-50 p-3 rounded-xl border border-amber-200">
+                {commitmentConflictOrder.conflictWarning}
+              </p>
+              <p className="text-[11px] text-slate-600 font-medium leading-relaxed">
+                هذا التنبيه للتذكير حتى لا تنسى ارتباطك الشهري. إذا كان وقتك يسمح بالتوصيلين معاً، يمكنك قبول الطلب فوراً أو التراجع إذا فضلت الالتزام بالموعد.
+              </p>
+            </div>
+
+            <div className="space-y-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const targetOrd = commitmentConflictOrder.order;
+                  setCommitmentConflictOrder(null);
+                  handleAcceptOrder(targetOrd, true);
+                }}
+                className="w-full py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs sm:text-sm transition-all cursor-pointer shadow-md shadow-emerald-700/20 active:scale-98 flex items-center justify-center gap-2"
+              >
+                <span>✓ نعم، قبول الطلب ومتابعة التوصيل (وقتي يسمح)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setCommitmentConflictOrder(null)}
+                className="w-full py-2.5 px-4 rounded-xl border border-slate-200 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs transition-colors cursor-pointer"
+              >
+                تراجع عن هذا الطلب والالتزام بالموعد الشهري 🛡️
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Footer */}
       <footer className="mt-auto py-6 border-t border-slate-200/80 bg-white text-center text-xs text-slate-500">
