@@ -49,8 +49,12 @@ import {
   AlertTriangle,
   ExternalLink,
   Layers,
-  ShieldAlert
+  ShieldAlert,
+  Target,
+  Tag
 } from 'lucide-react';
+import { DestinationHunterCard } from './DestinationHunterCard';
+import { ClosureHunterCard } from './ClosureHunterCard';
 import { OrderFilter, AreaLocation, AlertToneId, VibrationPatternId, CaptainUser } from '../types';
 import { BAHRAIN_AREAS } from '../data/bahrainAreas';
 import { MatcherLocation } from '../utils/matcher';
@@ -663,73 +667,11 @@ export function FilterSettings({
           {openSections.destinations && (
             <div className="p-4 sm:p-6 border-t border-slate-100 bg-slate-50/40 space-y-6 animate-in fade-in duration-200">
               
-              {/* Destination Areas */}
-              <div className="p-4 rounded-2xl bg-white border border-slate-200/80 shadow-xs space-y-3">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
-                  <div>
-                    <h4 className="text-sm font-black text-slate-900">وجهات التوصيل والتسليم المرغوبة:</h4>
-                    <p className="text-[11px] text-slate-500">
-                      {localFilter.destinations.length === 0 
-                        ? 'جميع وجهات البحرين مقبولة (توصيل لكافة المناطق)' 
-                        : `${localFilter.destinations.length} وجهة محددة`}
-                    </p>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleSelectAllAreas('dest')}
-                      className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-800 text-xs font-black border border-purple-200 transition-colors shadow-2xs active:scale-95"
-                      title="تحديد كافة مدن وقرى البحرين كوجهات مقبولة"
-                    >
-                      <CheckSquare className="w-3.5 h-3.5 text-purple-600" />
-                      <span>إضافة كل المناطق</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleClearAllAreas('dest')}
-                      className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors active:scale-95"
-                      title="تفريغ التحديد ليقبل التوصيل لأي مكان"
-                    >
-                      <span>مفتوح للكل</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setModalMode('dest')}
-                      className="flex items-center gap-1 px-3.5 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-black transition-colors shadow-2xs active:scale-95"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>إضافة وتعديل</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Destination Chips */}
-                <div className="flex flex-wrap gap-1.5 min-h-[50px] p-3 rounded-2xl bg-slate-50 border border-slate-200/60 max-h-[160px] overflow-y-auto">
-                  {localFilter.destinations.length === 0 ? (
-                    <span className="text-xs text-slate-400 font-semibold my-auto">
-                      مفتوح للجميع: يتم قبول التوصيل لأي وجهة في البحرين (اضغط "إضافة وتعديل" لتخصيص مناطق محددة أو "إضافة كل المناطق")
-                    </span>
-                  ) : (
-                    localFilter.destinations.map((dest) => (
-                      <span
-                        key={dest}
-                        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-purple-100 text-purple-800 border border-purple-200"
-                      >
-                        <span>{dest}</span>
-                        <button
-                          onClick={() => handleToggleDestination(dest)}
-                          className="hover:text-rose-600 transition-colors"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </span>
-                    ))
-                  )}
-                </div>
-              </div>
+              {/* صائد وجهات التوصيل والتسليم المرغوبة في قروبات التوصيل المنشورة */}
+              <DestinationHunterCard
+                filter={localFilter}
+                onUpdateFilter={setLocalFilter}
+              />
 
               {/* Minimum Price Slider & Working Hours in 2-cols */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1198,9 +1140,6 @@ export function FilterSettings({
                       <span className="w-2.5 h-2.5 rounded-full bg-red-600 inline-block shrink-0" />
                       <span>🔴 أحمر: نقل أشخاص مؤكد</span>
                     </div>
-                    <p className="text-[11px] text-red-900 leading-relaxed">
-                      <strong>العبارات:</strong> توصيل أشخاص، توصيل شخص، توصيل بنت، طفل للمدرسة، موظف للعمل، مطلوب مشوار، نقل ركاب، مشوار خاص.
-                    </p>
                     <div className="text-[10px] bg-red-100 text-red-900 p-2 rounded-xl font-bold">
                       🛡️ الإجراء: يظهر بالرادار مع تحذير أحمر بارز، مع إبقاء زر القبول متاحاً مع التحذير.
                     </div>
@@ -1212,9 +1151,6 @@ export function FilterSettings({
                       <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block shrink-0" />
                       <span>🟡 أصفر: احتمال نقل أشخاص</span>
                     </div>
-                    <p className="text-[11px] text-amber-900 leading-relaxed">
-                      <strong>العبارات:</strong> كلمة مشوار أو توصيلة عامة بدون ذكر بضاعة واضحة (مثل: "مشوار من سار للمنامة").
-                    </p>
                     <div className="text-[10px] bg-amber-100 text-amber-950 p-2 rounded-xl font-bold">
                       🔍 الإجراء: يتطلب مراجعة يدوية وتأكيد أنها بضاعة قبل السماح بالقبول.
                     </div>
@@ -1226,24 +1162,11 @@ export function FilterSettings({
                       <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 inline-block shrink-0" />
                       <span>🟢 أخضر: توصيل بضائع معتمد</span>
                     </div>
-                    <p className="text-[11px] text-emerald-900 leading-relaxed">
-                      <strong>العبارات:</strong> طلبات، طرود، أكل، كيك، هدايا، ورود، أوراق، وحتى "طلب شخصي" أو "أغراض شخصية".
-                    </p>
                     <div className="text-[10px] bg-emerald-100 text-emerald-900 p-2 rounded-xl font-bold">
                       ⚡ الإجراء: يظهر كطلب عادي ويسمح بالقبول الفوري السريع بنقرة واحدة.
                     </div>
                   </div>
                 </div>
-              </div>
-
-              {/* Anti-False-Positive Guarantee */}
-              <div className="p-3.5 rounded-2xl bg-blue-50/80 border border-blue-200 text-xs text-blue-900 space-y-1">
-                <div className="font-black text-blue-950 flex items-center gap-1.5">
-                  <span>💡 منع الأخطاء في التصنيف:</span>
-                </div>
-                <p className="text-[11px] leading-relaxed text-blue-800">
-                  يحلل Orderi العبارة كاملة ولا يصنف عشوائياً. عبارات مثل <strong>"توصيل طلب شخصي"</strong> أو <strong>"أغراض شخصية"</strong> تعني توصيل غرض وسلعة شخصية، ويتم قبولها كبضاعة خضراء بأمان كامل.
-                </p>
               </div>
 
             </div>
@@ -1285,172 +1208,11 @@ export function FilterSettings({
           </button>
 
           {openSections.auto_closure && (
-            <div className="p-4 sm:p-6 border-t border-slate-100 space-y-5 bg-slate-50/30">
-              {/* Master Toggle */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-white border border-slate-200 shadow-2xs">
-                <div>
-                  <h4 className="text-xs sm:text-sm font-black text-slate-900">
-                    تفعيل الكشف الذكي التلقائي عن إغلاق الطلبات المحجوزة
-                  </h4>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    إزالة الطلب فوراً من الرادار عند رصد تأكيد أخذ الطلب أو شكر المعلن في القروب
-                  </p>
-                </div>
-
-                <label className="relative inline-flex items-center gap-2 cursor-pointer select-none self-start sm:self-auto">
-                  <span className="text-xs font-bold text-slate-700">
-                    {localFilter.autoCloseOrdersEnabled !== false ? 'مفعّل ⚡' : 'معطّل'}
-                  </span>
-                  <div className="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out">
-                    <input
-                      type="checkbox"
-                      checked={localFilter.autoCloseOrdersEnabled !== false}
-                      onChange={(e) => setLocalFilter({ ...localFilter, autoCloseOrdersEnabled: e.target.checked })}
-                      className="sr-only"
-                    />
-                    <span className={`w-full h-full rounded-full transition-colors ${localFilter.autoCloseOrdersEnabled !== false ? 'bg-indigo-600' : 'bg-slate-300'}`}>
-                      <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-xs transition duration-200 ease-in-out ${
-                        localFilter.autoCloseOrdersEnabled !== false ? '-translate-x-5' : 'translate-x-0'
-                      }`} />
-                    </span>
-                  </div>
-                </label>
-              </div>
-
-              {/* Ambiguous Replies Handling Mode */}
-              <div className="p-4 rounded-2xl bg-white border border-slate-200 space-y-3 shadow-2xs">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-xs sm:text-sm font-black text-slate-900">
-                    التعامل مع الردود الغامضة أو غير المؤكدة
-                  </h4>
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-200">
-                    حماية من الحذف الخاطئ
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-600 leading-relaxed">
-                  إذا ورد رد قصير مثل «تم» أو رمز 👍 دون اقتباس مباشر أو ذكر للمنطقة، فقد يتعلق بشيء آخر بالقروب. حدد كيف يتعامل Orderi:
-                </p>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                  <label className={`p-3.5 rounded-2xl border cursor-pointer transition-all flex items-start gap-3 ${
-                    (localFilter.autoCloseAmbiguousAction || 'flag') === 'flag'
-                      ? 'bg-amber-50/80 border-amber-300 ring-2 ring-amber-400/20'
-                      : 'bg-white border-slate-200 hover:bg-slate-50'
-                  }`}>
-                    <input
-                      type="radio"
-                      name="autoCloseAmbiguousAction"
-                      value="flag"
-                      checked={(localFilter.autoCloseAmbiguousAction || 'flag') === 'flag'}
-                      onChange={() => setLocalFilter({ ...localFilter, autoCloseAmbiguousAction: 'flag' })}
-                      className="mt-0.5 text-amber-600 focus:ring-amber-500"
-                    />
-                    <div className="text-xs">
-                      <div className="font-black text-slate-900 flex items-center gap-1.5">
-                        <span>⚠️ وضع في حالة «يحتاج إلى تحقق» (موصى به)</span>
-                      </div>
-                      <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">
-                        يظل الطلب ظاهراً مع شارة اشتباه صفراء وزر لتأكيد الإغلاق أو إبقائه متاحاً يدوياً.
-                      </p>
-                    </div>
-                  </label>
-
-                  <label className={`p-3.5 rounded-2xl border cursor-pointer transition-all flex items-start gap-3 ${
-                    localFilter.autoCloseAmbiguousAction === 'ignore'
-                      ? 'bg-blue-50/80 border-blue-300 ring-2 ring-blue-400/20'
-                      : 'bg-white border-slate-200 hover:bg-slate-50'
-                  }`}>
-                    <input
-                      type="radio"
-                      name="autoCloseAmbiguousAction"
-                      value="ignore"
-                      checked={localFilter.autoCloseAmbiguousAction === 'ignore'}
-                      onChange={() => setLocalFilter({ ...localFilter, autoCloseAmbiguousAction: 'ignore' })}
-                      className="mt-0.5 text-blue-600 focus:ring-blue-500"
-                    />
-                    <div className="text-xs">
-                      <div className="font-black text-slate-900 flex items-center gap-1.5">
-                        <span>↻ تجاهل الرد الغامض وإبقاء الطلب متاحاً</span>
-                      </div>
-                      <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">
-                        لا يغلق الطلب إلا إذا كان التأكيد قاطعاً باقتباس مباشر أو من صاحب الإعلان نفسه.
-                      </p>
-                    </div>
-                  </label>
-                </div>
-              </div>
-
-              {/* Monitored Keywords & Symbols Breakdown */}
-              <div className="space-y-3">
-                <h4 className="text-xs font-black text-slate-900 flex items-center gap-1.5">
-                  <span>الكلمات والرموز التي يراقبها Orderi للكشف عن الإغلاق:</span>
-                </h4>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {/* Category 1: Taken Confirmation */}
-                  <div className="p-3.5 rounded-2xl bg-white border border-slate-200 space-y-2 shadow-2xs">
-                    <div className="flex items-center gap-1.5 text-xs font-black text-slate-900">
-                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" />
-                      <span>١. تأكيد أخذ الطلب:</span>
-                    </div>
-                    <div className="flex flex-wrap gap-1">
-                      {['تم', 'حصلت', 'أخذته', 'حجزته', 'اتفقت معاه', 'حصلنا مندوب', 'توفر مندوب', 'عندي الطلب'].map((kw, i) => (
-                        <span key={i} className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-900 text-[10px] font-bold border border-emerald-200">
-                          {kw}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Category 2: Completion & Cancellation */}
-                  <div className="p-3.5 rounded-2xl bg-white border border-slate-200 space-y-2 shadow-2xs">
-                    <div className="flex items-center gap-1.5 text-xs font-black text-slate-900">
-                      <span className="w-2.5 h-2.5 rounded-full bg-blue-500 inline-block" />
-                      <span>٢. انتهاء الطلب واكتماله:</span>
-                    </div>
-                    <div className="flex flex-wrap gap-1">
-                      {['خلاص', 'انتهى', 'تم التوصيل', 'لا يوجد طلب', 'اكتمل', 'تكنسل'].map((kw, i) => (
-                        <span key={i} className="px-2 py-0.5 rounded-md bg-blue-50 text-blue-900 text-[10px] font-bold border border-blue-200">
-                          {kw}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Category 3: Gratitude & Thanks */}
-                  <div className="p-3.5 rounded-2xl bg-white border border-slate-200 space-y-2 shadow-2xs">
-                    <div className="flex items-center gap-1.5 text-xs font-black text-slate-900">
-                      <span className="w-2.5 h-2.5 rounded-full bg-purple-500 inline-block" />
-                      <span>٣. الشكر وتأكيد الإنجاز:</span>
-                    </div>
-                    <div className="flex flex-wrap gap-1">
-                      {['شكراً', 'مشكور', 'يعطيك العافية', 'الله يوفقك', 'تسلم', 'جزاك الله خير'].map((kw, i) => (
-                        <span key={i} className="px-2 py-0.5 rounded-md bg-purple-50 text-purple-900 text-[10px] font-bold border border-purple-200">
-                          {kw}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Category 4: Emojis */}
-                  <div className="p-3.5 rounded-2xl bg-white border border-slate-200 space-y-2 shadow-2xs">
-                    <div className="flex items-center gap-1.5 text-xs font-black text-slate-900">
-                      <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block" />
-                      <span>٤. الرموز التعبيرية في سياق الإنجاز:</span>
-                    </div>
-                    <div className="flex flex-wrap gap-1.5 items-center">
-                      {['👍', '✅', '👌', '🙏', '🎯', '🤝', '✔️'].map((em, i) => (
-                        <span key={i} className="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-100 text-sm border border-slate-200 shadow-2xs">
-                          {em}
-                        </span>
-                      ))}
-                      <span className="text-[10px] text-slate-500 font-bold mr-1">
-                        (تُعتمد إذا وردت في سياق حجز الطلب)
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
+            <div className="p-4 sm:p-6 border-t border-slate-100 bg-slate-50/30">
+              <ClosureHunterCard
+                filter={localFilter}
+                onUpdateFilter={setLocalFilter}
+              />
             </div>
           )}
         </div>

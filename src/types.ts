@@ -81,6 +81,11 @@ export interface OrderFilter {
   autoCloseAmbiguousAction?: 'flag' | 'ignore';
   excludeMyOwnAds?: boolean; // استبعاد إعلاناتي الشخصية من الرادار
   captainPhone?: string;     // رقم هاتف الكابتن الشخصي للتعرف على إعلاناته
+  desiredPickupAreas?: string[];     // مناطق استلام مرغوبة يراقبها صائد الوجهات
+  desiredDeliveryAreas?: string[];   // وجهات تسليم مرغوبة يراقبها صائد الوجهات
+  desiredRoutes?: { from: string; to: string }[]; // مسارات مرغوبة يراقبها صائد الوجهات
+  destinationHunterEnabled?: boolean;// تفعيل صائد وجهات التوصيل والتسليم
+  destinationSniperAlert?: boolean;  // تنبيه قناص الوجهات المرغوبة
 }
 
 export interface AIMatchAnalysis {
@@ -170,6 +175,25 @@ export interface ParsedOrder {
   closedAt?: Date | string;
   closureReason?: string;
   closureEvidence?: ClosureEvidence;
+  isDestinationHunted?: boolean;     // تم اصطياده بواسطة صائد الوجهات المرغوبة في القروبات
+  huntedDestinationDetails?: {
+    type: 'pickup' | 'delivery' | 'route';
+    matchedArea: string;
+    routeLabel?: string;
+  };
+}
+
+export interface HuntedDestinationLog {
+  id: string;
+  orderId: string;
+  from: string;
+  to: string;
+  price: number;
+  groupName: string;
+  matchedArea: string;
+  matchType: 'pickup' | 'delivery' | 'route';
+  huntedAt: string;
+  rawText: string;
 }
 
 export interface DriverStats {

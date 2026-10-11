@@ -20,7 +20,12 @@ import {
   Clock
 } from 'lucide-react';
 import { ParsedOrder } from '../types';
-import { sendNativeQuickReply } from '../native/whatsappListener';
+import { 
+  executePrivateAdvertiserOutreach, 
+  AdvertiserContactResolution, 
+  formatAdvertiserPrivateMessage 
+} from '../utils/whatsappPrivateOutreach';
+import { AdvertiserOutreachModal } from './AdvertiserOutreachModal';
 
 interface FocusedOrderDetailModalProps {
   order: ParsedOrder | null;
@@ -43,6 +48,8 @@ export const FocusedOrderDetailModal: React.FC<FocusedOrderDetailModalProps> = (
 
   const [copied, setCopied] = useState(false);
   const [isAutoReplying, setIsAutoReplying] = useState(false);
+  const [showOutreachModal, setShowOutreachModal] = useState(false);
+  const [outreachResolution, setOutreachResolution] = useState<AdvertiserContactResolution | null>(null);
 
   const isClosed = order.status === 'closed_taken' || order.status === 'suspicious_closed';
   const isPassenger = order.passengerDetection?.level === 'confirmed_passenger' || !!order.passengerCount;
@@ -56,16 +63,8 @@ export const FocusedOrderDetailModal: React.FC<FocusedOrderDetailModalProps> = (
     : phoneFromText ? (phoneFromText.startsWith('973') ? phoneFromText : '973' + phoneFromText)
     : cleanPhone;
 
-  // Quick private reply template to advertiser
-  const baseCourierText = customTemplate && customTemplate.trim()
-    ? customTemplate.replace(/{area}/g, driverArea)
-    : `#مندوب_توصيل انا في (${driverArea})`;
-
-  const privateAdvertiserMessage = `السلام عليكم، بخصوص طلبك (${order.from} ← ${order.to}):\n${baseCourierText} ومستعد للاستلام والتوصيل فوراً 🚗`;
-
-  const waUrl = effectivePhone && effectivePhone !== '97300000000'
-    ? `https://wa.me/${effectivePhone}?text=${encodeURIComponent(privateAdvertiserMessage)}`
-    : `https://api.whatsapp.com/send?text=${encodeURIComponent(privateAdvertiserMessage)}`;
+  // Tailored message to advertiser
+  const privateAdvertiserMessage = formatAdvertiserPrivateMessage(order);
 
   const handleCopyText = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -76,40 +75,21 @@ export const FocusedOrderDetailModal: React.FC<FocusedOrderDetailModalProps> = (
   const handleAcceptOrder = async () => {
     setIsAutoReplying(true);
     try {
-      // 1. قبول الطلب وإضافته لجدول الأرباح فوراً
-      onAccept(order);
+      const outreachResult = await executePrivateAdvertiserOutreach(order);
 
-      // 2. إرسال الرد النيتيف في واتساب تلقائياً في الخاص مع المعلن
-      try {
-        await sendNativeQuickReply({
-          phone: effectivePhone || order.senderPhone,
-          message: privateAdvertiserMessage,
-        });
-      } catch (nativeErr) {
-        console.warn('[Orderi Focused] Native quick reply:', nativeErr);
+      if (outreachResult.needsVerification) {
+        setOutreachResolution(outreachResult.resolution);
+        setShowOutreachModal(true);
+        setIsAutoReplying(false);
+        return;
       }
 
-      // 3. إرسال الرد في واتساب عبر السيرفر في الخاص مباشرة لصاحب الإعلان
-      await fetch('/api/whatsapp/quick-accept-reply', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          orderId: order.id,
-          phone: effectivePhone || order.senderPhone,
-          targetType: 'private_direct',
-          groupName: order.groupName,
-          senderName: order.senderName,
-          replyText: privateAdvertiserMessage,
-          price: order.price,
-          from: order.from,
-          to: order.to,
-        }),
-      });
+      onAccept(order);
+      onClose();
     } catch (err) {
       console.warn('[Orderi Focused] Auto reply error:', err);
     } finally {
       setIsAutoReplying(false);
-      onClose();
     }
   };
 
@@ -343,27 +323,23 @@ export const FocusedOrderDetailModal: React.FC<FocusedOrderDetailModalProps> = (
                   type="button"
                   onClick={handleAcceptOrder}
                   disabled={isAutoReplying}
-                  className={`flex-1 min-h-[50px] flex items-center justify-center gap-2 py-3 px-4 rounded-2xl text-white font-black text-xs sm:text-sm shadow-md transition-all active:scale-[0.98] cursor-pointer ${
-                    isPassenger 
-                      ? 'bg-gradient-to-r from-red-600 via-rose-600 to-red-700 hover:from-red-500 hover:to-rose-500 shadow-rose-900/30' 
-                      : 'bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-500 hover:to-teal-500 shadow-emerald-700/25'
-                  }`}
+                  className="flex-1 min-h-[50px] flex items-center justify-center gap-2 py-3 px-4 rounded-2xl text-white font-black text-xs sm:text-sm shadow-md transition-all active:scale-[0.98] cursor-pointer bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-500 hover:to-teal-500 shadow-emerald-700/25"
                 >
                   {isAutoReplying ? (
                     <>
                       <RefreshCw className="w-4 h-4 animate-spin text-white" />
-                      <span>جاري إرسال الرد في الخاص للمعلن...</span>
+                      <span>جاري فتح الخاص مع صاحب الإعلان...</span>
                     </>
                   ) : (
                     <>
                       <Zap className="w-4 h-4 fill-amber-300 text-amber-300 animate-pulse" />
                       <div className="flex flex-col items-center leading-tight">
                         <span className="flex items-center gap-1">
-                          <span>قبول والرد في الخاص للمعلن</span>
+                          <span>قبول الطلب والتواصل عبر واتساب</span>
                           <span className="text-[11px] font-bold text-amber-200">👤⚡</span>
                         </span>
                         <span className="text-[10px] font-normal text-emerald-100">
-                          (إرسال بالخاص مباشرة وليس بالقروب 🔒)
+                          (محادثة خاصة في واتساب العادي — بدون أي رد بالقروب 🔒)
                         </span>
                       </div>
                     </>
@@ -371,7 +347,7 @@ export const FocusedOrderDetailModal: React.FC<FocusedOrderDetailModalProps> = (
                 </button>
               </div>
 
-              {/* Secondary Actions: Ignore/Delete and Private Chat */}
+              {/* Secondary Actions: Ignore/Delete and Close */}
               <div className="flex items-center gap-2">
                 {/* Ignore / Delete Order Button */}
                 <button
@@ -383,20 +359,6 @@ export const FocusedOrderDetailModal: React.FC<FocusedOrderDetailModalProps> = (
                   <Trash2 className="w-4 h-4 text-rose-600" />
                   <span>تجاهل ومسح الطلب 🗑️</span>
                 </button>
-
-                {/* Direct WhatsApp Private Chat */}
-                {effectivePhone && (
-                  <a
-                    href={waUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={onClose}
-                    className="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-bold transition-all active:scale-95"
-                  >
-                    <MessageCircle className="w-4 h-4 text-emerald-600" />
-                    <span>فتح خاص واتساب 👤</span>
-                  </a>
-                )}
 
                 <button
                   type="button"
@@ -411,6 +373,22 @@ export const FocusedOrderDetailModal: React.FC<FocusedOrderDetailModalProps> = (
         </div>
 
       </div>
+
+      {/* Advertiser Private Outreach & Identity Verification Modal */}
+      {showOutreachModal && (
+        <AdvertiserOutreachModal
+          isOpen={showOutreachModal}
+          order={order}
+          resolution={outreachResolution}
+          onClose={() => setShowOutreachModal(false)}
+          onConfirmAccept={(acceptedOrd) => {
+            onAccept(acceptedOrd);
+            setShowOutreachModal(false);
+            onClose();
+          }}
+          onToast={(msg) => console.log(msg)}
+        />
+      )}
     </div>
   );
 };

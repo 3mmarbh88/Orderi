@@ -25,7 +25,8 @@ import {
   Zap,
   Reply,
   Power,
-  X
+  X,
+  Target
 } from 'lucide-react';
 import { OrderFilter, ParsedOrder, AreaLocation, StoreContact, OrderBroadcast } from './types';
 import { BAHRAIN_AREAS, findNearestArea } from './data/bahrainAreas';
@@ -77,8 +78,18 @@ import { getWhatsAppListenerStatus } from './native/whatsappListener';
 import { isDuplicateOrder, findDuplicateOrderMatch, rememberOrderFingerprint } from './utils/orderDedup';
 import { computeClientAiEvaluation } from './utils/aiEvaluator';
 import { detectPassengerDelivery } from './utils/passengerClassifier';
-import { checkIncomingMessageForClosure, ClosureMatchResult } from './utils/orderClosureDetector';
+import { 
+  checkIncomingMessageForClosure, 
+  ClosureMatchResult, 
+  isOrderPermanentlyClosed, 
+  markOrderPermanentlyClosed, 
+  getPermanentlyClosedOrderIds 
+} from './utils/orderClosureDetector';
 import { classifyAdvertiserPrivateReply } from './utils/advertiserReplyClassifier';
+import { 
+  checkOrderDestinationHunt, 
+  saveHuntedDestinationLog 
+} from './utils/destinationHunter';
 import { 
   sendBackgroundOrderNotification, 
   requestNotificationPermission,
@@ -168,7 +179,7 @@ function OrderiApp() {
 
   // 3. Navigation & Feed Filter
   const [activeTab, setActiveTab] = useState<'radar' | 'settings' | 'ledger' | 'broadcast' | 'map'>('radar');
-  const [feedFilter, setFeedFilter] = useState<'all' | 'matched' | 'vip' | 'trusted_vip' | 'passengers' | 'closed'>(() => {
+  const [feedFilter, setFeedFilter] = useState<'all' | 'matched' | 'vip' | 'trusted_vip' | 'passengers' | 'closed' | 'hunted'>(() => {
     try {
       const saved = localStorage.getItem('orderi_feed_filter');
       if (saved) return saved as any;
@@ -179,6 +190,7 @@ function OrderiApp() {
   // 4. Orders State (Persisted real orders only - pure live feeds)
   const [orders, setOrders] = useState<ParsedOrder[]>(() => {
     try {
+      const closedIds = getPermanentlyClosedOrderIds();
       const saved = localStorage.getItem('orderi_real_orders');
       if (saved) {
         const parsed = JSON.parse(saved);
@@ -187,6 +199,7 @@ function OrderiApp() {
             .filter((o: any) => o.source !== 'simulation' && !o.id?.startsWith('ord-showcase-') && !o.notes?.includes('سحبه تلقائياً فور ربط'))
             .map((o: any) => ({
               ...o,
+              status: (closedIds.includes(o.id) || o.status === 'closed_taken') ? 'closed_taken' : o.status,
               receivedAt: new Date(o.receivedAt),
               passengerDetection: o.passengerDetection || detectPassengerDelivery(o.rawText || `${o.from} ${o.to}`),
             }));
@@ -679,6 +692,11 @@ function OrderiApp() {
       }
     }
 
+    // If this order has already been closed/taken by a driver, never resurrect it into active radar
+    if (isOrderPermanentlyClosed(raw.id)) {
+      return;
+    }
+
     // Deduplicate only after the order passes activation, blacklist and group
     // filters. This prevents an ignored group from "claiming" an order that
     // later appears in one of the driver's monitored groups.
@@ -690,6 +708,33 @@ function OrderiApp() {
     const passengerDetection = raw.passengerDetection || detectPassengerDelivery(raw.rawText || `${raw.from} ${raw.to}`, {
       isBlockForbiddenEnabled: filterRef.current.blockPassengerDeliveries !== false,
     });
+
+    // Check Desired Destination Hunting (صائد وجهات التوصيل والتسليم المرغوبة في القروبات)
+    const destinationHunt = checkOrderDestinationHunt(
+      { from: raw.from, to: raw.to, rawText: raw.rawText },
+      filterRef.current
+    );
+    const isDestinationHunted = destinationHunt.isHunted;
+    const huntedDestinationDetails = destinationHunt.isHunted ? {
+      type: destinationHunt.matchType || 'delivery',
+      matchedArea: destinationHunt.matchedArea || raw.to,
+      routeLabel: destinationHunt.routeLabel,
+    } : undefined;
+
+    if (isDestinationHunted) {
+      saveHuntedDestinationLog({
+        id: `hunt-${Date.now()}-${raw.id}`,
+        orderId: raw.id,
+        from: raw.from,
+        to: raw.to,
+        price: typeof raw.price === 'number' && raw.price > 0 ? raw.price : 0,
+        groupName: raw.groupName || 'واتساب',
+        matchedArea: destinationHunt.matchedArea || raw.to,
+        matchType: destinationHunt.matchType || 'delivery',
+        huntedAt: new Date().toISOString(),
+        rawText: raw.rawText || '',
+      });
+    }
 
     const newOrder: ParsedOrder = {
       ...raw,
@@ -704,12 +749,16 @@ function OrderiApp() {
       crossPostedGroups: raw.crossPostedGroups || [raw.groupName],
       duplicateCount: raw.duplicateCount || 1,
       passengerDetection,
+      isDestinationHunted,
+      huntedDestinationDetails,
     };
 
     // Sound, Vibration & Notifications
     if (!isInitialBatch) {
-      if (passengerDetection.level === 'confirmed_passenger') {
-        // تنبيه أحمر بنقل أشخاص: الإعلان يظهر بالرادار للعلم مع تعطيل القبول
+      const isPassengerBlocked = passengerDetection.level === 'confirmed_passenger' && filterRef.current.blockPassengerDeliveries !== false;
+
+      if (isPassengerBlocked) {
+        // تنبيه أحمر بنقل أشخاص: الإعلان يظهر بالرادار للعلم مع تحذير المنع
         showToast(`🚨 رصد إعلان نقل ركاب (${newOrder.from} ← ${newOrder.to}) • تحذير: توصيل أشخاص ممنوع 🚫`);
         if (filterRef.current.soundEnabled) {
           playAlertTone('urgent_siren', 65);
@@ -745,10 +794,16 @@ function OrderiApp() {
         if (filterRef.current.backgroundNotificationsEnabled ?? true) {
           sendBackgroundOrderNotification(newOrder, filterRef.current);
         }
-        showToast(`⚡ طلب وارد تلقائياً من واتساب (${newOrder.isDirectPrivate ? 'خاص 👤' : 'قروب 👥'}) • ${newOrder.from} ← ${newOrder.to}`);
+        const orderKindLabel = isDestinationHunted 
+          ? `🎯 صيد وجهة مرغوبة (${destinationHunt.matchedArea || newOrder.to})`
+          : (passengerDetection.level === 'confirmed_passenger' ? 'طلب توصيل راكب 👥' : 'طلب بضائع 🚗');
+        showToast(`⚡ ${orderKindLabel} وارد من واتساب (${newOrder.isDirectPrivate ? 'خاص 👤' : 'قروب 👥'}) • ${newOrder.from} ← ${newOrder.to}`);
+        if (isDestinationHunted && filterRef.current.destinationSniperAlert !== false && filterRef.current.soundEnabled) {
+          playAlertTone('cash_register', 90);
+        }
       } else {
         // الطلب غير مطابق لشروط الكابتن
-        if (filterRef.current.ignoreNonMatching && passengerDetection.level !== 'confirmed_passenger') {
+        if (filterRef.current.ignoreNonMatching && !isPassengerBlocked) {
           // محجوب تماماً من الإشعارات في الخلفية والأصوات بناء على رغبة الكابتن
           return;
         }
@@ -1472,6 +1527,23 @@ function OrderiApp() {
   const handleAutoOrderClosure = (closureMatch: ClosureMatchResult) => {
     const { orderId, verdict, reason, evidence } = closureMatch;
     
+    if (verdict === 'confirmed_closed') {
+      // 1. Permanently record closed order to prevent resurrection across reloads
+      markOrderPermanentlyClosed(orderId);
+
+      // 2. If focused in modal or details card, dismiss it
+      if (focusedOrder?.id === orderId) {
+        setFocusedOrder(null);
+      }
+
+      // 3. Sync closure to server backend
+      fetch('/api/orders/close', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId, reason, evidence }),
+      }).catch(() => {});
+    }
+
     setOrders((prev) =>
       prev.map((ord) => {
         const isTarget = 
@@ -1500,7 +1572,7 @@ function OrderiApp() {
     );
 
     if (verdict === 'confirmed_closed') {
-      showToast(`🏷️ تم إغلاق الطلب تلقائياً (${closureMatch.matchedOrder.from} ← ${closureMatch.matchedOrder.to}) • تم أخذه في القروب («${evidence.replyText}»)`);
+      showToast(`🏷️ تم إغلاق الطلب تلقائياً (${closureMatch.matchedOrder.from} ← ${closureMatch.matchedOrder.to}) • حصل المعلن على مندوب («${evidence.replyText}»)`);
       if (filterRef.current.soundEnabled) {
         playAlertTone('radar_beep', 60);
       }
@@ -1731,6 +1803,7 @@ function OrderiApp() {
   const vipCount = availableOrders.filter((o) => o.match.score >= 90).length;
   const trustedVipCount = availableOrders.filter((o) => o.contactStatus === 'vip').length;
   const passengerCount = availableOrders.filter((o) => o.passengerDetection?.level === 'confirmed_passenger').length;
+  const huntedCount = availableOrders.filter((o) => o.isDestinationHunted).length;
   const todayEarnings = acceptedOrders.reduce((sum, ord) => sum + ord.price, 0);
 
   // Filtered Orders View: strictly enforce WhatsApp group filter, ignoreNonMatching and blacklist switches
@@ -1750,6 +1823,7 @@ function OrderiApp() {
 
     const isPassengerOrder = ord.passengerDetection?.level === 'confirmed_passenger';
     if (!isPassengerOrder && filter.ignoreNonMatching && ord.match.score < 80 && ord.contactStatus !== 'vip') return false;
+    if (feedFilter === 'hunted') return !!ord.isDestinationHunted;
     if (feedFilter === 'matched') return ord.match.score >= 80;
     if (feedFilter === 'vip') return ord.match.score >= 90;
     if (feedFilter === 'trusted_vip') return ord.contactStatus === 'vip';
@@ -2026,6 +2100,18 @@ function OrderiApp() {
                   </button>
 
                   <button
+                    onClick={() => setFeedFilter('hunted')}
+                    className={`min-h-[40px] px-3.5 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap shrink-0 flex items-center gap-1.5 active:scale-95 ${
+                      feedFilter === 'hunted'
+                        ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-2xs'
+                        : 'text-emerald-800 hover:text-emerald-950 hover:bg-emerald-100/50'
+                    }`}
+                  >
+                    <Target className="w-3.5 h-3.5" />
+                    <span>صيد الوجهات ({huntedCount}) 🎯</span>
+                  </button>
+
+                  <button
                     onClick={() => setFeedFilter('closed')}
                     className={`min-h-[40px] px-3.5 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap shrink-0 flex items-center gap-1.5 active:scale-95 ${
                       feedFilter === 'closed'
@@ -2138,6 +2224,7 @@ function OrderiApp() {
             <BahrainRouteMap
               driverLocation={driverLocation}
               activeOrder={displayedOrders[0] || null}
+              orders={displayedOrders}
               onSelectAreaAsLocation={(areaName) => {
                 const area = BAHRAIN_AREAS.find(a => a.name === areaName);
                 if (area) handleSetManualLocation(area);
@@ -2203,6 +2290,7 @@ function OrderiApp() {
           <BahrainRouteMap
             driverLocation={driverLocation}
             activeOrder={displayedOrders[0] || null}
+            orders={displayedOrders}
             onSelectAreaAsLocation={(areaName) => {
               const area = BAHRAIN_AREAS.find(a => a.name === areaName);
               if (area) handleSetManualLocation(area);

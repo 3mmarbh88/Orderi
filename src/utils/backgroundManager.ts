@@ -87,7 +87,11 @@ export function sendBackgroundOrderNotification(order: ParsedOrder, filter?: Ord
     // Title format: highlights route or passenger warning
     let title = '';
     if (isPassenger) {
-      title = `🚨 نقل ركاب ${count ? `(${count} ركاب)` : ''} • تحذير: توصيل أشخاص ممنوع 🚫`;
+      if (filter.blockPassengerDeliveries !== false) {
+        title = `🚨 نقل ركاب ${count ? `(${count} ركاب)` : ''} • تحذير: توصيل أشخاص ممنوع 🚫`;
+      } else {
+        title = `👥 طلب توصيل راكب: ${order.from} ← ${order.to}${count ? ` (${count} ركاب)` : ''}`;
+      }
     } else {
       title = `🚗 طلب جديد: ${order.from} ← ${order.to}`;
     }

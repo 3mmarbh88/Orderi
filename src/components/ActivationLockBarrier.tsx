@@ -48,12 +48,111 @@ export function WhatsAppIcon({
   );
 }
 
+const translations = {
+  ar: {
+    title: 'Orderi',
+    lockedBadge: 'البرنامج مقفل',
+    lockedSubtitle: 'بانتظار كود التفعيل أو الفترة التجريبية لتشغيل الرادار 🇧🇭',
+    trialExpiredTitle: 'انتهت الفترة التجريبية (7 أيام) المخصصة لهذا الرقم',
+    trialExpiredDesc: 'لقد انتهت فترة الـ 7 أيام المجانية المرتبطة برقم هاتفك. يرجى إدخال كود التفعيل المعتمد أو التواصل عبر واتساب للاشتراك.',
+    trialActiveTitle: 'فترتك التجريبية نشطة حالياً ⏳',
+    remaining: 'متبقي',
+    trialLinkedPhone: 'رقم الهاتف المرتبط:',
+    trialExpiresOn: 'تنتهي التجربة بتاريخ',
+    trialAllFeatures: 'يمكنك استخدام كافة ميزات رادار الواتساب والـ GPS.',
+    trialBannerTitle: 'جرّب Orderi مجاناً لمدة 7 أيام بالكامل 🎁',
+    trialBannerDesc: 'استمتع بكافة ميزات رادار طلبات الواتساب، التوجيه الذكي، ومستشعر الـ GPS مجاناً.',
+    trialPhoneLabel: 'رقم هاتف واتساب البحرين لربط التجربة:',
+    trialPhonePlaceholder: '33XXXXXX',
+    trialStartBtn: 'تفعيل الفترة التجريبية (7 أيام) وتشغيل البرنامج فوراً ⚡',
+    trialStarting: 'جاري تفعيل التجربة...',
+    trialSuccess: 'تم تفعيل الفترة التجريبية (7 أيام) بنجاح! الرادار والـ GPS يعملان الآن ⚡',
+    trialPhoneError: 'يرجى إدخال رقم هاتف واتساب بحريني صالح (8 أرقام)',
+    viewOnlyTitle: 'فتح البرنامج بدون تفعيل (وضع المشاهدة)',
+    viewOnlyBadge: 'الرادار والـ GPS معطلان 🔒',
+    viewOnlyDesc: 'يمكنك الدخول إلى شاشة البرنامج واستعراض الإعدادات وقوائم الطلبات، مع بقاء رادار الواتساب ومستشعر الـ GPS معطلين تماماً حتى يتم تفعيل البرنامج أو بدء التجربة المجانية.',
+    viewOnlyBtn: 'المتابعة إلى شاشة البرنامج (مع بقاء الرادار والـ GPS معطلين)',
+    licenseCodeTitle: 'أو تفعيل البرنامج عبر كود الترخيص الرسمي:',
+    licenseCodeDesc: 'أدخل كود التفعيل المخصص لحسابك لتشغيل البرنامج دائماً، أو تواصل عبر واتساب للحصول على كود جديد.',
+    whatsappHelp: 'تواصل عبر واتساب للحصول على كود التفعيل',
+    activationSuccess: 'تم تفعيل الاشتراك بنجاح! جاري تشغيل Orderi...',
+    notActivatedBadge: 'غير مفعل',
+    enterCodeLabel: 'أدخل كود التفعيل المعتمد:',
+    enterCodeHint: 'أحرف وأرقام',
+    enterCodePlaceholder: 'أدخل كود التفعيل هنا',
+    activateBtn: 'تفعيل الاشتراك وتشغيل البرنامج',
+    verifying: 'جاري التحقق من السيرفر...',
+    loginFirst: 'يجب تسجيل الدخول أولاً قبل تفعيل كود الاشتراك',
+    biometricBtn: 'الدخول بالبصمة',
+    loginBtn: 'تسجيل الدخول',
+    noAccount: 'ليس لديك حساب؟ إنشاء حساب جديد',
+    footerText: 'Orderi — رادار طلبات التوصيل الذكي في مملكة البحرين 🇧🇭',
+  },
+  en: {
+    title: 'Orderi',
+    lockedBadge: 'App Locked',
+    lockedSubtitle: 'Waiting for activation license code or trial to start radar 🇧🇭',
+    trialExpiredTitle: '7-Day Free Trial Has Expired for This Number',
+    trialExpiredDesc: 'Your 7-day free trial associated with your phone number has ended. Please enter your official activation license or contact us via WhatsApp.',
+    trialActiveTitle: 'Your Free Trial is Currently Active ⏳',
+    remaining: 'Remaining',
+    trialLinkedPhone: 'Linked Phone Number:',
+    trialExpiresOn: 'Trial expires on',
+    trialAllFeatures: 'All WhatsApp radar and GPS tracking features are enabled.',
+    trialBannerTitle: 'Try Orderi Free for 7 Full Days 🎁',
+    trialBannerDesc: 'Access all live WhatsApp radar order monitoring, smart filters, and GPS features completely free.',
+    trialPhoneLabel: 'Bahrain WhatsApp Phone Number for Trial Link:',
+    trialPhonePlaceholder: '33XXXXXX',
+    trialStartBtn: 'Activate 7-Day Free Trial & Start Immediately ⚡',
+    trialStarting: 'Activating Trial...',
+    trialSuccess: '7-Day Free Trial activated successfully! Radar & GPS are now running ⚡',
+    trialPhoneError: 'Please enter a valid Bahrain WhatsApp number (8 digits)',
+    viewOnlyTitle: 'Open App in View-Only Mode (Unactivated)',
+    viewOnlyBadge: 'Radar & GPS Disabled 🔒',
+    viewOnlyDesc: 'You can explore the interface, settings, and orders list, but live WhatsApp radar and GPS tracking remain disabled until licensed or trial starts.',
+    viewOnlyBtn: 'Continue to App (Radar & GPS remain off)',
+    licenseCodeTitle: 'Or Activate License Using Official Code:',
+    licenseCodeDesc: 'Enter your license activation code to unlock permanent access, or contact WhatsApp support to get a license.',
+    whatsappHelp: 'Contact Support on WhatsApp to Get Activation Code',
+    activationSuccess: 'License activated successfully! Launching Orderi...',
+    notActivatedBadge: 'Unlicensed',
+    enterCodeLabel: 'Enter Official Activation Code:',
+    enterCodeHint: 'Letters and numbers',
+    enterCodePlaceholder: 'Enter activation code here',
+    activateBtn: 'Activate License & Launch App',
+    verifying: 'Verifying with server...',
+    loginFirst: 'Please sign in to your account before activating license code',
+    biometricBtn: 'Biometric Sign In',
+    loginBtn: 'Sign In',
+    noAccount: "Don't have an account? Create New Account",
+    footerText: 'Orderi — Bahrain Smart Order Delivery Radar 🇧🇭',
+  }
+};
+
 export function ActivationLockBarrier({
   currentUser,
   onActivated,
   onOpenAuthModal,
   onOpenUnactivated,
 }: ActivationLockBarrierProps) {
+  const [lang, setLang] = useState<'ar' | 'en'>(() => {
+    try {
+      return (localStorage.getItem('orderi_app_lang') as 'ar' | 'en') || 
+             (localStorage.getItem('orderi_auth_lang') as 'ar' | 'en') || 'ar';
+    } catch {
+      return 'ar';
+    }
+  });
+
+  const handleSetLanguage = (newLang: 'ar' | 'en') => {
+    setLang(newLang);
+    try {
+      localStorage.setItem('orderi_app_lang', newLang);
+      localStorage.setItem('orderi_auth_lang', newLang);
+    } catch {}
+  };
+
+  const tr = translations[lang];
   const [code, setCode] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -225,15 +324,20 @@ export function ActivationLockBarrier({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/85 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200 select-none">
+    <div 
+      dir={lang === 'ar' ? 'rtl' : 'ltr'}
+      className={`fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/85 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200 select-none ${
+        lang === 'ar' ? 'text-right' : 'text-left'
+      }`}
+    >
       {/* Background glow effects */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-80 h-80 bg-rose-500/10 rounded-full blur-3xl pointer-events-none" />
 
       {/* Main card */}
       <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border-2 border-rose-300/80 overflow-hidden relative z-10 flex flex-col my-auto max-h-[95vh]">
-        {/* Header - No close (إغلاق) button as requested */}
-        <div className="bg-gradient-to-r from-slate-900 via-rose-950 to-slate-950 p-5 sm:p-6 text-white text-right relative">
+        {/* Header with Language Switcher */}
+        <div className="bg-gradient-to-r from-slate-900 via-rose-950 to-slate-950 p-5 sm:p-6 text-white relative">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-2xl bg-white p-0.5 shadow-lg shadow-rose-900/40 shrink-0 flex items-center justify-center border-2 border-rose-400">
@@ -247,21 +351,43 @@ export function ActivationLockBarrier({
               <div>
                 <div className="flex items-center gap-2">
                   <h3 className="text-xl font-black tracking-tight text-white">
-                    Orderi
+                    {tr.title}
                   </h3>
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-500 text-white flex items-center gap-1 shadow-xs">
                     <Lock className="w-3 h-3" />
-                    <span>البرنامج مقفل</span>
+                    <span>{tr.lockedBadge}</span>
                   </span>
                 </div>
                 <p className="text-xs text-rose-200 mt-0.5 font-bold">
-                  بانتظار كود التفعيل أو الفترة التجريبية لتشغيل الرادار 🇧🇭
+                  {tr.lockedSubtitle}
                 </p>
               </div>
             </div>
 
-            <div className="w-10 h-10 rounded-2xl bg-rose-500/20 border border-rose-400/40 flex items-center justify-center text-rose-300 shrink-0">
-              <ShieldAlert className="w-5 h-5 text-rose-400" />
+            {/* Language Switcher: العربية | English */}
+            <div className="inline-flex rounded-xl bg-white/10 p-1 border border-white/15 shrink-0 self-start">
+              <button
+                type="button"
+                onClick={() => handleSetLanguage('ar')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                  lang === 'ar'
+                    ? 'bg-white text-slate-950 shadow-xs'
+                    : 'text-rose-200 hover:text-white'
+                }`}
+              >
+                العربية
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSetLanguage('en')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                  lang === 'en'
+                    ? 'bg-white text-slate-950 shadow-xs'
+                    : 'text-rose-200 hover:text-white'
+                }`}
+              >
+                English
+              </button>
             </div>
           </div>
         </div>
@@ -270,45 +396,42 @@ export function ActivationLockBarrier({
         <div className="p-5 sm:p-6 overflow-y-auto space-y-4">
           {/* ============================================================
               1. SECTION: 7-DAY TRIAL PERIOD
-              مرتبطة برقم الهاتف وتاريخ الضغط، وتختفي عند انتهاء الـ 7 أيام
               ============================================================ */}
           {isTrialExpired ? (
-            /* انتهت الفترة التجريبية -> يختفي خيار الفترة التجريبية ويظهر إشعار بالانتهاء */
-            <div className="p-4 rounded-2xl bg-amber-50 border-2 border-amber-300 text-right space-y-2 shadow-2xs animate-in fade-in">
+            <div className="p-4 rounded-2xl bg-amber-50 border-2 border-amber-300 space-y-2 shadow-2xs animate-in fade-in">
               <div className="flex items-center gap-2 text-xs sm:text-sm font-black text-amber-950">
                 <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                <span>انتهت الفترة التجريبية (7 أيام) المخصصة لهذا الرقم</span>
+                <span>{tr.trialExpiredTitle}</span>
               </div>
               <p className="text-xs text-amber-900 leading-relaxed font-medium">
-                لقد انتهت فترة الـ 7 أيام المجانية المرتبطة برقم هاتفك (
+                {tr.trialExpiredDesc} ({' '}
                 <span className="font-mono font-bold" dir="ltr">
                   +973 {activePhone}
-                </span>
-                ). خيار التجربة المجانية لم يعد متاحاً. يرجى إدخال كود التفعيل المعتمد أو التواصل عبر واتساب للاشتراك.
+                </span>{' '}
+                )
               </p>
             </div>
           ) : isTrialActive ? (
-            /* الفترة التجريبية نشطة حالياً */
-            <div className="p-4 rounded-2xl bg-emerald-50 border-2 border-emerald-400 text-right space-y-2.5 shadow-2xs animate-in fade-in">
+            <div className="p-4 rounded-2xl bg-emerald-50 border-2 border-emerald-400 space-y-2.5 shadow-2xs animate-in fade-in">
               <div className="flex items-center justify-between">
                 <span className="text-xs sm:text-sm font-black text-emerald-950 flex items-center gap-1.5">
                   <Clock className="w-4 h-4 text-emerald-600" />
-                  <span>فترتك التجريبية نشطة حالياً ⏳</span>
+                  <span>{tr.trialActiveTitle}</span>
                 </span>
                 <span className="text-[10px] bg-emerald-600 text-white font-black px-2.5 py-0.5 rounded-full shadow-2xs">
-                  متبقي {remainingTime?.formatted}
+                  {tr.remaining} {remainingTime?.formatted}
                 </span>
               </div>
               <p className="text-xs text-emerald-900 font-medium leading-relaxed">
-                رقم الهاتف المرتبط:{' '}
+                {tr.trialLinkedPhone}{' '}
                 <strong className="font-mono" dir="ltr">
                   +973 {activePhone}
                 </strong>
-                . تنتهي التجربة بتاريخ{' '}
+                . {tr.trialExpiresOn}{' '}
                 <strong>
-                  {new Date(existingTrial!.expiresAt).toLocaleDateString('ar-BH')}
+                  {new Date(existingTrial!.expiresAt).toLocaleDateString(lang === 'ar' ? 'ar-BH' : 'en-US')}
                 </strong>
-                . يمكنك استخدام كافة ميزات رادار الواتساب والـ GPS.
+                . {tr.trialAllFeatures}
               </p>
               <button
                 type="button"
@@ -324,30 +447,29 @@ export function ActivationLockBarrier({
                 className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 text-white font-black text-xs sm:text-sm shadow-md shadow-emerald-600/25 flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer"
               >
                 <Sparkles className="w-4 h-4 text-emerald-200" />
-                <span>متابعة العمل بالاشتراك التجريبي (الرادار والـ GPS نشطان) 🚀</span>
+                <span>{lang === 'ar' ? 'متابعة العمل بالاشتراك التجريبي (الرادار والـ GPS نشطان) 🚀' : 'Continue with Trial (Radar & GPS Active) 🚀'}</span>
               </button>
             </div>
           ) : (
-            /* لم تبدأ الفترة التجريبية بعد -> عرض خيار بدء الفترة التجريبية 7 أيام */
-            <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-indigo-50 via-purple-50/50 to-white border-2 border-indigo-200 text-right space-y-3 shadow-xs animate-in fade-in">
+            <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-indigo-50 via-purple-50/50 to-white border-2 border-indigo-200 space-y-3 shadow-xs animate-in fade-in">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs sm:text-sm font-black text-indigo-950 flex items-center gap-1.5">
                   <Sparkles className="w-4 h-4 text-indigo-600 shrink-0" />
-                  <span>فترة تجريبية مجانية لمدة 7 أيام 🎁</span>
+                  <span>{tr.trialBannerTitle}</span>
                 </span>
                 <span className="text-[10px] font-black bg-indigo-600 text-white px-2 py-0.5 rounded-full shadow-2xs">
-                  7 أيام كاملة ⚡
+                  7 DAYS ⚡
                 </span>
               </div>
 
               <p className="text-xs text-indigo-900 leading-relaxed font-medium">
-                جرب برنامج Orderi مع تشغيل كامل لرادار سحب طلبات الواتساب ومستشعر الـ GPS مجاناً لمدة 7 أيام تبدأ فورياً من لحظة الضغط، مرتبطة برقم هاتفك.
+                {tr.trialBannerDesc}
               </p>
 
               {/* Phone input confirmation */}
               <div className="space-y-1.5 pt-1">
                 <label className="text-[11px] font-black text-slate-700 block">
-                  رقم هاتف واتساب البحرين لربط التجربة:
+                  {tr.trialPhoneLabel}
                 </label>
                 <div className="relative flex items-center">
                   <input
@@ -389,11 +511,11 @@ export function ActivationLockBarrier({
                 className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-700 hover:from-indigo-700 hover:to-purple-800 text-white font-black text-xs sm:text-sm shadow-md shadow-indigo-600/25 flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer disabled:opacity-50"
               >
                 {isStartingTrial ? (
-                  <span className="animate-pulse">جاري تفعيل التجربة...</span>
+                  <span className="animate-pulse">{tr.trialStarting}</span>
                 ) : (
                   <>
                     <Sparkles className="w-4 h-4 text-indigo-200" />
-                    <span>تفعيل الفترة التجريبية (7 أيام) وتشغيل البرنامج فوراً ⚡</span>
+                    <span>{tr.trialStartBtn}</span>
                   </>
                 )}
               </button>
@@ -402,20 +524,19 @@ export function ActivationLockBarrier({
 
           {/* ============================================================
               2. SECTION: OPEN APP WITHOUT ACTIVATION (VIEW ONLY)
-              واذا لم يتم تفعيل البرنامج يفتح البرنامج ولكن لايعمل الرادار بالواتساب ولا يعمل الـ GPS
               ============================================================ */}
-          <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-right space-y-2 shadow-2xs">
+          <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2 shadow-2xs">
             <div className="flex items-center justify-between text-xs font-bold text-slate-700">
               <span className="flex items-center gap-1.5 text-slate-800 font-black">
                 <Eye className="w-4 h-4 text-slate-500 shrink-0" />
-                <span>فتح البرنامج بدون تفعيل (وضع المشاهدة)</span>
+                <span>{tr.viewOnlyTitle}</span>
               </span>
               <span className="text-[10px] bg-slate-200 text-slate-600 px-2 py-0.5 rounded-full font-bold">
-                الرادار والـ GPS معطلان 🔒
+                {tr.viewOnlyBadge}
               </span>
             </div>
             <p className="text-[11px] text-slate-500 leading-relaxed">
-              يمكنك الدخول إلى شاشة البرنامج واستعراض الإعدادات وقوائم الطلبات، مع بقاء رادار الواتساب ومستشعر الـ GPS معطلين تماماً حتى يتم تفعيل البرنامج أو بدء التجربة المجانية.
+              {tr.viewOnlyDesc}
             </p>
             <button
               type="button"
@@ -423,20 +544,20 @@ export function ActivationLockBarrier({
               className="w-full py-2.5 px-3 rounded-xl bg-slate-200/80 hover:bg-slate-300 text-slate-800 font-bold text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98]"
             >
               <Eye className="w-4 h-4 text-slate-600" />
-              <span>المتابعة إلى شاشة البرنامج (مع بقاء الرادار والـ GPS معطلين)</span>
+              <span>{tr.viewOnlyBtn}</span>
             </button>
           </div>
 
           {/* ============================================================
               3. SECTION: ACTIVATION CODE ENTRY
               ============================================================ */}
-          <div className="p-4 rounded-2xl bg-rose-50/90 border-2 border-rose-200 text-right space-y-1.5 shadow-2xs">
+          <div className="p-4 rounded-2xl bg-rose-50/90 border-2 border-rose-200 space-y-1.5 shadow-2xs">
             <div className="flex items-center gap-2 font-black text-rose-950 text-xs sm:text-sm">
               <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-              <span>أو تفعيل البرنامج عبر كود الترخيص الرسمي:</span>
+              <span>{tr.licenseCodeTitle}</span>
             </div>
             <p className="text-xs text-rose-800 leading-relaxed font-medium">
-              أدخل كود التفعيل المخصص لحسابك لتشغيل البرنامج دائماً، أو تواصل عبر واتساب للحصول على كود جديد.
+              {tr.licenseCodeDesc}
             </p>
           </div>
 
@@ -449,7 +570,7 @@ export function ActivationLockBarrier({
               className="w-full py-3 px-4 rounded-2xl bg-[#25D366] hover:bg-[#20ba59] text-white font-black text-xs sm:text-sm shadow-md shadow-[#25D366]/25 transition-all flex items-center justify-center gap-2 active:scale-[0.98] group"
             >
               <WhatsAppIcon className="w-5 h-5 fill-current shrink-0 group-hover:scale-110 transition-transform" />
-              <span>تواصل عبر واتساب للحصول على كود التفعيل</span>
+              <span>{tr.whatsappHelp}</span>
             </a>
           </div>
 
@@ -465,13 +586,13 @@ export function ActivationLockBarrier({
           {isSuccess && (
             <div className="flex items-center gap-2 p-3 rounded-2xl bg-emerald-100 border border-emerald-300 text-emerald-900 text-xs font-bold animate-in fade-in">
               <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
-              <span>تم تفعيل الاشتراك بنجاح! جاري تشغيل Orderi...</span>
+              <span>{tr.activationSuccess}</span>
             </div>
           )}
 
           {/* Current account summary */}
           {currentUser && (
-            <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 text-right flex items-center justify-between">
+            <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-xl bg-slate-200 text-slate-700 flex items-center justify-center font-bold text-xs shrink-0">
                   <User className="w-4 h-4" />
@@ -490,7 +611,7 @@ export function ActivationLockBarrier({
               </div>
 
               <span className="text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-lg">
-                غير مفعل
+                {tr.notActivatedBadge}
               </span>
             </div>
           )}
@@ -503,11 +624,11 @@ export function ActivationLockBarrier({
             }}
             className="space-y-3"
           >
-            <div className="space-y-1.5 text-right">
+            <div className="space-y-1.5">
               <label className="text-xs font-black text-slate-800 flex items-center justify-between">
-                <span>أدخل كود التفعيل المعتمد:</span>
+                <span>{tr.enterCodeLabel}</span>
                 <span className="text-[10px] text-emerald-700 font-bold">
-                  أحرف وأرقام
+                  {tr.enterCodeHint}
                 </span>
               </label>
 
@@ -516,7 +637,7 @@ export function ActivationLockBarrier({
                   type="text"
                   value={code}
                   onChange={(e) => setCode(e.target.value.toUpperCase())}
-                  placeholder="أدخل كود التفعيل هنا"
+                  placeholder={tr.enterCodePlaceholder}
                   dir="ltr"
                   className="w-full px-4 py-3.5 rounded-2xl border-2 border-slate-300 bg-slate-50 font-mono font-black text-base text-slate-900 text-center tracking-wider focus:bg-white focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 outline-none transition-all"
                   disabled={isLoading || isSuccess}
@@ -536,11 +657,11 @@ export function ActivationLockBarrier({
               className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-sm sm:text-base shadow-xl shadow-emerald-600/30 transition-all flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-50 cursor-pointer"
             >
               {isLoading ? (
-                <span className="animate-pulse">جاري التحقق من السيرفر...</span>
+                <span className="animate-pulse">{tr.verifying}</span>
               ) : (
                 <>
                   <KeyRound className="w-5 h-5" />
-                  <span>تفعيل الاشتراك وتشغيل البرنامج</span>
+                  <span>{tr.activateBtn}</span>
                 </>
               )}
             </button>
@@ -555,7 +676,7 @@ export function ActivationLockBarrier({
               className="p-2.5 rounded-xl bg-slate-50 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 text-slate-700 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer"
             >
               <Fingerprint className="w-4 h-4 text-emerald-600" />
-              <span>الدخول بالبصمة</span>
+              <span>{tr.biometricBtn}</span>
             </button>
 
             <button
@@ -564,7 +685,7 @@ export function ActivationLockBarrier({
               className="p-2.5 rounded-xl bg-slate-50 hover:bg-blue-50 border border-slate-200 hover:border-blue-300 text-slate-700 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
             >
               <Phone className="w-4 h-4 text-blue-600" />
-              <span>تسجيل الدخول</span>
+              <span>{tr.loginBtn}</span>
             </button>
           </div>
 
@@ -574,15 +695,15 @@ export function ActivationLockBarrier({
               onClick={() => onOpenAuthModal('register')}
               className="text-xs font-bold text-emerald-700 hover:underline inline-flex items-center gap-1 cursor-pointer"
             >
-              <span>ليس لديك حساب؟ إنشاء حساب جديد</span>
-              <ArrowRight className="w-3 h-3 rotate-180" />
+              <span>{tr.noAccount}</span>
+              <ArrowRight className={`w-3 h-3 ${lang === 'ar' ? 'rotate-180' : ''}`} />
             </button>
           </div>
         </div>
 
         {/* Footer */}
         <div className="p-3 bg-slate-50 border-t border-slate-200 text-center text-[11px] text-slate-500 font-medium">
-          Orderi — رادار طلبات التوصيل الذكي في مملكة البحرين 🇧🇭
+          {tr.footerText}
         </div>
       </div>
     </div>

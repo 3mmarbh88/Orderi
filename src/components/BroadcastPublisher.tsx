@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Send, 
   Share2, 
@@ -49,6 +49,46 @@ interface GroupItem {
   name: string;
   category?: string;
 }
+
+export interface BroadcastCustomTemplate {
+  id: string;
+  title: string;
+  color: 'amber' | 'pink' | 'indigo' | 'emerald' | 'blue' | 'purple';
+  text: string;
+}
+
+export const DEFAULT_BROADCAST_TEMPLATES: BroadcastCustomTemplate[] = [
+  {
+    id: 'tmpl-instant',
+    title: '⚡ طلب مستعجل',
+    color: 'amber',
+    text: `🚀 *طلب توصيل فوري ومستعجل* 🇧🇭\n📍 *من:* {from}\n🏁 *إلى:* {to}\n💰 *السعر:* {price} د.ب\n⏱️ *الوقت:* الآن فوري\n📞 *واتساب:* {phone}\n#مطلوب_مندوب_فوري #توصيل_مستعجل`,
+  },
+  {
+    id: 'tmpl-gift',
+    title: '🌸 باقة ورد وهدايا',
+    color: 'pink',
+    text: `🎁 *طلب توصيل هدايا / ورد / كيك* 🌸\n📍 *استلام:* {from}\n🏁 *تسليم:* {to}\n💰 *السعر:* {price} د.ب\n⚠️ *تنبيه:* يرجى الحفاظ على البضاعة وتوصيل بعناية وتكييف\n📞 *للتواصل:* {phone}\n#توصيل_هدايا #بحرين`,
+  },
+  {
+    id: 'tmpl-errand',
+    title: '📦 مشوار بضاعة',
+    color: 'indigo',
+    text: `📦 *مشوار استلام بضاعة وفواتير*\n📍 *الموقع الأول:* {from}\n🏁 *الموقع الثاني:* {to}\n💰 *السعر:* {price} د.ب\n📞 *للتواصل السريع:* {phone}\n#مشاوير_البحرين`,
+  },
+  {
+    id: 'tmpl-passenger',
+    title: '🚗 توصيل راكب / مشوار',
+    color: 'blue',
+    text: `🚗 *طلب توصيل راكب / مشوار* 🇧🇭\n📍 *مكان الركوب:* {from}\n🏁 *الوجهة:* {to}\n💰 *السعر:* {price} د.ب\n⏱️ *الموعد:* فوري\n📞 *للتواصل:* {phone}\n#توصيل_مشاوير #بحرين`,
+  },
+  {
+    id: 'tmpl-available',
+    title: '🚗 مندوب متاح الآن',
+    color: 'emerald',
+    text: `🚗 *مندوب توصيل متاح الآن* 🇧🇭\n📍 *موقعي الحالي:* {from}\n🌐 *جاهز للتوصيل إلى:* جميع مناطق البحرين\n⏱️ *الاستلام:* فوري\n📞 *تواصل واتساب أو اتصال:* {phone}\n#مندوب_توصيل #متاح_للتوصيل`,
+  },
+];
 
 export function BroadcastPublisher({
   driverLocation,
@@ -172,40 +212,87 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
     setBroadcastText(formatted);
   };
 
-  // Preset templates
-  const applyPresetTemplate = (type: 'instant' | 'gift' | 'errand' | 'courier_available') => {
+  // Dynamic Custom Templates
+  const [customTemplates, setCustomTemplates] = useState<BroadcastCustomTemplate[]>(() => {
+    try {
+      const saved = localStorage.getItem('orderi_broadcast_custom_templates');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return DEFAULT_BROADCAST_TEMPLATES;
+  });
+
+  const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
+  const [formTemplateTitle, setFormTemplateTitle] = useState('');
+  const [formTemplateText, setFormTemplateText] = useState('');
+
+  const saveTemplates = (list: BroadcastCustomTemplate[]) => {
+    setCustomTemplates(list);
+    try {
+      localStorage.setItem('orderi_broadcast_custom_templates', JSON.stringify(list));
+    } catch {}
+  };
+
+  const applyCustomTemplate = (tmpl: BroadcastCustomTemplate) => {
     setEditorMode('freeform');
-    if (type === 'instant') {
-      setBroadcastText(`🚀 *طلب توصيل فوري ومستعجل* 🇧🇭
-📍 *من:* ${pickupArea || 'المنامة'}
-🏁 *إلى:* ${deliveryArea || 'المحرق'}
-💰 *السعر:* 3.5 د.ب
-⏱️ *الوقت:* الآن فوري
-📞 *واتساب:* ${phone || '3XXXXXXX'}
-#مطلوب_مندوب_فوري #توصيل_مستعجل`);
-    } else if (type === 'gift') {
-      setBroadcastText(`🎁 *طلب توصيل هدايا / ورد / كيك* 🌸
-📍 *استلام:* ${pickupArea || 'السيف'}
-🏁 *تسليم:* ${deliveryArea || 'الرفاع'}
-💰 *السعر:* 4.0 د.ب
-⚠️ *تنبيه:* يرجى الحفاظ على البضاعة وتوصيل بعناية وتكييف
-📞 *للتواصل:* ${phone || '3XXXXXXX'}
-#توصيل_هدايا #بحرين`);
-    } else if (type === 'errand') {
-      setBroadcastText(`📦 *مشوار استلام بضاعة وفواتير*
-📍 *الموقع الأول:* ${pickupArea || 'توبلي'}
-🏁 *الموقع الثاني:* ${deliveryArea || 'مدينة عيسى'}
-💰 *السعر:* 3.0 د.ب
-📞 *للتواصل السريع:* ${phone || '3XXXXXXX'}
-#مشاوير_البحرين`);
-    } else if (type === 'courier_available') {
-      setBroadcastText(`🚗 *مندوب توصيل متاح الآن* 🇧🇭
-📍 *موقعي الحالي:* ${driverLocation?.areaName || 'المنامة'}
-🌐 *جاهز للتوصيل إلى:* جميع مناطق البحرين
-⏱️ *الاستلام:* فوري
-📞 *تواصل واتساب أو اتصال:* ${phone || '3XXXXXXX'}
-#مندوب_توصيل #متاح_للتوصيل`);
+    const filled = tmpl.text
+      .replace(/{from}/g, pickupArea || 'المنامة')
+      .replace(/{to}/g, deliveryArea || 'المحرق')
+      .replace(/{price}/g, price || '3.0')
+      .replace(/{phone}/g, phone || '3XXXXXXX');
+    setBroadcastText(filled);
+    onToast(`✅ تم تطبيق قالب «${tmpl.title}»`);
+  };
+
+  const handleSaveTemplateForm = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formTemplateTitle.trim() || !formTemplateText.trim()) {
+      onToast('⚠️ يرجى كتابة عنوان القالب ونصه');
+      return;
     }
+
+    if (editingTemplateId) {
+      const updated = customTemplates.map((t) =>
+        t.id === editingTemplateId
+          ? { ...t, title: formTemplateTitle.trim(), text: formTemplateText.trim() }
+          : t
+      );
+      saveTemplates(updated);
+      onToast('✅ تم تعديل القالب بنجاح');
+    } else {
+      const newTmpl: BroadcastCustomTemplate = {
+        id: `tmpl-${Date.now()}`,
+        title: formTemplateTitle.trim(),
+        color: 'indigo',
+        text: formTemplateText.trim(),
+      };
+      saveTemplates([...customTemplates, newTmpl]);
+      onToast('✅ تم حفظ القالب الجديد كقالب جاهز');
+    }
+
+    setEditingTemplateId(null);
+    setFormTemplateTitle('');
+    setFormTemplateText('');
+  };
+
+  const handleDeleteTemplate = (id: string) => {
+    const updated = customTemplates.filter((t) => t.id !== id);
+    saveTemplates(updated);
+    onToast('🗑️ تم حذف القالب');
+  };
+
+  const handleStartEditTemplate = (tmpl: BroadcastCustomTemplate) => {
+    setEditingTemplateId(tmpl.id);
+    setFormTemplateTitle(tmpl.title);
+    setFormTemplateText(tmpl.text);
+  };
+
+  const handleResetTemplates = () => {
+    saveTemplates(DEFAULT_BROADCAST_TEMPLATES);
+    onToast('↺ تم استعادة القوالب الافتراضية');
   };
 
   // Group selection handlers
@@ -683,33 +770,28 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
             {/* Quick Presets Pills */}
             <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar select-none">
               <span className="text-[11px] font-bold text-slate-400 whitespace-nowrap pl-1">قوالب جاهزة:</span>
+              {customTemplates.map((tmpl) => (
+                <button
+                  key={tmpl.id}
+                  type="button"
+                  onClick={() => applyCustomTemplate(tmpl)}
+                  className="min-h-[36px] px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-[11px] font-bold border border-slate-200 transition-colors whitespace-nowrap active:scale-95 cursor-pointer flex items-center gap-1"
+                >
+                  <span>{tmpl.title}</span>
+                </button>
+              ))}
               <button
                 type="button"
-                onClick={() => applyPresetTemplate('instant')}
-                className="min-h-[36px] px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 text-[11px] font-bold border border-amber-200 transition-colors whitespace-nowrap active:scale-95"
+                onClick={() => {
+                  setEditingTemplateId(null);
+                  setFormTemplateTitle('');
+                  setFormTemplateText('');
+                  setShowTemplateModal(true);
+                }}
+                className="min-h-[36px] px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 text-[11px] font-bold border border-blue-200 transition-colors whitespace-nowrap active:scale-95 cursor-pointer flex items-center gap-1 shrink-0"
               >
-                ⚡ طلب مستعجل
-              </button>
-              <button
-                type="button"
-                onClick={() => applyPresetTemplate('gift')}
-                className="min-h-[36px] px-3 py-1.5 rounded-xl bg-pink-50 hover:bg-pink-100 text-pink-800 text-[11px] font-bold border border-pink-200 transition-colors whitespace-nowrap active:scale-95"
-              >
-                🌸 باقة ورد وهدايا
-              </button>
-              <button
-                type="button"
-                onClick={() => applyPresetTemplate('errand')}
-                className="min-h-[36px] px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-800 text-[11px] font-bold border border-indigo-200 transition-colors whitespace-nowrap active:scale-95"
-              >
-                📦 مشوار بضاعة
-              </button>
-              <button
-                type="button"
-                onClick={() => applyPresetTemplate('courier_available')}
-                className="min-h-[36px] px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[11px] font-bold border border-emerald-200 transition-colors whitespace-nowrap active:scale-95"
-              >
-                🚗 مندوب متاح الآن
+                <Edit3 className="w-3.5 h-3.5 text-blue-600" />
+                <span>إدارة وتعديل القوالب 📝</span>
               </button>
             </div>
 
@@ -767,13 +849,13 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
                 {/* Price, Timing & Phone Row */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   
-                  {/* Price */}
+                  {/* Price: Quick prices 1, 1.5, 2, 2.5, 3, 3.5 BHD or manual input */}
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold text-slate-700 flex items-center gap-1">
                       <Coins className="w-3.5 h-3.5 text-emerald-600" />
                       <span>السعر (د.ب)</span>
                     </label>
-                    <div className="flex items-center gap-1">
+                    <div className="space-y-1.5">
                       <input
                         type="number"
                         step="0.5"
@@ -781,16 +863,17 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
                         max="50"
                         value={price}
                         onChange={(e) => setPrice(e.target.value)}
+                        placeholder="أدخل السعر يدوياً"
                         className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-black text-slate-900 focus:ring-2 focus:ring-blue-500/20"
                       />
-                      <div className="flex gap-1">
-                        {['2.5', '3.0', '3.5'].map((p) => (
+                      <div className="flex gap-1 overflow-x-auto no-scrollbar py-0.5">
+                        {['1', '1.5', '2', '2.5', '3', '3.5'].map((p) => (
                           <button
                             key={p}
                             type="button"
                             onClick={() => setPrice(p)}
-                            className={`px-1.5 py-1 text-[10px] font-bold rounded-lg border transition-colors ${
-                              price === p ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-slate-600 border-slate-200'
+                            className={`px-2 py-1 text-[11px] font-black rounded-lg border transition-colors cursor-pointer shrink-0 ${
+                              price === p ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
                             }`}
                           >
                             {p}
@@ -1428,7 +1511,223 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
                 إغلاق
               </button>
             </div>
+          </div>
+        </div>
+      )}
 
+      {/* Template Management Modal: تعديل وكتابة قوالب لتكون قوالب جاهزة */}
+      {showTemplateModal && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-200"
+          onClick={() => setShowTemplateModal(false)}
+        >
+          <div 
+            className="w-full max-w-2xl bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-blue-900 to-indigo-900 text-white shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center text-white border border-white/20">
+                  <Edit3 className="w-5 h-5 text-blue-300" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-black">
+                    إدارة وتعديل القوالب الجاهزة 📝
+                  </h3>
+                  <p className="text-[11px] text-blue-200">
+                    يمكنك التعديل على القوالب الحالية أو كتابة قوالب جديدة لتكون جاهزة دائماً
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowTemplateModal(false)}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white cursor-pointer transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-4 sm:p-6 overflow-y-auto space-y-5">
+              
+              {/* Form: Add or Edit Template */}
+              <form onSubmit={handleSaveTemplateForm} className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3.5">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs sm:text-sm font-black text-slate-900 flex items-center gap-1.5">
+                    <Sparkles className="w-4 h-4 text-amber-500" />
+                    <span>{editingTemplateId ? 'تعديل القالب المحدد ✏️' : 'كتابة قالب جديد ليكون قالباً جاهزاً ➕'}</span>
+                  </h4>
+                  {editingTemplateId && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingTemplateId(null);
+                        setFormTemplateTitle('');
+                        setFormTemplateText('');
+                      }}
+                      className="text-[11px] font-bold text-slate-500 hover:text-slate-800 underline"
+                    >
+                      إلغاء التعديل
+                    </button>
+                  )}
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                    عنوان القالب (يظهر في أزرار القوالب السريعة):
+                  </label>
+                  <input
+                    type="text"
+                    value={formTemplateTitle}
+                    onChange={(e) => setFormTemplateTitle(e.target.value)}
+                    placeholder="مثلاً: ⚡ توصيل طرد عاجل أو 🍱 طلب مطعم"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-900 focus:ring-2 focus:ring-blue-500/20"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[11px] font-bold text-slate-700">
+                      نص القالب ومحتواه:
+                    </label>
+                    <div className="flex items-center gap-1">
+                      <span className="text-[10px] text-slate-500 font-medium">إدراج متغير:</span>
+                      {['{from}', '{to}', '{price}', '{phone}'].map((tag) => (
+                        <button
+                          key={tag}
+                          type="button"
+                          onClick={() => setFormTemplateText((prev) => prev + (prev.endsWith(' ') ? '' : ' ') + tag)}
+                          className="px-1.5 py-0.5 rounded bg-blue-100 hover:bg-blue-200 text-blue-800 text-[10px] font-mono font-bold transition-colors cursor-pointer"
+                        >
+                          {tag}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <textarea
+                    rows={4}
+                    value={formTemplateText}
+                    onChange={(e) => setFormTemplateText(e.target.value)}
+                    placeholder={`اكتب نص القالب هنا...\nاستخدم {from} للاستلام، {to} للتسليم، {price} للسعر، {phone} للرقم.`}
+                    className="w-full p-3 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-900 focus:ring-2 focus:ring-blue-500/20 leading-relaxed shadow-inner"
+                    required
+                  />
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="submit"
+                    className="flex-1 py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                  >
+                    <Check className="w-4 h-4" />
+                    <span>{editingTemplateId ? 'حفظ تعديلات القالب ✓' : 'حفظ كقالب جاهز جديد 💾'}</span>
+                  </button>
+                  {editingTemplateId && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingTemplateId(null);
+                        setFormTemplateTitle('');
+                        setFormTemplateText('');
+                      }}
+                      className="py-2.5 px-3 rounded-xl bg-slate-200 text-slate-700 text-xs font-bold hover:bg-slate-300"
+                    >
+                      إلغاء
+                    </button>
+                  )}
+                </div>
+              </form>
+
+              {/* List of Existing Ready-Made Templates */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs sm:text-sm font-black text-slate-800">
+                    قائمة القوالب الجاهزة المتوفرة ({customTemplates.length}):
+                  </h4>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (confirm('هل تريد استعادة القوالب الافتراضية؟')) {
+                        saveTemplates(DEFAULT_BROADCAST_TEMPLATES);
+                        onToast('تم استعادة القوالب الافتراضية');
+                      }
+                    }}
+                    className="text-[10px] font-bold text-slate-500 hover:text-slate-800 underline"
+                  >
+                    استعادة القوالب الأصلية
+                  </button>
+                </div>
+
+                <div className="space-y-2.5">
+                  {customTemplates.map((t) => (
+                    <div 
+                      key={t.id}
+                      className="p-3.5 rounded-2xl bg-white border border-slate-200 hover:border-slate-300 transition-all space-y-2 shadow-2xs"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-black text-slate-900">
+                          {t.title}
+                        </span>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              applyCustomTemplate(t);
+                              setShowTemplateModal(false);
+                            }}
+                            className="px-2 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[11px] font-black border border-emerald-200 transition-colors"
+                          >
+                            تطبيق الآن ⚡
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingTemplateId(t.id);
+                              setFormTemplateTitle(t.title);
+                              setFormTemplateText(t.text);
+                            }}
+                            className="p-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors"
+                            title="تعديل القالب"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          {customTemplates.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteTemplate(t.id)}
+                              className="p-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 transition-colors"
+                              title="حذف القالب"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="text-[11px] text-slate-600 font-mono bg-slate-50 p-2.5 rounded-xl whitespace-pre-wrap leading-relaxed line-clamp-3">
+                        {t.text}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+            </div>
+
+            {/* Footer */}
+            <div className="p-3 sm:p-4 border-t border-slate-100 bg-slate-50 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowTemplateModal(false)}
+                className="px-5 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-bold transition-colors cursor-pointer"
+              >
+                إغلاق
+              </button>
+            </div>
           </div>
         </div>
       )}

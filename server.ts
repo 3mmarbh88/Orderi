@@ -673,6 +673,53 @@ app.post("/api/whatsapp/mark-read", (req, res) => {
   }
 });
 
+// Explicit Order Closure Sync (تحديث حالة الطلب إلى مغلق لحصول المعلن على مندوب)
+app.post("/api/orders/close", (req, res) => {
+  try {
+    const { orderId, reason, evidence } = req.body || {};
+    if (!orderId) {
+      return res.status(400).json({ error: "Missing orderId" });
+    }
+
+    markedReadOrderIds.add(orderId);
+    const target = recentWebhookOrders.find((o) => o.id === orderId);
+    if (target) {
+      target.status = "closed_taken";
+      target.closedAt = new Date().toISOString();
+      target.closureReason = reason || "أفاد المعلن بأنه حصل على مندوب";
+      target.closureEvidence = evidence;
+    }
+
+    const payload = `data: ${JSON.stringify({
+      type: "ORDER_CLOSED",
+      orderId,
+      closureMatch: {
+        orderId,
+        verdict: "confirmed_closed",
+        reason: reason || "أفاد المعلن بالحصول على مندوب",
+        evidence: evidence || { replyText: "حصلت", timestamp: new Date().toISOString() },
+      },
+    })}\n\n`;
+
+    sseClients.forEach((client) => {
+      try {
+        client.write(payload);
+      } catch {
+        sseClients.delete(client);
+      }
+    });
+
+    return res.json({
+      success: true,
+      orderId,
+      status: "closed_taken",
+      message: "تم تحديث حالة الطلب إلى مغلق بنجاح",
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // 4e. Instant Accept & Auto-Reply to WhatsApp Advertiser Without Redirection
 app.post("/api/whatsapp/quick-accept-reply", (req, res) => {
   try {

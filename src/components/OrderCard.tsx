@@ -26,7 +26,8 @@ import {
   Lock,
   AlertCircle,
   CheckCircle2,
-  MoveHorizontal
+  MoveHorizontal,
+  Target
 } from 'lucide-react';
 import { ParsedOrder } from '../types';
 import { MatcherLocation } from '../utils/matcher';
@@ -34,6 +35,12 @@ import { AIMatchModal } from './AIMatchModal';
 import { findLandmarkByName } from '../data/bahrainLandmarks';
 import { sendNativeQuickReply } from '../native/whatsappListener';
 import { detectPassengerDelivery } from '../utils/passengerClassifier';
+import { 
+  executePrivateAdvertiserOutreach, 
+  AdvertiserContactResolution, 
+  formatAdvertiserPrivateMessage 
+} from '../utils/whatsappPrivateOutreach';
+import { AdvertiserOutreachModal } from './AdvertiserOutreachModal';
 
 interface OrderCardProps {
   key?: string;
@@ -66,6 +73,8 @@ export function OrderCard({
   const [showAcceptDialog, setShowAcceptDialog] = useState(false);
   const [showAiModal, setShowAiModal] = useState(false);
   const [showReviewConfirmModal, setShowReviewConfirmModal] = useState(false);
+  const [showOutreachModal, setShowOutreachModal] = useState(false);
+  const [outreachResolution, setOutreachResolution] = useState<AdvertiserContactResolution | null>(null);
 
   // Swipe-to-delete state & handlers (سحب لليمين أو لليسار يمسح الأوردر)
   const [dragOffset, setDragOffset] = useState(0);
@@ -256,36 +265,27 @@ export function OrderCard({
     setIsAutoReplying(true);
 
     try {
-      // 1. قبول الطلب وإضافته لجدول الأرباح فوراً
-      onAccept(order);
-      setShowAcceptDialog(false);
-
-      // 2. إرسال الرد النيتيف في واتساب تلقائياً في الخاص مع المعلن (وليس في القروب)
-      try {
-        await sendNativeQuickReply({
-          phone: effectivePhone || order.senderPhone, // Send directly to the advertiser in private!
-          message: fullWhatsAppMessage,
-        });
-      } catch (nativeErr) {
-        console.warn('[Orderi Native Quick Reply]', nativeErr);
+      if (isMyBroadcast) {
+        // Replay (تم) for captain's own broadcast
+        onAccept(order);
+        setShowAcceptDialog(false);
+        return;
       }
 
-      // 3. إرسال الرد في واتساب عبر السيرفر في الخاص مباشرة لصاحب الإعلان
-      await fetch('/api/whatsapp/quick-accept-reply', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          orderId: order.id,
-          phone: effectivePhone || order.senderPhone,
-          targetType: 'private_direct', // Private chat with the advertiser, NOT group!
-          groupName: order.groupName,
-          senderName: order.senderName,
-          replyText: fullWhatsAppMessage,
-          price: order.price,
-          from: order.from,
-          to: order.to,
-        }),
-      });
+      // Execute private outreach engine (WhatsApp regular, direct private chat, no group)
+      const outreachResult = await executePrivateAdvertiserOutreach(order);
+
+      // If advertiser identity/phone needs verification or multiple numbers detected, stop and confirm
+      if (outreachResult.needsVerification) {
+        setOutreachResolution(outreachResult.resolution);
+        setShowOutreachModal(true);
+        setIsAutoReplying(false);
+        return;
+      }
+
+      // Accepted and message dispatched to advertiser in private
+      onAccept(order);
+      setShowAcceptDialog(false);
     } catch (err) {
       console.warn('[Orderi] Quick auto-reply error:', err);
     } finally {
@@ -403,30 +403,30 @@ export function OrderCard({
           </div>
         )}
 
-        {/* Red Warning Banner: Passenger Delivery Forbidden */}
+        {/* Passenger Ride Delivery Banner (توصيل ركاب / أشخاص) */}
         {isConfirmedPassenger && (
-          <div className="bg-gradient-to-r from-red-600 via-rose-600 to-red-700 text-white px-4 py-2.5 flex items-center justify-between text-xs font-black shadow-xs">
+          <div className="bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 text-white px-4 py-2 flex items-center justify-between text-xs font-black shadow-xs">
             <div className="flex items-center gap-2 truncate">
-              <AlertTriangle className="w-4 h-4 shrink-0 text-amber-300 animate-pulse" />
+              <span className="text-sm">🚗</span>
               <span className="truncate text-xs sm:text-sm font-black tracking-wide">
-                تحذير: توصيل أشخاص ممنوع 🚫 {order.passengerCount ? `(${order.passengerCount} ${order.passengerCount === 1 ? 'شخص' : order.passengerCount === 2 ? 'شخصين' : 'ركاب'})` : ''}
+                طلب توصيل راكب / أشخاص {order.passengerCount ? `(${order.passengerCount} ${order.passengerCount === 1 ? 'شخص' : order.passengerCount === 2 ? 'شخصين' : 'ركاب'})` : ''}
               </span>
             </div>
-            <span className="text-[10px] bg-black/40 px-2 py-0.5 rounded-full shrink-0 font-bold border border-white/20">
-              {order.passengerCount ? `${order.passengerCount} ركاب 👥` : 'تحذير ركاب ⚠️'} • القبول متاح
+            <span className="text-[10px] bg-black/25 px-2.5 py-0.5 rounded-full shrink-0 font-bold border border-white/20">
+              {order.passengerCount ? `${order.passengerCount} ركاب 👥` : 'مشوار راكب'}
             </span>
           </div>
         )}
 
-        {/* Amber Warning Banner: Suspicious Passenger Delivery */}
+        {/* Suspicious Passenger Banner */}
         {!isConfirmedPassenger && isSuspiciousPassenger && (
-          <div className="bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-600 text-amber-950 px-4 py-2 flex items-center justify-between text-xs font-black shadow-xs">
+          <div className="bg-gradient-to-r from-indigo-500 via-blue-500 to-indigo-600 text-white px-4 py-2 flex items-center justify-between text-xs font-black shadow-xs">
             <div className="flex items-center gap-1.5 truncate">
-              <AlertCircle className="w-4 h-4 shrink-0 text-amber-950" />
-              <span className="truncate font-bold">⚠️ احتمال نقل أشخاص (مراجعة مطلوبة قبل القبول)</span>
+              <span className="text-sm">🚗</span>
+              <span className="truncate font-bold">طلب مشوار / توصيل راكب</span>
             </div>
-            <span className="text-[10px] bg-amber-950/20 px-2 py-0.5 rounded-full shrink-0 font-bold">
-              مراجعة يدوية
+            <span className="text-[10px] bg-black/20 px-2 py-0.5 rounded-full shrink-0 font-bold">
+              توصيل أشخاص
             </span>
           </div>
         )}
@@ -445,6 +445,21 @@ export function OrderCard({
             </div>
             <span className="text-[10px] bg-amber-950/10 px-2 py-0.5 rounded-full shrink-0 font-bold">
               دفع فوري سريع
+            </span>
+          </div>
+        )}
+
+        {/* Hunted Desired Destination Banner (صيد وجهة مرغوبة في القروبات) */}
+        {order.isDestinationHunted && (
+          <div className="bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 text-white px-4 py-2 flex items-center justify-between text-xs font-black shadow-xs">
+            <div className="flex items-center gap-2 truncate">
+              <Target className="w-4 h-4 text-emerald-200 shrink-0 animate-pulse" />
+              <span className="truncate">
+                🎯 صيد وجهة مرغوبة بالقروب: {order.huntedDestinationDetails?.routeLabel || `${order.from} ➔ ${order.to}`}
+              </span>
+            </div>
+            <span className="text-[10px] bg-white/20 text-white border border-white/30 px-2 py-0.5 rounded-full shrink-0 font-bold">
+              مطابق لصيدك ⚡
             </span>
           </div>
         )}
@@ -520,6 +535,12 @@ export function OrderCard({
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-900 border border-emerald-300">
                     <Zap className="w-3 h-3 text-emerald-600 fill-emerald-500" />
                     <span>سحب تلقائي 🟢</span>
+                  </span>
+                )}
+                {order.isDestinationHunted && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-2xs">
+                    <Target className="w-3 h-3 text-white" />
+                    <span>صيد وجهة 🎯</span>
                   </span>
                 )}
                 {order.isDirectPrivate && (
@@ -860,35 +881,6 @@ export function OrderCard({
                     )}
                   </div>
                 </div>
-              ) : isConfirmedPassenger ? (
-                <button
-                  type="button"
-                  onClick={handleQuickAutoReply}
-                  disabled={isAutoReplying}
-                  className="flex-1 min-h-[48px] flex items-center justify-center gap-2 py-3 px-3.5 sm:px-4 rounded-xl sm:rounded-2xl text-white bg-gradient-to-r from-red-600 via-rose-600 to-red-700 hover:from-red-500 hover:to-rose-500 font-black text-xs sm:text-sm shadow-md shadow-rose-900/30 transition-all active:scale-[0.98] cursor-pointer"
-                  title="تحذير: توصيل أشخاص ممنوع، انقر لقبول الطلب والرد بالواتساب"
-                >
-                  {isAutoReplying ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 animate-spin text-white" />
-                      <span>جاري الرد التلقائي بالواتساب...</span>
-                    </>
-                  ) : (
-                    <>
-                      <AlertTriangle className="w-4 h-4 text-amber-300 animate-pulse" />
-                      <span>قبول الطلب ⚡ (تحذير: توصيل أشخاص ⚠️)</span>
-                    </>
-                  )}
-                </button>
-              ) : isSuspiciousPassenger ? (
-                <button
-                  type="button"
-                  onClick={() => setShowReviewConfirmModal(true)}
-                  className="flex-1 min-h-[48px] flex items-center justify-center gap-2 py-3 px-3.5 sm:px-4 rounded-xl sm:rounded-2xl text-amber-950 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 hover:to-yellow-300 font-black text-xs sm:text-sm shadow-md transition-all active:scale-[0.98] cursor-pointer"
-                >
-                  <AlertTriangle className="w-4 h-4 text-amber-950" />
-                  <span>مراجعة وتأكيد (بضاعة وليست أشخاص) للقبول ⚠️</span>
-                </button>
               ) : (
                 <button
                   type="button"
@@ -903,7 +895,7 @@ export function OrderCard({
                   {isAutoReplying ? (
                     <>
                       <RefreshCw className="w-4 h-4 animate-spin text-white" />
-                      <span>جاري إرسال الرد في الخاص للمعلن...</span>
+                      <span>جاري فتح الخاص مع صاحب الإعلان...</span>
                     </>
                   ) : isMyBroadcast ? (
                     <>
@@ -915,11 +907,11 @@ export function OrderCard({
                       <Zap className="w-4 h-4 fill-amber-300 text-amber-300 animate-pulse" />
                       <div className="flex flex-col items-center leading-tight">
                         <span className="flex items-center gap-1">
-                          <span>قبول والرد في الخاص للمعلن</span>
+                          <span>قبول الطلب والتواصل عبر واتساب</span>
                           <span className="text-[11px] font-bold text-amber-200">👤⚡</span>
                         </span>
                         <span className="text-[10px] font-normal text-emerald-100">
-                          (إرسال بالخاص مباشرة وليس بالقروب 🔒)
+                          (محادثة خاصة في واتساب العادي — بدون أي رد بالقروب 🔒)
                         </span>
                       </div>
                     </>
@@ -1208,6 +1200,21 @@ export function OrderCard({
             setShowAiModal(false);
             onAccept(acceptedOrder);
           }}
+        />
+      )}
+
+      {/* Advertiser Private Outreach & Identity Verification Modal */}
+      {showOutreachModal && (
+        <AdvertiserOutreachModal
+          isOpen={showOutreachModal}
+          order={order}
+          resolution={outreachResolution}
+          onClose={() => setShowOutreachModal(false)}
+          onConfirmAccept={(acceptedOrd) => {
+            onAccept(acceptedOrd);
+            setShowOutreachModal(false);
+          }}
+          onToast={(msg) => console.log(msg)}
         />
       )}
     </>
