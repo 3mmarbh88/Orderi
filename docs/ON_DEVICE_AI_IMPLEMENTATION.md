@@ -12,6 +12,15 @@ Add optional on-device language-model analysis for WhatsApp notification text wi
 - `android/variables.gradle`: minSdkVersion 24, compile/target SDK 36.
 - `orderi-server/src/server.ts`: server persists/broadcasts orders and has a separate lightweight parser. Server must not become a required AI inference service.
 
+## Runtime direction
+Evaluate Google's LiteRT-LM Android/Kotlin runtime first. Google's current documentation recommends LiteRT-LM for new projects because the older MediaPipe LLM Inference API is in maintenance-only mode. LiteRT-LM provides CPU/GPU/NPU backend choices, but actual model and backend compatibility must be tested on physical phones. Do not assume every Android phone can run the same LLM at acceptable speed or memory use.
+
+Official references:
+- https://developers.google.com/edge/litert-lm/android
+- https://developers.google.com/edge/mediapipe/solutions/genai/llm_inference/android
+
+The first model candidate should be a small, quantized instruction model with a verified redistribution licence and demonstrated Arabic extraction quality. Keep the model file outside the APK and download it on demand. Do not pin a model or publish a download endpoint until its licence, exact size, checksum, ABI/runtime compatibility, and Arabic/Bahraini message quality are verified.
+
 ## Intended design
 1. Treat local model inference as an optional enhancement, not a replacement for current parsing.
 2. Run inference on the Android device using a compatible native runtime and a quantized model downloaded once to app-private storage.
