@@ -227,6 +227,8 @@ export async function executePrivateAdvertiserOutreach(
   resolution: AdvertiserContactResolution;
   message: string;
   phoneUsed: string | null;
+  chatOpened: boolean;
+  deliveryStatus: 'sent' | 'chat_opened' | 'needs_verification';
 }> {
   const resolution = resolveAdvertiserContact(order);
   const targetPhone = confirmedPhone ? normalizeBahrainPhone(confirmedPhone) : (resolution.confidence === 'multiple_candidates' ? null : resolution.phone);
@@ -240,6 +242,8 @@ export async function executePrivateAdvertiserOutreach(
       resolution,
       message: messageText,
       phoneUsed: null,
+      chatOpened: false,
+      deliveryStatus: 'needs_verification',
     };
   }
 
@@ -250,45 +254,68 @@ export async function executePrivateAdvertiserOutreach(
     } catch {}
   }
 
-  // 2. Send via Native Android Notification / Accessibility Bridge if available
+  // 2. Attempt the native sender only when the Android bridge explicitly reports success.
+  // The current Android plugin deliberately disables automatic sending until the recipient
+  // can be verified. A false result must never be logged as a delivered message.
+  let nativeResult: { success: boolean; method: string } = {
+    success: false,
+    method: 'not_native',
+  };
+
   if (isNativeAndroid()) {
     try {
-      await sendNativeQuickReply({
+      nativeResult = await sendNativeQuickReply({
         phone: targetPhone,
         message: messageText,
       });
     } catch (err) {
-      console.warn('[Orderi Outreach] Native quick reply call:', err);
+      console.warn('[Orderi Outreach] Native quick reply unavailable:', err);
     }
   }
 
-  // 3. Register outreach in server backend for response tracking (تم/لك/اخذوه)
-  try {
-    fetch('/api/whatsapp/quick-accept-reply', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        orderId: order.id,
-        phone: targetPhone,
-        targetType: 'private_direct', // PRIVATE DIRECT CHAT ONLY - NEVER GROUP!
-        groupName: order.groupName,
-        senderName: resolution.name,
-        replyText: messageText,
-        price: order.price,
-        from: order.from,
-        to: order.to,
-      }),
-    }).catch(() => {});
-  } catch {}
+  if (nativeResult.success) {
+    // Only record a successful native send as sent.
+    try {
+      await fetch('/api/whatsapp/quick-accept-reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderId: order.id,
+          phone: targetPhone,
+          targetType: 'private_direct',
+          groupName: order.groupName,
+          senderName: resolution.name,
+          replyText: messageText,
+          deliveryStatus: 'sent',
+          price: order.price,
+          from: order.from,
+          to: order.to,
+        }),
+      });
+    } catch {}
 
-  // 4. Open regular WhatsApp private chat
+    return {
+      success: true,
+      needsVerification: false,
+      resolution,
+      message: messageText,
+      phoneUsed: targetPhone,
+      chatOpened: false,
+      deliveryStatus: 'sent',
+    };
+  }
+
+  // WhatsApp's supported deep link can open the exact private chat with a prefilled
+  // message, but it cannot press Send. Never fall back to whichever group is open.
   openRegularWhatsAppPrivateChat(targetPhone, messageText);
 
   return {
-    success: true,
+    success: false,
     needsVerification: false,
     resolution,
     message: messageText,
     phoneUsed: targetPhone,
+    chatOpened: true,
+    deliveryStatus: 'chat_opened',
   };
 }
