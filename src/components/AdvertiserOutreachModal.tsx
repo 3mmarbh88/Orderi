@@ -15,14 +15,17 @@ import {
   Sparkles,
   Smartphone,
   MapPin,
-  Coins
+  Coins,
+  AlertCircle
 } from 'lucide-react';
 import { ParsedOrder } from '../types';
 import { 
   AdvertiserContactResolution, 
   formatAdvertiserPrivateMessage, 
   openRegularWhatsAppPrivateChat, 
-  normalizeBahrainPhone 
+  normalizeBahrainPhone,
+  formatDisplayPhone,
+  CandidatePhoneDetail
 } from '../utils/whatsappPrivateOutreach';
 import { openWhatsAppAccessibilitySettings } from '../native/whatsappListener';
 
@@ -45,17 +48,19 @@ export function AdvertiserOutreachModal({
 }: AdvertiserOutreachModalProps) {
   if (!isOpen || !order || !resolution) return null;
 
-  const [customPhone, setCustomPhone] = useState(
-    resolution.candidatePhones.length > 0 
-      ? resolution.candidatePhones[0].replace(/^973/, '') 
-      : ''
-  );
+  // Initial phone selection
+  const defaultInitialPhone = resolution.advertiserCandidate?.phone || (resolution.candidatePhones.length > 0 ? resolution.candidatePhones[0] : '');
+  const [customPhone, setCustomPhone] = useState(defaultInitialPhone.replace(/^973/, ''));
   const [editedMessage, setEditedMessage] = useState(formatAdvertiserPrivateMessage(order));
   const [copied, setCopied] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const cleanInputPhone = normalizeBahrainPhone(customPhone);
   const isPhoneValid = cleanInputPhone.length >= 8;
+
+  // Check if selected phone is a customer/recipient number to show caution
+  const selectedCandidate = resolution.candidatesDetailed?.find((c) => c.phone === cleanInputPhone);
+  const isCustomerSelected = selectedCandidate?.role === 'customer_recipient';
 
   const handleCopy = () => {
     if (typeof navigator !== 'undefined' && navigator.clipboard) {
@@ -66,23 +71,23 @@ export function AdvertiserOutreachModal({
     }
   };
 
-  const handleSendPrivateChat = () => {
+  const handleOpenPrivateChat = () => {
     if (!isPhoneValid) {
-      onToast('⚠️ يرجى إدخال أو اختيار رقم هاتف واتساب صحيح');
+      onToast('⚠️ يرجى إدخال أو اختيار رقم هاتف واتساب صحيح لصاحب الإعلان');
       return;
     }
 
     setIsSubmitting(true);
     try {
-      // 1. Copy message
+      // 1. Copy message as instant backup
       handleCopy();
 
-      // 2. Open regular WhatsApp private chat
+      // 2. Open regular WhatsApp private chat (Strictly private 1-on-1, NEVER group!)
       openRegularWhatsAppPrivateChat(cleanInputPhone, editedMessage);
 
-      // 3. Confirm accept in order radar
+      // 3. Confirm accept in order radar with status 'chat_opened_pending_send'
       onConfirmAccept(order, cleanInputPhone);
-      onToast('⚡ جاري فتح المحادثة الخاصة في واتساب العادي وقبول الطلب...');
+      onToast('📱 فُتحت محادثة المعلن في واتساب والرسالة جاهزة — اضغط «إرسال» داخل واتساب');
       onClose();
     } finally {
       setIsSubmitting(false);
@@ -90,7 +95,6 @@ export function AdvertiserOutreachModal({
   };
 
   const handleSearchAdvertiserInWhatsApp = () => {
-    // Open WhatsApp regular app and copy message so captain can search advertiser by name
     handleCopy();
     const searchUrl = `whatsapp://`;
     try {
@@ -126,15 +130,15 @@ export function AdvertiserOutreachModal({
               <div>
                 <div className="flex items-center gap-2">
                   <h3 className="text-base sm:text-lg font-black tracking-tight text-white">
-                    تواصل خاص مع صاحب الإعلان
+                    التحقق من هوية صاحب الإعلان والتواصل الخاص
                   </h3>
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-500 text-slate-950 flex items-center gap-1 shadow-2xs">
                     <ShieldCheck className="w-3 h-3" />
-                    <span>محادثة خاصة 🔒</span>
+                    <span>خاص فقط 🔒</span>
                   </span>
                 </div>
                 <p className="text-xs text-emerald-200/90 mt-0.5 font-bold">
-                  تواصل عبر WhatsApp العادي مباشرة • يُمنع الرد في القروب 🚫
+                  تواصل عبر WhatsApp العادي في محادثة خاصة • يُمنع الرد في القروب 🚫
                 </p>
               </div>
             </div>
@@ -173,49 +177,92 @@ export function AdvertiserOutreachModal({
             </div>
           </div>
 
-          {/* Verification Alert Banner */}
+          {/* Verification Reason / Notice */}
           <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-300 text-amber-950 space-y-1 text-xs">
             <div className="flex items-center gap-1.5 font-black">
               <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-              <span>التحقق من هوية المعلن لمنع الإرسال الخاطئ:</span>
+              <span>التحقق من هوية صاحب الإعلان:</span>
             </div>
             <p className="text-[11px] text-amber-900 leading-relaxed font-medium">
-              حفاظاً على خصوصيتك وعدم الرد في القروب، تأكد من رقم المعلن الصحيح أو اختره من الأرقام المستخرجة من الإعلان لإرسال الرسالة في الخاص فقط.
+              {resolution.verificationReason || 'حفاظاً على خصوصيتك ومنع مراسلة أي رقم خاطئ أو الرد في القروب، تأكد من رقم هاتف المعلن الصحيح قبل فتح المحادثة الخاصة.'}
             </p>
           </div>
 
-          {/* Candidate Phone Numbers from Text (if any) */}
-          {resolution.candidatePhones.length > 0 && (
-            <div className="space-y-1.5">
+          {/* Candidate Phone Numbers from Text with Detected Role */}
+          {resolution.candidatesDetailed && resolution.candidatesDetailed.length > 0 && (
+            <div className="space-y-2">
               <label className="text-xs font-black text-slate-800 block">
-                الأرقام المرصودة في الإعلان (انقر للاختيار):
+                الأرقام المكتشفة في الإعلان وموقعها (انقر للاختيار):
               </label>
-              <div className="flex flex-wrap gap-2">
-                {resolution.candidatePhones.map((ph, idx) => (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={() => setCustomPhone(ph.replace(/^973/, ''))}
-                    className={`px-3 py-1.5 rounded-xl border text-xs font-bold font-mono transition-all flex items-center gap-1.5 cursor-pointer ${
-                      cleanInputPhone === ph
-                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
-                        : 'bg-white hover:bg-slate-100 text-slate-800 border-slate-300'
-                    }`}
-                  >
-                    <Phone className="w-3 h-3" />
-                    <span dir="ltr">+{ph}</span>
-                    {cleanInputPhone === ph && <Check className="w-3.5 h-3.5" />}
-                  </button>
-                ))}
+              <div className="space-y-1.5">
+                {resolution.candidatesDetailed.map((cand, idx) => {
+                  const isSelected = cleanInputPhone === cand.phone;
+                  return (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => setCustomPhone(cand.phone.replace(/^973/, ''))}
+                      className={`w-full p-2.5 rounded-xl border text-right transition-all flex items-center justify-between gap-2 cursor-pointer ${
+                        isSelected
+                          ? 'bg-emerald-50 border-emerald-500 ring-2 ring-emerald-500/20'
+                          : cand.role === 'customer_recipient'
+                          ? 'bg-rose-50/60 border-rose-200 hover:bg-rose-50'
+                          : 'bg-white hover:bg-slate-50 border-slate-200'
+                      }`}
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-bold text-xs text-slate-900" dir="ltr">
+                            {cand.displayPhone}
+                          </span>
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            cand.role === 'advertiser'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : cand.role === 'customer_recipient'
+                              ? 'bg-rose-100 text-rose-800'
+                              : 'bg-slate-100 text-slate-700'
+                          }`}>
+                            {cand.roleLabel}
+                          </span>
+                        </div>
+                        {cand.contextSnippet && (
+                          <p className="text-[10px] text-slate-500 truncate mt-0.5">
+                            سياق النص: «{cand.contextSnippet}»
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="shrink-0">
+                        {isSelected ? (
+                          <div className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center">
+                            <Check className="w-3.5 h-3.5" />
+                          </div>
+                        ) : (
+                          <div className="w-6 h-6 rounded-full border border-slate-300 bg-white" />
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
+            </div>
+          )}
+
+          {/* Customer Number Selection Caution */}
+          {isCustomerSelected && (
+            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 text-xs flex items-center gap-2 animate-in fade-in">
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+              <span>
+                <strong>تحذير:</strong> هذا الرقم تم تصنيفه كرقم زبون أو مستلم، وليس صاحب الإعلان (التاجر). يفضل اختيار رقم المعلن.
+              </span>
             </div>
           )}
 
           {/* Manual Phone Input Field */}
           <div className="space-y-1.5">
             <label className="text-xs font-black text-slate-800 flex items-center justify-between">
-              <span>رقم هاتف واتساب المعلن (البحرين):</span>
-              <span className="text-[10px] text-slate-500 font-bold">8 أرقام</span>
+              <span>رقم هاتف واتساب صاحب الإعلان (البحرين):</span>
+              <span className="text-[10px] text-slate-500 font-bold">8 أرقام (3, 6, 17)</span>
             </label>
             <div className="relative flex items-center">
               <input
@@ -237,7 +284,7 @@ export function AdvertiserOutreachModal({
             <div className="flex items-center justify-between text-xs">
               <label className="font-black text-slate-800 flex items-center gap-1">
                 <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-                <span>صيغة الرسالة التلقائية الخاصة:</span>
+                <span>نص رسالة القبول المجهزة في الخاص:</span>
               </label>
               <button
                 type="button"
@@ -256,32 +303,20 @@ export function AdvertiserOutreachModal({
             />
           </div>
 
-          {/* Accessibility Service Helper for Android */}
-          <div className="p-3 rounded-xl bg-slate-100 border border-slate-200/80 flex items-center justify-between text-[11px] text-slate-600">
-            <div className="flex items-center gap-2">
-              <Smartphone className="w-4 h-4 text-slate-500 shrink-0" />
-              <span>خدمة إمكانية الوصول (Accessibility) للمساعدة بالواجهة</span>
-            </div>
-            <button
-              type="button"
-              onClick={handleOpenAccessibility}
-              className="text-xs font-bold text-blue-700 hover:underline cursor-pointer"
-            >
-              إعدادات ⚙️
-            </button>
-          </div>
-
           {/* Action Buttons */}
           <div className="space-y-2 pt-2">
             <button
               type="button"
-              onClick={handleSendPrivateChat}
+              onClick={handleOpenPrivateChat}
               disabled={!isPhoneValid || isSubmitting}
               className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs sm:text-sm shadow-md shadow-emerald-600/25 flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer disabled:opacity-50"
             >
               <Send className="w-4 h-4" />
-              <span>إرسال الرسالة في الخاص وتأكيد قبول الطلب ⚡</span>
+              <span>فتح المحادثة الخاصة في واتساب (الرسالة جاهزة) 💬</span>
             </button>
+            <p className="text-[11px] text-slate-500 text-center">
+              سيتم فتح محادثة المعلن الخاصة في واتساب مع رسالة القبول الجاهزة — اضغط «إرسال» داخل واتساب
+            </p>
 
             <button
               type="button"

@@ -262,6 +262,8 @@ export function OrderCard({
 
   const handleQuickAutoReply = async (e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
+    if (isAutoReplying) return;
+
     setIsAutoReplying(true);
 
     try {
@@ -272,19 +274,24 @@ export function OrderCard({
         return;
       }
 
-      // Execute private outreach engine (WhatsApp regular, direct private chat, no group)
+      // Execute private outreach engine (WhatsApp regular, direct private chat, strictly no group!)
       const outreachResult = await executePrivateAdvertiserOutreach(order);
 
-      // If advertiser identity/phone needs verification or multiple numbers detected, stop and confirm
-      if (outreachResult.needsVerification) {
-        setOutreachResolution(outreachResult.resolution);
-        setShowOutreachModal(true);
-        setIsAutoReplying(false);
-        return;
-      }
-
-      // Accepted and message dispatched to advertiser in private
-      onAccept(order);
+      // Accepted and message pre-filled in private WhatsApp chat without opening intrusive popups
+      onAccept({
+        ...order,
+        status: 'accepted',
+        outreachStatus: outreachResult.status,
+        outreachDetails: {
+          status: outreachResult.status,
+          phoneUsed: outreachResult.phoneUsed,
+          advertiserName: outreachResult.resolution.name,
+          attemptedAt: new Date().toISOString(),
+          message: outreachResult.message,
+          deliveryMethod: 'direct_whatsapp_url',
+          verifiedAdvertiser: true,
+        },
+      });
       setShowAcceptDialog(false);
     } catch (err) {
       console.warn('[Orderi] Quick auto-reply error:', err);
@@ -555,6 +562,34 @@ export function OrderCard({
                   >
                     <Layers className="w-3 h-3 text-purple-700" />
                     <span>مكرر في {order.crossPostedGroups.length} قروبات (تم دمجه ✓)</span>
+                  </span>
+                )}
+                {order.outreachStatus === 'chat_opened_pending_send' && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-blue-100 text-blue-900 border border-blue-300 shadow-2xs">
+                    <MessageCircle className="w-3 h-3 text-blue-700" />
+                    <span>فُتحت المحادثة بالخاص (بانتظار إرسالك) 💬</span>
+                  </span>
+                )}
+                {order.outreachStatus === 'sent_confirmed' && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-900 border border-emerald-300 shadow-2xs">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-700" />
+                    <span>تم التواصل الخاص ✅</span>
+                  </span>
+                )}
+                {order.outreachStatus === 'verification_required' && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs">
+                    <AlertTriangle className="w-3 h-3 text-amber-700" />
+                    <span>يتطلب التحقق من رقم المعلن ⚠️</span>
+                  </span>
+                )}
+                {order.aiTierUsed === 'local_ai' && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                    <span>🧠 محلي</span>
+                  </span>
+                )}
+                {order.aiTierUsed === 'cloud_ai' && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-violet-50 text-violet-800 border border-violet-200">
+                    <span>☁️ سحابي</span>
                   </span>
                 )}
               </div>
@@ -902,6 +937,19 @@ export function OrderCard({
                       <Reply className="w-4 h-4" />
                       <span>حصلت مندوب (رد: تم فوراً) 🎯</span>
                     </>
+                  ) : order.outreachStatus === 'chat_opened_pending_send' ? (
+                    <>
+                      <MessageCircle className="w-4 h-4 text-emerald-200" />
+                      <div className="flex flex-col items-center leading-tight">
+                        <span className="flex items-center gap-1">
+                          <span>المحادثة مفتوحة في واتساب</span>
+                          <span className="text-[11px] font-bold text-emerald-200">💬</span>
+                        </span>
+                        <span className="text-[10px] font-normal text-emerald-100">
+                          (الرسالة جاهزة — اضغط لإعادة فتح المحادثة الخاصة)
+                        </span>
+                      </div>
+                    </>
                   ) : (
                     <>
                       <Zap className="w-4 h-4 fill-amber-300 text-amber-300 animate-pulse" />
@@ -938,16 +986,15 @@ export function OrderCard({
             <div className="flex items-center gap-2">
               {/* Direct WhatsApp chat with advertiser in Private */}
               {effectivePhone && (
-                <a
-                  href={waUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <button
+                  type="button"
+                  onClick={handleQuickAutoReply}
                   title="فتح المحادثة الخاصة في واتساب مباشرة مع صاحب الإعلان"
-                  className="min-h-[44px] flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold border border-emerald-200 transition-all active:scale-95"
+                  className="min-h-[44px] flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold border border-emerald-200 transition-all active:scale-95 cursor-pointer"
                 >
                   <MessageCircle className="w-4 h-4 text-emerald-600" />
                   <span>خاص واتساب 👤</span>
-                </a>
+                </button>
               )}
 
               {/* Quick Copy Response */}
@@ -1210,8 +1257,21 @@ export function OrderCard({
           order={order}
           resolution={outreachResolution}
           onClose={() => setShowOutreachModal(false)}
-          onConfirmAccept={(acceptedOrd) => {
-            onAccept(acceptedOrd);
+          onConfirmAccept={(acceptedOrd, confirmedPhone) => {
+            onAccept({
+              ...acceptedOrd,
+              status: 'accepted',
+              outreachStatus: 'chat_opened_pending_send',
+              outreachDetails: {
+                status: 'chat_opened_pending_send',
+                phoneUsed: confirmedPhone,
+                advertiserName: acceptedOrd.senderName,
+                attemptedAt: new Date().toISOString(),
+                message: formatAdvertiserPrivateMessage(acceptedOrd),
+                deliveryMethod: 'direct_whatsapp_url',
+                verifiedAdvertiser: true,
+              },
+            });
             setShowOutreachModal(false);
           }}
           onToast={(msg) => console.log(msg)}

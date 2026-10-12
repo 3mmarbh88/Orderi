@@ -168,40 +168,91 @@ public class NotificationListenerPlugin extends Plugin {
     }
 
     @PluginMethod
-    public void sendQuickReply(PluginCall call) {
+    public void reachAdvertiserPrivateChat(PluginCall call) {
         try {
-            String groupName = call.getString("groupName", "");
             String phone = call.getString("phone", "");
+            String memberName = call.getString("memberName", "");
+            String groupName = call.getString("groupName", "");
             String message = call.getString("message", "");
+            boolean autoSend = call.getBoolean("autoSend", true);
 
             if (android.text.TextUtils.isEmpty(message)) {
                 call.reject("Message is empty");
                 return;
             }
 
-            // 1. Try native Notification inline reply (RemoteInput)
-            boolean sentViaRemoteInput = WhatsAppNotificationListenerService.sendQuickReply(
-                    getContext(), !android.text.TextUtils.isEmpty(groupName) ? groupName : phone, message);
+            // Case A: Confirmed phone number exists -> Open WhatsApp private chat directly via native intent
+            if (!android.text.TextUtils.isEmpty(phone)) {
+                String cleanPhone = phone.replaceAll("\\D", "");
+                OrderiAccessibilityService.queueMessageToSend(message, autoSend);
 
-            if (sentViaRemoteInput) {
+                try {
+                    android.net.Uri uri = android.net.Uri.parse("whatsapp://send?phone=" + cleanPhone + "&text=" + java.net.URLEncoder.encode(message, "UTF-8"));
+                    Intent intent = new Intent(Intent.ACTION_VIEW, uri);
+                    intent.setPackage("com.whatsapp");
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    getContext().startActivity(intent);
+
+                    JSObject ret = new JSObject();
+                    ret.put("success", true);
+                    ret.put("method", "native_direct_phone_chat");
+                    call.resolve(ret);
+                    return;
+                } catch (Exception ex) {
+                    Intent fallback = new Intent(Intent.ACTION_VIEW);
+                    fallback.setData(android.net.Uri.parse("https://api.whatsapp.com/send?phone=" + cleanPhone + "&text=" + java.net.URLEncoder.encode(message, "UTF-8")));
+                    fallback.setPackage("com.whatsapp");
+                    fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    getContext().startActivity(fallback);
+
+                    JSObject ret = new JSObject();
+                    ret.put("success", true);
+                    ret.put("method", "native_direct_phone_fallback");
+                    call.resolve(ret);
+                    return;
+                }
+            }
+
+            // Case B: No phone number in ad text, but advertiser name is known
+            // User requirement: Click advertiser name -> show private chat option -> send acceptance message in private
+            if (!android.text.TextUtils.isEmpty(memberName)) {
+                OrderiAccessibilityService.queueOutreachToMember(memberName, message, autoSend);
+
+                // Try to launch directly to the specific conversation from cached notification
+                boolean launched = false;
+                if (!android.text.TextUtils.isEmpty(groupName)) {
+                    launched = WhatsAppNotificationListenerService.openWhatsAppConversation(getContext(), groupName);
+                }
+                if (!launched && !android.text.TextUtils.isEmpty(memberName)) {
+                    launched = WhatsAppNotificationListenerService.openWhatsAppConversation(getContext(), memberName);
+                }
+
+                if (!launched) {
+                    // Launch WhatsApp directly so Accessibility Service takes over
+                    Intent launchIntent = getContext().getPackageManager().getLaunchIntentForPackage("com.whatsapp");
+                    if (launchIntent != null) {
+                        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        getContext().startActivity(launchIntent);
+                    } else {
+                        Intent intent = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse("whatsapp://"));
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        getContext().startActivity(intent);
+                    }
+                }
+
                 JSObject ret = new JSObject();
                 ret.put("success", true);
-                ret.put("method", "remote_input");
+                ret.put("method", "accessibility_member_private_outreach");
                 call.resolve(ret);
                 return;
             }
 
-            // 2. Queue for Orderi Accessibility Service
-            OrderiAccessibilityService.queueMessageToSend(message);
-
-            JSObject ret = new JSObject();
-            ret.put("success", true);
-            ret.put("method", "accessibility_queued");
-            call.resolve(ret);
+            call.reject("Missing both phone and memberName for private outreach");
         } catch (Exception e) {
-            call.reject("Failed to dispatch quick reply", e);
+            call.reject("Failed to execute private outreach", e);
         }
     }
+
 
     @PluginMethod
     public void updateFilterSettings(PluginCall call) {

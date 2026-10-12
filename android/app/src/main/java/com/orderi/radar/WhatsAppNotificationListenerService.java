@@ -38,8 +38,32 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         public PendingIntent pendingIntent;
         public android.app.RemoteInput[] remoteInputs;
         public long timestamp;
+        public boolean isGroup;
     }
     private static final java.util.concurrent.ConcurrentHashMap<String, ReplyActionHolder> REPLY_ACTIONS = new java.util.concurrent.ConcurrentHashMap<>();
+
+    public static class ChatIntentHolder {
+        public PendingIntent contentIntent;
+        public long timestamp;
+        public boolean isGroup;
+        public String title;
+    }
+    private static final java.util.concurrent.ConcurrentHashMap<String, ChatIntentHolder> CHAT_INTENTS = new java.util.concurrent.ConcurrentHashMap<>();
+
+    public static boolean openWhatsAppConversation(android.content.Context context, String targetTitle) {
+        if (TextUtils.isEmpty(targetTitle)) return false;
+        String targetNormalized = targetTitle.toLowerCase().trim();
+        for (java.util.Map.Entry<String, ChatIntentHolder> entry : CHAT_INTENTS.entrySet()) {
+            String key = entry.getKey().toLowerCase().trim();
+            if (key.equals(targetNormalized) || key.contains(targetNormalized) || targetNormalized.contains(key)) {
+                try {
+                    entry.getValue().contentIntent.send();
+                    return true;
+                } catch (Exception ignored) {}
+            }
+        }
+        return false;
+    }
 
     public static boolean sendQuickReply(android.content.Context context, String targetGroupOrPhone, String replyText) {
         if (TextUtils.isEmpty(replyText)) return false;
@@ -47,6 +71,9 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         if (!TextUtils.isEmpty(targetGroupOrPhone)) {
             String targetNormalized = targetGroupOrPhone.toLowerCase().trim();
             for (java.util.Map.Entry<String, ReplyActionHolder> entry : REPLY_ACTIONS.entrySet()) {
+                // RULE 5: Strictly prevent replying into groups!
+                if (entry.getValue().isGroup) continue;
+
                 String key = entry.getKey().toLowerCase().trim();
                 if (key.equals(targetNormalized) || key.contains(targetNormalized) || targetNormalized.contains(key)) {
                     if (executeReply(context, entry.getValue(), replyText)) return true;
@@ -54,9 +81,10 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
             }
         }
 
-        // Fallback: try latest action if less than 15 minutes old
+        // Fallback: try latest action if less than 15 minutes old AND NOT A GROUP
         long now = System.currentTimeMillis();
         for (java.util.Map.Entry<String, ReplyActionHolder> entry : REPLY_ACTIONS.entrySet()) {
+            if (entry.getValue().isGroup) continue; // NEVER group
             if (now - entry.getValue().timestamp < 900_000L) {
                 if (executeReply(context, entry.getValue(), replyText)) return true;
             }
@@ -152,6 +180,7 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                         holder.pendingIntent = action.actionIntent;
                         holder.remoteInputs = action.getRemoteInputs();
                         holder.timestamp = sbn.getPostTime();
+                        holder.isGroup = looksLikeGroup;
                         if (!TextUtils.isEmpty(resolvedTitle)) {
                             REPLY_ACTIONS.put(resolvedTitle, holder);
                         }
@@ -163,6 +192,18 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                         }
                     }
                 }
+            }
+
+            // Cache WhatsApp chat launch Intent for direct private outreach
+            if (n.contentIntent != null) {
+                ChatIntentHolder intentHolder = new ChatIntentHolder();
+                intentHolder.contentIntent = n.contentIntent;
+                intentHolder.timestamp = sbn.getPostTime();
+                intentHolder.isGroup = looksLikeGroup;
+                intentHolder.title = resolvedTitle;
+                if (!TextUtils.isEmpty(resolvedTitle)) CHAT_INTENTS.put(resolvedTitle, intentHolder);
+                if (!TextUtils.isEmpty(title)) CHAT_INTENTS.put(title, intentHolder);
+                if (!TextUtils.isEmpty(conversationTitle)) CHAT_INTENTS.put(conversationTitle, intentHolder);
             }
 
             // Android-native Heads-Up notification. This runs inside the

@@ -219,14 +219,14 @@ export function checkIncomingMessageForClosure(
   }
 
   // =========================================================================
-  // المستوى الثاني: مرسل الرسالة هو نفس صاحب الإعلان الصادر عنه الطلب
-  // (الأولوية للطلب الأقرب زمنياً الصادر عن المعلن نفسه)
+  // المستوى الثاني: التأكد الصارم أن مرسل الرسالة هو نفس معلن الطلب الأصلي حصراً
+  // (الأولوية القصوى للطلب الأقرب زمنياً الصادر عن صاحب الإعلان نفسه)
   // =========================================================================
   for (const order of sortedCandidates) {
     const isAdvertiser = isAdvertiserSenderMatch(msgSender, msgPhone, order.senderName, order.senderPhone);
 
     if (isAdvertiser) {
-      // المعلن نفسه كتب «حصلت» أو «تم» أو «حصلت مندوب» أو «تم الحجز» أو أرسل رمز الإنجاز
+      // المعلن الأصلي نفسه كتب «حصلت» أو «تم» أو «حصلت مندوب» أو «شالوه» أو رمز الإنجاز
       processedMessageHashes.add(dedupeKey);
       markOrderPermanentlyClosed(order.id);
       return {
@@ -234,13 +234,13 @@ export function checkIncomingMessageForClosure(
         orderId: order.id,
         matchedOrder: order,
         verdict: 'confirmed_closed',
-        reason: `أفاد صاحب الإعلان نفسه (${msgSender || order.senderName}) في القروب بأنه حصل على مندوب: «${rawText}»`,
+        reason: `أكد معلن الطلب الأصلي نفسه (${msgSender || order.senderName}) في القروب الحصول على مندوب: «${rawText}»`,
         evidence: {
           replyText: rawText,
           senderName: msgSender || order.senderName,
           groupName: msgGroup || order.groupName,
           timestamp: new Date(msgTime).toISOString(),
-          confidence: 98,
+          confidence: 99,
           isQuote: false,
           matchedKeywords: [...matchedWords, ...matchedEmojis],
         },
@@ -249,52 +249,83 @@ export function checkIncomingMessageForClosure(
   }
 
   // =========================================================================
-  // المستوى الثالث: فحص الحالات الغامضة وعدم الحذف العشوائي
+  // المستوى الثالث: عدم الحذف من أعضاء آخرين ما لم يكن هناك اقتباس مباشر لرسالة المعلن
+  // (بناءً على طلب المستخدم: التأكد الصارم أن الكاتب هو معلن الطلب الأصلي حصراً)
   // =========================================================================
-  
-  // إذا كان هناك أكثر من طلب نشط لمعلنين مختلفين في نفس المجموعة،
-  // والرسالة من شخص آخر لم يحدد مساراً ولا اقتباساً، فلا نحذف عشوائياً!
-  if (sortedCandidates.length > 1) {
-    return null;
-  }
+  return null;
+}
 
-  // إذا كان هناك طلب نشط وحيد فقط في القروب، ووصلت رسالة واضحة جداً
-  // مثل «حصلت مندوب» أو «تم الحصول على مندوب» أو «تم الحجز» أو «تم أخذ الطلب»
-  // خلال وقت قصير من الإعلان (أقل من 20 دقيقة):
-  if (sortedCandidates.length === 1) {
-    const singleOrder = sortedCandidates[0];
-    const orderAgeSec = (msgTime - new Date(singleOrder.receivedAt).getTime()) / 1000;
+/**
+ * فحص الرسالة الواردة بالذكاء الاصطناعي الهجين (المحلي + السحابي)
+ * في حال استخدم المعلن تعابير جديدة أو غامضة لا توجد بالقائمة الأساسية
+ */
+export async function checkIncomingMessageForClosureWithAI(
+  message: {
+    text: string;
+    senderName?: string;
+    senderPhone?: string;
+    groupName?: string;
+    timestamp?: Date | number;
+    rawQuotedText?: string;
+    messageId?: string;
+  },
+  activeOrders: ParsedOrder[]
+): Promise<ClosureMatchResult | null> {
+  // 1. فحص فوري وسريع بالمطابقة المحلية
+  const fastResult = checkIncomingMessageForClosure(message, activeOrders);
+  if (fastResult) return fastResult;
 
-    if (orderAgeSec <= 1200) {
-      // عبارات قاطعة تدل على أخذ الطلب
-      const explicitPhrases = [
-        'حصلت', 'حصل', 'حصلت مندوب', 'حصلت على مندوب', 'تم الحصول على مندوب',
-        'تم الحجز', 'خلاص حصلت', 'تم اخذ الطلب', 'تم أخذ الطلب', 'انحجز', 'شالوه',
-        'اخذوه', 'أخذوه', 'حصلنا مندوب', 'لقيت مندوب'
-      ];
-      const hasExplicit = matchedWords.some((w) => explicitPhrases.includes(w));
+  const rawText = (message.text || '').trim();
+  if (!rawText) return null;
 
-      if (hasExplicit) {
-        processedMessageHashes.add(dedupeKey);
-        markOrderPermanentlyClosed(singleOrder.id);
-        return {
-          isMatch: true,
-          orderId: singleOrder.id,
-          matchedOrder: singleOrder,
-          verdict: 'confirmed_closed',
-          reason: `تأكيد صريح بالحصول على مندوب في القروب («${rawText}») على الطلب النشط الوحيد (${singleOrder.from} ← ${singleOrder.to}).`,
-          evidence: {
-            replyText: rawText,
-            senderName: msgSender || 'عضو بالقروب',
-            groupName: msgGroup || singleOrder.groupName,
-            timestamp: new Date(msgTime).toISOString(),
-            confidence: 92,
-            isQuote: false,
-            matchedKeywords: [...matchedWords, ...matchedEmojis],
-          },
-        };
-      }
+  const msgGroup = (message.groupName || '').trim();
+  const msgSender = (message.senderName || '').trim();
+  const msgPhone = (message.senderPhone || '').replace(/\D/g, '');
+  const msgTime = message.timestamp ? new Date(message.timestamp).getTime() : Date.now();
+
+  // فحص الطلبات التي تعود لنفس المعلن ونفس القروب
+  const advertiserOrders = activeOrders.filter((order) => {
+    if (order.status === 'accepted' || order.status === 'closed_taken') return false;
+    const inSameGroup = 
+      (msgGroup && order.groupName && (order.groupName.includes(msgGroup) || msgGroup.includes(order.groupName))) ||
+      (order.crossPostedGroups && order.crossPostedGroups.some((g) => g.includes(msgGroup) || msgGroup.includes(g)));
+    if (!inSameGroup && msgGroup) return false;
+    return isAdvertiserSenderMatch(msgSender, msgPhone, order.senderName, order.senderPhone);
+  });
+
+  if (advertiserOrders.length === 0) return null;
+
+  // استدعاء الذكاء الاصطناعي لفهم التعبير العامي الجديد
+  try {
+    const { analyzeAndLearnClosureWithAI } = await import('./aiClosureLearner');
+    const orderCandidate = advertiserOrders[0];
+    const aiAnalysis = await analyzeAndLearnClosureWithAI(rawText, {
+      orderSnippet: `${orderCandidate.from} إلى ${orderCandidate.to}`,
+      senderName: msgSender || orderCandidate.senderName,
+      groupName: msgGroup || orderCandidate.groupName,
+    });
+
+    if (aiAnalysis.isClosureIntent && (aiAnalysis.verdict === 'taken' || aiAnalysis.verdict === 'completion' || aiAnalysis.verdict === 'emoji')) {
+      markOrderPermanentlyClosed(orderCandidate.id);
+      return {
+        isMatch: true,
+        orderId: orderCandidate.id,
+        matchedOrder: orderCandidate,
+        verdict: 'confirmed_closed',
+        reason: `رصد بالذكاء الاصطناعي: أكد معلن الطلب الأصلي (${msgSender || orderCandidate.senderName}) حصوله على مندوب («${rawText}»): ${aiAnalysis.explanation || ''}`,
+        evidence: {
+          replyText: rawText,
+          senderName: msgSender || orderCandidate.senderName,
+          groupName: msgGroup || orderCandidate.groupName,
+          timestamp: new Date(msgTime).toISOString(),
+          confidence: aiAnalysis.confidence || 95,
+          isQuote: false,
+          matchedKeywords: [aiAnalysis.extractedPhrase || rawText],
+        },
+      };
     }
+  } catch (err) {
+    console.warn('[AI Closure Analyzer] Evaluation error:', err);
   }
 
   return null;

@@ -417,58 +417,92 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
                     <p className="text-xs text-blue-800">يلتقط إشعارات WhatsApp العادي حتى عندما يكون Orderi في الخلفية</p>
                   </div>
                 </div>
-                <div className="p-4 rounded-2xl bg-white border border-emerald-200 space-y-3">
+                {/* كارت مدمج لحفظ وربط الرقم وتفعيل الصلاحية مباشرة بدون حشو شروحات */}
+                <div className="p-4 rounded-2xl bg-white border border-emerald-300 shadow-sm space-y-3">
                   <div className="flex items-center justify-between gap-2">
-                    <div>
-                      <div className="text-xs font-black text-slate-900">رقم WhatsApp المرتبط</div>
-                      <p className="text-[11px] text-slate-500 mt-1">يُحفظ على هذا الجهاز ولا يتغير عند إغلاق Orderi.</p>
-                    </div>
-                    {savedConnection?.status === 'connected' && (
-                      <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-black">موثّق بالإشعار ✓</span>
-                    )}
+                    <span className="text-xs font-black text-slate-900">رقم WhatsApp وقراءة الإشعارات</span>
+                    <span
+                      className={`px-2.5 py-0.5 rounded-full text-[10px] font-black ${
+                        nativeListenerEnabled && savedConnection?.status === 'connected'
+                          ? 'bg-emerald-100 text-emerald-700'
+                          : nativeListenerEnabled
+                          ? 'bg-blue-100 text-blue-700'
+                          : 'bg-amber-100 text-amber-700'
+                      }`}
+                    >
+                      {nativeListenerEnabled && savedConnection?.status === 'connected'
+                        ? 'مربوط ومفعّل ✅'
+                        : nativeListenerEnabled
+                        ? 'الخدمة مفعّلة ✅'
+                        : 'الصلاحية مطلوبة ⚠️'}
+                    </span>
                   </div>
+
                   <div className="flex gap-2">
                     <input
                       dir="ltr"
                       value={phoneNumberInput}
                       onChange={(e) => setPhoneNumberInput(e.target.value)}
                       placeholder="+973 3XXXXXXX"
-                      className="flex-1 min-w-0 px-3.5 py-3 rounded-xl border border-slate-300 bg-slate-50 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500"
+                      className="flex-1 min-w-0 px-3.5 py-2.5 rounded-xl border border-slate-300 bg-slate-50 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500"
                       inputMode="tel"
                     />
                     <button
                       type="button"
                       disabled={linkBusy}
-                      onClick={handleConfirmPairing}
-                      className="px-4 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs disabled:opacity-50"
-                    >
-                      {linkBusy ? 'جاري الحفظ...' : 'حفظ وربط'}
-                    </button>
-                  </div>
-                  <p className="text-[10px] text-slate-500 leading-relaxed">
-                    ملاحظة: Android لا يسمح للتطبيق بقراءة رقم حساب WhatsApp من قاعدة بياناته. لذلك الرقم الذي تدخله يُحفظ كرقم الحساب، وتصبح عملية الربط مؤكدة عند وصول إشعار WhatsApp الحقيقي إلى Orderi.
-                  </p>
-                </div>
+                      onClick={async () => {
+                        const phone = normalizeWhatsAppPhone(phoneNumberInput);
+                        if (!phone) {
+                          onShowToast('أدخل رقم WhatsApp أولاً');
+                          return;
+                        }
 
-                <div className={`p-4 rounded-2xl border ${nativeListenerEnabled ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`}>
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <div className="text-xs font-black text-slate-900">{nativeListenerEnabled ? 'الخدمة مفعّلة على الهاتف ✅' : 'صلاحية قراءة الإشعارات غير مفعّلة ⚠️'}</div>
-                      <p className="text-[11px] text-slate-600 mt-1">المصدر المقبول: WhatsApp العادي فقط (com.whatsapp).</p>
-                    </div>
-                    <button type="button" onClick={async () => { try { await openWhatsAppListenerSettings(); onShowToast('فعّل Orderi من قائمة الوصول إلى الإشعارات ثم ارجع للتطبيق'); setTimeout(() => getWhatsAppListenerStatus().then(setNativeListenerEnabled).catch(() => {}), 1200); } catch { onShowToast('تعذر فتح إعدادات قراءة الإشعارات'); } }} className="shrink-0 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-black text-xs shadow-md">
-                      {nativeListenerEnabled ? 'فتح الإعدادات' : 'تفعيل الخدمة'}
+                        setLinkBusy(true);
+                        try {
+                          const connection = registerWhatsAppNumber(phone);
+                          setSavedConnection(connection);
+
+                          const activeSession: WhatsAppSessionData = {
+                            status: 'connected',
+                            qrCodeDataUrl: '',
+                            pairingCode: '',
+                            connectedPhone: connection.phoneNumber,
+                            connectedAt: connection.connectedAt,
+                            deviceName: `Orderi • ${connection.deviceId.slice(0, 8)}`,
+                            batteryLevel: 0,
+                            groupsMonitoredCount: connection.groups.length,
+                            privateChatsMonitoredCount: 0,
+                            totalOrdersCaptured: 0,
+                            lastSyncAt: connection.lastSeenAt,
+                            listenerServiceActive: true,
+                          };
+                          setSession(activeSession);
+                          onSessionConnected?.(activeSession, []);
+
+                          // إذا كانت الصلاحية غير مفعلة، نفتح الإعدادات فوراً للتفعيل
+                          const enabled = await getWhatsAppListenerStatus();
+                          if (!enabled) {
+                            await openWhatsAppListenerSettings();
+                            onShowToast('تم الحفظ. فعّل Orderi من قائمة الإشعارات');
+                            setTimeout(() => getWhatsAppListenerStatus().then(setNativeListenerEnabled).catch(() => {}), 1500);
+                          } else {
+                            setNativeListenerEnabled(true);
+                            onShowToast('✅ تم حفظ وربط الرقم وتفعيل الخدمة بنجاح');
+                          }
+                        } catch (err) {
+                          console.error('[Orderi] Save & Link error:', err);
+                          onShowToast('تعذر إتمام الربط والتفعيل');
+                        } finally {
+                          setLinkBusy(false);
+                          setIsPairing(false);
+                        }
+                      }}
+                      className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-black text-xs disabled:opacity-50 shadow-md shadow-emerald-600/20 shrink-0"
+                    >
+                      {linkBusy ? 'جاري التنفيذ...' : 'حفظ وربط وتفعيل الخدمة'}
                     </button>
                   </div>
                 </div>
-                <div className="space-y-2 text-xs text-slate-700 leading-relaxed">
-                  <div className="font-black text-slate-900">طريقة العمل:</div>
-                  <div>1. WhatsApp العادي يستقبل رسالة في القروب.</div>
-                  <div>2. Android يعرض إشعار WhatsApp.</div>
-                  <div>3. خدمة Orderi الأصلية تلتقط الإشعار بدون فتح Orderi.</div>
-                  <div>4. عند عودة Orderi للواجهة تُمرر الرسالة إلى محلل الطلبات والرادار.</div>
-                </div>
-                <div className="p-3 rounded-2xl bg-white border border-blue-200 text-[11px] text-slate-600 leading-relaxed">لا نستخدم WhatsApp Web ولا QR ولا تسجيل دخول لواتساب داخل Orderi. الخدمة ترى فقط محتوى الإشعار الذي يسمح Android وWhatsApp بعرضه.</div>
                 <div className="p-4 rounded-2xl bg-white border border-slate-200 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="text-xs font-black text-slate-900">القروبات المكتشفة والمحفوظة</div>

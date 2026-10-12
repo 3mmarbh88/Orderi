@@ -45,3 +45,20 @@ export async function sendNativeQuickReply(options: {
   }
 }
 
+export async function reachNativeAdvertiserPrivateChat(options: {
+  phone?: string;
+  memberName?: string;
+  groupName?: string;
+  message: string;
+  autoSend?: boolean;
+}): Promise<{ success: boolean; method: string }> {
+  if (!isNativeAndroid()) {
+    return { success: false, method: 'not_native' };
+  }
+  try {
+    return await OrderiNotificationListener.reachAdvertiserPrivateChat(options);
+  } catch (err: any) {
+    return { success: false, method: 'error' };
+  }
+}
+

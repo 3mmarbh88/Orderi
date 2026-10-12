@@ -11,6 +11,7 @@ public class MainActivity extends BridgeActivity {
     public MainActivity() {
         super();
         registerPlugin(NotificationListenerPlugin.class);
+        registerPlugin(OrderiLocalAIPlugin.class);
     }
 
     @Override

@@ -1394,6 +1394,177 @@ app.post("/api/ai/evaluate-match", async (req, res) => {
   }
 });
 
+// Feature 7: Cloud AI Deep Order Parser (الذكاء الاصطناعي السحابي عند الحاجة لاستخراج الطلبات الغامضة)
+app.post("/api/ai/cloud-parse-order", async (req, res) => {
+  try {
+    const { rawText = "", senderName = "", groupName = "" } = req.body || {};
+
+    if (!rawText || typeof rawText !== "string") {
+      return res.status(400).json({
+        success: false,
+        error: "نص الإعلان فارغ",
+      });
+    }
+
+    const ai = getGenAI();
+    const prompt = `أنت خبير ذكاء اصطناعي لوجستي متخصص في تحليل إعلانات ورسائل طلبات التوصيل في قروبات واتساب مملكة البحرين 🇧🇭.
+مهمتك: قراءة الإعلان وفهم اللهجة البحرينية والخليجية بدقة فائقة واستخراج تفاصيل الطلب ومنع أي لبس.
+
+نص الإعلان الأصلي من واتساب:
+"""${rawText}"""
+اسم المرسل في واتساب: "${senderName}"
+اسم القروب: "${groupName}"
+
+قواعد صارمة:
+1. مناطق البحرين: استخرج مكان الاستلام (from) ووجهة التسليم (to) بدقة (مثل: المنامة، المحرق، الرفاع، سار، عراد، البسيتين، الجفير، مدينة حمد، مدينة عيسى، سترة، عالي، درة البحرين، البديع، إلخ).
+2. الأجرة (price): استخرج السعر بالدينار البحريني كرقم بدقة (مثلاً: 2.5 أو 3 أو 1.5). إذا لم يذكر سعر اجعل price: 0. انتبه: إذا كان هناك رقم أشخاص مثل "شخصين" أو "3 ركاب" فهذا عدد ركاب وليس سعراً أبداً!
+3. كشف نقل الركاب مقابل البضائع:
+   - "passengerRisk": "confirmed_passenger" (إذا كان الإعلان صريحاً لنقل شخص، بنت، طالب، عائلة، مشوار شخصي)
+   - "suspicious_passenger" (إذا كان هناك احتمال أو غموض)
+   - "goods_safe" (إذا كان لتوصيل أغراض، أكل، عطور، هدايا، عبايات، كراتين، بضاعة)
+4. رقم الهاتف (phone): استخرج رقم هاتف المعلن المباشر إن وجد في النص (يبدأ بـ 973 أو أرقام البحرين 3xxxxxxx, 6xxxxxxx, 17xxxxxx). إذا كان هناك عدة أرقام ميز رقم المعلن.
+5. نوع البضاعة (itemType) وملاحظات مهمة (notes).
+
+أجب فقط بكائن JSON صالح مطابق للهيكل:
+{
+  "from": "منطقة الاستلام",
+  "to": "منطقة التسليم",
+  "price": 2.5,
+  "phone": "973xxxxxxxx",
+  "passengerRisk": "goods_safe" | "suspicious_passenger" | "confirmed_passenger",
+  "passengerCount": 0,
+  "itemType": "عطور / حلويات / طرد",
+  "notes": "أي ملاحظات إضافية",
+  "confidence": 95
+}`;
+
+    const aiPromise = ai.models.generateContent({
+      model: "gemini-3.8-flash",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        temperature: 0.1,
+      },
+    });
+
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("Cloud AI parsing timeout")), 4000)
+    );
+
+    const response = await Promise.race([aiPromise, timeoutPromise]);
+    const outputText = response.text || "{}";
+    const parsedData = JSON.parse(outputText);
+
+    return res.json({
+      success: true,
+      data: {
+        from: parsedData.from || "",
+        to: parsedData.to || "",
+        price: typeof parsedData.price === "number" ? parsedData.price : Number(parsedData.price) || 0,
+        phone: parsedData.phone || "",
+        passengerRisk: parsedData.passengerRisk || "goods_safe",
+        passengerCount: parsedData.passengerCount || 0,
+        itemType: parsedData.itemType || "بضاعة عامة",
+        notes: parsedData.notes || "",
+        confidence: typeof parsedData.confidence === "number" ? parsedData.confidence : 90,
+      },
+    });
+  } catch (err: any) {
+    console.warn("[Cloud AI Parser Fallback]", err?.message);
+    // Return standard heuristic fallback if Cloud AI is unavailable
+    const fallback = parseWhatsAppOrderText(req.body?.rawText || "");
+    return res.json({
+      success: true,
+      data: {
+        from: fallback.from,
+        to: fallback.to,
+        price: fallback.price,
+        phone: fallback.phone,
+        passengerRisk: fallback.passengerDetection?.level || "goods_safe",
+        passengerCount: fallback.passengerCount || 0,
+        itemType: "طلب توصيل",
+        notes: fallback.notes,
+        confidence: fallback.confidence,
+      },
+    });
+  }
+});
+
+// AI Closure Classifier & Learner (فهم وتحليل كلمات وتعابير إغلاق وحجز الطلبات بالذكاء الاصطناعي)
+app.post("/api/analyze-and-learn-closure", async (req, res) => {
+  try {
+    const { text = "", context = "", senderName = "", groupName = "" } = req.body || {};
+    if (!text || typeof text !== "string") {
+      return res.status(400).json({ success: false, error: "النص فارغ" });
+    }
+
+    const ai = getGenAI();
+    const prompt = `أنت خبير ذكاء اصطناعي لغوي في اللهجة البحرينية والخليجية ومحادثات مجموعات واتساب لطلبات التوصيل.
+المهمة: تحليل رسالة أرسلها عضو/معلن في قروب توصيل ومعرفة ما إذا كانت تفيد بأن الطلب قد انحجز أو حصل على مندوب أو تم إنجازه أو تكنسل.
+
+نص الرسالة: "${text}"
+اسم المرسل: "${senderName}"
+اسم القروب: "${groupName}"
+سياق الطلب السابق (إن وجد): "${context}"
+
+التصنيفات الممكنة:
+1. "taken": تفيد بأنه حصل على مندوب، أو شالوا الطلب، أو اتصل بمندوب، أو تم الحجز (مثل: تم، حصلت، شالوه، انحجز، مسكته، فوقه خلاص، خذوه).
+2. "completion": تفيد بانتهاء المشوار، وصول الأغراض، أو إلغاء الطلب (مثل: تكنسل، كنسلنا، تسكر، خلاص لا حد يتصل).
+3. "gratitude": شكر ودعاء يفيد الرضا وإتمام المهمة (مثل: ما قصرتوا، مشكورين، في ميزان حسناتكم).
+4. "emoji": رموز إنجاز أو مصافحة أو تم (مثل: 👍، ✅، 🤝، 👌، 📦).
+5. "none": رسالة عادية لا تعني إغلاق أو حجز الطلب (مثل: كم السعر؟، وين الموقع؟، هل فيه مندوب؟، سلام عليكم).
+
+أجب بكائن JSON صالح فقط:
+{
+  "isClosureIntent": true | false,
+  "verdict": "taken" | "completion" | "gratitude" | "emoji" | "none",
+  "extractedPhrase": "الكلمة أو العبارة أو الرمز الدال على الإغلاق",
+  "confidence": 95,
+  "explanation": "شرح موجز بمعنى الكلمة في اللهجة البحرينية/الخليجية"
+}`;
+
+    const aiPromise = ai.models.generateContent({
+      model: "gemini-3.8-flash",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        temperature: 0.1,
+      },
+    });
+
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("AI closure analyzer timeout")), 4000)
+    );
+
+    const response = await Promise.race([aiPromise, timeoutPromise]);
+    const outputText = response.text || "{}";
+    const parsedData = JSON.parse(outputText);
+
+    return res.json({
+      success: true,
+      isClosureIntent: !!parsedData.isClosureIntent,
+      verdict: parsedData.verdict || "none",
+      extractedPhrase: parsedData.extractedPhrase || text.substring(0, 30),
+      confidence: typeof parsedData.confidence === "number" ? parsedData.confidence : 90,
+      explanation: parsedData.explanation || "",
+    });
+  } catch (err: any) {
+    console.warn("[AI Closure Learner Route Fallback]", err?.message);
+    // Fallback heuristic
+    const clean = (req.body?.text || "").toLowerCase();
+    const isClosure = /حصلت|تم|انحجز|شالوه|اخذوه|أخذوه|خلاص|تكنسل|مشكورين|👍|✅|🤝/.test(clean);
+    return res.json({
+      success: true,
+      isClosureIntent: isClosure,
+      verdict: isClosure ? "taken" : "none",
+      extractedPhrase: req.body?.text?.substring(0, 30) || "",
+      confidence: 80,
+      explanation: "تحليل محلي بديل",
+    });
+  }
+});
+
+
 // Setup Vite middleware for development, or static serving for production
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {

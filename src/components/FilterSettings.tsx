@@ -51,10 +51,12 @@ import {
   Layers,
   ShieldAlert,
   Target,
-  Tag
+  Tag,
+  Cpu
 } from 'lucide-react';
 import { DestinationHunterCard } from './DestinationHunterCard';
 import { ClosureHunterCard } from './ClosureHunterCard';
+import { LocalAISettings } from './LocalAISettings';
 import { OrderFilter, AreaLocation, AlertToneId, VibrationPatternId, CaptainUser } from '../types';
 import { BAHRAIN_AREAS } from '../data/bahrainAreas';
 import { MatcherLocation } from '../utils/matcher';
@@ -230,6 +232,7 @@ export function FilterSettings({
     | 'notifications' 
     | 'response_template' 
     | 'gemini_ai' 
+    | 'local_ai'
     | 'contacts' 
     | 'done_template' 
     | 'background_mode';
@@ -244,6 +247,7 @@ export function FilterSettings({
     notifications: false,
     response_template: false,
     gemini_ai: false,
+    local_ai: false,
     contacts: false,
     done_template: false,
     background_mode: false,
@@ -1906,6 +1910,52 @@ export function FilterSettings({
                 </p>
               </div>
 
+            </div>
+          )}
+        </div>
+
+        {/* 6b. Accordion: الذكاء الاصطناعي المحلي على الهاتف (Gemma 3 1B) */}
+        <div id="settings-section-local-ai" className="rounded-2xl sm:rounded-3xl bg-white border border-slate-200/90 shadow-2xs overflow-hidden transition-all">
+          <button
+            type="button"
+            onClick={() => toggleSection('local_ai')}
+            className="w-full min-h-[60px] flex items-center justify-between p-4 sm:p-5 text-right bg-white hover:bg-slate-50/80 transition-colors cursor-pointer select-none"
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-2xl bg-violet-50 text-violet-600 flex items-center justify-center shrink-0 border border-violet-100 shadow-2xs">
+                <Cpu className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm sm:text-base font-black text-slate-900 truncate">
+                    الذكاء الاصطناعي المحلي على الهاتف (Gemma 3 1B)
+                  </h3>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-violet-100 text-violet-800 border border-violet-200 shrink-0">
+                    Offline AI 🧠
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                  {localFilter.useLocalAi !== false ? 'مفعّل محلياً ⚡ (نمط هجين فوري)' : 'معطّل (يعتمد على المحلل القياسي)'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0 mr-2">
+              <span className="hidden sm:inline text-xs font-bold text-slate-400">
+                {openSections.local_ai ? 'إخفاء' : 'عرض التفاصيل'}
+              </span>
+              <div className={`w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 transition-transform duration-200 ${openSections.local_ai ? 'rotate-180 bg-violet-50 text-violet-700' : ''}`}>
+                <ChevronDown className="w-4 h-4" />
+              </div>
+            </div>
+          </button>
+
+          {openSections.local_ai && (
+            <div className="p-4 sm:p-6 border-t border-violet-100 bg-slate-50/40 space-y-5 animate-in fade-in duration-200">
+              <LocalAISettings
+                filter={localFilter}
+                onUpdateFilter={setLocalFilter}
+              />
             </div>
           )}
         </div>

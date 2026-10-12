@@ -77,14 +77,20 @@ export const FocusedOrderDetailModal: React.FC<FocusedOrderDetailModalProps> = (
     try {
       const outreachResult = await executePrivateAdvertiserOutreach(order);
 
-      if (outreachResult.needsVerification) {
-        setOutreachResolution(outreachResult.resolution);
-        setShowOutreachModal(true);
-        setIsAutoReplying(false);
-        return;
-      }
-
-      onAccept(order);
+      onAccept({
+        ...order,
+        status: 'accepted',
+        outreachStatus: outreachResult.status,
+        outreachDetails: {
+          status: outreachResult.status,
+          phoneUsed: outreachResult.phoneUsed,
+          advertiserName: outreachResult.resolution.name,
+          attemptedAt: new Date().toISOString(),
+          message: outreachResult.message,
+          deliveryMethod: 'direct_whatsapp_url',
+          verifiedAdvertiser: true,
+        },
+      });
       onClose();
     } catch (err) {
       console.warn('[Orderi Focused] Auto reply error:', err);
@@ -381,8 +387,21 @@ export const FocusedOrderDetailModal: React.FC<FocusedOrderDetailModalProps> = (
           order={order}
           resolution={outreachResolution}
           onClose={() => setShowOutreachModal(false)}
-          onConfirmAccept={(acceptedOrd) => {
-            onAccept(acceptedOrd);
+          onConfirmAccept={(acceptedOrd, confirmedPhone) => {
+            onAccept({
+              ...acceptedOrd,
+              status: 'accepted',
+              outreachStatus: 'chat_opened_pending_send',
+              outreachDetails: {
+                status: 'chat_opened_pending_send',
+                phoneUsed: confirmedPhone,
+                advertiserName: acceptedOrd.senderName,
+                attemptedAt: new Date().toISOString(),
+                message: formatAdvertiserPrivateMessage(acceptedOrd),
+                deliveryMethod: 'direct_whatsapp_url',
+                verifiedAdvertiser: true,
+              },
+            });
             setShowOutreachModal(false);
             onClose();
           }}

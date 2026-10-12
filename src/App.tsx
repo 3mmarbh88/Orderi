@@ -80,6 +80,7 @@ import { computeClientAiEvaluation } from './utils/aiEvaluator';
 import { detectPassengerDelivery } from './utils/passengerClassifier';
 import { 
   checkIncomingMessageForClosure, 
+  checkIncomingMessageForClosureWithAI,
   ClosureMatchResult, 
   isOrderPermanentlyClosed, 
   markOrderPermanentlyClosed, 
@@ -92,6 +93,7 @@ import {
 } from './utils/destinationHunter';
 import { 
   sendBackgroundOrderNotification, 
+  dismissBackgroundOrderNotification,
   requestNotificationPermission,
   requestScreenWakeLock, 
   releaseScreenWakeLock,
@@ -312,12 +314,17 @@ function OrderiApp() {
         // Existing fingerprint protection makes this safe even if Android
         // returns notifications that were already processed.
         if (pending?.events?.length) {
-          const { parseWhatsAppOrderText } = await import('./utils/orderParser');
-          pending.events.slice(-30).forEach((event: WhatsAppNativeEvent) => {
+          const { parseWhatsAppOrderWithLocalAi } = await import('./utils/localAiOrderParser');
+          for (const event of pending.events.slice(-30)) {
             const groupName = (event.conversationTitle || event.title || '').trim() || 'محادثة خاصة 👤';
             const rawText = [event.bigText, event.text, event.subText, event.rawText]
               .filter(Boolean).join('\n').trim();
-            const parsed = parseWhatsAppOrderText(rawText || event.title || '');
+            const parsed = await parseWhatsAppOrderWithLocalAi(rawText || event.title || '', {
+              hybridMode: filterRef.current.localAiConfig?.hybridMode !== false,
+              useCloudFallback: filterRef.current.useCloudAiFallback !== false,
+              senderName: event.title,
+              groupName,
+            });
             if (parsed.canCreateOrder) {
               handleProcessIncomingRawOrder({
                 id: `android-wa-${event.id}`,
@@ -330,9 +337,11 @@ function OrderiApp() {
                 notes: parsed.notes, status: 'pending',
                 source: 'android_notification',
                 isDirectPrivate: !event.isGroup,
+                aiTierUsed: parsed.parseMethod,
+                passengerDetection: parsed.passengerDetection,
               }, true);
             }
-          });
+          }
         }
       }
       showToast('✅ تم تحديث الرادار وجلب أحدث الطلبات');
@@ -858,23 +867,37 @@ function OrderiApp() {
 
       // Check for Smart Order Closure (الكشف الذكي عن الطلبات المحجوزة أو المنتهية)
       if (filterRef.current.autoCloseOrdersEnabled !== false) {
-        const closureMatch = checkIncomingMessageForClosure(
-          {
-            text: rawText || event.title || '',
-            senderName: event.title,
-            groupName,
-            timestamp: event.receivedAt || Date.now(),
-          },
+        const closureMessageData = {
+          text: rawText || event.title || '',
+          senderName: event.title,
+          groupName,
+          timestamp: event.receivedAt || Date.now(),
+        };
+
+        const fastClosureMatch = checkIncomingMessageForClosure(
+          closureMessageData,
           ordersRef.current
         );
-        if (closureMatch) {
-          handleAutoOrderClosure(closureMatch);
+        if (fastClosureMatch) {
+          handleAutoOrderClosure(fastClosureMatch);
           return;
         }
+
+        // إذا كانت الرسالة من معلن بالقروب ولم تطابق القاموس المباشر، نفحصها بالذكاء الاصطناعي لفهم التعابير العامية الجديدة
+        checkIncomingMessageForClosureWithAI(closureMessageData, ordersRef.current).then((aiClosureMatch) => {
+          if (aiClosureMatch) {
+            handleAutoOrderClosure(aiClosureMatch);
+          }
+        }).catch(() => {});
       }
 
-      import('./utils/orderParser').then(({ parseWhatsAppOrderText }) => {
-        const parsed = parseWhatsAppOrderText(rawText || event.title || '');
+      import('./utils/localAiOrderParser').then(async ({ parseWhatsAppOrderWithLocalAi }) => {
+        const parsed = await parseWhatsAppOrderWithLocalAi(rawText || event.title || '', {
+          hybridMode: filterRef.current.localAiConfig?.hybridMode !== false,
+          useCloudFallback: filterRef.current.useCloudAiFallback !== false,
+          senderName: event.title,
+          groupName,
+        });
         const order = {
           id: `android-wa-${event.id}`,
           from: parsed.from,
@@ -892,6 +915,7 @@ function OrderiApp() {
           status: 'pending' as const,
           source: 'android_notification' as const,
           isDirectPrivate: !event.isGroup,
+          aiTierUsed: parsed.parseMethod,
           passengerDetection: parsed.passengerDetection,
         };
         if (parsed.canCreateOrder) handleProcessIncomingRawOrder(order, false);
@@ -1531,12 +1555,15 @@ function OrderiApp() {
       // 1. Permanently record closed order to prevent resurrection across reloads
       markOrderPermanentlyClosed(orderId);
 
-      // 2. If focused in modal or details card, dismiss it
+      // 2. Dismiss and cancel background OS notification instantly (حذف الإشعار من شريط الإشعارات)
+      dismissBackgroundOrderNotification(orderId);
+
+      // 3. If focused in modal or details card, dismiss it immediately
       if (focusedOrder?.id === orderId) {
         setFocusedOrder(null);
       }
 
-      // 3. Sync closure to server backend
+      // 4. Sync closure to server backend
       fetch('/api/orders/close', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1572,7 +1599,7 @@ function OrderiApp() {
     );
 
     if (verdict === 'confirmed_closed') {
-      showToast(`🏷️ تم إغلاق الطلب تلقائياً (${closureMatch.matchedOrder.from} ← ${closureMatch.matchedOrder.to}) • حصل المعلن على مندوب («${evidence.replyText}»)`);
+      showToast(`🗑️ تم حذف الطلب من الرادار والإشعار تلقائياً (${closureMatch.matchedOrder.from} ← ${closureMatch.matchedOrder.to}) • أكد المعلن: «${evidence.replyText}»`);
       if (filterRef.current.soundEnabled) {
         playAlertTone('radar_beep', 60);
       }

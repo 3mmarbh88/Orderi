@@ -20,6 +20,13 @@ interface OrderiNotificationListenerPlugin {
   openSettings(): Promise<void>;
   isAccessibilityEnabled(): Promise<{ enabled: boolean }>;
   openAccessibilitySettings(): Promise<void>;
+  reachAdvertiserPrivateChat(options: {
+    phone?: string;
+    memberName?: string;
+    groupName?: string;
+    message: string;
+    autoSend?: boolean;
+  }): Promise<{ success: boolean; method: string }>;
   sendQuickReply(options: {
     groupName?: string;
     phone?: string;

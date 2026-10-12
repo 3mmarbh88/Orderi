@@ -97,27 +97,9 @@ export function checkOrderDestinationHunt(
     return { isHunted: false };
   }
 
-  const from = (order.from || '').trim();
   const to = (order.to || '').trim();
 
-  // 1. فحص المسارات المرغوبة المحددة (Routes: From ➔ To)
-  const desiredRoutes = filter.desiredRoutes || [];
-  if (desiredRoutes.length > 0) {
-    for (const r of desiredRoutes) {
-      if (isAreaMatch(r.from, from) && isAreaMatch(r.to, to)) {
-        return {
-          isHunted: true,
-          matchType: 'route',
-          matchedArea: `${r.from} ➔ ${r.to}`,
-          routeLabel: `${r.from} ← ${r.to}`,
-          badgeLabel: `🎯 مسار مرغوب: ${r.from} ➔ ${r.to}`,
-          reason: `يطابق مسارك المفضل المرصود في القروب (${r.from} إلى ${r.to})`,
-        };
-      }
-    }
-  }
-
-  // 2. فحص وجهات التسليم والتوصيل المرغوبة (Desired Delivery Areas)
+  // فحص وجهات التسليم والتوصيل المرغوبة (Desired Delivery Areas)
   // نعتمد filter.desiredDeliveryAreas إن وُجدت أو filter.destinations
   const deliveryTargets = (filter.desiredDeliveryAreas && filter.desiredDeliveryAreas.length > 0)
     ? filter.desiredDeliveryAreas
@@ -133,26 +115,6 @@ export function checkOrderDestinationHunt(
           routeLabel: `توصيل إلى ${target}`,
           badgeLabel: `🎯 وجهة مرغوبة: ${target}`,
           reason: `وجهة التسليم المطلوبة «${target}» ضمن قائمة صيدك المرغوبة في القروبات`,
-        };
-      }
-    }
-  }
-
-  // 3. فحص مناطق الاستلام المرغوبة (Desired Pickup Areas)
-  const pickupTargets = (filter.desiredPickupAreas && filter.desiredPickupAreas.length > 0)
-    ? filter.desiredPickupAreas
-    : (filter.startAreas && filter.startAreas.length > 0 ? filter.startAreas : []);
-
-  if (pickupTargets.length > 0) {
-    for (const target of pickupTargets) {
-      if (isAreaMatch(target, from)) {
-        return {
-          isHunted: true,
-          matchType: 'pickup',
-          matchedArea: target,
-          routeLabel: `استلام من ${target}`,
-          badgeLabel: `🎯 استلام مرغوب: ${target}`,
-          reason: `مكان الاستلام «${target}» ضمن مناطق انطلاقك المفضلة المرصودة بالقروب`,
         };
       }
     }

@@ -154,8 +154,51 @@ export function sendBackgroundOrderNotification(order: ParsedOrder, filter?: Ord
   }
 }
 
+/**
+ * Dismisses/closes an active system notification for a specific order by orderId
+ */
+export function dismissBackgroundOrderNotification(orderId: string): void {
+  if (typeof window === 'undefined' || !orderId) return;
+
+  const targetTag = `orderi-order-${orderId}`;
+
+  // 1. If Service Worker registration is present, find matching notifications and close them
+  if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+    navigator.serviceWorker.ready.then((reg) => {
+      reg.getNotifications({ tag: targetTag }).then((notifications) => {
+        notifications.forEach((notif) => {
+          try {
+            notif.close();
+          } catch {}
+        });
+      }).catch(() => {});
+    }).catch(() => {});
+  }
+
+  // 2. Broadcast custom event in case window notifications or external listeners track it
+  window.dispatchEvent(new CustomEvent('orderi:dismiss_notification', {
+    detail: { orderId, tag: targetTag }
+  }));
+}
+
 function createWindowNotification(title: string, options: any, order?: ParsedOrder) {
   const notif = new Notification(title, options);
+
+  // Listen for dismiss event to close window-level notification instance
+  const handleDismiss = (e: any) => {
+    if (e.detail?.orderId === order?.id) {
+      try {
+        notif.close();
+      } catch {}
+      window.removeEventListener('orderi:dismiss_notification', handleDismiss);
+    }
+  };
+  window.addEventListener('orderi:dismiss_notification', handleDismiss);
+
+  notif.onclose = () => {
+    window.removeEventListener('orderi:dismiss_notification', handleDismiss);
+  };
+
   notif.onclick = () => {
     try {
       window.focus();

@@ -85,7 +85,21 @@ export interface OrderFilter {
   desiredDeliveryAreas?: string[];   // وجهات تسليم مرغوبة يراقبها صائد الوجهات
   desiredRoutes?: { from: string; to: string }[]; // مسارات مرغوبة يراقبها صائد الوجهات
   destinationHunterEnabled?: boolean;// تفعيل صائد وجهات التوصيل والتسليم
-  destinationSniperAlert?: boolean;  // تنبيه قناص الوجهات المرغوبة
+  useLocalAi?: boolean;              // تفعيل الذكاء الاصطناعي المحلي (Gemma 3 1B)
+  useCloudAiFallback?: boolean;      // تفعيل الذكاء الاصطناعي السحابي عند الحاجة (Cloud AI Fallback)
+  localAiConfig?: LocalAIModelConfig;
+}
+
+export interface LocalAIModelConfig {
+  enabled: boolean;
+  modelName: string;
+  modelPath: string;
+  hybridMode: boolean; // تشغيل المحلل الفوري السريع ثم الذكاء الاصطناعي للرسائل المعقدة
+  cloudFallbackEnabled?: boolean; // استدعاء الذكاء السحابي الخارجي تلقائياً عند غموض النص أو الشك
+  minConfidenceForFastPass: number; // النسبة التي لا تتطلب تدخل الذكاء الاصطناعي (e.g. 85%)
+  status: 'ready' | 'loading' | 'unloaded' | 'failed' | 'simulated';
+  lastInferenceTimeMs?: number;
+  totalInferences?: number;
 }
 
 export interface AIMatchAnalysis {
@@ -167,6 +181,7 @@ export interface ParsedOrder {
   matchedContact?: StoreContact;
   source?: 'webhook_auto' | 'whatsapp_web_session' | 'manual' | 'voice' | 'android_notification';
   isDirectPrivate?: boolean;
+  aiTierUsed?: 'local_ai' | 'cloud_ai' | 'fast_heuristic' | 'hybrid';
   aiAnalysis?: AIMatchAnalysis;
   isAnalyzingAi?: boolean;
   crossPostedGroups?: string[];
@@ -181,6 +196,25 @@ export interface ParsedOrder {
     matchedArea: string;
     routeLabel?: string;
   };
+  outreachStatus?: OutreachDeliveryStatus;
+  outreachDetails?: OutreachAttemptDetails;
+}
+
+export type OutreachDeliveryStatus = 
+  | 'not_attempted'
+  | 'verification_required'
+  | 'chat_opened_pending_send'
+  | 'sent_confirmed'
+  | 'failed';
+
+export interface OutreachAttemptDetails {
+  status: OutreachDeliveryStatus;
+  phoneUsed?: string | null;
+  advertiserName?: string;
+  attemptedAt: string;
+  message: string;
+  deliveryMethod: 'direct_whatsapp_url' | 'native_private_intent' | 'verified_gateway';
+  verifiedAdvertiser: boolean;
 }
 
 export interface HuntedDestinationLog {
