@@ -275,18 +275,21 @@ export function OrderCard({
       // Execute private outreach engine (WhatsApp regular, direct private chat, no group)
       const outreachResult = await executePrivateAdvertiserOutreach(order);
 
-      // If advertiser identity/phone needs verification or multiple numbers detected, stop and confirm
+      // Unknown or ambiguous identity must open the verification/search modal.
+      // Do not accept silently and never send anything to a group.
       if (outreachResult.needsVerification) {
-  // قبول الطلب مباشرة دون فتح نافذة إضافية.
-  // لا نتواصل مع جهة غير مؤكدة.
-  onAccept(order);
-  setShowAcceptDialog(false);
-  setShowOutreachModal(false);
-  setOutreachResolution(null);
-  return;
-}
+        setOutreachResolution(outreachResult.resolution);
+        setShowOutreachModal(true);
+        setShowAcceptDialog(false);
+        return;
+      }
 
-      // Accepted and message dispatched to advertiser in private
+      // A WhatsApp deep link only opens the private chat with a prefilled draft.
+      // The Android bridge must explicitly report success before we claim a message was sent.
+      if (outreachResult.deliveryStatus === 'chat_opened') {
+        console.info('[Orderi Outreach] Private chat opened with draft; user must press Send in WhatsApp.');
+      }
+
       onAccept(order);
       setShowAcceptDialog(false);
     } catch (err) {
