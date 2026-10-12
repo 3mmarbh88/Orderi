@@ -1,0 +1,125 @@
+package com.orderi.radar;
+
+import com.getcapacitor.JSObject;
+import com.getcapacitor.Plugin;
+import com.getcapacitor.PluginCall;
+import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.CapacitorPlugin;
+
+import com.google.ai.edge.litertlm.Backend;
+import com.google.ai.edge.litertlm.Content;
+import com.google.ai.edge.litertlm.Contents;
+import com.google.ai.edge.litertlm.Conversation;
+import com.google.ai.edge.litertlm.ConversationConfig;
+import com.google.ai.edge.litertlm.Engine;
+import com.google.ai.edge.litertlm.EngineConfig;
+import com.google.ai.edge.litertlm.Message;
+
+import java.io.File;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+@CapacitorPlugin(name = "OrderiLocalAI")
+public class OrderiLocalAIPlugin extends Plugin {
+    private static final String MODEL_FILE = "gemma-3-1b-it.litertlm";
+    private final ExecutorService worker = Executors.newSingleThreadExecutor();
+    private volatile Engine engine;
+
+    private File modelFile() {
+        File dir = new File(getContext().getFilesDir(), "models");
+        return new File(dir, MODEL_FILE);
+    }
+
+    @PluginMethod
+    public void getStatus(PluginCall call) {
+        File file = modelFile();
+        boolean initialized = engine != null && engine.isInitialized();
+
+        JSObject result = new JSObject();
+        result.put("engine", "LiteRT-LM");
+        result.put("model", MODEL_FILE);
+        result.put("modelPresent", file.isFile() && file.length() > 0);
+        result.put("modelPath", file.getAbsolutePath());
+        result.put("initialized", initialized);
+        result.put("ready", initialized && file.isFile() && file.length() > 0);
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void initialize(PluginCall call) {
+        worker.execute(() -> {
+            try {
+                File file = modelFile();
+
+                if (!file.isFile() || file.length() == 0) {
+                    call.reject("ملف Gemma غير موجود. لم يتم تنزيل النموذج بعد.");
+                    return;
+                }
+
+                if (engine == null || !engine.isInitialized()) {
+                    Engine newEngine = new Engine(
+                        new EngineConfig(file.getAbsolutePath(), new Backend.CPU())
+                    );
+                    newEngine.initialize();
+                    engine = newEngine;
+                }
+
+                JSObject result = new JSObject();
+                result.put("ready", engine.isInitialized());
+                result.put("model", MODEL_FILE);
+                call.resolve(result);
+            } catch (Exception e) {
+                call.reject("فشل تهيئة Gemma على الجهاز: " + e.getMessage(), e);
+            }
+        });
+    }
+
+    @PluginMethod
+    public void analyze(PluginCall call) {
+        String input = call.getString("text");
+
+        if (input == null || input.trim().isEmpty()) {
+            call.reject("نص الإعلان مطلوب.");
+            return;
+        }
+
+        worker.execute(() -> {
+            try {
+                Engine activeEngine = engine;
+                if (activeEngine == null || !activeEngine.isInitialized()) {
+                    call.reject("الذكاء الاصطناعي غير مهيأ. نفّذ initialize أولاً.");
+                    return;
+                }
+
+                String prompt =
+                    "استخرج بيانات إعلان توصيل من النص التالي. " +
+                    "أعد JSON فقط بالمفاتيح: is_order, pickup_area, destination, " +
+                    "price, distance_km, sender_name, sender_phone, notes. " +
+                    "استخدم null للقيم غير الموجودة ولا تخترع معلومات. " +
+                    "افهم العربية واللهجات الخليجية.\nالنص:\n" + input;
+
+                StringBuilder output = new StringBuilder();
+
+                try (Conversation conversation =
+                         activeEngine.createConversation(new ConversationConfig())) {
+                    Message response = conversation.sendMessage(prompt);
+                    Contents contents = response.getContents();
+
+                    for (Content item : contents.getContents()) {
+                        if (item instanceof Content.Text) {
+                            output.append(((Content.Text) item).getText());
+                        }
+                    }
+                }
+
+                JSObject result = new JSObject();
+                result.put("text", output.toString());
+                result.put("model", MODEL_FILE);
+                result.put("local", true);
+                call.resolve(result);
+            } catch (Exception e) {
+                call.reject("فشل تحليل الإعلان محلياً: " + e.getMessage(), e);
+            }
+        });
+    }
+}

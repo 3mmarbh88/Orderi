@@ -42,25 +42,8 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
     private static final java.util.concurrent.ConcurrentHashMap<String, ReplyActionHolder> REPLY_ACTIONS = new java.util.concurrent.ConcurrentHashMap<>();
 
     public static boolean sendQuickReply(android.content.Context context, String targetGroupOrPhone, String replyText) {
-        if (TextUtils.isEmpty(replyText)) return false;
-
-        if (!TextUtils.isEmpty(targetGroupOrPhone)) {
-            String targetNormalized = targetGroupOrPhone.toLowerCase().trim();
-            for (java.util.Map.Entry<String, ReplyActionHolder> entry : REPLY_ACTIONS.entrySet()) {
-                String key = entry.getKey().toLowerCase().trim();
-                if (key.equals(targetNormalized) || key.contains(targetNormalized) || targetNormalized.contains(key)) {
-                    if (executeReply(context, entry.getValue(), replyText)) return true;
-                }
-            }
-        }
-
-        // Fallback: try latest action if less than 15 minutes old
-        long now = System.currentTimeMillis();
-        for (java.util.Map.Entry<String, ReplyActionHolder> entry : REPLY_ACTIONS.entrySet()) {
-            if (now - entry.getValue().timestamp < 900_000L) {
-                if (executeReply(context, entry.getValue(), replyText)) return true;
-            }
-        }
+        // Safety lock: notification titles do not prove the private recipient identity.
+        // Automatic RemoteInput sending remains disabled until exact recipient verification exists.
         return false;
     }
 

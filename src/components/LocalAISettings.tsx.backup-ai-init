@@ -1,0 +1,156 @@
+import { useCallback, useEffect, useState } from 'react';
+import { Capacitor } from '@capacitor/core';
+import { CheckCircle2, Cpu, FileUp, RefreshCw, ShieldCheck, AlertCircle } from 'lucide-react';
+import { LocalAI } from '../utils/localAiOrderParser';
+
+type ModelStatus = {
+  modelPresent: boolean;
+  initialized: boolean;
+  ready: boolean;
+  model?: string;
+  modelPath?: string;
+};
+
+export function LocalAISettings() {
+  const isAndroid = Capacitor.getPlatform() === 'android';
+  const [status, setStatus] = useState<ModelStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+
+  const refreshStatus = useCallback(async () => {
+    if (!isAndroid) return;
+    try {
+      const result = await LocalAI.getStatus();
+      setStatus(result);
+    } catch {
+      setStatus(null);
+      setError('تعذر الاتصال بإضافة الذكاء الاصطناعي. تأكد من تشغيل نسخة Android المحدثة.');
+    }
+  }, [isAndroid]);
+
+  useEffect(() => {
+    void refreshStatus();
+  }, [refreshStatus]);
+
+  const importModel = async () => {
+    setBusy(true);
+    setError('');
+    setMessage('');
+    try {
+      const result = await LocalAI.importModel();
+      await refreshStatus();
+      setMessage(
+        `تم نسخ الملف (${(result.bytes / (1024 * 1024)).toFixed(1)} ميغابايت). اضغط تهيئة النموذج للمتابعة.`
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'لم يتم استيراد النموذج. تحقق من اختيار الملف الصحيح.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const initializeModel = async () => {
+    setBusy(true);
+    setError('');
+    setMessage('');
+    try {
+      const result = await LocalAI.initialize();
+      await refreshStatus();
+      if (result.ready) {
+        setMessage('تمت تهيئة النموذج بنجاح. سيحاول Orderi استخدامه محلياً عند تحليل الرسائل.');
+      } else {
+        setError('لم يؤكد المحرك جاهزية النموذج. راجع سجل Android لمعرفة السبب.');
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'فشلت تهيئة النموذج على الهاتف.');
+      await refreshStatus();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section dir="rtl" className="rounded-2xl border border-violet-200 bg-white p-4 sm:p-5 space-y-4">
+      <div className="flex items-start gap-3">
+        <div className="w-11 h-11 shrink-0 rounded-xl bg-violet-100 text-violet-700 flex items-center justify-center">
+          <Cpu className="w-6 h-6" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <h4 className="font-black text-sm text-slate-900">الذكاء الاصطناعي المحلي Gemma</h4>
+          <p className="mt-1 text-xs leading-6 text-slate-600">
+            تحليل رسائل الطلبات على الهاتف دون إرسال نص الرسالة إلى خدمة ذكاء اصطناعي سحابية من خلال هذه الميزة.
+          </p>
+        </div>
+      </div>
+
+      {!isAndroid ? (
+        <p className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-xs leading-6 text-amber-800">
+          استيراد النموذج وتهيئته متاحان في تطبيق Android الأصلي، وليس في نسخة المتصفح.
+        </p>
+      ) : (
+        <>
+          <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 space-y-2 text-xs">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-slate-600">حالة النموذج</span>
+              <span className={`font-bold ${status?.ready ? 'text-emerald-700' : 'text-amber-700'}`}>
+                {status?.ready ? 'جاهز' : status?.modelPresent ? 'مستورد، يحتاج إلى التهيئة' : 'لم يُستورد بعد'}
+              </span>
+            </div>
+            <div className="text-slate-500 break-all">
+              اسم الملف المطلوب: {status?.model || 'gemma3-1b-it-int4.litertlm'}
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-2">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void importModel()}
+              className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-violet-700 hover:bg-violet-800 disabled:opacity-50 text-white font-bold text-xs p-3"
+            >
+              <FileUp className="w-4 h-4" />
+              {busy ? 'يرجى الانتظار...' : 'استيراد ملف النموذج'}
+            </button>
+            <button
+              type="button"
+              disabled={busy || !status?.modelPresent}
+              onClick={() => void initializeModel()}
+              className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white font-bold text-xs p-3"
+            >
+              <RefreshCw className="w-4 h-4" />
+              تهيئة النموذج
+            </button>
+          </div>
+
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void refreshStatus()}
+            className="text-xs font-bold text-violet-700 hover:text-violet-900"
+          >
+            تحديث الحالة
+          </button>
+        </>
+      )}
+
+      {message && (
+        <div role="status" className="flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs leading-6 text-emerald-800">
+          <CheckCircle2 className="w-4 h-4 shrink-0 mt-1" />
+          <span>{message}</span>
+        </div>
+      )}
+      {error && (
+        <div role="alert" className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs leading-6 text-red-800">
+          <AlertCircle className="w-4 h-4 shrink-0 mt-1" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      <p className="flex items-start gap-2 text-[11px] leading-5 text-slate-500">
+        <ShieldCheck className="w-4 h-4 shrink-0 mt-0.5" />
+        اختر ملف النموذج المتوافق مع LiteRT-LM فقط. وجود الملف وحده لا يعني أن النموذج يعمل؛ يجب أن تنجح التهيئة أولاً.
+      </p>
+    </section>
+  );
+}

@@ -277,11 +277,14 @@ export function OrderCard({
 
       // If advertiser identity/phone needs verification or multiple numbers detected, stop and confirm
       if (outreachResult.needsVerification) {
-        setOutreachResolution(outreachResult.resolution);
-        setShowOutreachModal(true);
-        setIsAutoReplying(false);
-        return;
-      }
+  // قبول الطلب مباشرة دون فتح نافذة إضافية.
+  // لا نتواصل مع جهة غير مؤكدة.
+  onAccept(order);
+  setShowAcceptDialog(false);
+  setShowOutreachModal(false);
+  setOutreachResolution(null);
+  return;
+}
 
       // Accepted and message dispatched to advertiser in private
       onAccept(order);

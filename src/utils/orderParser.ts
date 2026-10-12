@@ -1,3 +1,4 @@
+
 import { BAHRAIN_AREAS, normalizeArabicText } from '../data/bahrainAreas';
 import { BAHRAIN_LANDMARKS } from '../data/bahrainLandmarks';
 import { detectPassengerDelivery } from './passengerClassifier';
@@ -19,316 +20,552 @@ export interface RawParsedResult {
   passengerDetection: PassengerDetection;
 }
 
-/**
- * Converts Eastern Arabic numerals (٠-٩) to standard ASCII (0-9)
- */
+interface SearchablePlace {
+  name: string;
+  keywords: string[];
+  parentArea?: string;
+}
+
+interface PlaceOccurrence {
+  name: string;
+  start: number;
+  end: number;
+  keywordLength: number;
+}
+
+interface SelectedPrice {
+  value: number;
+  start: number;
+  end: number;
+}
+
+/** تحويل الأرقام العربية إلى أرقام إنجليزية. */
 export function convertArabicNumerals(str: string): string {
   if (!str) return '';
-  const arabicNumerals = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
-  let result = str;
-  for (let i = 0; i < 10; i++) {
-    result = result.replace(new RegExp(arabicNumerals[i], 'g'), i.toString());
-  }
-  return result;
+
+  const eastern = '٠١٢٣٤٥٦٧٨٩';
+  const persian = '۰۱۲۳۴۵۶۷۸۹';
+
+  return str.replace(/[٠-٩۰-۹]/g, (digit) => {
+    const easternIndex = eastern.indexOf(digit);
+    if (easternIndex !== -1) return String(easternIndex);
+
+    const persianIndex = persian.indexOf(digit);
+    return persianIndex !== -1 ? String(persianIndex) : digit;
+  });
 }
 
 /**
- * Parses raw text from WhatsApp messages to extract delivery order parameters
+ * لا يكفي وجود منطقتين لاعتبار الرسالة طلب توصيل.
+ * تُستخدم هذه الدالة أيضًا للتحقق من نتيجة الذكاء الاصطناعي المحلي.
+ */
+export function hasExplicitOrderIntent(rawText: string): boolean {
+  if (!rawText || typeof rawText !== 'string') return false;
+
+  const text = normalizeArabicText(convertArabicNumerals(rawText));
+
+  const directIntent =
+    /(?:اوردر|توصيل|مندوب|بيك\s*اب|بيكاب|pickup|delivery|courier|driver|كابتن|دليفري)/i;
+
+  const combinedRequest =
+    /(?:طلب|مطلوب|ابي|ابغي|احتاج|نحتاج)\s*(?:توصيل|مندوب|سائق|كابتن|بيك\s*اب|اوردر|delivery|pickup)/i;
+
+  return directIntent.test(text) || combinedRequest.test(text);
+}
+
+function cleanText(value: string): string {
+  return value
+    .replace(/[\u200B-\u200F\uFEFF]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function isWordCharacter(char: string | undefined): boolean {
+  return !!char && /[a-z0-9\u0600-\u06FF]/i.test(char);
+}
+
+/** يمنع مطابقة اسم منطقة كجزء من كلمة أطول. */
+function hasWordBoundaries(text: string, start: number, end: number): boolean {
+  return (
+    !isWordCharacter(text[start - 1]) &&
+    !isWordCharacter(text[end])
+  );
+}
+
+function emptyPassengerDetection(): PassengerDetection {
+  return {
+    level: 'goods_safe',
+    label: 'توصيل بضائع معتمد',
+    matchedPhrases: [],
+    reason: 'النص فارغ',
+    isForbidden: false,
+  };
+}
+
+function emptyResult(): RawParsedResult {
+  return {
+    from: '',
+    to: '',
+    price: 0,
+    isPriceUnspecified: true,
+    passengerCount: undefined,
+    phone: '',
+    notes: '',
+    confidence: 0,
+    canCreateOrder: false,
+    passengerDetection: emptyPassengerDetection(),
+  };
+}
+
+/** استخراج رقم هاتف بحريني، مع توحيد الصيغة إلى 973XXXXXXXX. */
+function extractPhone(text: string): string {
+  const phoneRegex =
+    /(?:\+?973|00973)?[\s-]*(17\d{6}|[36]\d{7})/g;
+
+  let match: RegExpExecArray | null;
+
+  while ((match = phoneRegex.exec(text)) !== null) {
+    const raw = match[0];
+    const digits = raw.replace(/\D/g, '');
+    const localNumber = digits.startsWith('00973')
+      ? digits.slice(5)
+      : digits.startsWith('973') && digits.length === 11
+        ? digits.slice(3)
+        : digits;
+
+    if (/^(?:3\d{7}|6\d{7}|17\d{6})$/.test(localNumber)) {
+      return `973${localNumber}`;
+    }
+  }
+
+  return '';
+}
+
+function isPassengerCountContext(
+  text: string,
+  start: number,
+  end: number,
+): boolean {
+  const before = text.slice(Math.max(0, start - 24), start);
+  const after = text.slice(end, Math.min(text.length, end + 28));
+
+  const passengerWords =
+    /(?:اشخاص|شخص|ركاب|افراد|ناس|بنات|اطفال|عمال|ركاب)/i;
+
+  // «5 أشخاص» أو «عدد الركاب 5» ليست أجرة.
+  if (passengerWords.test(after)) return true;
+
+  if (
+    /(?:عدد\s*(?:الركاب|الاشخاص|الافراد)|ركاب|اشخاص|افراد)\s*[:=]?\s*$/i.test(
+      before,
+    )
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+/** استخراج السعر فقط عند وجود عملة أو وصف صريح للسعر. */
+function extractPrice(text: string): SelectedPrice | null {
+  const patterns = [
+    // 3.5 د.ب، 5 دنانير، 2 BHD
+    /(\d{1,3}(?:\.\d{1,2})?)\s*(?:دينار\s*بحريني|دنانير|دينار|د\.?\s*ب|دب|BHD|BD)(?![a-z])/i,
+
+    // د.ب 3.5، دينار: 5
+    /(?:دينار\s*بحريني|دنانير|دينار|د\.?\s*ب|دب|BHD|BD)\s*[:=]?\s*(\d{1,3}(?:\.\d{1,2})?)/i,
+
+    // السعر: 4، الأجرة 3.5، الحساب 2
+    /(?:السعر|سعر|الاجر|الاجرة|اجرة|المبلغ|الحساب|بقيمة|قيمة\s*الطلب)\s*[:=]?\s*(?:بـ?\s*)?(\d{1,3}(?:\.\d{1,2})?)(?!\d)/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = pattern.exec(text);
+    if (!match || match.index === undefined) continue;
+
+    const numberText = match[1];
+    const numberOffset = match[0].lastIndexOf(numberText);
+    const start = match.index + numberOffset;
+    const end = start + numberText.length;
+    const value = Number(numberText);
+
+    if (
+      !Number.isFinite(value) ||
+      value <= 0 ||
+      value > 100 ||
+      isPassengerCountContext(text, start, end)
+    ) {
+      continue;
+    }
+
+    // لا نأخذ رقمًا يمثل جزءًا من رقم هاتف أطول.
+    if (/\d/.test(text[start - 1] || '') || /\d/.test(text[end] || '')) {
+      continue;
+    }
+
+    return { value, start, end };
+  }
+
+  return null;
+}
+
+function buildSearchablePlaces(): SearchablePlace[] {
+  const places: SearchablePlace[] = [
+    ...BAHRAIN_LANDMARKS.map((landmark) => ({
+      name: landmark.name,
+      keywords: [landmark.name, ...(landmark.keywords || [])].filter(
+        (value): value is string => typeof value === 'string' && !!value.trim(),
+      ),
+      parentArea: landmark.parentAreaName,
+    })),
+    ...BAHRAIN_AREAS.map((area) => ({
+      name: area.name,
+      keywords: [area.name, area.nameEn].filter(
+        (value): value is string => typeof value === 'string' && !!value.trim(),
+      ),
+    })),
+  ];
+
+  // أزل التكرار حسب الاسم لتقليل الالتباس.
+  const unique = new Map<string, SearchablePlace>();
+
+  for (const place of places) {
+    const key = normalizeArabicText(place.name);
+    if (!key) continue;
+
+    const existing = unique.get(key);
+
+    if (existing) {
+      existing.keywords = [...new Set([...existing.keywords, ...place.keywords])];
+    } else {
+      unique.set(key, {
+        ...place,
+        keywords: [...new Set(place.keywords)],
+      });
+    }
+  }
+
+  return [...unique.values()];
+}
+
+const SEARCHABLE_PLACES = buildSearchablePlaces();
+
+function findPlaceOccurrences(text: string): PlaceOccurrence[] {
+  const candidates: PlaceOccurrence[] = [];
+
+  for (const place of SEARCHABLE_PLACES) {
+    for (const keyword of place.keywords) {
+      const normalizedKeyword = normalizeArabicText(keyword);
+      if (normalizedKeyword.length < 2) continue;
+
+      let searchFrom = 0;
+
+      while (searchFrom < text.length) {
+        const start = text.indexOf(normalizedKeyword, searchFrom);
+        if (start === -1) break;
+
+        const end = start + normalizedKeyword.length;
+
+        if (hasWordBoundaries(text, start, end)) {
+          candidates.push({
+            name: place.name,
+            start,
+            end,
+            keywordLength: normalizedKeyword.length,
+          });
+        }
+
+        searchFrom = start + 1;
+      }
+    }
+  }
+
+  // الأسماء المركبة الأطول لها الأولوية على الأسماء الجزئية.
+  candidates.sort(
+    (a, b) =>
+      b.keywordLength - a.keywordLength ||
+      a.start - b.start,
+  );
+
+  const selected: PlaceOccurrence[] = [];
+
+  for (const candidate of candidates) {
+    const overlaps = selected.some(
+      (item) =>
+        candidate.start < item.end &&
+        candidate.end > item.start,
+    );
+
+    if (!overlaps) selected.push(candidate);
+  }
+
+  return selected.sort((a, b) => a.start - b.start);
+}
+
+function classifyPlace(
+  text: string,
+  occurrence: PlaceOccurrence,
+): 'from' | 'to' | null {
+  // افحص الكلمات القريبة قبل اسم المنطقة؛ لا تعتمد على ترتيب الاسم وحده.
+  const prefix = text.slice(Math.max(0, occurrence.start - 48), occurrence.start);
+
+  const fromPattern =
+    /(?:استلام\s+من|تحميل\s+من|بيك\s*اب\s+من|pickup\s+from|from|استلام|بيك\s*اب|بيكاب|تحميل|موقع|فرع|من)\s*(?:(?:مجمع|مول|سوق|منطقة|قرية)\s*)?$/i;
+
+  const toPattern =
+    /(?:تسليم\s+الى|تسليم\s+ل|توصيل\s+الى|توصيل\s+ل|الى|وجهة|مكان|destination|drop\s*off|to)\s*(?:(?:مجمع|مول|سوق|منطقة|قرية)\s*)?$/i;
+
+  const fromMatch = fromPattern.exec(prefix);
+  const toMatch = toPattern.exec(prefix);
+
+  if (fromMatch && toMatch) {
+    // استخدم المؤشر الأقرب إلى اسم المنطقة.
+    return fromMatch[0].length >= toMatch[0].length ? 'from' : 'to';
+  }
+
+  if (fromMatch) return 'from';
+  if (toMatch) return 'to';
+
+  return null;
+}
+
+function extractAreas(
+  normalizedText: string,
+  originalText: string,
+): { from: string; to: string } {
+  const occurrences = findPlaceOccurrences(normalizedText);
+
+  let from = '';
+  let to = '';
+
+  const explicitlyFrom: PlaceOccurrence[] = [];
+  const explicitlyTo: PlaceOccurrence[] = [];
+
+  for (const occurrence of occurrences) {
+    const kind = classifyPlace(normalizedText, occurrence);
+
+    if (kind === 'from') {
+      explicitlyFrom.push(occurrence);
+    } else if (kind === 'to') {
+      explicitlyTo.push(occurrence);
+    }
+  }
+
+  // اختيار أقرب منطقة إلى مؤشر الاستلام، مع تجنب تعيين نفس المنطقة للطرفين.
+  if (explicitlyFrom.length) {
+    from = explicitlyFrom[0].name;
+  }
+
+  if (explicitlyTo.length) {
+    const candidate = explicitlyTo.find((item) => item.name !== from);
+    if (candidate) to = candidate.name;
+  }
+
+  // عند غياب أحد المؤشرين، لا نعكس المسار تلقائيًا إن كان هناك مؤشر صريح للطرف الآخر.
+  if (!from && !to && occurrences.length >= 2) {
+    from = occurrences[0].name;
+    to = occurrences.find((item) => item.name !== from)?.name || '';
+  } else if (from && !to) {
+    const candidate = occurrences.find(
+      (item) => item.name !== from && item.start > (explicitlyFrom[0]?.start ?? -1),
+    );
+
+    if (candidate) to = candidate.name;
+  } else if (to && !from) {
+    const candidate = [...occurrences]
+      .reverse()
+      .find((item) => item.name !== to && item.start < (explicitlyTo[0]?.start ?? Infinity));
+
+    if (candidate) from = candidate.name;
+  }
+
+  // الوجهة الحرة مقبولة فقط إذا كانت مكتوبة بعد مؤشر وجهة واضح.
+  if (!to && from) {
+    const freeDestinationPattern =
+      /(?:تسليم\s+الى|تسليم\s+ل|توصيل\s+الى|توصيل\s+ل|الى|وجهة|destination|drop\s*off|to)\s+([^\n\r،,]+)/i;
+
+    const match = freeDestinationPattern.exec(originalText);
+
+    if (match?.[1]) {
+      let candidate = cleanText(match[1]);
+
+      candidate = candidate
+        .replace(/(?:السعر|سعر|الاجر|الاجرة|المبلغ|الحساب)\s*[:=]?.*$/i, '')
+        .replace(/\b\d+(?:\.\d+)?\s*(?:دينار|دنانير|د\.?\s*ب|دب|BHD|BD)\b.*$/i, '')
+        .replace(/(?:\+?973|00973)?[\s-]*(?:17\d{6}|[36]\d{7}).*$/i, '')
+        .replace(/(?:واتساب|واتس|للتواصل|رقم|اتصال).*$/i, '')
+        .trim();
+
+      if (
+        candidate.length >= 2 &&
+        candidate.length <= 45 &&
+        normalizeArabicText(candidate) !== normalizeArabicText(from)
+      ) {
+        to = candidate;
+      }
+    }
+  }
+
+  // لا تنشئ وجهة وهمية مثل «حسب طلب الزبون» هنا.
+  // الوجهة غير المحددة تظل فارغة إلى أن تُحدد فعليًا.
+  return { from, to };
+}
+
+function extractNotes(normalizedText: string): string {
+  const noteKeywords = [
+    'ورد',
+    'باقة',
+    'زهور',
+    'كيك',
+    'حلويات',
+    'عطور',
+    'هدية',
+    'اكل',
+    'مطعم',
+    'وجبة',
+    'مستندات',
+    'اوراق',
+    'عباية',
+    'ملابس',
+    'شحنة',
+    'امانات',
+    'كرتون',
+    'طرد',
+    'اغراض',
+    'بضاعة',
+  ];
+
+  for (const keyword of noteKeywords) {
+    const escaped = escapeRegExp(normalizeArabicText(keyword));
+    const pattern = new RegExp(`(?:^|[^\\u0600-\\u06FFa-z0-9])${escaped}(?:$|[^\\u0600-\\u06FFa-z0-9])`, 'i');
+
+    if (pattern.test(normalizedText)) return keyword;
+  }
+
+  return '';
+}
+
+interface ScheduleResult {
+  scheduledTime?: string;
+  scheduledTimeMinutes?: number;
+  isFutureSchedule: boolean;
+}
+
+function extractScheduledTime(text: string): ScheduleResult {
+  const pattern =
+    /(?:الساعة|ساعة|على الساعة|في حدود الساعة|توقيت|موعد|وقت)\s*(\d{1,2})(?::(\d{2}))?\s*(صباحا|صباحاً|ص|مساء|مساءً|م|العصر|الظهر|المغرب|بالليل|في الليل|الصبح)?/i;
+
+  const match = pattern.exec(text);
+
+  if (!match) return { isFutureSchedule: false };
+
+  const rawHour = Number(match[1]);
+  const rawMinute = match[2] ? Number(match[2]) : 0;
+  const period = (match[3] || '').trim();
+
+  if (
+    !Number.isInteger(rawHour) ||
+    rawHour < 1 ||
+    rawHour > 24 ||
+    !Number.isInteger(rawMinute) ||
+    rawMinute < 0 ||
+    rawMinute > 59
+  ) {
+    return { isFutureSchedule: false };
+  }
+
+  const explicitPm = /مساء|العصر|المغرب|بالليل|في الليل/i.test(period);
+  const explicitAm = /صباحا|صباحاً|الصبح|^ص$/i.test(period);
+
+  let hour24 = rawHour;
+
+  if (explicitPm && hour24 < 12) hour24 += 12;
+  if (explicitAm && hour24 === 12) hour24 = 0;
+
+  // إذا لم يذكر صاحب الإعلان صباحًا أو مساءً، لا نخترع الفترة.
+  if (!explicitPm && !explicitAm) {
+    return {
+      scheduledTime: `الساعة ${rawHour}${rawMinute ? `:${String(rawMinute).padStart(2, '0')}` : ''}`,
+      scheduledTimeMinutes: rawHour * 60 + rawMinute,
+      isFutureSchedule: true,
+    };
+  }
+
+  const displayHour = hour24 % 12 || 12;
+  const displayPeriod = explicitPm ? 'مساءً' : 'صباحاً';
+  const minuteText = rawMinute ? `:${String(rawMinute).padStart(2, '0')}` : '';
+
+  return {
+    scheduledTime: `الساعة ${displayHour}${minuteText} ${displayPeriod}`,
+    scheduledTimeMinutes: hour24 * 60 + rawMinute,
+    isFutureSchedule: true,
+  };
+}
+
+/**
+ * يحلل رسالة واتساب إلى بيانات طلب توصيل.
+ * لا ينشئ طلبًا لمجرد وجود منطقتين، ولا يخترع سعرًا غير مذكور.
  */
 export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
-  if (!rawText || typeof rawText !== 'string') {
-    return {
-      from: '',
-      to: '',
-      price: 0,
-      isPriceUnspecified: true,
-      passengerCount: undefined,
-      phone: '',
-      notes: '',
-      confidence: 0,
-      canCreateOrder: false,
-      passengerDetection: {
-        level: 'goods_safe',
-        label: 'توصيل بضائع معتمد',
-        matchedPhrases: [],
-        reason: 'النص فارغ',
-        isForbidden: false,
-      },
-    };
+  if (!rawText || typeof rawText !== 'string' || !rawText.trim()) {
+    return emptyResult();
   }
 
   const convertedText = convertArabicNumerals(rawText);
   const normalized = normalizeArabicText(convertedText);
-
-  // 1. Detect Passenger Transport vs Goods Delivery first (أشخاص / ركاب مقابل بضائع)
   const passengerDetection = detectPassengerDelivery(rawText);
-  const passengerCount = passengerDetection.passengerCount;
 
-  // 2. Detect Phone Number (Bahrain format: 8 digits starting with 3, 6, 17 or prefixed with 973)
-  let phone = '';
-  const phoneRegex = /(?:\+?973|00973)?[\s-]*(3\d{7}|6\d{7}|17\d{6}|[36]\d{3}[\s-]?\d{4})/g;
-  const phoneMatch = phoneRegex.exec(convertedText);
-  if (phoneMatch) {
-    phone = phoneMatch[0].replace(/[\s-+]/g, '');
-    if (!phone.startsWith('973') && phone.length === 8) {
-      phone = '973' + phone;
-    }
-  }
+  const phone = extractPhone(convertedText);
+  const priceMatch = extractPrice(convertedText);
+  const price = priceMatch?.value ?? 0;
 
-  // 3. Smart Price Detection in BHD (دينار / د.ب / bd / bhd)
-  // القاعدة: التمييز الذكي بين عدد الأشخاص وقيمة الأوردر
-  // أي رقم يتبعه كلمة «أشخاص» أو «ركاب» لا يحسب كأجرة أبداً
-  let price = 0;
-  
-  // Patterns with explicit currency units:
-  // e.g. "10 دنانير", "بـ 10 دنانير", "السعر: 3.5 د.ب", "3 دينار", "3.0bd"
-  const priceWithCurrencyPatterns = [
-    // [Price prefix] [Number] [Currency]
-    /(?:السعر|سعر|الأجر|الأجرة|أجرة|الأوردر|الطلب|المبلغ|الحساب|بقيمة)?\s*[:=]?\s*(?:بـ|ب)?\s*(\d+(?:\.\d+)?)\s*(?:دينار|دنانير|د\.ب|دب|دينار بحريني|bd|bhd)/i,
-    // [Currency] [Number]
-    /(?:دينار|دنانير|د\.ب|دب|bd|bhd)\s*[:=]?\s*(\d+(?:\.\d+)?)/i,
-    // Standalone number + currency word
-    /\b(\d+(?:\.\d+)?)\s*(?:دينار|دنانير|د\.ب|دب|bd|bhd)\b/i,
-  ];
+  const { from: fromArea, to: toArea } = extractAreas(
+    normalized,
+    convertedText,
+  );
 
-  for (const pattern of priceWithCurrencyPatterns) {
-    const match = pattern.exec(convertedText);
-    if (match && match[1]) {
-      const parsedVal = parseFloat(match[1]);
-      if (!isNaN(parsedVal) && parsedVal > 0 && parsedVal <= 100) {
-        // Double check this match isn't a passenger count
-        const afterMatch = convertedText.substring((match.index || 0) + match[0].length, (match.index || 0) + match[0].length + 20);
-        if (!/(?:أشخاص|اشخاص|ركاب|أفراد|افراد|ناس|بنات|أطفال|اطفال|عمال)/i.test(afterMatch)) {
-          price = parsedVal;
-          break;
-        }
-      }
-    }
-  }
+  const notes = extractNotes(normalized);
+  const schedule = extractScheduledTime(convertedText);
+  const hasIntent = hasExplicitOrderIntent(rawText);
 
-  // Explicit price prefix WITHOUT currency word (e.g. "السعر: 4", "الأجرة 5", "الحساب: 3.5")
-  // MUST NOT match passenger counts like "5 أشخاص"
-  if (price === 0) {
-    const explicitPrefixPattern = /(?:السعر|سعر|الأجر|الأجرة|أجرة|الأوردر بـ|الطلب بـ|الحساب|المبلغ|بقيمة)\s*[:=]?\s*(?:بـ|ب)?\s*(\d+(?:\.\d+)?)/i;
-    const match = explicitPrefixPattern.exec(convertedText);
-    if (match && match[1]) {
-      const parsedVal = parseFloat(match[1]);
-      const afterMatch = convertedText.substring((match.index || 0) + match[0].length, (match.index || 0) + match[0].length + 20);
-      const isPassengerCountWord = /(?:أشخاص|اشخاص|ركاب|أفراد|افراد|ناس|بنات|أطفال|اطفال|عمال)/i.test(afterMatch);
-      if (!isPassengerCountWord && !isNaN(parsedVal) && parsedVal > 0 && parsedVal <= 100) {
-        price = parsedVal;
-      }
-    }
-  }
+  // الطلب يحتاج إلى نية توصيل واضحة، وموقع استلام، ووجهة محددة.
+  // لا تُستخدم وجهة افتراضية لإجبار الرسالة على أن تصبح طلبًا.
+  const canCreateOrder =
+    hasIntent &&
+    !!fromArea &&
+    !!toArea &&
+    normalizeArabicText(fromArea) !== normalizeArabicText(toArea) &&
+    !passengerDetection.isForbidden;
 
-  // عدم اختراع سعر: إذا لم يُذكر السعر صراحة أو بالعملة، يُسجل السعر على أنه 0 وغير محدد (بالاتفاق)
-  // تم إزالة التخمين العشوائي للأرقام المنفردة لضمان عدم الخلط بين عدد الركاب والسعر!
-
-  // 3. Detect "From" (Start) and "To" (Destination) areas and landmarks
-  let fromArea = '';
-  let toArea = '';
-
-  // Prepare unified list of searchable Bahrain places (Landmarks/Malls + Areas)
-  interface SearchablePlace {
-    name: string;
-    keywords: string[];
-    isLandmark: boolean;
-    parentArea?: string;
-  }
-
-  const searchablePlaces: SearchablePlace[] = [
-    // Malls & Landmarks (Moda Mall, Seef Mall, City Centre, Avenues, etc.)
-    ...BAHRAIN_LANDMARKS.map((lm) => ({
-      name: lm.name,
-      keywords: lm.keywords,
-      isLandmark: true,
-      parentArea: lm.parentAreaName,
-    })),
-    // Standard Geographic Areas
-    ...BAHRAIN_AREAS.map((a) => ({
-      name: a.name,
-      keywords: [a.name, a.nameEn],
-      isLandmark: false,
-    })),
-  ];
-
-  // Flatten and sort keywords by length descending so longer compound names match first
-  interface KeywordMatchItem {
-    placeName: string;
-    keyword: string;
-    normalizedKeyword: string;
-    parentArea?: string;
-  }
-
-  const allKeywordItems: KeywordMatchItem[] = [];
-  searchablePlaces.forEach((place) => {
-    place.keywords.forEach((kw) => {
-      if (kw && kw.trim()) {
-        allKeywordItems.push({
-          placeName: place.name,
-          keyword: kw.trim(),
-          normalizedKeyword: normalizeArabicText(kw.trim()),
-          parentArea: place.parentArea,
-        });
-      }
-    });
-  });
-
-  allKeywordItems.sort((a, b) => b.normalizedKeyword.length - a.normalizedKeyword.length);
-
-  // Search patterns for explicit "From" and "To"
-  // Patterns like "من [مودامول/منطقة] إلى [سار/منطقة]" or "استلام: [السيف مول] تسليم: [الرفاع]"
-  for (const item of allKeywordItems) {
-    const kw = item.normalizedKeyword;
-    if (kw.length < 2) continue;
-
-    // Look for "From" indicators before this place
-    const fromPattern = new RegExp(`(?:من|استلام من|استلام|بيك اب من|بيك اب|موقع|تحميل من|فرع)\\s*(?:مجمع|مول|سوق|منطقة|قرية)?\\s*${kw}\\b`, 'i');
-    if (!fromArea && fromPattern.test(normalized)) {
-      fromArea = item.placeName;
-    }
-
-    // Look for "To" indicators before this place
-    const toPattern = new RegExp(`(?:الى|إلى|ل|لي|تسليم الى|تسليم ل|تسليم|توصيل الى|توصيل ل|وجهة|مكان)\\s*(?:مجمع|مول|سوق|منطقة|قرية)?\\s*${kw}\\b`, 'i');
-    if (!toArea && toPattern.test(normalized)) {
-      toArea = item.placeName;
-    }
-  }
-
-  // If either is missing, do a greedy presence scan in message for known places
-  if (!fromArea || !toArea) {
-    const foundPlaces: { name: string; index: number }[] = [];
-    for (const item of allKeywordItems) {
-      const kw = item.normalizedKeyword;
-      if (kw.length < 2) continue;
-
-      const idx = normalized.indexOf(kw);
-      if (idx !== -1) {
-        // Ensure not duplicate or subset of already matched longer span
-        const alreadySub = foundPlaces.some((f) => Math.abs(f.index - idx) < 4);
-        if (!alreadySub) {
-          foundPlaces.push({ name: item.placeName, index: idx });
-        }
-      }
-    }
-
-    // Sort by position in string
-    foundPlaces.sort((a, b) => a.index - b.index);
-
-    if (foundPlaces.length >= 2) {
-      if (!fromArea && !toArea) {
-        fromArea = foundPlaces[0].name;
-        toArea = foundPlaces[1].name;
-      } else if (!fromArea) {
-        const remaining = foundPlaces.find((f) => f.name !== toArea);
-        if (remaining) fromArea = remaining.name;
-      } else if (!toArea) {
-        const remaining = foundPlaces.find((f) => f.name !== fromArea);
-        if (remaining) toArea = remaining.name;
-      }
-    } else if (foundPlaces.length === 1) {
-      if (!fromArea && !toArea) {
-        fromArea = foundPlaces[0].name;
-      }
-    }
-  }
-
-  // Free-text Destination Fallback:
-  // e.g. "اوردر من مودامول الى مكان معين" or "من السيف مول الى كافيه الزنج"
-  if (!toArea && fromArea) {
-    const toFreeMatch = /(?:الى|إلى|تسليم الى|تسليم ل|تسليم|توصيل الى|توصيل ل|وجهة)\s+([^\n\r،,]+)/i.exec(convertedText);
-    if (toFreeMatch && toFreeMatch[1]) {
-      let candidate = toFreeMatch[1].trim();
-      // Remove any trailing price indicators or phone numbers
-      candidate = candidate.replace(/(?:\s+ب?\s*\d+(?:\.\d+)?\s*(?:د\.ب|دب|دينار|bd|bhd)).*$/i, '').trim();
-      candidate = candidate.replace(/(?:\s+(?:\+?973|00973)?[\s-]*(?:3\d{7}|6\d{7}|17\d{6})).*$/i, '').trim();
-      candidate = candidate.replace(/\s+ب\s*$/i, '').trim();
-      if (candidate.length >= 2 && candidate.length <= 40 && candidate !== fromArea) {
-        toArea = candidate;
-      }
-    }
-  }
-
-  // If order intent is clearly present (e.g. "اوردر من مودامول", "طلب من السيف مول") but destination is unspecified:
-  const hasOrderIntent = /(?:اوردر|أوردر|طلب|توصيل|مندوب|بيك اب|pickup|delivery)/i.test(normalized);
-  if (!toArea && fromArea && hasOrderIntent) {
-    toArea = 'حسب طلب الزبون 📍';
-  }
-
-
-
-  // 4. Notes / Package Type extraction (ensuring word boundaries)
-  let notes = '';
-  const noteKeywords = [
-    'ورد', 'باقة', 'زهور', 'كيك', 'حلويات', 'عطور', 'هدية', 'أكل', 'مطعم',
-    'وجبة', 'مستندات', 'أوراق', 'عباية', 'ملابس', 'شحنة', 'أمانات', 'كرتون'
-  ];
-  for (const kw of noteKeywords) {
-    const kwRegex = new RegExp(`(?:^|[\\s،,.])${kw}(?:$|[\\s،,.])`, 'i');
-    if (kwRegex.test(normalized)) {
-      notes = kw;
-      break;
-    }
-  }
-
-  // 4b. Smart Scheduled Delivery Time Extraction (الساعة 8 مساءً / الساعة 6 صباحاً / مطلوب مندوب الساعة...)
-  let scheduledTime: string | undefined = undefined;
-  let scheduledTimeMinutes: number | undefined = undefined;
-  let isFutureSchedule: boolean = false;
-
-  // Pattern: (الساعة|ساعة|على الساعة|في حدود الساعة|توقيت)\s*(\d{1,2}(?::\d{2})?)\s*(صباحا|صباحاً|ص|مساء|مساءً|م|العصر|الظهر|المغرب|بالليل|في الليل|الصبح)?
-  const scheduleRegex = /(?:الساعة|ساعة|على الساعة|في حدود الساعة|توقيت|موعد|وقت)\s*(\d{1,2})(?::(\d{2}))?\s*(صباحا|صباحاً|ص|مساء|مساءً|م|العصر|الظهر|المغرب|بالليل|في الليل|الصبح)?/i;
-  const scheduleMatch = scheduleRegex.exec(convertedText);
-
-  if (scheduleMatch) {
-    const rawHour = parseInt(scheduleMatch[1], 10);
-    const rawMin = scheduleMatch[2] ? parseInt(scheduleMatch[2], 10) : 0;
-    const period = (scheduleMatch[3] || '').trim();
-
-    if (rawHour >= 1 && rawHour <= 24) {
-      let isPm = false;
-      if (/مساء|مساءً|م|العصر|المغرب|بالليل|في الليل/i.test(period)) {
-        isPm = true;
-      } else if (/صباحا|صباحاً|ص|الصبح/i.test(period)) {
-        isPm = false;
-      } else if (rawHour >= 1 && rawHour <= 6) {
-        // In Gulf business contexts, e.g. "الساعة 4" or "الساعة 5" usually refers to afternoon/evening
-        isPm = true;
-      }
-
-      let hour24 = rawHour;
-      if (isPm && hour24 < 12) hour24 += 12;
-      if (!isPm && hour24 === 12) hour24 = 0;
-
-      scheduledTimeMinutes = hour24 * 60 + rawMin;
-      const displayPeriod = isPm ? 'مساءً' : 'صباحاً';
-      const displayHour = rawHour > 12 ? rawHour - 12 : rawHour;
-      const displayMin = rawMin > 0 ? `:${rawMin < 10 ? '0' + rawMin : rawMin}` : '';
-      scheduledTime = `الساعة ${displayHour}${displayMin} ${displayPeriod}`;
-      isFutureSchedule = true;
-    }
-  }
-
-  // 5. Detect Passenger Transport vs Goods Delivery is already evaluated at step 1
-  // Calculate confidence
   let confidence = 0;
-  if (fromArea) confidence += 40;
-  if (toArea) confidence += 40;
+
+  if (hasIntent) confidence += 20;
+  if (fromArea) confidence += 25;
+  if (toArea) confidence += 25;
   if (price > 0) confidence += 10;
   if (phone) confidence += 10;
+  if (notes) confidence += 5;
+  if (schedule.scheduledTime) confidence += 5;
 
-  const canCreateOrder = !!fromArea && !!toArea;
-  const isPriceUnspecified = !price || price <= 0;
+  if (!canCreateOrder) {
+    confidence = Math.min(confidence, 49);
+  } else {
+    confidence = Math.min(confidence, 100);
+  }
 
   return {
     from: fromArea,
     to: toArea,
-    price: price > 0 ? price : 0,
-    isPriceUnspecified,
+    price,
+    isPriceUnspecified: price <= 0,
     passengerCount: passengerDetection.passengerCount,
-    scheduledTime,
-    scheduledTimeMinutes,
-    isFutureSchedule,
+    scheduledTime: schedule.scheduledTime,
+    scheduledTimeMinutes: schedule.scheduledTimeMinutes,
+    isFutureSchedule: schedule.isFutureSchedule,
     phone,
     notes,
     confidence,

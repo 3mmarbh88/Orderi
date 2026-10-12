@@ -1,0 +1,250 @@
+
+import { Capacitor, registerPlugin } from '@capacitor/core';
+import {
+  parseWhatsAppOrderText,
+  hasExplicitOrderIntent,
+  type RawParsedResult,
+} from './orderParser';
+
+interface LocalAIStatus {
+  modelPresent: boolean;
+  initialized: boolean;
+  ready: boolean;
+  modelPath?: string;
+  model?: string;
+}
+
+interface LocalAIResult {
+  ready: boolean;
+  model: string;
+}
+
+interface LocalAIAnalysis {
+  text: string;
+  model: string;
+  local: boolean;
+}
+
+export interface OrderiLocalAIPlugin {
+  getStatus(): Promise<LocalAIStatus>;
+  importModel(): Promise<{
+    success: boolean;
+    model: string;
+    modelPath: string;
+    bytes: number;
+  }>;
+  initialize(): Promise<LocalAIResult>;
+  analyze(options: { text: string }): Promise<LocalAIAnalysis>;
+}
+
+export const LocalAI =
+  registerPlugin<OrderiLocalAIPlugin>('OrderiLocalAI');
+
+let initialization: Promise<boolean> | null = null;
+
+function cleanText(value: unknown): string {
+  if (typeof value !== 'string') return '';
+
+  return value
+    .replace(/[\u0000-\u001F\u007F]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120);
+}
+
+function parseModelJson(
+  text: string,
+): Record<string, unknown> | null {
+  if (typeof text !== 'string' || !text.trim()) return null;
+
+  const cleaned = text
+    .replace(/```(?:json)?/gi, '')
+    .trim();
+
+  const start = cleaned.indexOf('{');
+  const end = cleaned.lastIndexOf('}');
+
+  if (start < 0 || end <= start) return null;
+
+  try {
+    const parsed: unknown = JSON.parse(
+      cleaned.slice(start, end + 1),
+    );
+
+    if (
+      !parsed ||
+      typeof parsed !== 'object' ||
+      Array.isArray(parsed)
+    ) {
+      return null;
+    }
+
+    return parsed as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+async function ensureModelReady(): Promise<boolean> {
+  try {
+    const status = await LocalAI.getStatus();
+
+    if (status.ready) return true;
+    if (!status.modelPresent) return false;
+
+    if (!initialization) {
+      initialization = LocalAI.initialize()
+        .then((result) => !!result.ready)
+        .catch(() => {
+          initialization = null;
+          return false;
+        });
+    }
+
+    const ready = await initialization;
+
+    if (!ready) initialization = null;
+
+    return ready;
+  } catch {
+    initialization = null;
+    return false;
+  }
+}
+
+function normalizePlace(value: string): string {
+  return value
+    .normalize('NFC')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+}
+
+function isValidAIPlace(value: string): boolean {
+  if (!value || value.length < 2 || value.length > 80) {
+    return false;
+  }
+
+  // Reject generic answers instead of treating them as locations.
+  const genericValues = [
+    'غير محدد',
+    'غير معروف',
+    'غير مذكور',
+    'unknown',
+    'not specified',
+    'null',
+    'none',
+    'n/a',
+    'حسب طلب الزبون',
+  ];
+
+  const normalized = normalizePlace(value);
+
+  return !genericValues.some(
+    (item) => normalized === normalizePlace(item),
+  );
+}
+
+/**
+ * Uses on-device Gemma to help extract missing fields.
+ *
+ * Safety rules:
+ * - The AI cannot invent or replace an explicitly parsed price.
+ * - The AI cannot create an order without explicit delivery intent.
+ * - Forbidden passenger requests cannot become orders.
+ * - Existing parser locations take precedence over AI suggestions.
+ */
+export async function parseWhatsAppOrderTextWithLocalAI(
+  rawText: string,
+): Promise<RawParsedResult> {
+  const fallback = parseWhatsAppOrderText(rawText);
+
+  if (
+    Capacitor.getPlatform() !== 'android' ||
+    typeof rawText !== 'string' ||
+    !rawText.trim()
+  ) {
+    return fallback;
+  }
+  if (fallback.canCreateOrder) return fallback;
+  try {
+    if (!(await ensureModelReady())) {
+      return fallback;
+    }
+
+    const response = await LocalAI.analyze({
+      text: rawText,
+    });
+
+    const ai = parseModelJson(response.text);
+
+    if (!ai) return fallback;
+
+    // Only accept usable AI locations.
+    const proposedFrom = cleanText(ai.pickup_area);
+    const proposedTo = cleanText(ai.destination);
+
+    // Prefer rule-based locations whenever they are available.
+    const from =
+      fallback.from ||
+      (isValidAIPlace(proposedFrom) ? proposedFrom : '');
+
+    const to =
+      fallback.to ||
+      (isValidAIPlace(proposedTo) ? proposedTo : '');
+
+    // Never use the model to guess a price.
+    // Price is accepted only when the text parser found it explicitly.
+    const price = fallback.price;
+
+    const explicitIntent = hasExplicitOrderIntent(rawText);
+
+    const differentLocations =
+      !!from &&
+      !!to &&
+      normalizePlace(from) !== normalizePlace(to);
+
+    // AI assistance may complete missing locations, but only when
+    // the message contains explicit delivery intent and the model
+    // independently identifies it as an order.
+    const aiRecognizedOrder =
+      ai.is_order === true &&
+      explicitIntent &&
+      differentLocations &&
+      !fallback.passengerDetection.isForbidden;
+
+    // Preserve a valid parser decision; otherwise require every
+    // safety condition before allowing AI-assisted order creation.
+    const canCreateOrder =
+      !fallback.passengerDetection.isForbidden &&
+      (
+        fallback.canCreateOrder ||
+        aiRecognizedOrder
+      );
+
+    const aiNotes = cleanText(ai.notes);
+
+    return {
+      ...fallback,
+      from,
+      to,
+      price,
+      isPriceUnspecified: price <= 0,
+      notes: fallback.notes || aiNotes,
+      confidence: canCreateOrder
+        ? Math.max(
+            fallback.confidence,
+            aiRecognizedOrder ? 55 : 0,
+          )
+        : Math.min(fallback.confidence, 49),
+      canCreateOrder,
+    };
+  } catch (error) {
+    console.warn(
+      '[Orderi Local AI] Falling back to rule parser:',
+      error,
+    );
+
+    return fallback;
+  }
+}

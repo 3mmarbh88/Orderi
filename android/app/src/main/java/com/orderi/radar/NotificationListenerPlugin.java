@@ -169,38 +169,12 @@ public class NotificationListenerPlugin extends Plugin {
 
     @PluginMethod
     public void sendQuickReply(PluginCall call) {
-        try {
-            String groupName = call.getString("groupName", "");
-            String phone = call.getString("phone", "");
-            String message = call.getString("message", "");
-
-            if (android.text.TextUtils.isEmpty(message)) {
-                call.reject("Message is empty");
-                return;
-            }
-
-            // 1. Try native Notification inline reply (RemoteInput)
-            boolean sentViaRemoteInput = WhatsAppNotificationListenerService.sendQuickReply(
-                    getContext(), !android.text.TextUtils.isEmpty(groupName) ? groupName : phone, message);
-
-            if (sentViaRemoteInput) {
-                JSObject ret = new JSObject();
-                ret.put("success", true);
-                ret.put("method", "remote_input");
-                call.resolve(ret);
-                return;
-            }
-
-            // 2. Queue for Orderi Accessibility Service
-            OrderiAccessibilityService.queueMessageToSend(message);
-
-            JSObject ret = new JSObject();
-            ret.put("success", true);
-            ret.put("method", "accessibility_queued");
-            call.resolve(ret);
-        } catch (Exception e) {
-            call.reject("Failed to dispatch quick reply", e);
-        }
+        // Safety lock: never queue a message into whichever WhatsApp screen is open.
+        JSObject ret = new JSObject();
+        ret.put("success", false);
+        ret.put("method", "disabled_pending_recipient_verification");
+        ret.put("message", "Automatic sending is disabled until the private recipient is verified.");
+        call.resolve(ret);
     }
 
     @PluginMethod

@@ -57,7 +57,7 @@ import { APKDownloadModal } from './components/APKDownloadModal';
 import { AuthModal } from './components/AuthModal';
 import { ActivationLockBarrier } from './components/ActivationLockBarrier';
 import { DiscoveredGroupLink, CaptainUser } from './types';
-import { getCurrentUser, setCurrentUser as setStoredCurrentUser, isProgramActivated, normalizeBahrainPhone } from './utils/authManager';
+import { getCurrentUser, setCurrentUser as setStoredCurrentUser, isProgramActivated, normalizeBahrainPhone, ORDERI_SERVER_URL } from './utils/authManager';
 import { FocusedOrderDetailModal } from './components/FocusedOrderDetailModal';
 import { OrderAwardedCelebrationModal } from './components/OrderAwardedCelebrationModal';
 import { MonthlyCommitmentsModal } from './components/MonthlyCommitmentsModal';
@@ -281,7 +281,7 @@ function OrderiApp() {
     try {
       // 1. Fetch recent webhook orders from server if available
       try {
-        const res = await fetch('/api/whatsapp/recent', { signal: AbortSignal.timeout(3000) });
+        const res = await fetch(`${ORDERI_SERVER_URL}/api/whatsapp/recent`, { signal: AbortSignal.timeout(3000) });
         if (res.ok) {
           const json = await res.json();
           if (json.success && Array.isArray(json.orders)) {
@@ -312,12 +312,12 @@ function OrderiApp() {
         // Existing fingerprint protection makes this safe even if Android
         // returns notifications that were already processed.
         if (pending?.events?.length) {
-          const { parseWhatsAppOrderText } = await import('./utils/orderParser');
-          pending.events.slice(-30).forEach((event: WhatsAppNativeEvent) => {
+          const { parseWhatsAppOrderTextWithLocalAI } = await import('./utils/localAiOrderParser');
+          pending.events.slice(-30).forEach(async (event: WhatsAppNativeEvent) => {
             const groupName = (event.conversationTitle || event.title || '').trim() || 'محادثة خاصة 👤';
             const rawText = [event.bigText, event.text, event.subText, event.rawText]
               .filter(Boolean).join('\n').trim();
-            const parsed = parseWhatsAppOrderText(rawText || event.title || '');
+            const parsed = await parseWhatsAppOrderTextWithLocalAI(rawText || event.title || '');
             if (parsed.canCreateOrder) {
               handleProcessIncomingRawOrder({
                 id: `android-wa-${event.id}`,
@@ -465,7 +465,7 @@ function OrderiApp() {
 
   // Sync discovered groups with server on initial mount
   useEffect(() => {
-    fetch('/api/whatsapp/discovered-groups')
+    fetch(`${ORDERI_SERVER_URL}/api/whatsapp/discovered-groups`)
       .then((res) => res.json())
       .then((data) => {
         if (data?.success && Array.isArray(data.groupLinks) && data.groupLinks.length > 0) {
@@ -825,7 +825,7 @@ function OrderiApp() {
 
     const convertNativeEvent = (event: WhatsAppNativeEvent) => {
       const groupName = (event.conversationTitle || event.title || '').trim() || 'محادثة خاصة 👤';
-      const rawText = [event.bigText, event.text, event.subText]
+      const rawText = [event.bigText, event.text, event.subText, event.rawText]
         .filter(Boolean)
         .join('\n')
         .trim();
@@ -873,8 +873,8 @@ function OrderiApp() {
         }
       }
 
-      import('./utils/orderParser').then(({ parseWhatsAppOrderText }) => {
-        const parsed = parseWhatsAppOrderText(rawText || event.title || '');
+      import('./utils/localAiOrderParser').then(async ({ parseWhatsAppOrderTextWithLocalAI }) => {
+        const parsed = await parseWhatsAppOrderTextWithLocalAI(rawText || event.title || '');
         const order = {
           id: `android-wa-${event.id}`,
           from: parsed.from,
@@ -1006,7 +1006,7 @@ function OrderiApp() {
 
     const connectSSE = () => {
       try {
-        eventSource = new EventSource('/api/whatsapp/stream');
+        eventSource = new EventSource(`${ORDERI_SERVER_URL}/api/whatsapp/stream`);
         eventSource.onopen = () => {
           setIsStreamConnected(true);
         };
@@ -1420,7 +1420,7 @@ function OrderiApp() {
       prev.map((o) => (o.id === order.id ? { ...o, isAnalyzingAi: true } : o))
     );
     try {
-      const res = await fetch('/api/ai/evaluate-match', {
+      const res = await fetch(`${ORDERI_SERVER_URL}/api/ai/evaluate-match`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1537,7 +1537,7 @@ function OrderiApp() {
       }
 
       // 3. Sync closure to server backend
-      fetch('/api/orders/close', {
+      fetch(`${ORDERI_SERVER_URL}/api/orders/close`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ orderId, reason, evidence }),
@@ -1663,7 +1663,7 @@ function OrderiApp() {
     showToast('تم مسح الطلب وتحديده كمقروء (تمت قراءتها ✓✓) في الواتساب');
 
     try {
-      await fetch('/api/whatsapp/mark-read', {
+      await fetch(`${ORDERI_SERVER_URL}/api/whatsapp/mark-read`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

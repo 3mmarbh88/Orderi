@@ -61,6 +61,7 @@ import { MatcherLocation } from '../utils/matcher';
 import { CoverageRadarMap } from './CoverageRadarMap';
 import { ContactsManager } from './ContactsManager';
 import { PWAInstallButton } from './PWAInstallButton';
+import { LocalAISettings } from './LocalAISettings';
 import { getVehicleTypeLabel, ACTIVATION_WHATSAPP_LINK } from '../utils/authManager';
 import { 
   isInIframe,
@@ -1856,6 +1857,9 @@ export function FilterSettings({
 
           {openSections.gemini_ai && (
             <div className="p-4 sm:p-6 border-t border-blue-100 bg-gradient-to-br from-white via-blue-50/20 to-indigo-50/30 space-y-5 animate-in fade-in duration-200">
+
+              <LocalAISettings />
+
               
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-blue-100">
                 <div>

@@ -229,7 +229,7 @@ export async function executePrivateAdvertiserOutreach(
   phoneUsed: string | null;
 }> {
   const resolution = resolveAdvertiserContact(order);
-  const targetPhone = confirmedPhone ? normalizeBahrainPhone(confirmedPhone) : resolution.phone;
+  const targetPhone = confirmedPhone ? normalizeBahrainPhone(confirmedPhone) : (resolution.confidence === 'multiple_candidates' ? null : resolution.phone);
   const messageText = formatAdvertiserPrivateMessage(order);
 
   // If phone is missing or ambiguous and captain has not explicitly provided/confirmed one

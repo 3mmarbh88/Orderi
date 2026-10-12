@@ -1,0 +1,29 @@
+package com.orderi.radar;
+
+import com.getcapacitor.JSObject;
+import com.getcapacitor.Plugin;
+import com.getcapacitor.PluginCall;
+import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.CapacitorPlugin;
+
+import java.io.File;
+
+@CapacitorPlugin(name = "OrderiLocalAI")
+public class OrderiLocalAIPlugin extends Plugin {
+    private static final String MODEL_FILE = "gemma-3-1b-it.litertlm";
+
+    @PluginMethod
+    public void getStatus(PluginCall call) {
+        File dir = new File(getContext().getFilesDir(), "models");
+        File model = new File(dir, MODEL_FILE);
+
+        JSObject result = new JSObject();
+        result.put("engine", "LiteRT-LM");
+        result.put("model", MODEL_FILE);
+        result.put("modelPresent", model.isFile() && model.length() > 0);
+        result.put("modelPath", model.getAbsolutePath());
+        result.put("initialized", false);
+        result.put("ready", false);
+        call.resolve(result);
+    }
+}

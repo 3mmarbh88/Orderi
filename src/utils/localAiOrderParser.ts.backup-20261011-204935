@@ -1,0 +1,146 @@
+import { Capacitor, registerPlugin } from '@capacitor/core';
+import {
+  parseWhatsAppOrderText,
+  type RawParsedResult,
+} from './orderParser';
+
+interface LocalAIStatus {
+  modelPresent: boolean;
+  initialized: boolean;
+  ready: boolean;
+  modelPath?: string;
+  model?: string;
+}
+
+interface LocalAIResult {
+  ready: boolean;
+  model: string;
+}
+
+interface LocalAIAnalysis {
+  text: string;
+  model: string;
+  local: boolean;
+}
+
+interface OrderiLocalAIPlugin {
+  getStatus(): Promise<LocalAIStatus>;
+  initialize(): Promise<LocalAIResult>;
+  analyze(options: { text: string }): Promise<LocalAIAnalysis>;
+}
+
+const LocalAI = registerPlugin<OrderiLocalAIPlugin>('OrderiLocalAI');
+
+let initialization: Promise<boolean> | null = null;
+
+function cleanText(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  return value.trim().replace(/\s+/g, ' ').slice(0, 120);
+}
+
+function parseModelJson(text: string): Record<string, unknown> | null {
+  const cleaned = text
+    .replace(/```(?:json)?/gi, '')
+    .trim();
+
+  const start = cleaned.indexOf('{');
+  const end = cleaned.lastIndexOf('}');
+  if (start < 0 || end <= start) return null;
+
+  try {
+    const parsed: unknown = JSON.parse(cleaned.slice(start, end + 1));
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return null;
+    }
+    return parsed as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+async function ensureModelReady(): Promise<boolean> {
+  try {
+    const status = await LocalAI.getStatus();
+    if (status.ready) return true;
+    if (!status.modelPresent) return false;
+
+    if (!initialization) {
+      initialization = LocalAI.initialize()
+        .then(result => !!result.ready)
+        .catch(() => {
+          initialization = null;
+          return false;
+        });
+    }
+
+    const ready = await initialization;
+    if (!ready) initialization = null;
+    return ready;
+  } catch {
+    initialization = null;
+    return false;
+  }
+}
+
+/**
+ * Uses on-device Gemma when installed and ready.
+ * The existing parser remains the fallback; message text is not sent to a cloud AI.
+ */
+export async function parseWhatsAppOrderTextWithLocalAI(
+  rawText: string,
+): Promise<RawParsedResult> {
+  const fallback = parseWhatsAppOrderText(rawText);
+
+  if (Capacitor.getPlatform() !== 'android' || !rawText.trim()) {
+    return fallback;
+  }
+
+  try {
+    if (!(await ensureModelReady())) return fallback;
+
+    const response = await LocalAI.analyze({ text: rawText });
+    const ai = parseModelJson(response.text);
+    if (!ai) return fallback;
+
+    const from = cleanText(ai.pickup_area) || fallback.from;
+    const to = cleanText(ai.destination) || fallback.to;
+
+    const proposedPrice = Number(ai.price);
+    const aiPrice =
+      ai.price !== null &&
+      ai.price !== undefined &&
+      ai.price !== '' &&
+      Number.isFinite(proposedPrice) &&
+      proposedPrice > 0 &&
+      proposedPrice <= 100
+        ? proposedPrice
+        : 0;
+
+    // Never replace an explicitly parsed price with the model's guess.
+    const price = fallback.price > 0 ? fallback.price : aiPrice;
+
+    const aiRecognizedOrder =
+      ai.is_order === true &&
+      !!from &&
+      !!to &&
+      !fallback.passengerDetection.isForbidden;
+
+    return {
+      ...fallback,
+      from,
+      to,
+      price,
+      isPriceUnspecified: price <= 0,
+      notes: fallback.notes || cleanText(ai.notes),
+      confidence: fallback.canCreateOrder
+        ? fallback.confidence
+        : aiRecognizedOrder
+          ? Math.max(fallback.confidence, 55)
+          : fallback.confidence,
+      canCreateOrder: fallback.canCreateOrder || aiRecognizedOrder,
+    };
+  } catch (error) {
+    console.warn('[Orderi Local AI] Falling back to rule parser:', error);
+    return fallback;
+  }
+}
