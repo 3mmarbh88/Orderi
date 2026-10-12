@@ -13,7 +13,6 @@ import {
   ShieldCheck,
   Search,
   Sparkles,
-  Smartphone,
   MapPin,
   Coins
 } from 'lucide-react';
@@ -24,7 +23,6 @@ import {
   openRegularWhatsAppPrivateChat, 
   normalizeBahrainPhone 
 } from '../utils/whatsappPrivateOutreach';
-import { openWhatsAppAccessibilitySettings } from '../native/whatsappListener';
 
 interface AdvertiserOutreachModalProps {
   isOpen: boolean;
@@ -82,7 +80,7 @@ export function AdvertiserOutreachModal({
 
       // 3. Confirm accept in order radar
       onConfirmAccept(order, cleanInputPhone);
-      onToast('⚡ جاري فتح المحادثة الخاصة في واتساب العادي وقبول الطلب...');
+      onToast('تم فتح المحادثة الخاصة والرسالة جاهزة. اضغط إرسال داخل واتساب لإرسالها؛ لم تُرسل تلقائيًا.');
       onClose();
     } finally {
       setIsSubmitting(false);
@@ -99,15 +97,6 @@ export function AdvertiserOutreachModal({
       window.open('https://web.whatsapp.com', '_blank');
     }
     onToast(`🔍 تم نسخ الرسالة! ابحث عن «${resolution.name}» في محادثات واتساب`);
-  };
-
-  const handleOpenAccessibility = async () => {
-    try {
-      await openWhatsAppAccessibilitySettings();
-      onToast('⚙️ جاري فتح إعدادات إمكانية الوصول لتسهيل التحكم بواجهة واتساب...');
-    } catch {
-      onToast('يرجى تفعيل خدمة Orderi في إعدادات إمكانية الوصول بأندرويد');
-    }
   };
 
   return (
@@ -256,19 +245,9 @@ export function AdvertiserOutreachModal({
             />
           </div>
 
-          {/* Accessibility Service Helper for Android */}
-          <div className="p-3 rounded-xl bg-slate-100 border border-slate-200/80 flex items-center justify-between text-[11px] text-slate-600">
-            <div className="flex items-center gap-2">
-              <Smartphone className="w-4 h-4 text-slate-500 shrink-0" />
-              <span>خدمة إمكانية الوصول (Accessibility) للمساعدة بالواجهة</span>
-            </div>
-            <button
-              type="button"
-              onClick={handleOpenAccessibility}
-              className="text-xs font-bold text-blue-700 hover:underline cursor-pointer"
-            >
-              إعدادات ⚙️
-            </button>
+          {/* Honest platform capability notice: links cannot send a WhatsApp message by themselves. */}
+          <div className="p-3 rounded-xl bg-slate-100 border border-slate-200/80 text-[11px] leading-relaxed text-slate-700">
+            <span className="font-black">تنبيه:</span> سيُفتح الخاص برسالة جاهزة فقط. تطبيق واتساب العادي لا يتيح إرسال الرسالة تلقائيًا عبر هذا الرابط؛ يجب الضغط على «إرسال» داخل المحادثة. لن يكتب Orderi أي رسالة في القروب.
           </div>
 
           {/* Action Buttons */}
@@ -280,7 +259,7 @@ export function AdvertiserOutreachModal({
               className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs sm:text-sm shadow-md shadow-emerald-600/25 flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer disabled:opacity-50"
             >
               <Send className="w-4 h-4" />
-              <span>إرسال الرسالة في الخاص وتأكيد قبول الطلب ⚡</span>
+              <span>فتح الخاص وتجهيز الرسالة وتأكيد القبول</span>
             </button>
 
             <button
