@@ -1,0 +1,17 @@
+{
+  "ORD-AND-C97F2D1A": {
+    "deviceId": "ORD-AND-C97F2D1A",
+    "hardwareFingerprint": "12E9A8EB56EC5A",
+    "model": "Windows NT 10.0",
+    "platform": "web",
+    "phone": "33314353",
+    "firstInstalledAt": 1791809497317,
+    "trialDays": 7,
+    "expiresAt": 1792414297317,
+    "isActivated": false,
+    "activationCode": null,
+    "installCount": 4,
+    "lastSeenAt": 1791809505832,
+    "createdAt": 1791809497317
+  }
+}

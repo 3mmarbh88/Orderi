@@ -5,13 +5,10 @@ import {
   Tag, 
   Plus, 
   X, 
-  Play, 
   Sparkles, 
   Trash2, 
   RotateCcw,
   AlertTriangle,
-  ChevronDown,
-  ChevronUp,
   MessageSquare,
   ThumbsUp,
   HelpCircle
@@ -29,7 +26,6 @@ import {
   STORAGE_KEY_LEARNED_CLOSURES,
   SEED_AI_LEARNED_EXPRESSIONS
 } from '../utils/aiClosureLearner';
-import { extractClosureKeywords } from '../utils/orderClosureDetector';
 import { playAlertTone } from '../utils/sound';
 
 interface ClosureHunterCardProps {
@@ -45,10 +41,6 @@ export const ClosureHunterCard: React.FC<ClosureHunterCardProps> = ({
   const [newWordInput, setNewWordInput] = useState('');
   const [newWordCategory, setNewWordCategory] = useState<ClosureCategory>('taken');
   
-  // Simulator
-  const [simText, setSimText] = useState('خلاص حصلت مندوب يا شباب شكراً');
-  const [simResult, setSimResult] = useState<any>(null);
-  const [showSimulator, setShowSimulator] = useState(false);
   const [activeTab, setActiveTab] = useState<'all' | 'taken' | 'completion' | 'gratitude' | 'emoji'>('all');
 
   useEffect(() => {
@@ -100,37 +92,6 @@ export const ClosureHunterCard: React.FC<ClosureHunterCardProps> = ({
     if (typeof window !== 'undefined' && window.confirm('هل تريد استعادة الكلمات والرموز الافتراضية للصائد؟')) {
       localStorage.setItem(STORAGE_KEY_LEARNED_CLOSURES, JSON.stringify(SEED_AI_LEARNED_EXPRESSIONS));
       setLearnedExprs(SEED_AI_LEARNED_EXPRESSIONS);
-    }
-  };
-
-  // Run Simulator
-  const handleRunSimulator = () => {
-    if (!simText.trim()) return;
-    const extracted = extractClosureKeywords(simText);
-
-    let verdict: 'confirmed' | 'suspicious' | 'none' = 'none';
-    let actionDesc = 'الرسالة غير مرتبطة بالإغلاق؛ سيبقى الطلب نشطاً في الرادار لمنع الحذف الخاطئ.';
-
-    if (extracted.hasClosureIntent) {
-      // Check if it's very short or ambiguous
-      const isShortAmbiguous = (simText.trim() === 'تم' || simText.trim() === 'حصلت' || simText.trim() === '👍');
-      if (isShortAmbiguous && ambiguousAction === 'flag') {
-        verdict = 'suspicious';
-        actionDesc = '⚠️ اشتباه بإغلاق الطلب: يظهر تنبيه أصفر بالرادار للمراجعة قبل الحذف.';
-      } else {
-        verdict = 'confirmed';
-        actionDesc = '🗑️ إغلاق فوري: يُحذف الطلب فوراً من الرادار النشط مع حفظ سجله الدائم بالإحصائيات.';
-      }
-    }
-
-    setSimResult({
-      ...extracted,
-      verdict,
-      actionDesc,
-    });
-
-    if (extracted.hasClosureIntent && filter.soundEnabled) {
-      playAlertTone('radar_beep', 70);
     }
   };
 
@@ -388,78 +349,6 @@ export const ClosureHunterCard: React.FC<ClosureHunterCardProps> = ({
               </span>
             ))}
           </div>
-        </div>
-
-        {/* 4. Live Simulator (مختبر الفحص المباشر) */}
-        <div className="rounded-2xl border border-slate-200 overflow-hidden">
-          <button
-            type="button"
-            onClick={() => setShowSimulator(!showSimulator)}
-            className="w-full p-4 bg-slate-50 hover:bg-slate-100 flex items-center justify-between text-right font-black text-xs sm:text-sm text-slate-900 transition-colors"
-          >
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-indigo-600" />
-              <span>مختبر فحص ومحاكاة صائد الكلمات والرموز (Live Simulator) 🧪</span>
-            </div>
-            {showSimulator ? <ChevronUp className="w-4 h-4 text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-500" />}
-          </button>
-
-          {showSimulator && (
-            <div className="p-4 sm:p-5 bg-white border-t border-slate-200 space-y-3">
-              <p className="text-xs text-slate-600">
-                اكتب أي رد وارد في القروب لفحص قدرة الصائد على التقاط كلمات الإغلاق وتحديد إجراء الرادار:
-              </p>
-
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={simText}
-                  onChange={(e) => setSimText(e.target.value)}
-                  placeholder="مثال: خلاص حصلت مندوب شكراً، أو تم"
-                  className="flex-1 px-3 py-2 text-xs rounded-xl border border-slate-200 font-bold"
-                />
-                <button
-                  type="button"
-                  onClick={handleRunSimulator}
-                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs flex items-center gap-1 shrink-0 transition-all active:scale-95"
-                >
-                  <Play className="w-3.5 h-3.5 fill-current" />
-                  <span>فحص العبارة</span>
-                </button>
-              </div>
-
-              {simResult && (
-                <div className={`p-3.5 rounded-xl border text-xs space-y-2 animate-in fade-in duration-200 ${
-                  simResult.verdict === 'confirmed'
-                    ? 'bg-emerald-50 border-emerald-300 text-emerald-950'
-                    : simResult.verdict === 'suspicious'
-                    ? 'bg-amber-50 border-amber-300 text-amber-950'
-                    : 'bg-slate-50 border-slate-200 text-slate-700'
-                }`}>
-                  <div className="flex items-center justify-between font-black">
-                    <span className="flex items-center gap-1.5">
-                      {simResult.verdict === 'confirmed' && <CheckCircle2 className="w-4 h-4 text-emerald-600" />}
-                      {simResult.verdict === 'suspicious' && <AlertTriangle className="w-4 h-4 text-amber-600" />}
-                      <span>{simResult.actionDesc}</span>
-                    </span>
-                  </div>
-
-                  <div className="flex flex-wrap gap-2 text-[11px] pt-1">
-                    {simResult.matchedWords.length > 0 && (
-                      <span className="font-bold">
-                        الكلمات المصطادة: <strong className="text-indigo-700">{simResult.matchedWords.join('، ')}</strong>
-                      </span>
-                    )}
-                    {simResult.matchedEmojis.length > 0 && (
-                      <span className="font-bold">
-                        الرموز المصطادة: <strong className="text-amber-700">{simResult.matchedEmojis.join(' ')}</strong>
-                      </span>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
         </div>
 
       </div>

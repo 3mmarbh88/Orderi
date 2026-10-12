@@ -27,11 +27,13 @@ import {
   Car,
   Navigation,
   X,
-  CalendarDays
+  CalendarDays,
+  Clock
 } from 'lucide-react';
 import { MatcherLocation } from '../utils/matcher';
 import { CaptainUser } from '../types';
 import { PWAInstallButton } from './PWAInstallButton';
+import { DeviceTrialStatus } from '../utils/deviceTrialManager';
 
 interface HeaderProps {
   driverLocation: MatcherLocation | null;
@@ -66,6 +68,8 @@ interface HeaderProps {
   isCarTrackingActive?: boolean;
   onToggleCarTracking?: () => void;
   carSpeedKmh?: number;
+  trialStatus?: DeviceTrialStatus | null;
+  onOpenTrialModal?: () => void;
 }
 
 export function Header({
@@ -99,6 +103,8 @@ export function Header({
   isCarTrackingActive = true,
   onToggleCarTracking,
   carSpeedKmh = 0,
+  trialStatus,
+  onOpenTrialModal,
 }: HeaderProps) {
   const [timeStr, setTimeStr] = useState('');
   const [isExitConfirmOpen, setIsExitConfirmOpen] = useState(false);
@@ -163,6 +169,41 @@ export function Header({
                   <span className="text-[8px] sm:text-xs px-1 sm:px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold border border-emerald-200/60 shadow-2xs">
                     🇧🇭
                   </span>
+
+                  {/* 7-Day Device Trial Badge */}
+                  {trialStatus && onOpenTrialModal && (
+                    <button
+                      type="button"
+                      onClick={onOpenTrialModal}
+                      title="تفاصيل الفترة التجريبية وترخيص هذا الهاتف"
+                      className={`h-6 sm:h-7.5 flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-black transition-all border shrink-0 cursor-pointer active:scale-95 shadow-2xs ${
+                        trialStatus.isActivated
+                          ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                          : trialStatus.isExpired
+                          ? 'bg-rose-50 text-rose-700 border-rose-300 animate-pulse'
+                          : 'bg-gradient-to-r from-amber-50 to-emerald-50 text-emerald-950 border-emerald-300/80 hover:bg-emerald-100'
+                      }`}
+                    >
+                      {trialStatus.isActivated ? (
+                        <>
+                          <ShieldCheck className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-600" />
+                          <span className="hidden xs:inline">مفعّل 🇧🇭</span>
+                        </>
+                      ) : trialStatus.isExpired ? (
+                        <>
+                          <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-rose-600" />
+                          <span>انتهت التجربة (7 أيام) ⚠️</span>
+                        </>
+                      ) : (
+                        <>
+                          <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-600 animate-spin-slow" />
+                          <span>
+                            تجربة: {trialStatus.daysRemaining > 0 ? `${trialStatus.daysRemaining} يوم` : `${trialStatus.hoursRemaining} س`} ⏳
+                          </span>
+                        </>
+                      )}
+                    </button>
+                  )}
                 </div>
                 <p className="hidden sm:block text-[11px] text-slate-500 font-medium">رادار طلبات التوصيل الذكي</p>
               </div>

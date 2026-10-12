@@ -20,57 +20,21 @@ export function getStoredCommitments(): MonthlyCommitment[] {
     const raw = localStorage.getItem(STORAGE_KEY_COMMITMENTS);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed;
+      if (Array.isArray(parsed)) {
+        // إزالة أي التزامات وهمية أو تجريبية مسبقة
+        return parsed.filter((c: MonthlyCommitment) => 
+          c.id !== 'commit-school-1' && 
+          c.id !== 'commit-work-2' && 
+          !c.clientName?.includes('أم علي') && 
+          !c.clientName?.includes('أبو حسين')
+        );
+      }
     }
   } catch (e) {
     console.warn('[Orderi Commitments] Error loading commitments:', e);
   }
 
-  // Pre-seed with realistic Bahrain monthly commitments (توصيل مدارس وتوصيل يومي)
-  const defaultCommitments: MonthlyCommitment[] = [
-    {
-      id: 'commit-school-1',
-      title: 'توصيل مدارس (مدرسة النور - الرفاع)',
-      type: 'school',
-      clientName: 'أم علي',
-      clientPhone: '97339887766',
-      fromArea: 'مدينة عيسى',
-      toArea: 'الرفاع',
-      pickupTime: '06:50',
-      returnPickupTime: '13:40',
-      durationMinutes: 45,
-      days: ['sun', 'mon', 'tue', 'wed', 'thu'],
-      monthlyFeeBhd: 45.0,
-      reminderMinutesBefore: 20,
-      isActive: true,
-      notes: 'توصيل طالبين يومياً في أيام المدارس مع العودة ظهراً',
-      createdAt: new Date().toISOString(),
-    },
-    {
-      id: 'commit-work-2',
-      title: 'توصيل موظف يومي (مجمع السيف)',
-      type: 'daily_work',
-      clientName: 'أبو حسين',
-      clientPhone: '97336554433',
-      fromArea: 'سار',
-      toArea: 'السيف',
-      pickupTime: '08:15',
-      returnPickupTime: '16:30',
-      durationMinutes: 30,
-      days: ['sun', 'mon', 'tue', 'wed', 'thu'],
-      monthlyFeeBhd: 55.0,
-      reminderMinutesBefore: 15,
-      isActive: true,
-      notes: 'التزام دوام يومي - عدم التأخير',
-      createdAt: new Date().toISOString(),
-    },
-  ];
-
-  try {
-    localStorage.setItem(STORAGE_KEY_COMMITMENTS, JSON.stringify(defaultCommitments));
-  } catch {}
-
-  return defaultCommitments;
+  return [];
 }
 
 export function saveStoredCommitments(commitments: MonthlyCommitment[]): void {

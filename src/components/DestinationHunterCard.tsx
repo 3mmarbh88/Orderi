@@ -6,11 +6,8 @@ import {
   X, 
   CheckCircle2, 
   Trash2, 
-  Play, 
   Sparkles, 
-  Bell, 
-  ChevronDown,
-  ChevronUp
+  Bell
 } from 'lucide-react';
 import { OrderFilter, HuntedDestinationLog, ParsedOrder } from '../types';
 import { 
@@ -39,11 +36,6 @@ export const DestinationHunterCard: React.FC<DestinationHunterCardProps> = ({
 }) => {
   const [newDeliveryInput, setNewDeliveryInput] = useState('');
   const [huntedLogs, setHuntedLogs] = useState<HuntedDestinationLog[]>([]);
-  
-  // Simulator state
-  const [simText, setSimText] = useState('أوردر من السيف إلى المحرق، السعر 2.5 د.ب');
-  const [simResult, setSimResult] = useState<any>(null);
-  const [showSimulator, setShowSimulator] = useState(false);
 
   useEffect(() => {
     setHuntedLogs(getStoredHuntedDestinationLogs());
@@ -82,36 +74,6 @@ export const DestinationHunterCard: React.FC<DestinationHunterCardProps> = ({
       desiredDeliveryAreas: updated,
       destinations: updated,
     });
-  };
-
-  // Run Simulator
-  const handleRunSimulation = () => {
-    if (!simText.trim()) return;
-    // Extract rough from/to for test
-    let testFrom = 'السيف';
-    let testTo = 'المحرق';
-    
-    // Quick parse check
-    for (const a of BAHRAIN_AREAS) {
-      if (simText.includes(a.name)) {
-        if (simText.indexOf(a.name) < simText.length / 2) {
-          testFrom = a.name;
-        } else {
-          testTo = a.name;
-        }
-      }
-    }
-
-    const res = checkOrderDestinationHunt({ from: testFrom, to: testTo, rawText: simText }, filter);
-    setSimResult({
-      ...res,
-      from: testFrom,
-      to: testTo,
-    });
-
-    if (res.isHunted && filter.soundEnabled) {
-      playAlertTone('cash_register', 80);
-    }
   };
 
   // Hunted orders from active feed
@@ -309,83 +271,6 @@ export const DestinationHunterCard: React.FC<DestinationHunterCardProps> = ({
               </div>
             </label>
           </div>
-        </div>
-
-        {/* Simulator Toggle & Interactive Tester */}
-        <div className="rounded-2xl border border-slate-200 overflow-hidden">
-          <button
-            type="button"
-            onClick={() => setShowSimulator(!showSimulator)}
-            className="w-full p-4 bg-slate-50 hover:bg-slate-100 flex items-center justify-between text-right font-black text-xs sm:text-sm text-slate-900 transition-colors"
-          >
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-amber-500" />
-              <span>مختبر فحص ومحاكاة صائد الوجهات الفوري (Live Simulator) 🧪</span>
-            </div>
-            {showSimulator ? <ChevronUp className="w-4 h-4 text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-500" />}
-          </button>
-
-          {showSimulator && (
-            <div className="p-4 sm:p-5 bg-white border-t border-slate-200 space-y-3">
-              <p className="text-xs text-slate-600">
-                جرب إدخال أي نص لإعلان نشر في قروب واتساب للتأكد من قدرة الصائد على التقاط الوجهة:
-              </p>
-
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={simText}
-                  onChange={(e) => setSimText(e.target.value)}
-                  placeholder="اكتب رسالة تجريبية..."
-                  className="flex-1 px-3 py-2 text-xs rounded-xl border border-slate-200 font-bold"
-                />
-                <button
-                  type="button"
-                  onClick={handleRunSimulation}
-                  className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-black text-xs flex items-center gap-1 shrink-0 transition-all active:scale-95"
-                >
-                  <Play className="w-3.5 h-3.5 fill-current" />
-                  <span>فحص الصيد</span>
-                </button>
-              </div>
-
-              {simResult && (
-                <div className={`p-3.5 rounded-xl border text-xs space-y-1.5 animate-in fade-in duration-200 ${
-                  simResult.isHunted
-                    ? 'bg-emerald-50 border-emerald-300 text-emerald-950'
-                    : 'bg-slate-50 border-slate-200 text-slate-700'
-                }`}>
-                  <div className="flex items-center justify-between font-black">
-                    <span className="flex items-center gap-1.5">
-                      {simResult.isHunted ? (
-                        <>
-                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                          <span>🎯 تم اصطياد الطلب بنجاح!</span>
-                        </>
-                      ) : (
-                        <span>⚪ خارج قائمة الوجهات المحددة للصيد</span>
-                      )}
-                    </span>
-                    {simResult.badgeLabel && (
-                      <span className="px-2 py-0.5 rounded-full bg-emerald-600 text-white text-[10px]">
-                        {simResult.badgeLabel}
-                      </span>
-                    )}
-                  </div>
-                  {simResult.reason && (
-                    <p className="text-[11px] leading-relaxed text-emerald-800">
-                      {simResult.reason}
-                    </p>
-                  )}
-                  <div className="flex items-center gap-3 pt-1 text-[10px] text-slate-500 font-mono">
-                    <span>الاستلام: {simResult.from}</span>
-                    <span>•</span>
-                    <span>التسليم: {simResult.to}</span>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
         </div>
 
         {/* Captured Logs (سجل الصيدات السابقة) */}

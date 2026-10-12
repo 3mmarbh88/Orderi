@@ -56,6 +56,13 @@ import { DiscoveredGroupsModal } from './components/DiscoveredGroupsModal';
 import { APKDownloadModal } from './components/APKDownloadModal';
 import { AuthModal } from './components/AuthModal';
 import { ActivationLockBarrier } from './components/ActivationLockBarrier';
+import { DeviceTrialModal } from './components/DeviceTrialModal';
+import { 
+  initDeviceTrial, 
+  getCachedDeviceTrialStatus, 
+  subscribeToDeviceTrial, 
+  DeviceTrialStatus 
+} from './utils/deviceTrialManager';
 import { DiscoveredGroupLink, CaptainUser } from './types';
 import { getCurrentUser, setCurrentUser as setStoredCurrentUser, isProgramActivated, normalizeBahrainPhone } from './utils/authManager';
 import { FocusedOrderDetailModal } from './components/FocusedOrderDetailModal';
@@ -262,6 +269,23 @@ function OrderiApp() {
           }
         }
       }
+
+      // Clean orderi_monthly_commitments (إزالة أي التزامات وهمية أو تجريبية سابقة)
+      const savedComm = localStorage.getItem('orderi_monthly_commitments');
+      if (savedComm) {
+        const parsedComm = JSON.parse(savedComm);
+        if (Array.isArray(parsedComm)) {
+          const cleanedComm = parsedComm.filter((c: any) => 
+            c.id !== 'commit-school-1' && 
+            c.id !== 'commit-work-2' && 
+            !c.clientName?.includes('أم علي') && 
+            !c.clientName?.includes('أبو حسين')
+          );
+          if (cleanedComm.length !== parsedComm.length) {
+            localStorage.setItem('orderi_monthly_commitments', JSON.stringify(cleanedComm));
+          }
+        }
+      }
     } catch {}
   }, []);
   const [isBackgroundModalOpen, setIsBackgroundModalOpen] = useState(false);
@@ -417,7 +441,31 @@ function OrderiApp() {
     currentUserRef.current = currentUser;
   }, [currentUser]);
 
-  const isActivated = isProgramActivated(currentUser);
+  // 7b. 7-Day Device Hardware Trial State (مرتبطة بعتاد هذا الهاتف تحديداً وتستمر حتى لو أُعيد تثبيت البرنامج)
+  const [deviceTrialStatus, setDeviceTrialStatus] = useState<DeviceTrialStatus | null>(() => getCachedDeviceTrialStatus());
+  const [isDeviceTrialModalOpen, setIsDeviceTrialModalOpen] = useState(false);
+
+  useEffect(() => {
+    // Initial fetch from server and device hardware identity
+    initDeviceTrial(currentUser?.phone).then((status) => {
+      setDeviceTrialStatus(status);
+    });
+
+    const unsubscribe = subscribeToDeviceTrial((status) => {
+      setDeviceTrialStatus(status);
+    });
+
+    return () => unsubscribe();
+  }, [currentUser?.phone]);
+
+  const isUserLicenseActive = isProgramActivated(currentUser);
+  const isDeviceTrialValid = Boolean(
+    deviceTrialStatus && (
+      deviceTrialStatus.isActivated || 
+      (!deviceTrialStatus.isExpired && deviceTrialStatus.daysRemaining > 0)
+    )
+  );
+  const isActivated = isUserLicenseActive || isDeviceTrialValid;
   const [isBarrierDismissed, setIsBarrierDismissed] = useState(false);
 
   // 8. Active Broadcast (Waiting for Courier) Replay Prompt State
@@ -1993,6 +2041,8 @@ function OrderiApp() {
         isCarTrackingActive={isActivated ? isCarTrackingActive : false}
         onToggleCarTracking={handleToggleCarTracking}
         carSpeedKmh={carSpeedKmh}
+        trialStatus={deviceTrialStatus}
+        onOpenTrialModal={() => setIsDeviceTrialModalOpen(true)}
       />
 
       {/* 2. Main Content Container */}
@@ -2434,6 +2484,18 @@ function OrderiApp() {
       <APKDownloadModal
         isOpen={isAPKModalOpen}
         onClose={() => setIsAPKModalOpen(false)}
+        onShowToast={showToast}
+      />
+
+      {/* 7-Day Device Hardware Trial Info & Activation Modal */}
+      <DeviceTrialModal
+        isOpen={isDeviceTrialModalOpen}
+        onClose={() => setIsDeviceTrialModalOpen(false)}
+        trialStatus={deviceTrialStatus}
+        onActivated={() => {
+          initDeviceTrial(currentUser?.phone).then(setDeviceTrialStatus);
+          showToast('تم تفعيل ترخيص Orderi على هذا الهاتف بنجاح 🚀');
+        }}
         onShowToast={showToast}
       />
 

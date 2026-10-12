@@ -174,7 +174,7 @@ export const APKDownloadModal: React.FC<APKDownloadModalProps> = ({
                   Android APK 🇧🇭
                 </span>
               </div>
-              <p className="text-[11px] sm:text-xs text-emerald-100/90 font-medium">العمل الفعلي في الخلفية وإلغاء المحاكاة لتلقي طلبات الواتساب الحقيقية</p>
+              <p className="text-[11px] sm:text-xs text-emerald-100/90 font-medium">العمل الفعلي في الخلفية لتلقي طلبات الواتساب الحقيقية مباشرة</p>
             </div>
           </div>
 

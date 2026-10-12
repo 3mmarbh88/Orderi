@@ -13,6 +13,9 @@ import {
   Clock,
   AlertTriangle,
   Eye,
+  Smartphone,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { CaptainUser } from '../types';
 import {
@@ -24,6 +27,13 @@ import {
   startTrialForPhone,
   ACTIVATION_WHATSAPP_LINK,
 } from '../utils/authManager';
+import { getDeviceHardwareIdentity } from '../utils/deviceFingerprint';
+import { 
+  getCachedDeviceTrialStatus, 
+  initDeviceTrial, 
+  activateDeviceTrial, 
+  DeviceTrialStatus 
+} from '../utils/deviceTrialManager';
 
 interface ActivationLockBarrierProps {
   currentUser: CaptainUser | null;
@@ -164,13 +174,24 @@ export function ActivationLockBarrier({
   const [trialSuccessMsg, setTrialSuccessMsg] = useState('');
   const [isStartingTrial, setIsStartingTrial] = useState(false);
 
+  // Hardware Device Trial state
+  const [deviceTrial, setDeviceTrial] = useState<DeviceTrialStatus | null>(() => getCachedDeviceTrialStatus());
+  const [copiedId, setCopiedId] = useState(false);
+
+  React.useEffect(() => {
+    initDeviceTrial(currentUser?.phone).then(setDeviceTrial);
+  }, [currentUser?.phone]);
+
+  const isHardwareTrialExpired = deviceTrial ? deviceTrial.isExpired : false;
+  const isHardwareTrialActive = deviceTrial ? (deviceTrial.isTrialActive || (!deviceTrial.isExpired && deviceTrial.daysRemaining > 0)) : false;
+
   // Check trial record for the phone
   const activePhone = (trialPhone || currentUser?.phone || '').trim();
   const existingTrial = activePhone ? getTrialRecordForPhone(activePhone) : null;
-  const isTrialExpired = existingTrial
+  const isTrialExpired = isHardwareTrialExpired || (existingTrial
     ? new Date(existingTrial.expiresAt).getTime() <= Date.now()
-    : false;
-  const isTrialActive = existingTrial ? !isTrialExpired : false;
+    : false);
+  const isTrialActive = isHardwareTrialActive || (existingTrial ? !isTrialExpired : false);
   const remainingTime = existingTrial
     ? getRemainingTrialTime(existingTrial.expiresAt)
     : null;
@@ -257,6 +278,9 @@ export function ActivationLockBarrier({
       }
 
       const res = await applyActivationCode(activeUser.id, codeToUse);
+      try {
+        await activateDeviceTrial(codeToUse, activeUser.phone);
+      } catch {}
 
       if (res.success && res.user) {
         setIsSuccess(true);
@@ -394,54 +418,103 @@ export function ActivationLockBarrier({
 
         {/* Content */}
         <div className="p-5 sm:p-6 overflow-y-auto space-y-4">
+          
+          {/* Hardware Device Identity Card (محفوظ ومربوط بعتاد الهاتف) */}
+          {deviceTrial && (
+            <div className="bg-slate-50 rounded-2xl p-3 border border-slate-200 flex items-center justify-between text-xs shadow-2xs">
+              <div className="flex items-center gap-2 text-slate-700 font-bold min-w-0">
+                <Smartphone className="w-4 h-4 text-blue-600 shrink-0" />
+                <span className="shrink-0 text-slate-500">معرف عتاد الهاتف:</span>
+                <span className="font-mono font-bold text-blue-800 truncate" dir="ltr">{deviceTrial.deviceId}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  try {
+                    navigator.clipboard.writeText(deviceTrial.deviceId);
+                    setCopiedId(true);
+                    setTimeout(() => setCopiedId(false), 2000);
+                  } catch {}
+                }}
+                className="text-[11px] text-blue-600 hover:text-blue-800 font-bold cursor-pointer shrink-0 flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-blue-50 transition-colors"
+              >
+                {copiedId ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                <span>{copiedId ? 'تم النسخ' : 'نسخ'}</span>
+              </button>
+            </div>
+          )}
+
           {/* ============================================================
               1. SECTION: 7-DAY TRIAL PERIOD
               ============================================================ */}
           {isTrialExpired ? (
-            <div className="p-4 rounded-2xl bg-amber-50 border-2 border-amber-300 space-y-2 shadow-2xs animate-in fade-in">
+            <div className="p-4 rounded-2xl bg-amber-50 border-2 border-amber-300 space-y-2.5 shadow-2xs animate-in fade-in">
               <div className="flex items-center gap-2 text-xs sm:text-sm font-black text-amber-950">
                 <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                <span>{tr.trialExpiredTitle}</span>
+                <span>انتهت الفترة التجريبية المجانية (7 أيام) المخصصة لهذا الهاتف ⏳</span>
               </div>
               <p className="text-xs text-amber-900 leading-relaxed font-medium">
-                {tr.trialExpiredDesc} ({' '}
-                <span className="font-mono font-bold" dir="ltr">
-                  +973 {activePhone}
-                </span>{' '}
-                )
+                تم تسجيل أول تثبيت لهذا الهاتف بتاريخ سابق وانقضت الـ 7 أيام التجريبية المجانية.
+                <span className="block mt-1 font-bold text-amber-950">
+                  🔒 الفترة التجريبية مرتبطة بعتاد هذا الهاتف بالسيرفر وتظل محسوبة حتى لو قمت بحذف البرنامج وتثبيته من جديد.
+                </span>
               </p>
+              <div className="pt-1 flex items-center justify-between gap-2 border-t border-amber-200/80">
+                <span className="text-[11px] text-amber-800 font-medium">لتفعيل الهاتف ومواصلة العمل:</span>
+                <a
+                  href={`https://wa.me/97333314353?text=${encodeURIComponent(
+                    `مرحباً Orderi، أود تفعيل اشتراكي على هاتفي بعد انتهاء الـ 7 أيام التجريبية.\nمعرف الجهاز: ${deviceTrial?.deviceId || ''}`
+                  )}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs shadow-xs transition-transform active:scale-95"
+                >
+                  <WhatsAppIcon className="w-3.5 h-3.5" />
+                  <span>تفعيل عبر واتساب 💬</span>
+                </a>
+              </div>
             </div>
           ) : isTrialActive ? (
             <div className="p-4 rounded-2xl bg-emerald-50 border-2 border-emerald-400 space-y-2.5 shadow-2xs animate-in fade-in">
               <div className="flex items-center justify-between">
                 <span className="text-xs sm:text-sm font-black text-emerald-950 flex items-center gap-1.5">
                   <Clock className="w-4 h-4 text-emerald-600" />
-                  <span>{tr.trialActiveTitle}</span>
+                  <span>الفترة التجريبية نشطة لهذا الهاتف ⏳</span>
                 </span>
                 <span className="text-[10px] bg-emerald-600 text-white font-black px-2.5 py-0.5 rounded-full shadow-2xs">
-                  {tr.remaining} {remainingTime?.formatted}
+                  {tr.remaining} {deviceTrial?.formattedRemaining || remainingTime?.formatted}
                 </span>
               </div>
               <p className="text-xs text-emerald-900 font-medium leading-relaxed">
-                {tr.trialLinkedPhone}{' '}
-                <strong className="font-mono" dir="ltr">
-                  +973 {activePhone}
-                </strong>
-                . {tr.trialExpiresOn}{' '}
+                الفترة التجريبية المجانية (7 أيام) مرتبطة بهذا الهاتف ومحسوبة حتى تاريخ{' '}
                 <strong>
-                  {new Date(existingTrial!.expiresAt).toLocaleDateString(lang === 'ar' ? 'ar-BH' : 'en-US')}
+                  {deviceTrial?.expiresAt
+                    ? new Date(deviceTrial.expiresAt).toLocaleDateString(lang === 'ar' ? 'ar-BH' : 'en-US')
+                    : existingTrial
+                    ? new Date(existingTrial.expiresAt).toLocaleDateString(lang === 'ar' ? 'ar-BH' : 'en-US')
+                    : ''}
                 </strong>
-                . {tr.trialAllFeatures}
+                . كافة ميزات رادار طلبات الواتساب ومستشعر الـ GPS متاحة لك بالكامل.
               </p>
               <button
                 type="button"
                 onClick={() => {
-                  const res = startTrialForPhone(
-                    activePhone,
-                    currentUser?.name
-                  );
-                  if (res.success && res.user) {
-                    onActivated(res.user);
+                  const activeUser = currentUser || getCurrentUser();
+                  if (activeUser) {
+                    onActivated({ ...activeUser, isActivated: true });
+                  } else {
+                    const fallbackUser: CaptainUser = {
+                      id: `captain_${deviceTrial?.deviceId || 'device'}`,
+                      name: 'كابتن Orderi',
+                      phone: '33314353',
+                      vehicleType: 'car',
+                      isActivated: true,
+                      isTrial: true,
+                      licensePlan: 'فترة تجريبية مجانية (7 أيام) ⏳',
+                      trialExpiresAt: deviceTrial?.expiresAt ? new Date(deviceTrial.expiresAt).toISOString() : undefined,
+                      createdAt: new Date().toISOString(),
+                    };
+                    onActivated(fallbackUser);
                   }
                 }}
                 className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 text-white font-black text-xs sm:text-sm shadow-md shadow-emerald-600/25 flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer"

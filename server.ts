@@ -7,6 +7,7 @@ import QRCode from "qrcode";
 import { parseWhatsAppOrderText } from "./src/utils/orderParser";
 import { checkIncomingMessageForClosure, extractClosureKeywords } from "./src/utils/orderClosureDetector";
 import { classifyAdvertiserPrivateReply } from "./src/utils/advertiserReplyClassifier";
+import { checkOrRegisterDevice, activateDevice, resetDeviceTrial } from "./src/server/trialVault";
 
 dotenv.config();
 
@@ -1564,6 +1565,87 @@ app.post("/api/analyze-and-learn-closure", async (req, res) => {
   }
 });
 
+// ============================================================================
+// 7-Day Device Hardware Trial & License Routes (فترة تجريبية 7 أيام مرتبطة بعتاد الهاتف)
+// ============================================================================
+
+// فحص أو تسجيل الهاتف للمرة الأولى واسترجاع المدة المتبقية الحقيقية
+app.post("/api/trial/status", (req, res) => {
+  try {
+    const { deviceId, hardwareFingerprint, model, platform, phone } = req.body || {};
+    if (!deviceId && !hardwareFingerprint) {
+      return res.status(400).json({ error: "Missing deviceId or hardwareFingerprint" });
+    }
+
+    const result = checkOrRegisterDevice({
+      deviceId: deviceId || `ORD-DEV-${Date.now()}`,
+      hardwareFingerprint: hardwareFingerprint || deviceId,
+      model,
+      platform,
+      phone,
+    });
+
+    return res.json({
+      success: true,
+      deviceId: result.record.deviceId,
+      firstInstalledAt: result.record.firstInstalledAt,
+      expiresAt: result.record.expiresAt,
+      trialDays: result.record.trialDays,
+      daysRemaining: result.daysRemaining,
+      hoursRemaining: result.hoursRemaining,
+      isExpired: result.isExpired,
+      isActivated: result.record.isActivated,
+      activationCode: result.record.activationCode,
+      installCount: result.record.installCount,
+      isNewInstall: result.isNewInstall,
+    });
+  } catch (err: any) {
+    console.error("[Trial API Error]", err);
+    return res.status(500).json({ error: "Failed to process device trial status" });
+  }
+});
+
+// تفعيل ترخيص الهاتف بواسطة كود معتمد
+app.post("/api/trial/activate", (req, res) => {
+  try {
+    const { deviceId, hardwareFingerprint, code, phone } = req.body || {};
+    if (!deviceId || !code) {
+      return res.status(400).json({ error: "يرجى تقديم معرف الجهاز وكود التفعيل" });
+    }
+
+    const result = activateDevice({
+      deviceId,
+      hardwareFingerprint,
+      code,
+      phone,
+    });
+
+    if (result.success) {
+      return res.json({
+        success: true,
+        message: result.message,
+        isActivated: true,
+        record: result.record,
+      });
+    }
+
+    return res.status(400).json({
+      success: false,
+      error: result.message,
+    });
+  } catch (err: any) {
+    console.error("[Trial Activation Error]", err);
+    return res.status(500).json({ error: "تعذر معالجة كود التفعيل" });
+  }
+});
+
+// إعادة ضبط تجريبية للمطورين والاختبار
+app.post("/api/trial/reset-demo", (req, res) => {
+  const { deviceId } = req.body || {};
+  if (!deviceId) return res.status(400).json({ error: "Missing deviceId" });
+  const reset = resetDeviceTrial(deviceId);
+  return res.json({ success: reset });
+});
 
 // Setup Vite middleware for development, or static serving for production
 async function startServer() {

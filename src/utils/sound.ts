@@ -459,7 +459,7 @@ export function playHapticFeedbackTone(durations: number[], intensity = 2) {
       accumulatedTime += durSec;
     });
   } catch (err) {
-    console.warn('[Orderi] Haptic sound simulation error:', err);
+    console.warn('[Orderi] Haptic sound audio error:', err);
   }
 }
 
