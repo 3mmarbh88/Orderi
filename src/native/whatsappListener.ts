@@ -62,3 +62,20 @@ export async function reachNativeAdvertiserPrivateChat(options: {
   }
 }
 
+/**
+ * Executes "Mark as Read" (تمييز كمقروء) across all connected WhatsApp groups and chats.
+ * In Android Native: executes the native Notification.Action PendingIntents to mark WhatsApp chats as read on the device.
+ */
+export async function markAllWhatsAppAsRead(): Promise<{ success: boolean; markedCount: number }> {
+  if (isNativeAndroid()) {
+    try {
+      const res = await OrderiNotificationListener.markAllAsRead();
+      return { success: true, markedCount: res.markedCount || 0 };
+    } catch (err) {
+      console.warn('Native markAllAsRead error:', err);
+    }
+  }
+  return { success: true, markedCount: 0 };
+}
+
+

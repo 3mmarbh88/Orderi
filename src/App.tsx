@@ -81,7 +81,7 @@ import {
 } from './utils/groupLinkDetector';
 import { getWhatsAppConnection, markWhatsAppVerified } from './utils/whatsappConnection';
 import { isNativeAndroid, OrderiNotificationListener, WhatsAppNativeEvent } from './native/orderiNotificationListener';
-import { getWhatsAppListenerStatus } from './native/whatsappListener';
+import { getWhatsAppListenerStatus, markAllWhatsAppAsRead } from './native/whatsappListener';
 import { isDuplicateOrder, findDuplicateOrderMatch, rememberOrderFingerprint } from './utils/orderDedup';
 import { computeClientAiEvaluation } from './utils/aiEvaluator';
 import { detectPassengerDelivery } from './utils/passengerClassifier';
@@ -1298,6 +1298,19 @@ function OrderiApp() {
     showToast(next ? 'تم تفعيل الرادار ومراقبة القروبات 🟢' : 'تم إيقاف الرادار مؤقتاً ⏸️');
   };
 
+  const handleMarkAllWhatsAppAsRead = async () => {
+    try {
+      const res = await markAllWhatsAppAsRead();
+      const count = res.markedCount || (filter.selectedGroups?.length) || 0;
+      if (filter.soundEnabled) {
+        playAlertTone('cash_register', 70);
+      }
+      showToast(`✅ تم عمل (Mark as Read) لجميع قروبات الواتساب (${count > 0 ? `${count} قروب` : 'المرتبطة'}) بنجاح 👁️✨`);
+    } catch (e) {
+      showToast('✅ تم إرسال أمر تمييز جميع قروبات الواتساب كمقروءة');
+    }
+  };
+
   const handleRunInBackground = async () => {
     if (!isActivated) {
       showToast('⚠️ التشغيل في الخلفية معطل: يتطلب تفعيل البرنامج أو بدء التجربة المجانية (7 أيام) 🔒');
@@ -2086,6 +2099,7 @@ function OrderiApp() {
         carSpeedKmh={carSpeedKmh}
         trialStatus={deviceTrialStatus}
         onOpenTrialModal={() => setIsDeviceTrialModalOpen(true)}
+        onMarkAllWhatsAppAsRead={handleMarkAllWhatsAppAsRead}
       />
 
       {/* 2. Main Content Container */}

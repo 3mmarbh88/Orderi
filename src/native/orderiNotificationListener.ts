@@ -44,6 +44,7 @@ interface OrderiNotificationListenerPlugin {
     blockPassenger?: boolean;
     notificationsEnabled?: boolean;
   }): Promise<void>;
+  markAllAsRead(): Promise<{ success: boolean; markedCount: number }>;
   addListener(
     eventName: 'whatsappNotification',
     listenerFunc: (event: WhatsAppNativeEvent) => void,

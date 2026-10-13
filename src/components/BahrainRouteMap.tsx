@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
   MapPin, 
   Navigation, 
@@ -152,8 +152,189 @@ export function BahrainRouteMap({
   const [showTraffic, setShowTraffic] = useState<boolean>(true);
   const [hoveredBottleneck, setHoveredBottleneck] = useState<string | null>(null);
 
+  // References for gesture handling (Pinch-to-zoom & Touch/Mouse Pan)
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
+  const panRef = useRef(pan);
+  panRef.current = pan;
+
+  const [isMouseDragging, setIsMouseDragging] = useState<boolean>(false);
+  const mouseDragRef = useRef({ startX: 0, startY: 0, startPan: { x: 0, y: 0 } });
+  const touchStateRef = useRef({
+    isPinching: false,
+    isPanning: false,
+    startDist: 0,
+    startZoom: 1,
+    startPan: { x: 0, y: 0 },
+    startMid: { x: 50, y: 50 },
+    startX: 0,
+    startY: 0,
+  });
+
   // Effective highlighted order: user selected or activeOrder
   const currentOrder = selectedInternalOrder || activeOrder || (orders.length > 0 ? orders[0] : null);
+
+  // Native touch gestures: 2-finger pinch-to-zoom & 1-finger pan, plus mouse wheel zoom
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    // Wheel zoom centered towards cursor point
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = container.getBoundingClientRect();
+      const cursorXPercent = ((e.clientX - rect.left) / rect.width) * 100;
+      const cursorYPercent = ((e.clientY - rect.top) / rect.height) * 100;
+
+      const zoomFactor = e.deltaY < 0 ? 1.15 : 0.87;
+      const currentZoom = zoomRef.current;
+      const nextZoom = Math.min(5.0, Math.max(0.7, currentZoom * zoomFactor));
+
+      const ratio = nextZoom / currentZoom;
+      const currentPan = panRef.current;
+      const newPanX = cursorXPercent - 50 - ratio * (cursorXPercent - 50 - currentPan.x);
+      const newPanY = cursorYPercent - 50 - ratio * (cursorYPercent - 50 - currentPan.y);
+
+      setZoom(Number(nextZoom.toFixed(2)));
+      setPan({
+        x: Math.max(-180, Math.min(180, newPanX)),
+        y: Math.max(-180, Math.min(180, newPanY)),
+      });
+    };
+
+    // Touch start: detect 2-finger pinch or 1-finger pan
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+        const rect = container.getBoundingClientRect();
+        const midX = (((t1.clientX + t2.clientX) / 2 - rect.left) / rect.width) * 100;
+        const midY = (((t1.clientY + t2.clientY) / 2 - rect.top) / rect.height) * 100;
+
+        touchStateRef.current = {
+          isPinching: true,
+          isPanning: false,
+          startDist: Math.max(10, dist),
+          startZoom: zoomRef.current,
+          startPan: { ...panRef.current },
+          startMid: { x: midX, y: midY },
+          startX: 0,
+          startY: 0,
+        };
+      } else if (e.touches.length === 1) {
+        const t = e.touches[0];
+        touchStateRef.current = {
+          isPinching: false,
+          isPanning: true,
+          startDist: 0,
+          startZoom: zoomRef.current,
+          startPan: { ...panRef.current },
+          startMid: { x: 50, y: 50 },
+          startX: t.clientX,
+          startY: t.clientY,
+        };
+      }
+    };
+
+    // Touch move: continuous pinch scale & pan
+    const onTouchMove = (e: TouchEvent) => {
+      if (touchStateRef.current.isPinching && e.touches.length === 2) {
+        e.preventDefault();
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        const currentDist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+        const scale = currentDist / touchStateRef.current.startDist;
+        const targetZoom = Math.min(5.0, Math.max(0.7, touchStateRef.current.startZoom * scale));
+
+        const rect = container.getBoundingClientRect();
+        const currentMidX = (((t1.clientX + t2.clientX) / 2 - rect.left) / rect.width) * 100;
+        const currentMidY = (((t1.clientY + t2.clientY) / 2 - rect.top) / rect.height) * 100;
+
+        const ratio = targetZoom / touchStateRef.current.startZoom;
+        const startMid = touchStateRef.current.startMid;
+        const startPan = touchStateRef.current.startPan;
+
+        // Anchor zooming at the midpoint between fingers (like Google Maps & photo viewers)
+        const newPanX = currentMidX - 50 - ratio * (startMid.x - 50 - startPan.x);
+        const newPanY = currentMidY - 50 - ratio * (startMid.y - 50 - startPan.y);
+
+        setZoom(Number(targetZoom.toFixed(2)));
+        setPan({
+          x: Math.max(-180, Math.min(180, newPanX)),
+          y: Math.max(-180, Math.min(180, newPanY)),
+        });
+      } else if (touchStateRef.current.isPanning && e.touches.length === 1) {
+        e.preventDefault();
+        const t = e.touches[0];
+        const rect = container.getBoundingClientRect();
+        const dxPercent = ((t.clientX - touchStateRef.current.startX) / rect.width) * 100;
+        const dyPercent = ((t.clientY - touchStateRef.current.startY) / rect.height) * 100;
+
+        setPan({
+          x: Math.max(-180, Math.min(180, touchStateRef.current.startPan.x + dxPercent)),
+          y: Math.max(-180, Math.min(180, touchStateRef.current.startPan.y + dyPercent)),
+        });
+      }
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      if (e.touches.length === 0) {
+        touchStateRef.current.isPinching = false;
+        touchStateRef.current.isPanning = false;
+      } else if (e.touches.length === 1) {
+        // Transition back to 1-finger pan if one finger is lifted
+        const t = e.touches[0];
+        touchStateRef.current.isPinching = false;
+        touchStateRef.current.isPanning = true;
+        touchStateRef.current.startX = t.clientX;
+        touchStateRef.current.startY = t.clientY;
+        touchStateRef.current.startPan = { ...panRef.current };
+      }
+    };
+
+    container.addEventListener('wheel', onWheel, { passive: false });
+    container.addEventListener('touchstart', onTouchStart, { passive: false });
+    container.addEventListener('touchmove', onTouchMove, { passive: false });
+    container.addEventListener('touchend', onTouchEnd);
+    container.addEventListener('touchcancel', onTouchEnd);
+
+    return () => {
+      container.removeEventListener('wheel', onWheel);
+      container.removeEventListener('touchstart', onTouchStart);
+      container.removeEventListener('touchmove', onTouchMove);
+      container.removeEventListener('touchend', onTouchEnd);
+      container.removeEventListener('touchcancel', onTouchEnd);
+    };
+  }, []);
+
+  // Mouse pan handlers for desktop
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    setIsMouseDragging(true);
+    mouseDragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startPan: { ...panRef.current },
+    };
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isMouseDragging || !containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const dxPercent = ((e.clientX - mouseDragRef.current.startX) / rect.width) * 100;
+    const dyPercent = ((e.clientY - mouseDragRef.current.startY) / rect.height) * 100;
+    setPan({
+      x: Math.max(-180, Math.min(180, mouseDragRef.current.startPan.x + dxPercent)),
+      y: Math.max(-180, Math.min(180, mouseDragRef.current.startPan.y + dyPercent)),
+    });
+  };
+
+  const handleMouseUp = () => {
+    setIsMouseDragging(false);
+  };
 
   // Geographic Bounding Box for the Kingdom of Bahrain (Lat 25.92 - 26.33, Lon 50.36 - 50.72)
   const MIN_LAT = 25.92;
@@ -171,8 +352,8 @@ export function BahrainRouteMap({
     const y = (rawY - 50) * zoom + 50 + pan.y;
 
     return {
-      x: Math.max(-25, Math.min(125, x)),
-      y: Math.max(-25, Math.min(125, y)),
+      x,
+      y,
       rawX,
       rawY,
     };
@@ -509,9 +690,16 @@ export function BahrainRouteMap({
         </div>
       )}
 
-      {/* 3. Interactive Map Canvas Container */}
+      {/* 3. Interactive Map Canvas Container (Pinch-to-zoom & Smooth Pan) */}
       <div 
-        className={`relative w-full h-[400px] sm:h-[550px] rounded-2xl sm:rounded-3xl overflow-hidden border transition-all duration-300 flex items-center justify-center select-none shadow-inner ${
+        ref={containerRef}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+        className={`relative w-full h-[400px] sm:h-[550px] rounded-2xl sm:rounded-3xl overflow-hidden border transition-all duration-300 flex items-center justify-center select-none shadow-inner touch-none ${
+          isMouseDragging ? 'cursor-grabbing' : 'cursor-grab'
+        } ${
           theme === 'tactical'
             ? 'bg-gradient-to-br from-[#040C1A] via-[#091B33] to-[#040D1B] border-slate-800'
             : theme === 'satellite'
@@ -967,6 +1155,15 @@ export function BahrainRouteMap({
               <ZoomOut className="w-4 h-4" />
             </button>
             <div className="h-px bg-slate-800 my-0.5" />
+            {/* Zoom Percentage */}
+            <button
+              type="button"
+              onClick={handleResetView}
+              className="py-1 px-0.5 rounded-md text-[9px] font-mono font-black text-cyan-400 hover:text-cyan-300 hover:bg-slate-800 transition-colors text-center"
+              title="انقر لإعادة الضبط (100%)"
+            >
+              {Math.round(zoom * 100)}%
+            </button>
             <button
               type="button"
               onClick={handleResetView}
@@ -1091,6 +1288,13 @@ export function BahrainRouteMap({
             </div>
           </div>
         )}
+
+        {/* Pinch-to-zoom & Gesture Guide Pill */}
+        <div className="absolute top-3 right-3 pointer-events-none z-30 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-950/80 backdrop-blur-md border border-slate-700/70 text-[10px] font-bold text-slate-300 shadow-md">
+          <span className="text-xs">🤏</span>
+          <span className="hidden sm:inline">تكبير بالأصبعين مثل الصور · اسحب للتنقل</span>
+          <span className="sm:hidden">تكبير بالأصبعين 🤏</span>
+        </div>
 
       </div>
 

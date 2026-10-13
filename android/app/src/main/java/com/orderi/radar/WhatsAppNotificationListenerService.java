@@ -50,6 +50,77 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
     }
     private static final java.util.concurrent.ConcurrentHashMap<String, ChatIntentHolder> CHAT_INTENTS = new java.util.concurrent.ConcurrentHashMap<>();
 
+    public static class MarkAsReadHolder {
+        public PendingIntent pendingIntent;
+        public String key;
+        public long timestamp;
+        public String title;
+    }
+    private static final java.util.concurrent.ConcurrentHashMap<String, MarkAsReadHolder> MARK_AS_READ_ACTIONS = new java.util.concurrent.ConcurrentHashMap<>();
+    private static volatile WhatsAppNotificationListenerService instance;
+
+    @Override
+    public void onListenerConnected() {
+        super.onListenerConnected();
+        instance = this;
+    }
+
+    @Override
+    public void onListenerDisconnected() {
+        if (instance == this) instance = null;
+        super.onListenerDisconnected();
+    }
+
+    public static int markAllWhatsAppAsRead(android.content.Context context) {
+        int count = 0;
+        java.util.HashSet<PendingIntent> sentIntents = new java.util.HashSet<>();
+
+        for (java.util.Map.Entry<String, MarkAsReadHolder> entry : MARK_AS_READ_ACTIONS.entrySet()) {
+            try {
+                PendingIntent pi = entry.getValue().pendingIntent;
+                if (pi != null && !sentIntents.contains(pi)) {
+                    pi.send();
+                    sentIntents.add(pi);
+                    count++;
+                }
+            } catch (Exception ignored) {}
+        }
+        MARK_AS_READ_ACTIONS.clear();
+
+        if (instance != null) {
+            try {
+                StatusBarNotification[] active = instance.getActiveNotifications();
+                if (active != null) {
+                    for (StatusBarNotification sbn : active) {
+                        if (PACKAGE_WHATSAPP.equals(sbn.getPackageName())) {
+                            Notification n = sbn.getNotification();
+                            if (n != null && n.actions != null) {
+                                for (Notification.Action act : n.actions) {
+                                    if (act != null && act.actionIntent != null) {
+                                        String actTitle = act.title != null ? act.title.toString().toLowerCase() : "";
+                                        if (actTitle.contains("read") || actTitle.contains("مقروء") || actTitle.contains("قراءة") || actTitle.contains("mark")) {
+                                            try {
+                                                if (!sentIntents.contains(act.actionIntent)) {
+                                                    act.actionIntent.send();
+                                                    sentIntents.add(act.actionIntent);
+                                                    count++;
+                                                }
+                                            } catch (Exception ignored) {}
+                                        }
+                                    }
+                                }
+                            }
+                            try {
+                                instance.cancelNotification(sbn.getKey());
+                            } catch (Exception ignored) {}
+                        }
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
+        return count;
+    }
+
     public static boolean openWhatsAppConversation(android.content.Context context, String targetTitle) {
         if (TextUtils.isEmpty(targetTitle)) return false;
         String targetNormalized = targetTitle.toLowerCase().trim();
@@ -175,7 +246,10 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
             // Cache WhatsApp direct reply action from notification if present
             if (n.actions != null) {
                 for (Notification.Action action : n.actions) {
-                    if (action != null && action.getRemoteInputs() != null && action.getRemoteInputs().length > 0) {
+                    if (action == null || action.actionIntent == null) continue;
+                    
+                    // Reply action
+                    if (action.getRemoteInputs() != null && action.getRemoteInputs().length > 0) {
                         ReplyActionHolder holder = new ReplyActionHolder();
                         holder.pendingIntent = action.actionIntent;
                         holder.remoteInputs = action.getRemoteInputs();
@@ -189,6 +263,25 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                         }
                         if (!TextUtils.isEmpty(conversationTitle)) {
                             REPLY_ACTIONS.put(conversationTitle, holder);
+                        }
+                    } else {
+                        // Mark as read action (تمييز كمقروء)
+                        CharSequence aTitle = action.title;
+                        String aTitleStr = aTitle != null ? aTitle.toString().toLowerCase() : "";
+                        boolean isMarkRead = aTitleStr.contains("read") || 
+                                             aTitleStr.contains("مقروء") || 
+                                             aTitleStr.contains("قراءة") ||
+                                             aTitleStr.contains("mark");
+                        if (isMarkRead) {
+                            MarkAsReadHolder readHolder = new MarkAsReadHolder();
+                            readHolder.pendingIntent = action.actionIntent;
+                            readHolder.key = sbn.getKey();
+                            readHolder.timestamp = sbn.getPostTime();
+                            readHolder.title = resolvedTitle;
+                            if (!TextUtils.isEmpty(resolvedTitle)) MARK_AS_READ_ACTIONS.put(resolvedTitle, readHolder);
+                            if (!TextUtils.isEmpty(title)) MARK_AS_READ_ACTIONS.put(title, readHolder);
+                            if (!TextUtils.isEmpty(conversationTitle)) MARK_AS_READ_ACTIONS.put(conversationTitle, readHolder);
+                            MARK_AS_READ_ACTIONS.put(sbn.getKey(), readHolder);
                         }
                     }
                 }
@@ -247,13 +340,13 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
 
         // فحص حظر نقل الركاب حسب إعدادات الفلتر
         boolean blockPassenger = filterPrefs.getBoolean("block_passenger", true);
-        boolean isPassenger = normalized.contains("شخص") || normalized.contains("اشخاص") ||
+        boolean isPassengerBlocked = normalized.contains("شخص") || normalized.contains("اشخاص") ||
                 normalized.contains("أشخاص") || normalized.contains("راكب") ||
                 normalized.contains("ركاب") || normalized.contains("توصيل بنات") ||
                 normalized.contains("توصيل طالب") || normalized.contains("توصيل طالبة") ||
                 normalized.contains("توصيل موظف") || normalized.contains("مشوار ركاب");
 
-        if (blockPassenger && isPassenger) {
+        if (blockPassenger && isPassengerBlocked) {
             return; // حجب إشعار نقل الركاب لأن السائق مفعّل حظر الركاب في الإعدادات
         }
 

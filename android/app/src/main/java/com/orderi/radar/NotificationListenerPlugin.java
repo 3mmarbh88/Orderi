@@ -280,4 +280,17 @@ public class NotificationListenerPlugin extends Plugin {
             call.reject("Could not update native filter settings", e);
         }
     }
+
+    @PluginMethod
+    public void markAllAsRead(PluginCall call) {
+        try {
+            int count = WhatsAppNotificationListenerService.markAllWhatsAppAsRead(getContext());
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            ret.put("markedCount", count);
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("Failed to mark WhatsApp groups as read", e);
+        }
+    }
 }

@@ -28,7 +28,8 @@ import {
   Navigation,
   X,
   CalendarDays,
-  Clock
+  Clock,
+  CheckCheck
 } from 'lucide-react';
 import { MatcherLocation } from '../utils/matcher';
 import { CaptainUser } from '../types';
@@ -70,6 +71,7 @@ interface HeaderProps {
   carSpeedKmh?: number;
   trialStatus?: DeviceTrialStatus | null;
   onOpenTrialModal?: () => void;
+  onMarkAllWhatsAppAsRead?: () => void;
 }
 
 export function Header({
@@ -105,6 +107,7 @@ export function Header({
   carSpeedKmh = 0,
   trialStatus,
   onOpenTrialModal,
+  onMarkAllWhatsAppAsRead,
 }: HeaderProps) {
   const [timeStr, setTimeStr] = useState('');
   const [isExitConfirmOpen, setIsExitConfirmOpen] = useState(false);
@@ -356,6 +359,19 @@ export function Header({
                     <span className={`relative inline-flex rounded-full h-1.5 w-1.5 sm:h-2 sm:w-2 ${isWhatsAppConnected || isStreamConnected ? 'bg-emerald-500' : 'bg-amber-500'}`} />
                   </span>
                   <span className="hidden sm:inline text-xs">{isWhatsAppConnected ? 'متصل' : 'ربط'}</span>
+                </button>
+              )}
+
+              {/* Mark All WhatsApp Groups as Read Button (تمييز جميع القروبات كمقروءة) */}
+              {onMarkAllWhatsAppAsRead && (
+                <button
+                  type="button"
+                  onClick={onMarkAllWhatsAppAsRead}
+                  className="h-9 sm:h-10 flex items-center justify-center gap-1 px-2 sm:px-2.5 rounded-xl text-xs font-black transition-all shadow-2xs border bg-teal-50 hover:bg-teal-100 active:scale-95 text-teal-900 border-teal-300 cursor-pointer"
+                  title="تمييز جميع قروبات ومحادثات الواتساب كمقروءة (Mark as Read) لتصفير عداد الرسائل في واتساب"
+                >
+                  <CheckCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-teal-700" />
+                  <span className="hidden md:inline text-[11px]">مقروءة الكل</span>
                 </button>
               )}
 

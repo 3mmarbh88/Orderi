@@ -18,7 +18,6 @@ import {
   X, 
   RefreshCw,
   Search,
-  Save,
   CheckCircle2,
   VolumeX,
   Music,
@@ -464,29 +463,13 @@ export function FilterSettings({
           <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">اضغط على أي عنوان أدناه لفتحه وتعديل تفاصيله باختصار لتقليل المساحة على الهاتف</p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 w-full sm:w-auto">
-          <button
-            type="button"
-            onClick={expandAll}
-            className="flex-1 sm:flex-none px-2.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all active:scale-95 text-center"
-          >
-            توسيع الكل ▾
-          </button>
-
+        <div className="flex items-center gap-1.5 sm:gap-2 w-full sm:w-auto justify-end">
           <button
             type="button"
             onClick={collapseAll}
-            className="flex-1 sm:flex-none px-2.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all active:scale-95 text-center"
+            className="w-full sm:w-auto px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all active:scale-95 text-center"
           >
             طي الكل ▴
-          </button>
-
-          <button
-            onClick={handleSave}
-            className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs sm:text-sm shadow-md shadow-emerald-600/20 transition-all hover:scale-[1.01] active:scale-[0.98]"
-          >
-            <Save className="w-4 h-4" />
-            <span>حفظ وتطبيق الشروط</span>
           </button>
         </div>
       </div>

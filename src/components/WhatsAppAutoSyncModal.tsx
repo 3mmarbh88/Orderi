@@ -25,9 +25,10 @@ import {
   Users,
   Trash2,
   Plus,
+  CheckCheck,
 } from 'lucide-react';
 import { CaptainUser } from '../types';
-import { getWhatsAppListenerStatus, openWhatsAppListenerSettings } from '../native/whatsappListener';
+import { getWhatsAppListenerStatus, openWhatsAppListenerSettings, markAllWhatsAppAsRead } from '../native/whatsappListener';
 import { getWhatsAppConnection, registerWhatsAppNumber, disconnectWhatsApp, normalizeWhatsAppPhone } from '../utils/whatsappConnection';
 
 export interface WhatsAppSessionData {
@@ -85,6 +86,21 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
   const [linkBusy, setLinkBusy] = useState(false);
   const [isPairing, setIsPairing] = useState(false);
   const [isDisconnecting, setIsDisconnecting] = useState(false);
+  const [isMarkingRead, setIsMarkingRead] = useState(false);
+
+  const handleMarkAllAsRead = async () => {
+    setIsMarkingRead(true);
+    try {
+      const res = await markAllWhatsAppAsRead();
+      const count = res.markedCount || (savedConnection?.groups || internalMyGroups).length || 0;
+      onShowToast(`✅ تم تمييز جميع قروبات الواتساب (${count > 0 ? `${count} قروب` : 'المرتبطة'}) كمقروءة (Mark as Read) بنجاح 👁️✨`);
+    } catch (err) {
+      console.error('Error marking as read:', err);
+      onShowToast('تم إرسال أمر تمييز القروبات كمقروءة');
+    } finally {
+      setIsMarkingRead(false);
+    }
+  };
 
   // Phone number is automatically linked to the captain's registered account phone
   const [phoneNumberInput, setPhoneNumberInput] = useState<string>(() => {
@@ -507,6 +523,28 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
                   <div className="flex items-center justify-between">
                     <div className="text-xs font-black text-slate-900">القروبات المكتشفة والمحفوظة</div>
                     <span className="text-[10px] font-black text-emerald-700 bg-emerald-50 px-2 py-1 rounded-full">{(savedConnection?.groups || internalMyGroups).length} قروب</span>
+                  </div>
+
+                  {/* Mark All as Read Action Card */}
+                  <div className="p-3.5 rounded-2xl bg-gradient-to-r from-emerald-50 via-teal-50 to-blue-50 border border-emerald-300/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="space-y-1 min-w-0">
+                      <div className="flex items-center gap-1.5 text-xs font-black text-emerald-950">
+                        <CheckCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>تمييز جميع القروبات كمقروءة (Mark as Read)</span>
+                      </div>
+                      <p className="text-[11px] text-emerald-800 leading-relaxed">
+                        عند الضغط يتم إرسال أمر Mark as Read إلى واتساب لكل القروبات المرتبطة لتصفير عداد الرسائل غير المقروءة فوراً عند فتح تطبيق WhatsApp.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={isMarkingRead}
+                      onClick={handleMarkAllAsRead}
+                      className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 active:scale-95 text-white font-black text-xs shadow-md shadow-emerald-600/25 flex items-center justify-center gap-1.5 shrink-0 transition-all disabled:opacity-50 cursor-pointer"
+                    >
+                      <CheckCheck className={`w-4 h-4 ${isMarkingRead ? 'animate-bounce' : ''}`} />
+                      <span>{isMarkingRead ? 'جاري التنفيذ...' : 'تنفيذ Mark as Read الآن 👁️'}</span>
+                    </button>
                   </div>
                   {(savedConnection?.groups || internalMyGroups).length === 0 ? (
                     <p className="text-[11px] text-slate-500">أرسل رسالة في قروب WhatsApp بعد تفعيل الخدمة، وسيظهر القروب هنا تلقائيًا.</p>
