@@ -91,8 +91,9 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
   const handleMarkAllAsRead = async () => {
     setIsMarkingRead(true);
     try {
-      const res = await markAllWhatsAppAsRead();
-      const count = res.markedCount || (savedConnection?.groups || internalMyGroups).length || 0;
+      const groupsToMark = savedConnection?.groups || internalMyGroups || [];
+      const res = await markAllWhatsAppAsRead(groupsToMark);
+      const count = res.markedCount || groupsToMark.length || 0;
       onShowToast(`✅ تم تمييز جميع قروبات الواتساب (${count > 0 ? `${count} قروب` : 'المرتبطة'}) كمقروءة (Mark as Read) بنجاح 👁️✨`);
     } catch (err) {
       console.error('Error marking as read:', err);

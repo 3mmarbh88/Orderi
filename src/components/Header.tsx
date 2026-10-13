@@ -29,7 +29,8 @@ import {
   X,
   CalendarDays,
   Clock,
-  CheckCheck
+  CheckCheck,
+  RefreshCw
 } from 'lucide-react';
 import { MatcherLocation } from '../utils/matcher';
 import { CaptainUser } from '../types';
@@ -111,6 +112,21 @@ export function Header({
 }: HeaderProps) {
   const [timeStr, setTimeStr] = useState('');
   const [isExitConfirmOpen, setIsExitConfirmOpen] = useState(false);
+  const [isMarkingInternal, setIsMarkingInternal] = useState(false);
+  const [justMarked, setJustMarked] = useState(false);
+
+  const handleMarkReadClick = async () => {
+    if (isMarkingInternal || !onMarkAllWhatsAppAsRead) return;
+    setIsMarkingInternal(true);
+    try {
+      await onMarkAllWhatsAppAsRead();
+      setJustMarked(true);
+      setTimeout(() => setJustMarked(false), 3000);
+    } catch {
+    } finally {
+      setIsMarkingInternal(false);
+    }
+  };
 
   const handleExitApp = () => {
     setIsExitConfirmOpen(false);
@@ -362,16 +378,31 @@ export function Header({
                 </button>
               )}
 
-              {/* Mark All WhatsApp Groups as Read Button (تمييز جميع القروبات كمقروءة) */}
+              {/* Mark All WhatsApp Groups as Read Button (تحديد الكل وقراءة جميع قروبات الواتساب) */}
               {onMarkAllWhatsAppAsRead && (
                 <button
                   type="button"
-                  onClick={onMarkAllWhatsAppAsRead}
-                  className="h-9 sm:h-10 flex items-center justify-center gap-1 px-2 sm:px-2.5 rounded-xl text-xs font-black transition-all shadow-2xs border bg-teal-50 hover:bg-teal-100 active:scale-95 text-teal-900 border-teal-300 cursor-pointer"
-                  title="تمييز جميع قروبات ومحادثات الواتساب كمقروءة (Mark as Read) لتصفير عداد الرسائل في واتساب"
+                  onClick={handleMarkReadClick}
+                  disabled={isMarkingInternal}
+                  className={`h-9 sm:h-10 flex items-center justify-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 rounded-xl text-xs font-black transition-all shadow-2xs border cursor-pointer active:scale-95 ${
+                    justMarked
+                      ? 'bg-emerald-600 text-white border-emerald-500 shadow-emerald-600/30 ring-2 ring-emerald-400/50'
+                      : isMarkingInternal
+                      ? 'bg-teal-100 text-teal-800 border-teal-300 opacity-90 cursor-wait'
+                      : 'bg-teal-50 hover:bg-teal-100 text-teal-950 border-teal-300/90 hover:border-teal-400'
+                  }`}
+                  title="تحديد الكل و(Mark as Read) لجميع قروبات الواتساب المرتبطة بالبرنامج لتصفير عداد الرسائل في واتساب"
                 >
-                  <CheckCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-teal-700" />
-                  <span className="hidden md:inline text-[11px]">مقروءة الكل</span>
+                  {isMarkingInternal ? (
+                    <RefreshCw className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-teal-700 animate-spin shrink-0" />
+                  ) : justMarked ? (
+                    <CheckCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white shrink-0" />
+                  ) : (
+                    <CheckCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-teal-700 shrink-0" />
+                  )}
+                  <span className="text-[10px] sm:text-[11px] font-black shrink-0 whitespace-nowrap">
+                    {isMarkingInternal ? 'جاري القراءة...' : justMarked ? 'تمت القراءة ✓✓' : 'قراءة الكل'}
+                  </span>
                 </button>
               )}
 

@@ -674,6 +674,57 @@ app.post("/api/whatsapp/mark-read", (req, res) => {
   }
 });
 
+// Mark All Connected WhatsApp Groups As Read
+app.post("/api/whatsapp/mark-all-groups-read", (req, res) => {
+  try {
+    const { groupNames = [] } = req.body || {};
+    const groupsSet = new Set<string>((groupNames || []).map((g: string) => (g || "").toLowerCase().trim()).filter(Boolean));
+
+    let clearedCount = 0;
+    // Mark matching webhook orders as read
+    for (let i = recentWebhookOrders.length - 1; i >= 0; i--) {
+      const order = recentWebhookOrders[i];
+      const grp = (order.groupName || "").toLowerCase().trim();
+      if (groupsSet.size === 0 || groupsSet.has(grp) || Array.from(groupsSet).some((g: string) => grp.includes(g) || g.includes(grp))) {
+        markedReadOrderIds.add(order.id);
+        recentWebhookOrders.splice(i, 1);
+        clearedCount++;
+      }
+    }
+
+    console.log(`[Orderi WhatsApp] Marked all ${clearedCount} orders as read across ${groupsSet.size || "all"} WhatsApp groups`);
+
+    // Broadcast mark all read event to all clients
+    const payload = `data: ${JSON.stringify({
+      type: "ALL_GROUPS_MARKED_READ",
+      groupNames,
+      markedAt: new Date().toISOString(),
+      clearedOrdersCount: clearedCount,
+    })}\n\n`;
+
+    sseClients.forEach((client) => {
+      try {
+        client.write(payload);
+      } catch {
+        sseClients.delete(client);
+      }
+    });
+
+    return res.json({
+      success: true,
+      message: "تم تحديد جميع قروبات الواتساب كمقروءة ومسح عداد الرسائل بنجاح",
+      clearedCount,
+      groupsCount: groupsSet.size,
+    });
+  } catch (error: any) {
+    console.error("Error marking all groups as read:", error);
+    return res.status(500).json({
+      success: false,
+      error: error?.message || "حدث خطأ أثناء تحديد القروبات كمقروءة",
+    });
+  }
+});
+
 // Explicit Order Closure Sync (تحديث حالة الطلب إلى مغلق لحصول المعلن على مندوب)
 app.post("/api/orders/close", (req, res) => {
   try {

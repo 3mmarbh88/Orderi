@@ -27,12 +27,17 @@ import java.util.UUID;
  */
 public class WhatsAppNotificationListenerService extends NotificationListenerService {
     public static final String PACKAGE_WHATSAPP = "com.whatsapp";
+    public static final String PACKAGE_WHATSAPP_BUSINESS = "com.whatsapp.w4b";
     public static final String PREFS = "orderi_native_notifications";
     public static final String KEY_EVENTS = "events";
     public static final String ACTION_EVENT = "com.orderi.radar.WHATSAPP_NOTIFICATION";
     private static final String CHANNEL_ID = "orderi_orders";
     private static final String DEDUP_PREFS = "orderi_native_dedup";
     private static final long NATIVE_DEDUP_TTL_MS = 90_000L;
+
+    public static boolean isWhatsAppPackage(String pkg) {
+        return PACKAGE_WHATSAPP.equals(pkg) || PACKAGE_WHATSAPP_BUSINESS.equals(pkg);
+    }
 
     public static class ReplyActionHolder {
         public PendingIntent pendingIntent;
@@ -72,33 +77,85 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
     }
 
     public static int markAllWhatsAppAsRead(android.content.Context context) {
+        return markAllWhatsAppAsRead(context, null);
+    }
+
+    public static int markAllWhatsAppAsRead(android.content.Context context, java.util.List<String> targetGroups) {
         int count = 0;
         java.util.HashSet<PendingIntent> sentIntents = new java.util.HashSet<>();
 
+        // 1. Send cached Mark As Read actions for tracked groups
         for (java.util.Map.Entry<String, MarkAsReadHolder> entry : MARK_AS_READ_ACTIONS.entrySet()) {
             try {
-                PendingIntent pi = entry.getValue().pendingIntent;
-                if (pi != null && !sentIntents.contains(pi)) {
-                    pi.send();
-                    sentIntents.add(pi);
-                    count++;
+                String groupTitle = entry.getKey();
+                boolean matches = true;
+                if (targetGroups != null && !targetGroups.isEmpty()) {
+                    matches = false;
+                    String normTitle = groupTitle != null ? groupTitle.toLowerCase().trim() : "";
+                    for (String tg : targetGroups) {
+                        String normTg = tg != null ? tg.toLowerCase().trim() : "";
+                        if (!normTg.isEmpty() && (normTitle.contains(normTg) || normTg.contains(normTitle))) {
+                            matches = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (matches) {
+                    PendingIntent pi = entry.getValue().pendingIntent;
+                    if (pi != null && !sentIntents.contains(pi)) {
+                        pi.send();
+                        sentIntents.add(pi);
+                        count++;
+                    }
                 }
             } catch (Exception ignored) {}
         }
-        MARK_AS_READ_ACTIONS.clear();
+        if (targetGroups == null || targetGroups.isEmpty()) {
+            MARK_AS_READ_ACTIONS.clear();
+        }
 
+        // 2. Scan active status bar notifications for WhatsApp & WhatsApp Business
         if (instance != null) {
             try {
                 StatusBarNotification[] active = instance.getActiveNotifications();
                 if (active != null) {
                     for (StatusBarNotification sbn : active) {
-                        if (PACKAGE_WHATSAPP.equals(sbn.getPackageName())) {
+                        if (isWhatsAppPackage(sbn.getPackageName())) {
                             Notification n = sbn.getNotification();
-                            if (n != null && n.actions != null) {
-                                for (Notification.Action act : n.actions) {
+                            if (n != null) {
+                                // Extract standard and wearable actions
+                                java.util.List<Notification.Action> actionsList = new java.util.ArrayList<>();
+                                if (n.actions != null) {
+                                    for (Notification.Action a : n.actions) {
+                                        if (a != null) actionsList.add(a);
+                                    }
+                                }
+                                if (n.extras != null) {
+                                    android.os.Bundle wearableBundle = n.extras.getBundle("android.wearable.EXTENSIONS");
+                                    if (wearableBundle != null) {
+                                        java.util.ArrayList<Notification.Action> wActions = wearableBundle.getParcelableArrayList("actions");
+                                        if (wActions != null) {
+                                            actionsList.addAll(wActions);
+                                        }
+                                    }
+                                }
+
+                                for (Notification.Action act : actionsList) {
                                     if (act != null && act.actionIntent != null) {
+                                        // WhatsApp mark-as-read action has NO RemoteInputs, or has read-related title
+                                        boolean isReply = act.getRemoteInputs() != null && act.getRemoteInputs().length > 0;
                                         String actTitle = act.title != null ? act.title.toString().toLowerCase() : "";
-                                        if (actTitle.contains("read") || actTitle.contains("مقروء") || actTitle.contains("قراءة") || actTitle.contains("mark")) {
+                                        boolean isMarkReadTitle = actTitle.contains("read") || 
+                                                                  actTitle.contains("مقروء") || 
+                                                                  actTitle.contains("قراءة") || 
+                                                                  actTitle.contains("mark") || 
+                                                                  actTitle.contains("تعيين") || 
+                                                                  actTitle.contains("تمييز") ||
+                                                                  actTitle.contains("gelesen") ||
+                                                                  actTitle.contains("lu");
+
+                                        if (!isReply || isMarkReadTitle) {
                                             try {
                                                 if (!sentIntents.contains(act.actionIntent)) {
                                                     act.actionIntent.send();
@@ -109,10 +166,12 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                                         }
                                     }
                                 }
+
+                                // Cancel notification from status bar
+                                try {
+                                    instance.cancelNotification(sbn.getKey());
+                                } catch (Exception ignored) {}
                             }
-                            try {
-                                instance.cancelNotification(sbn.getKey());
-                            } catch (Exception ignored) {}
                         }
                     }
                 }

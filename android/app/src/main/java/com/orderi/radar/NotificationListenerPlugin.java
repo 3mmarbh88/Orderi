@@ -284,7 +284,20 @@ public class NotificationListenerPlugin extends Plugin {
     @PluginMethod
     public void markAllAsRead(PluginCall call) {
         try {
-            int count = WhatsAppNotificationListenerService.markAllWhatsAppAsRead(getContext());
+            java.util.List<String> targetGroups = new java.util.ArrayList<>();
+            com.getcapacitor.JSArray groups = call.getArray("groupNames");
+            if (groups != null) {
+                for (int i = 0; i < groups.length(); i++) {
+                    try {
+                        String g = groups.getString(i);
+                        if (g != null && !g.trim().isEmpty()) {
+                            targetGroups.add(g.trim());
+                        }
+                    } catch (Exception ignored) {}
+                }
+            }
+
+            int count = WhatsAppNotificationListenerService.markAllWhatsAppAsRead(getContext(), targetGroups);
             JSObject ret = new JSObject();
             ret.put("success", true);
             ret.put("markedCount", count);

@@ -1300,12 +1300,33 @@ function OrderiApp() {
 
   const handleMarkAllWhatsAppAsRead = async () => {
     try {
-      const res = await markAllWhatsAppAsRead();
-      const count = res.markedCount || (filter.selectedGroups?.length) || 0;
+      const linkedGroups = Array.from(
+        new Set([
+          ...(filter.selectedGroups || []),
+          ...(filter.customGroups || []),
+          ...(persistedDetectedGroups || []),
+          ...(getWhatsAppConnection()?.groups || []),
+        ])
+      ).filter(Boolean);
+
+      const res = await markAllWhatsAppAsRead(linkedGroups);
+      const count = res.markedCount || linkedGroups.length || orders.length || 0;
+
+      // Mark orders in memory and active list as read
+      setOrders((prev) =>
+        prev.map((ord) => ({
+          ...ord,
+          isRead: true,
+          readStatus: 'read',
+        }))
+      );
+
       if (filter.soundEnabled) {
         playAlertTone('cash_register', 70);
       }
-      showToast(`✅ تم عمل (Mark as Read) لجميع قروبات الواتساب (${count > 0 ? `${count} قروب` : 'المرتبطة'}) بنجاح 👁️✨`);
+      showToast(
+        `✅ تم عمل (Mark as Read) لجميع قروبات الواتساب (${count > 0 ? `${count} قروب` : 'المرتبطة'}) وتصفير عداد الرسائل بنجاح 👁️✨`
+      );
     } catch (e) {
       showToast('✅ تم إرسال أمر تمييز جميع قروبات الواتساب كمقروءة');
     }
