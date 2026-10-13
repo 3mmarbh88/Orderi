@@ -1,5 +1,6 @@
 import { AreaLocation } from '../types';
 import { normalizeArabicText } from './bahrainAreas';
+import { HERE_WE_GO_BAHRAIN_PLACES } from './hereWeGoBahrainMap';
 
 export interface BahrainLandmark {
   id: string;
@@ -13,10 +14,10 @@ export interface BahrainLandmark {
 }
 
 /**
- * قاعدة بيانات شاملة لمجمعات ومولات ومعالم البحرين الشهيرة
- * مع إحداثياتها الدقيقة وربطها بالمناطق لتحديد موقع الكابتن ونطاق التغطية
+ * قاعدة بيانات شاملة لمجمعات ومولات ومعالم وأسواق البحرين الشهيرة
+ * مستوحاة من خرائط HERE WeGo مع إحداثياتها الدقيقة وربطها بالمناطق
  */
-export const BAHRAIN_LANDMARKS: BahrainLandmark[] = [
+const BASE_BAHRAIN_LANDMARKS: BahrainLandmark[] = [
   // 1. مودا مول (مركز البحرين التجاري العالمي - المنامة)
   {
     id: 'moda_mall',
@@ -588,6 +589,8 @@ export const BAHRAIN_LANDMARKS: BahrainLandmark[] = [
       'جامعة البحرين الصخير',
       'جامعة البحرين',
       'جامعه البحرين',
+      'الجامعة',
+      'الجامعه',
       'يو او بي',
       'uob',
     ],
@@ -658,6 +661,49 @@ export const BAHRAIN_LANDMARKS: BahrainLandmark[] = [
       'al raya mall',
     ],
   },
+
+  // 35. جسر الملك فهد (الجسرة / المنفذ الحدودي)
+  {
+    id: 'king_fahd_causeway',
+    name: 'جسر الملك فهد',
+    nameEn: 'King Fahd Causeway',
+    parentAreaName: 'الجسرة',
+    governorate: 'الشمالية',
+    latitude: 26.1770,
+    longitude: 50.4610,
+    keywords: [
+      'جسر الملك فهد',
+      'جسر البحرين',
+      'منفذ الجسر',
+      'الجسر',
+      'كوزواي',
+      'السعودية',
+      'الدمام',
+      'الخبر',
+      'king fahd causeway',
+      'causeway',
+    ],
+  },
+];
+
+// دمج معالم وقواعد بيانات HERE WeGo الشاملة مع الحفاظ على عدم التكرار
+const existingIds = new Set(BASE_BAHRAIN_LANDMARKS.map((l) => l.id));
+const additionalHwgPlaces: BahrainLandmark[] = HERE_WE_GO_BAHRAIN_PLACES.filter(
+  (p) => !existingIds.has(p.id)
+).map((p) => ({
+  id: p.id,
+  name: p.name,
+  nameEn: p.nameEn,
+  parentAreaName: p.parentAreaName,
+  governorate: p.governorate,
+  latitude: p.latitude,
+  longitude: p.longitude,
+  keywords: p.keywords,
+}));
+
+export const BAHRAIN_LANDMARKS: BahrainLandmark[] = [
+  ...BASE_BAHRAIN_LANDMARKS,
+  ...additionalHwgPlaces,
 ];
 
 /**

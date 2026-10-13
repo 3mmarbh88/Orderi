@@ -41,6 +41,8 @@ interface OrderiNotificationListenerPlugin {
     coverageKm: number;
     driverLat?: number;
     driverLon?: number;
+    blockPassenger?: boolean;
+    notificationsEnabled?: boolean;
   }): Promise<void>;
   addListener(
     eventName: 'whatsappNotification',

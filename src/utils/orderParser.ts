@@ -177,48 +177,101 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
   allKeywordItems.sort((a, b) => b.normalizedKeyword.length - a.normalizedKeyword.length);
 
   // Search patterns for explicit "From" and "To"
-  // Patterns like "من [مودامول/منطقة] إلى [سار/منطقة]" or "استلام: [السيف مول] تسليم: [الرفاع]"
+  // Handles Arabic prefixes (من, استلام من, بالـ, في) and (الى, إلى, لـ, للـ, مشوار لـ, توصيل لـ)
   for (const item of allKeywordItems) {
     const kw = item.normalizedKeyword;
     if (kw.length < 2) continue;
 
+    const startsWithAl = kw.startsWith('ال');
+    const core = startsWithAl ? kw.slice(2) : kw;
+
     // Look for "From" indicators before this place
-    const fromPattern = new RegExp(`(?:من|استلام من|استلام|بيك اب من|بيك اب|موقع|تحميل من|فرع)\\s*(?:مجمع|مول|سوق|منطقة|قرية)?\\s*${kw}\\b`, 'i');
-    if (!fromArea && fromPattern.test(normalized)) {
-      fromArea = item.placeName;
+    // Matches: "من الرفاع", "استلام من سار", "بالرفاع", "في الرفاع", "عند مجمع السيف"
+    if (!fromArea) {
+      const fromPattern = startsWithAl
+        ? new RegExp(`(?:(?:من|استلام من|استلام|بيك اب من|بيك اب|موقع|تحميل من|فرع|عند)\\s*(?:مجمع|مول|سوق|منطقة|قرية)?\\s*${kw}\\b|(?:^|[\\s،,.])بال(?:مجمع|مول|سوق|منطقة|قرية)?${core}\\b|(?:^|[\\s،,.])في\\s+(?:مجمع|مول|سوق|منطقة|قرية)?${kw}\\b)`, 'i')
+        : new RegExp(`(?:(?:من|استلام من|استلام|بيك اب من|بيك اب|موقع|تحميل من|فرع|عند)\\s*(?:مجمع|مول|سوق|منطقة|قرية)?\\s*${kw}\\b|(?:^|[\\s،,.])بـ?${kw}\\b|(?:^|[\\s،,.])في\\s+(?:مجمع|مول|سوق|منطقة|قرية)?${kw}\\b)`, 'i');
+
+      if (fromPattern.test(normalized)) {
+        fromArea = item.placeName;
+      }
     }
 
     // Look for "To" indicators before this place
-    const toPattern = new RegExp(`(?:الى|إلى|ل|لي|تسليم الى|تسليم ل|تسليم|توصيل الى|توصيل ل|وجهة|مكان)\\s*(?:مجمع|مول|سوق|منطقة|قرية)?\\s*${kw}\\b`, 'i');
-    if (!toArea && toPattern.test(normalized)) {
-      toArea = item.placeName;
+    // Matches: "الى الرفاع", "للمنامة", "للمطار", "للسلمانية", "للجسر", "لسار", "لـمدينة حمد", "توصيل للرفاع", "مشوار للمطار"
+    if (!toArea) {
+      const toPattern = startsWithAl
+        ? new RegExp(`(?:(?:الى|إلى|لي|تسليم الى|تسليم ل|تسليم|توصيل الى|توصيل ل|مشوار الى|مشوار ل|توصيلة الى|توصيلة ل|وجهة|مكان|يوصل)\\s*(?:مجمع|مول|سوق|منطقة|قرية)?\\s*${kw}\\b|(?:^|[\\s،,.]|(?:مشوار|توصيل|توصيلة|نقل|روحة|طالع)\\s+)لل(?:مجمع|مول|سوق|منطقة|قرية)?${core}\\b|(?:^|[\\s،,.])لـ?${kw}\\b)`, 'i')
+        : new RegExp(`(?:(?:الى|إلى|لي|تسليم الى|تسليم ل|تسليم|توصيل الى|توصيل ل|مشوار الى|مشوار ل|توصيلة الى|توصيلة ل|وجهة|مكان|يوصل)\\s*(?:مجمع|مول|سوق|منطقة|قرية)?\\s*${kw}\\b|(?:^|[\\s،,.]|(?:مشوار|توصيل|توصيلة|نقل|روحة|طالع)\\s+)لـ?${kw}\\b)`, 'i');
+
+      if (toPattern.test(normalized) && (!fromArea || item.placeName !== fromArea || /(?:من|استلام).*?(?:الى|إلى|لل|لـ|تسليم)/i.test(normalized))) {
+        toArea = item.placeName;
+      }
     }
   }
 
-  // If either is missing, do a greedy presence scan in message for known places
+  // If either is missing, do an enhanced presence scan in message for known places
   if (!fromArea || !toArea) {
-    const foundPlaces: { name: string; index: number }[] = [];
+    const foundPlaces: { name: string; index: number; intentType?: 'from' | 'to' }[] = [];
     for (const item of allKeywordItems) {
       const kw = item.normalizedKeyword;
       if (kw.length < 2) continue;
 
-      const idx = normalized.indexOf(kw);
+      const startsWithAl = kw.startsWith('ال');
+      const core = startsWithAl ? kw.slice(2) : kw;
+
+      let idx = normalized.indexOf(kw);
+      let intentType: 'from' | 'to' | undefined = undefined;
+
+      // Check "للـ" for words starting with Al (destination preposition)
+      if (startsWithAl && idx === -1) {
+        const toPrefix = `لل${core}`;
+        const toIdx = normalized.indexOf(toPrefix);
+        if (toIdx !== -1) {
+          idx = toIdx;
+          intentType = 'to';
+        }
+      }
+
+      // Check "لـ" or "ل" for non-Al words (destination preposition)
+      if (!startsWithAl && idx === -1) {
+        const toPrefix = `ل${kw}`;
+        const toIdx = normalized.indexOf(toPrefix);
+        if (toIdx !== -1) {
+          idx = toIdx;
+          intentType = 'to';
+        }
+      }
+
+      // Check "بالـ" for words starting with Al (origin preposition)
+      if (startsWithAl && idx === -1) {
+        const fromPrefix = `بال${core}`;
+        const fromIdx = normalized.indexOf(fromPrefix);
+        if (fromIdx !== -1) {
+          idx = fromIdx;
+          intentType = 'from';
+        }
+      }
+
       if (idx !== -1) {
-        // Ensure not duplicate or subset of already matched longer span
         const alreadySub = foundPlaces.some((f) => Math.abs(f.index - idx) < 4);
         if (!alreadySub) {
-          foundPlaces.push({ name: item.placeName, index: idx });
+          foundPlaces.push({ name: item.placeName, index: idx, intentType });
         }
       }
     }
 
-    // Sort by position in string
     foundPlaces.sort((a, b) => a.index - b.index);
 
     if (foundPlaces.length >= 2) {
       if (!fromArea && !toArea) {
-        fromArea = foundPlaces[0].name;
-        toArea = foundPlaces[1].name;
+        if (foundPlaces[0].intentType === 'to' && foundPlaces[1].intentType !== 'to') {
+          toArea = foundPlaces[0].name;
+          fromArea = foundPlaces[1].name;
+        } else {
+          fromArea = foundPlaces[0].name;
+          toArea = foundPlaces[1].name;
+        }
       } else if (!fromArea) {
         const remaining = foundPlaces.find((f) => f.name !== toArea);
         if (remaining) fromArea = remaining.name;
@@ -227,8 +280,17 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
         if (remaining) toArea = remaining.name;
       }
     } else if (foundPlaces.length === 1) {
+      const singlePlace = foundPlaces[0];
       if (!fromArea && !toArea) {
-        fromArea = foundPlaces[0].name;
+        if (singlePlace.intentType === 'to') {
+          toArea = singlePlace.name;
+        } else {
+          fromArea = singlePlace.name;
+        }
+      } else if (!fromArea && singlePlace.name !== toArea) {
+        fromArea = singlePlace.name;
+      } else if (!toArea && singlePlace.name !== fromArea) {
+        toArea = singlePlace.name;
       }
     }
   }
@@ -239,7 +301,6 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
     const toFreeMatch = /(?:الى|إلى|تسليم الى|تسليم ل|تسليم|توصيل الى|توصيل ل|وجهة)\s+([^\n\r،,]+)/i.exec(convertedText);
     if (toFreeMatch && toFreeMatch[1]) {
       let candidate = toFreeMatch[1].trim();
-      // Remove any trailing price indicators or phone numbers
       candidate = candidate.replace(/(?:\s+ب?\s*\d+(?:\.\d+)?\s*(?:د\.ب|دب|دينار|bd|bhd)).*$/i, '').trim();
       candidate = candidate.replace(/(?:\s+(?:\+?973|00973)?[\s-]*(?:3\d{7}|6\d{7}|17\d{6})).*$/i, '').trim();
       candidate = candidate.replace(/\s+ب\s*$/i, '').trim();
@@ -249,10 +310,32 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
     }
   }
 
-  // If order intent is clearly present (e.g. "اوردر من مودامول", "طلب من السيف مول") but destination is unspecified:
-  const hasOrderIntent = /(?:اوردر|أوردر|طلب|توصيل|مندوب|بيك اب|pickup|delivery)/i.test(normalized);
+  // Free-text Origin Fallback:
+  // e.g. "استلام من مكان معين الى السلمانية"
+  if (!fromArea && toArea) {
+    const fromFreeMatch = /(?:من|استلام من|بيك اب من)\s+([^\n\r،,]+)/i.exec(convertedText);
+    if (fromFreeMatch && fromFreeMatch[1]) {
+      let candidate = fromFreeMatch[1].trim();
+      candidate = candidate.replace(/(?:\s+ب?\s*\d+(?:\.\d+)?\s*(?:د\.ب|دب|دينار|bd|bhd)).*$/i, '').trim();
+      candidate = candidate.replace(/(?:\s+(?:\+?973|00973)?[\s-]*(?:3\d{7}|6\d{7}|17\d{6})).*$/i, '').trim();
+      candidate = candidate.replace(/\s+ب\s*$/i, '').trim();
+      if (candidate.length >= 2 && candidate.length <= 40 && candidate !== toArea) {
+        fromArea = candidate;
+      }
+    }
+  }
+
+  // Comprehensive Intent Detection (Goods deliveries + Passenger rides)
+  const hasOrderIntent = /(?:اوردر|طلب|توصيل|توصيل[ةه]|توصيلني|يوصلني|مشوار|مشاوير|مندوب|بيك اب|pickup|delivery|شخص|اشخاص|راكب|ركاب|بنت|بنات|طفل|اطفال|طالب|طالب[ةه]|طلاب|طالبات|موظف|موظف[ةه]|موظفين|عمال|سيار[ةه]|دريول|سائق|دوام|مدرس[ةه]|جامع[ةه])/i.test(normalized) || /(?:اوردر|أوردر|طلب|توصيل|توصيلة|توصيله|مشوار|مشاوير|شخص|أشخاص|اشخاص|راكب|ركاب|بنت|طفل|أطفال|طالب|طالبة|موظف|موظفة|سيارة|دريول|سائق|دوام|مدرسة|جامعة)/i.test(rawText);
+
+  // If destination is missing but origin is known
   if (!toArea && fromArea && hasOrderIntent) {
-    toArea = 'حسب طلب الزبون 📍';
+    toArea = passengerDetection.level !== 'goods_safe' ? 'حسب طلب الراكب 📍' : 'حسب طلب الزبون 📍';
+  }
+
+  // If origin is missing but destination is known (e.g. "توصيل شخص للمطار", "توصيل بنت للسلمانية", "مشوار للجسر")
+  if (!fromArea && toArea && hasOrderIntent) {
+    fromArea = 'موقع العميل / غير محدد 📍';
   }
 
 

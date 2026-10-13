@@ -3,7 +3,6 @@ import {
   MapPin, 
   Navigation, 
   Compass, 
-  Layers, 
   Info, 
   ZoomIn, 
   ZoomOut, 
@@ -11,17 +10,16 @@ import {
   Crosshair, 
   Car, 
   Clock, 
-  Sparkles, 
   ExternalLink, 
   Search, 
-  Maximize2, 
   Radio, 
-  Activity,
-  ChevronDown
+  Package,
+  Layers
 } from 'lucide-react';
 import { BAHRAIN_AREAS, calculateDistanceKm, findAreaByName } from '../data/bahrainAreas';
 import { MatcherLocation } from '../utils/matcher';
 import { ParsedOrder } from '../types';
+import { resolveHereWeGoLocation } from '../data/hereWeGoBahrainMap';
 
 interface BahrainRouteMapProps {
   driverLocation: MatcherLocation | null;
@@ -114,80 +112,25 @@ const UMM_AN_NASAN_ISLAND: [number, number][] = [
   [26.135, 50.400],
 ];
 
-// 2. Bridges & Causeways (الجسور الحيوية)
-const BRIDGES = [
-  {
-    name: 'جسر الملك فهد (King Fahd Causeway)',
-    points: [
-      [26.162, 50.448],
-      [26.150, 50.410],
-      [26.185, 50.360],
-      [26.190, 50.340],
-    ] as [number, number][],
-  },
-  {
-    name: 'جسر الشيخ عيسى بن سلمان',
-    points: [
-      [26.242, 50.590],
-      [26.260, 50.605],
-    ] as [number, number][],
-  },
-  {
-    name: 'جسر الشيخ حمد',
-    points: [
-      [26.236, 50.585],
-      [26.250, 50.600],
-    ] as [number, number][],
-  },
-  {
-    name: 'جسر الشيخ خليفة بن سلمان',
-    points: [
-      [26.218, 50.610],
-      [26.230, 50.645],
-    ] as [number, number][],
-  },
-  {
-    name: 'جسر سترة',
-    points: [
-      [26.190, 50.595],
-      [26.168, 50.615],
-    ] as [number, number][],
-  },
-];
+// Compact Traffic Bottlenecks in Bahrain (نقاط الاختناق والازدحام المروري بدون أخذ حيز)
+interface TrafficBottleneck {
+  id: string;
+  name: string;
+  lat: number;
+  lon: number;
+  severity: 'heavy' | 'moderate';
+  delay: string;
+  road: string;
+}
 
-// 3. Arterial Highway Network (شبكة الطرق السريعة)
-const HIGHWAYS = [
-  [
-    [26.175, 50.460],
-    [26.180, 50.510],
-    [26.182, 50.550],
-    [26.190, 50.590],
-    [26.210, 50.610],
-  ] as [number, number][],
-  [
-    [26.240, 50.535],
-    [26.215, 50.530],
-    [26.170, 50.515],
-    [26.130, 50.510],
-    [26.080, 50.500],
-  ] as [number, number][],
-  [
-    [26.242, 50.535],
-    [26.245, 50.565],
-    [26.245, 50.585],
-    [26.240, 50.600],
-  ] as [number, number][],
-  [
-    [26.222, 50.470],
-    [26.220, 50.500],
-    [26.220, 50.530],
-    [26.220, 50.550],
-  ] as [number, number][],
-  [
-    [26.175, 50.540],
-    [26.140, 50.555],
-    [26.115, 50.565],
-  ] as [number, number][],
+const BAHRAIN_BOTTLENECKS: TrafficBottleneck[] = [
+  { id: 'sitra-bridge', name: 'جسر سترة', lat: 26.179, lon: 50.605, severity: 'heavy', delay: '+12د', road: 'شارع الشيخ جابر الأحمد' },
+  { id: 'seef-flyover', name: 'كوبري السيف', lat: 26.236, lon: 50.540, severity: 'heavy', delay: '+14د', road: 'شارع الشيخ خليفة بن سلمان' },
+  { id: 'sar-interchange', name: 'كوبري سار والجنبية', lat: 26.195, lon: 50.485, severity: 'heavy', delay: '+10د', road: 'شارع الجنبية السريع' },
+  { id: 'farooq-junction', name: 'تقاطع الفاروق', lat: 26.230, lon: 50.575, severity: 'moderate', delay: '+7د', road: 'المنامة / السيتي سنتر' },
+  { id: 'sanad-junction', name: 'تقاطع سند / الاستقلال', lat: 26.155, lon: 50.575, severity: 'moderate', delay: '+6د', road: 'شارع الاستقلال' },
+  { id: 'mina-salman', name: 'تقاطع ميناء سلمان', lat: 26.205, lon: 50.600, severity: 'moderate', delay: '+8د', road: 'شارع الشيخ عيسى بن سلمان' },
+  { id: 'isa-bridge', name: 'جسر الشيخ عيسى', lat: 26.250, lon: 50.598, severity: 'heavy', delay: '+11د', road: 'اتجاه الدبلوماسية' },
 ];
 
 export function BahrainRouteMap({
@@ -203,13 +146,14 @@ export function BahrainRouteMap({
   const [zoom, setZoom] = useState<number>(1);
   const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [hoveredArea, setHoveredArea] = useState<string | null>(null);
-  const [selectedAreaDetails, setSelectedAreaDetails] = useState<string | null>(null);
-  const [governorateFilter, setGovernorateFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedInternalOrder, setSelectedInternalOrder] = useState<ParsedOrder | null>(null);
+  const [hoveredOrder, setHoveredOrder] = useState<ParsedOrder | null>(null);
+  const [showTraffic, setShowTraffic] = useState<boolean>(true);
+  const [hoveredBottleneck, setHoveredBottleneck] = useState<string | null>(null);
 
   // Effective highlighted order: user selected or activeOrder
-  const currentOrder = selectedInternalOrder || activeOrder;
+  const currentOrder = selectedInternalOrder || activeOrder || (orders.length > 0 ? orders[0] : null);
 
   // Geographic Bounding Box for the Kingdom of Bahrain (Lat 25.92 - 26.33, Lon 50.36 - 50.72)
   const MIN_LAT = 25.92;
@@ -227,8 +171,8 @@ export function BahrainRouteMap({
     const y = (rawY - 50) * zoom + 50 + pan.y;
 
     return {
-      x: Math.max(-20, Math.min(120, x)),
-      y: Math.max(-20, Math.min(120, y)),
+      x: Math.max(-25, Math.min(125, x)),
+      y: Math.max(-25, Math.min(125, y)),
       rawX,
       rawY,
     };
@@ -247,19 +191,58 @@ export function BahrainRouteMap({
     return d;
   };
 
-  // Driver, Pickup & Delivery coordinates
-  const driverCoords = driverLocation ? projectCoord(driverLocation.latitude, driverLocation.longitude) : null;
-  const pickupAreaObj = currentOrder ? findAreaByName(currentOrder.from) : null;
-  const deliveryAreaObj = currentOrder ? findAreaByName(currentOrder.to) : null;
-  const pickupCoords = pickupAreaObj ? projectCoord(pickupAreaObj.latitude, pickupAreaObj.longitude) : null;
-  const deliveryCoords = deliveryAreaObj ? projectCoord(deliveryAreaObj.latitude, deliveryAreaObj.longitude) : null;
+  // Helper to resolve coordinates for any text (area or HERE WeGo landmark)
+  const resolveLocationCoords = (placeName: string) => {
+    if (!placeName) return null;
+    const directArea = findAreaByName(placeName);
+    if (directArea) return { lat: directArea.latitude, lon: directArea.longitude, name: directArea.name };
+    const hwg = resolveHereWeGoLocation(placeName);
+    if (hwg && typeof hwg.latitude === 'number' && typeof hwg.longitude === 'number') {
+      return { 
+        lat: hwg.latitude, 
+        lon: hwg.longitude, 
+        name: hwg.matchedPlace?.name || hwg.officialArea || placeName 
+      };
+    }
+    return null;
+  };
 
-  // Curved Route Bezier calculation
+  // Resolved Orders with spatial coordinates for radar point plotting
+  const mappedOrders = useMemo(() => {
+    return orders.map((ord) => {
+      const fromLoc = resolveLocationCoords(ord.from);
+      const toLoc = resolveLocationCoords(ord.to);
+      return {
+        order: ord,
+        fromLoc,
+        toLoc,
+      };
+    });
+  }, [orders]);
+
+  // Order counts per area for quick radar density indicators
+  const areaOrderStats = useMemo(() => {
+    const pickupCounts: Record<string, number> = {};
+    const deliveryCounts: Record<string, number> = {};
+    orders.forEach((o) => {
+      if (o.from) pickupCounts[o.from] = (pickupCounts[o.from] || 0) + 1;
+      if (o.to) deliveryCounts[o.to] = (deliveryCounts[o.to] || 0) + 1;
+    });
+    return { pickupCounts, deliveryCounts };
+  }, [orders]);
+
+  // Driver, Pickup & Delivery coordinates for current active order
+  const driverCoords = driverLocation ? projectCoord(driverLocation.latitude, driverLocation.longitude) : null;
+  const currentPickupLoc = currentOrder ? resolveLocationCoords(currentOrder.from) : null;
+  const currentDeliveryLoc = currentOrder ? resolveLocationCoords(currentOrder.to) : null;
+  const pickupCoords = currentPickupLoc ? projectCoord(currentPickupLoc.lat, currentPickupLoc.lon) : null;
+  const deliveryCoords = currentDeliveryLoc ? projectCoord(currentDeliveryLoc.lat, currentDeliveryLoc.lon) : null;
+
+  // Curved Route Bezier calculation for selected order
   const routeCurvePath = useMemo(() => {
     if (!pickupCoords || !deliveryCoords) return null;
     const dx = deliveryCoords.x - pickupCoords.x;
     const dy = deliveryCoords.y - pickupCoords.y;
-    // Slight aerodynamic arc
     const cx = (pickupCoords.x + deliveryCoords.x) / 2 - dy * 0.15;
     const cy = (pickupCoords.y + deliveryCoords.y) / 2 + dx * 0.15;
     return `M ${pickupCoords.x.toFixed(2)} ${pickupCoords.y.toFixed(2)} Q ${cx.toFixed(2)} ${cy.toFixed(2)} ${deliveryCoords.x.toFixed(2)} ${deliveryCoords.y.toFixed(2)}`;
@@ -267,26 +250,23 @@ export function BahrainRouteMap({
 
   // Trip Telemetry Metrics
   const tripMetrics = useMemo(() => {
-    if (!pickupAreaObj || !deliveryAreaObj) return null;
+    if (!currentPickupLoc || !currentDeliveryLoc) return null;
     const directDistance = calculateDistanceKm(
-      pickupAreaObj.latitude,
-      pickupAreaObj.longitude,
-      deliveryAreaObj.latitude,
-      deliveryAreaObj.longitude
+      currentPickupLoc.lat,
+      currentPickupLoc.lon,
+      currentDeliveryLoc.lat,
+      currentDeliveryLoc.lon
     );
-    // Estimated real driving distance with Bahrain road network coefficient (~1.25x)
     const drivingKm = Math.round(directDistance * 1.25 * 10) / 10;
-    // Estimated driving time (avg speed ~48 km/h in Bahrain traffic)
-    const etaMinutes = Math.max(5, Math.round((drivingKm / 48) * 60));
+    const etaMinutes = Math.max(5, Math.round((drivingKm / 46) * 60));
 
-    // Driver distance to pickup
     const driverToPickup = driverLocation
       ? Math.round(
           calculateDistanceKm(
             driverLocation.latitude,
             driverLocation.longitude,
-            pickupAreaObj.latitude,
-            pickupAreaObj.longitude
+            currentPickupLoc.lat,
+            currentPickupLoc.lon
           ) * 1.25 * 10
         ) / 10
       : null;
@@ -296,83 +276,91 @@ export function BahrainRouteMap({
       etaMinutes,
       driverToPickup,
     };
-  }, [pickupAreaObj, deliveryAreaObj, driverLocation]);
+  }, [currentPickupLoc, currentDeliveryLoc, driverLocation]);
 
-  // Filtered Bahrain areas based on search and governorate
+  // Filtered visible Bahrain areas
   const visibleAreas = useMemo(() => {
     return BAHRAIN_AREAS.filter((area) => {
-      const matchGov = governorateFilter === 'all' || area.governorate === governorateFilter;
       const matchQuery =
         !searchQuery.trim() ||
         area.name.includes(searchQuery.trim()) ||
         area.nameEn.toLowerCase().includes(searchQuery.trim().toLowerCase());
-      return matchGov && matchQuery;
+      return matchQuery;
     });
-  }, [governorateFilter, searchQuery]);
+  }, [searchQuery]);
 
-  // Order counts per area
-  const areaOrderCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    orders.forEach((o) => {
-      if (o.from) counts[o.from] = (counts[o.from] || 0) + 1;
-    });
-    return counts;
-  }, [orders]);
+  // Handle Order Selection & Map Focus
+  const handleSelectOrderAndFocus = (order: ParsedOrder) => {
+    setSelectedInternalOrder(order);
+    if (onSelectOrder) {
+      onSelectOrder(order);
+    }
 
-  // Zoom and pan actions
-  const handleZoomIn = () => setZoom((prev) => Math.min(2.8, prev + 0.35));
-  const handleZoomOut = () => {
-    setZoom((prev) => {
-      const next = Math.max(0.85, prev - 0.35);
-      if (next <= 1) setPan({ x: 0, y: 0 });
-      return next;
-    });
+    const pLoc = resolveLocationCoords(order.from);
+    const dLoc = resolveLocationCoords(order.to);
+
+    if (pLoc && dLoc) {
+      const midLat = (pLoc.lat + dLoc.lat) / 2;
+      const midLon = (pLoc.lon + dLoc.lon) / 2;
+      const rawX = ((midLon - MIN_LON) / (MAX_LON - MIN_LON)) * 100;
+      const rawY = ((MAX_LAT - midLat) / (MAX_LAT - MIN_LAT)) * 100;
+      setZoom(1.8);
+      setPan({ x: (50 - rawX) * 1.8, y: (50 - rawY) * 1.8 });
+    } else if (pLoc) {
+      const rawX = ((pLoc.lon - MIN_LON) / (MAX_LON - MIN_LON)) * 100;
+      const rawY = ((MAX_LAT - pLoc.lat) / (MAX_LAT - MIN_LAT)) * 100;
+      setZoom(2.0);
+      setPan({ x: (50 - rawX) * 2.0, y: (50 - rawY) * 2.0 });
+    }
   };
+
+  // Zoom and Pan Controls
+  const handleZoomIn = () => setZoom((prev) => Math.min(3.5, prev + 0.3));
+  const handleZoomOut = () => setZoom((prev) => Math.max(0.9, prev - 0.3));
   const handleResetView = () => {
     setZoom(1);
     setPan({ x: 0, y: 0 });
-    setSelectedAreaDetails(null);
   };
 
   const handleCenterOnDriver = () => {
-    if (!driverLocation) return;
-    const rawX = ((driverLocation.longitude - MIN_LON) / (MAX_LON - MIN_LON)) * 100;
-    const rawY = ((MAX_LAT - driverLocation.latitude) / (MAX_LAT - MIN_LAT)) * 100;
-    setZoom(1.6);
-    setPan({ x: (50 - rawX) * 1.6, y: (50 - rawY) * 1.6 });
+    if (driverCoords) {
+      setZoom(2.2);
+      setPan({ x: (50 - driverCoords.rawX) * 2.2, y: (50 - driverCoords.rawY) * 2.2 });
+    }
   };
 
   const handleCenterOnRoute = () => {
-    if (!pickupAreaObj || !deliveryAreaObj) return;
-    const midLat = (pickupAreaObj.latitude + deliveryAreaObj.latitude) / 2;
-    const midLon = (pickupAreaObj.longitude + deliveryAreaObj.longitude) / 2;
-    const rawX = ((midLon - MIN_LON) / (MAX_LON - MIN_LON)) * 100;
-    const rawY = ((MAX_LAT - midLat) / (MAX_LAT - MIN_LAT)) * 100;
-    setZoom(1.5);
-    setPan({ x: (50 - rawX) * 1.5, y: (50 - rawY) * 1.5 });
+    if (currentPickupLoc && currentDeliveryLoc) {
+      const midLat = (currentPickupLoc.lat + currentDeliveryLoc.lat) / 2;
+      const midLon = (currentPickupLoc.lon + currentDeliveryLoc.lon) / 2;
+      const rawX = ((midLon - MIN_LON) / (MAX_LON - MIN_LON)) * 100;
+      const rawY = ((MAX_LAT - midLat) / (MAX_LAT - MIN_LAT)) * 100;
+      setZoom(1.8);
+      setPan({ x: (50 - rawX) * 1.8, y: (50 - rawY) * 1.8 });
+    }
   };
 
   // Google Maps navigation external link generator
   const getGoogleMapsNavUrl = () => {
-    if (!pickupAreaObj || !deliveryAreaObj) return '#';
-    const origin = `${pickupAreaObj.latitude},${pickupAreaObj.longitude}`;
-    const destination = `${deliveryAreaObj.latitude},${deliveryAreaObj.longitude}`;
+    if (!currentPickupLoc || !currentDeliveryLoc) return '#';
+    const origin = `${currentPickupLoc.lat},${currentPickupLoc.lon}`;
+    const destination = `${currentDeliveryLoc.lat},${currentDeliveryLoc.lon}`;
     return `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&travelmode=driving`;
   };
 
   return (
     <div className="p-3.5 sm:p-5 rounded-2xl sm:rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-3.5 w-full max-w-full overflow-hidden select-none">
       
-      {/* 1. Header Toolbar & Realtime Indicators */}
+      {/* 1. Header Toolbar: Title, Realtime Status & Controls */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-slate-100">
         
-        {/* Left: Title & GPS Live Status */}
+        {/* Left: Title & Navigation Radar Status */}
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-md shadow-blue-500/20 shrink-0">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-cyan-500 text-white flex items-center justify-center shadow-md shadow-blue-500/20 shrink-0">
             <Compass className="w-5 h-5 animate-[spin_20s_linear_infinite]" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h3 className="text-sm sm:text-base font-black text-slate-900 tracking-tight">
                 خريطة رادار البحرين الملاحية 🇧🇭
               </h3>
@@ -380,18 +368,23 @@ export function BahrainRouteMap({
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                 <span>مباشر GPS</span>
               </span>
+              {/* Radar Orders Counter Badge */}
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-blue-50 text-blue-700 border border-blue-200 flex items-center gap-1">
+                <Package className="w-3 h-3 text-blue-600" />
+                <span>{orders.length} طلبات بالرادار</span>
+              </span>
             </div>
             <p className="text-[11px] text-slate-500">
-              تتبع جغرافي ذكي لمسارات التوصيل، شبكة الجسور، ومناطق الطلبات النشطة
+              نقاط مضيئة توضح أماكن الطلبات الملتقطة بالرادار ومسارات التوصيل التفاعلية
             </p>
           </div>
         </div>
 
-        {/* Center/Right: Search, Governorates & Theme Switchers */}
+        {/* Right: Search, Themes & Map Controls */}
         <div className="flex flex-wrap items-center gap-2">
           
           {/* Quick Area Search */}
-          <div className="relative min-w-[130px] sm:min-w-[160px]">
+          <div className="relative min-w-[120px] sm:min-w-[150px]">
             <input
               type="text"
               value={searchQuery}
@@ -400,24 +393,6 @@ export function BahrainRouteMap({
               className="w-full pl-7 pr-2.5 py-1.5 text-xs rounded-xl bg-slate-50 border border-slate-200 text-slate-800 focus:bg-white focus:border-blue-500 focus:outline-hidden transition-all"
             />
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2 top-2.5 pointer-events-none" />
-          </div>
-
-          {/* Governorate Selector */}
-          <div className="flex items-center p-0.5 rounded-xl bg-slate-100 border border-slate-200/80 text-[11px] font-bold">
-            {(['all', 'العاصمة', 'المحرق', 'الشمالية', 'الجنوبية'] as const).map((gov) => (
-              <button
-                key={gov}
-                type="button"
-                onClick={() => setGovernorateFilter(gov)}
-                className={`px-2 py-1 rounded-lg transition-all ${
-                  governorateFilter === gov
-                    ? 'bg-white text-slate-900 shadow-2xs'
-                    : 'text-slate-500 hover:text-slate-900'
-                }`}
-              >
-                {gov === 'all' ? 'الكل' : gov}
-              </button>
-            ))}
           </div>
 
           {/* Map Style Theme Toggle */}
@@ -450,12 +425,29 @@ export function BahrainRouteMap({
               className={`px-2 py-1 rounded-lg transition-all flex items-center gap-1 ${
                 theme === 'heatmap' ? 'bg-amber-600 text-white shadow-2xs' : 'text-slate-400 hover:text-white'
               }`}
-              title="الخريطة الحرارية لكثافة الطلبات"
+              title="الخريطة الحرارية للكثافة"
             >
               <span>🔥</span>
               <span className="hidden sm:inline">حراري</span>
             </button>
           </div>
+
+          {/* Compact Traffic Bottlenecks Toggle */}
+          <button
+            type="button"
+            onClick={() => setShowTraffic((prev) => !prev)}
+            className={`px-2 py-1.5 rounded-xl border text-xs font-bold transition-all flex items-center gap-1 shadow-2xs ${
+              showTraffic
+                ? 'bg-rose-50 text-rose-700 border-rose-300 ring-1 ring-rose-400/30'
+                : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
+            }`}
+            title={showTraffic ? 'إخفاء نقاط الازدحام' : 'إظهار نقاط الازدحام المروري'}
+          >
+            <span>🚦</span>
+            <span className="hidden sm:inline">ازدحام</span>
+            <span className="font-mono text-[10px]">({BAHRAIN_BOTTLENECKS.length})</span>
+            {showTraffic && <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping" />}
+          </button>
 
           {/* Radar Scan Toggle */}
           <button
@@ -473,9 +465,53 @@ export function BahrainRouteMap({
         </div>
       </div>
 
-      {/* 2. Interactive Map Canvas Container (Selected Element) */}
+      {/* 2. Quick Live Orders Strip (شريط الطلبات الملتقطة فوراً بالرادار) */}
+      {orders.length > 0 && (
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin">
+          <div className="flex items-center gap-1 text-[11px] font-black text-slate-700 shrink-0 px-2 py-1 rounded-lg bg-blue-50 border border-blue-200">
+            <span className="w-2 h-2 rounded-full bg-blue-600 animate-ping" />
+            <span>الطلبات الملتقطة:</span>
+          </div>
+
+          {orders.slice(0, 10).map((ord) => {
+            const isSelected = currentOrder?.id === ord.id;
+            return (
+              <button
+                key={ord.id}
+                type="button"
+                onClick={() => handleSelectOrderAndFocus(ord)}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold whitespace-nowrap transition-all border shrink-0 ${
+                  isSelected
+                    ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white border-blue-700 shadow-md scale-102 ring-2 ring-blue-400/40'
+                    : 'bg-slate-50 text-slate-800 border-slate-200 hover:bg-white hover:border-blue-400'
+                }`}
+              >
+                <span className="text-[10px] opacity-80">📦</span>
+                <span className="font-extrabold">{ord.from}</span>
+                <span className="text-[10px] opacity-60">⬅</span>
+                <span className="font-extrabold">{ord.to}</span>
+                {ord.price > 0 && (
+                  <span className={`px-1.5 py-0.2 rounded-md text-[10px] font-black ${
+                    isSelected ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-800'
+                  }`}>
+                    {ord.price} د.ب
+                  </span>
+                )}
+              </button>
+            );
+          })}
+
+          {orders.length > 10 && (
+            <span className="text-[10px] font-bold text-slate-400 shrink-0 px-1">
+              +{orders.length - 10} طلبات أخرى
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* 3. Interactive Map Canvas Container */}
       <div 
-        className={`relative w-full h-[380px] sm:h-[520px] rounded-2xl sm:rounded-3xl overflow-hidden border transition-all duration-300 flex items-center justify-center select-none shadow-inner ${
+        className={`relative w-full h-[400px] sm:h-[550px] rounded-2xl sm:rounded-3xl overflow-hidden border transition-all duration-300 flex items-center justify-center select-none shadow-inner ${
           theme === 'tactical'
             ? 'bg-gradient-to-br from-[#040C1A] via-[#091B33] to-[#040D1B] border-slate-800'
             : theme === 'satellite'
@@ -484,7 +520,7 @@ export function BahrainRouteMap({
         }`}
       >
         
-        {/* CSS Keyframe for continuous 360° Radar Scan Beam */}
+        {/* CSS Keyframe animations */}
         <style>{`
           @keyframes radarSweep {
             from { transform: rotate(0deg); }
@@ -495,7 +531,7 @@ export function BahrainRouteMap({
           }
         `}</style>
 
-        {/* Tactical Ambient Depth Grids & Concentric Range Circles */}
+        {/* Ambient Grid */}
         <div className="absolute inset-0 bg-[radial-gradient(#38bdf8_1.2px,transparent_1.2px)] [background-size:28px_28px] opacity-10 pointer-events-none" />
 
         {/* 360° Radar Rotating Sweep Beam */}
@@ -518,7 +554,6 @@ export function BahrainRouteMap({
         {/* Primary Cartographic SVG Engine */}
         <svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible">
           <defs>
-            {/* Glowing neon gradients for route lines */}
             <linearGradient id="routeGlow" x1="0%" y1="0%" x2="100%" y2="100%">
               <stop offset="0%" stopColor="#10b981" />
               <stop offset="50%" stopColor="#06b6d4" />
@@ -530,22 +565,19 @@ export function BahrainRouteMap({
               <stop offset="100%" stopColor="#3b82f6" />
             </linearGradient>
 
-            {/* Island Landmass Drop Shadow Filter */}
             <filter id="islandGlow" x="-20%" y="-20%" width="140%" height="140%">
               <feDropShadow dx="0" dy="2" stdDeviation="4" floodColor="#38bdf8" floodOpacity="0.25" />
             </filter>
-
-            {/* Heatmap Glow Radial */}
-            <radialGradient id="heatBlipGlow" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="#ef4444" stopOpacity="0.8" />
-              <stop offset="40%" stopColor="#f59e0b" stopOpacity="0.5" />
-              <stop offset="100%" stopColor="#f59e0b" stopOpacity="0" />
+            
+            <radialGradient id="orderBlipRadial" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.8" />
+              <stop offset="50%" stopColor="#0284c7" stopOpacity="0.3" />
+              <stop offset="100%" stopColor="#0284c7" stopOpacity="0" />
             </radialGradient>
           </defs>
 
           {/* 1. Realistic Bahrain Landmass Islands Polygons */}
           <g className="transition-all duration-300">
-            {/* Main Bahrain Island */}
             <path
               d={pointsToSvgPath(BAHRAIN_MAIN_ISLAND)}
               fill={theme === 'tactical' ? '#0F264A' : theme === 'satellite' ? '#1E3A68' : '#24143D'}
@@ -554,8 +586,6 @@ export function BahrainRouteMap({
               strokeOpacity="0.5"
               filter="url(#islandGlow)"
             />
-
-            {/* Muharraq Island */}
             <path
               d={pointsToSvgPath(MUHARRAQ_ISLAND)}
               fill={theme === 'tactical' ? '#13305E' : theme === 'satellite' ? '#23447A' : '#2E194D'}
@@ -563,8 +593,6 @@ export function BahrainRouteMap({
               strokeWidth="1.4"
               strokeOpacity="0.5"
             />
-
-            {/* Amwaj Islands */}
             <path
               d={pointsToSvgPath(AMWAJ_ISLANDS)}
               fill={theme === 'tactical' ? '#183B72' : theme === 'satellite' ? '#2A4E8C' : '#391F5E'}
@@ -572,8 +600,6 @@ export function BahrainRouteMap({
               strokeWidth="1.2"
               strokeOpacity="0.6"
             />
-
-            {/* Diyar Al Muharraq */}
             <path
               d={pointsToSvgPath(DIYAR_AL_MUHARRAQ)}
               fill={theme === 'tactical' ? '#183B72' : theme === 'satellite' ? '#2A4E8C' : '#391F5E'}
@@ -581,8 +607,6 @@ export function BahrainRouteMap({
               strokeWidth="1.2"
               strokeOpacity="0.6"
             />
-
-            {/* Sitra Island */}
             <path
               d={pointsToSvgPath(SITRA_ISLAND)}
               fill={theme === 'tactical' ? '#112C55' : theme === 'satellite' ? '#203E70' : '#2A1747'}
@@ -590,8 +614,6 @@ export function BahrainRouteMap({
               strokeWidth="1.2"
               strokeOpacity="0.5"
             />
-
-            {/* Nabih Saleh Island */}
             <path
               d={pointsToSvgPath(NABIH_SALEH_ISLAND)}
               fill={theme === 'tactical' ? '#143463' : theme === 'satellite' ? '#24457A' : '#311B50'}
@@ -599,8 +621,6 @@ export function BahrainRouteMap({
               strokeWidth="1.1"
               strokeOpacity="0.5"
             />
-
-            {/* Umm An Nasan Island */}
             <path
               d={pointsToSvgPath(UMM_AN_NASAN_ISLAND)}
               fill={theme === 'tactical' ? '#0D2140' : theme === 'satellite' ? '#1A335B' : '#201138'}
@@ -610,43 +630,30 @@ export function BahrainRouteMap({
             />
           </g>
 
-          {/* 2. Bahrain Bridges & Causeways (الجسور الحيوية) */}
-          <g className="transition-all duration-300">
-            {BRIDGES.map((bridge, i) => {
-              const d = pointsToSvgPath(bridge.points, false);
-              return (
-                <path
-                  key={`bridge-${i}`}
-                  d={d}
-                  stroke="#fbbf24"
-                  strokeWidth="2.4"
-                  strokeLinecap="round"
-                  strokeDasharray="3 2"
-                  strokeOpacity="0.85"
-                />
-              );
-            })}
-          </g>
+          {/* 2. Compact Traffic Bottlenecks Rings */}
+          {showTraffic && (
+            <g className="transition-all duration-300">
+              {BAHRAIN_BOTTLENECKS.map((b) => {
+                const pt = projectCoord(b.lat, b.lon);
+                return (
+                  <circle
+                    key={`traffic-ring-${b.id}`}
+                    cx={`${pt.x}%`}
+                    cy={`${pt.y}%`}
+                    r="13"
+                    fill="none"
+                    stroke={b.severity === 'heavy' ? '#ef4444' : '#f59e0b'}
+                    strokeWidth="1.2"
+                    strokeDasharray="3 3"
+                    strokeOpacity="0.75"
+                    className="animate-pulse"
+                  />
+                );
+              })}
+            </g>
+          )}
 
-          {/* 3. Arterial Highway Network (شبكة الطرق السريعة) */}
-          <g className="transition-all duration-300 opacity-60">
-            {HIGHWAYS.map((hw, i) => {
-              const d = pointsToSvgPath(hw, false);
-              return (
-                <path
-                  key={`hw-${i}`}
-                  d={d}
-                  stroke={theme === 'tactical' ? '#38bdf8' : '#93c5fd'}
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeOpacity="0.6"
-                />
-              );
-            })}
-          </g>
-
-          {/* 4. Active Delivery Route Trajectories */}
-          {/* Driver -> Pickup Link */}
+          {/* 3. Driver to Pickup Trajectory */}
           {driverCoords && pickupCoords && (
             <line
               x1={`${driverCoords.x}%`}
@@ -657,16 +664,13 @@ export function BahrainRouteMap({
               strokeWidth="2.5"
               strokeDasharray="5 5"
               className="animate-pulse"
-              style={{
-                animation: 'dashMove 1.5s linear infinite',
-              }}
+              style={{ animation: 'dashMove 1.5s linear infinite' }}
             />
           )}
 
-          {/* Pickup -> Delivery Curved Flow Path */}
+          {/* 4. Pickup -> Delivery Curved Flow Path for Active Order */}
           {routeCurvePath && (
             <>
-              {/* Outer Glow Halo */}
               <path
                 d={routeCurvePath}
                 fill="none"
@@ -675,7 +679,6 @@ export function BahrainRouteMap({
                 strokeOpacity="0.3"
                 strokeLinecap="round"
               />
-              {/* Core Route Line with Flowing Pulse */}
               <path
                 d={routeCurvePath}
                 fill="none"
@@ -683,42 +686,38 @@ export function BahrainRouteMap({
                 strokeWidth="3.2"
                 strokeLinecap="round"
                 strokeDasharray="8 6"
-                style={{
-                  animation: 'dashMove 1.2s linear infinite',
-                }}
+                style={{ animation: 'dashMove 1.2s linear infinite' }}
               />
             </>
           )}
 
-          {/* 5. Heatmap Order Density Blips (in Heatmap Theme) */}
-          {theme === 'heatmap' &&
-            orders.map((o) => {
-              const a = findAreaByName(o.from);
-              if (!a) return null;
-              const pt = projectCoord(a.latitude, a.longitude);
-              return (
-                <circle
-                  key={`heat-${o.id}`}
-                  cx={`${pt.x}%`}
-                  cy={`${pt.y}%`}
-                  r="18"
-                  fill="url(#heatBlipGlow)"
-                  className="animate-pulse"
-                />
-              );
-            })}
+          {/* 5. Radar Halos for all captured order locations */}
+          {mappedOrders.map(({ order, fromLoc }) => {
+            if (!fromLoc) return null;
+            const pt = projectCoord(fromLoc.lat, fromLoc.lon);
+            const isCurrent = currentOrder?.id === order.id;
+            return (
+              <circle
+                key={`halo-${order.id}`}
+                cx={`${pt.x}%`}
+                cy={`${pt.y}%`}
+                r={isCurrent ? "26" : "18"}
+                fill="url(#orderBlipRadial)"
+                className="animate-pulse"
+              />
+            );
+          })}
         </svg>
 
-        {/* 6. Bahrain Areas Interactive Pins */}
+        {/* 6. Bahrain Base Areas Pins */}
         {visibleAreas.map((area) => {
           const pt = projectCoord(area.latitude, area.longitude);
-          // Bounds check for canvas visibility
           if (pt.x < -5 || pt.x > 105 || pt.y < -5 || pt.y > 105) return null;
 
-          const isPickup = pickupAreaObj?.id === area.id;
-          const isDelivery = deliveryAreaObj?.id === area.id;
+          const isPickup = currentPickupLoc?.name === area.name;
+          const isDelivery = currentDeliveryLoc?.name === area.name;
           const isHovered = hoveredArea === area.name;
-          const orderCount = areaOrderCounts[area.name] || 0;
+          const pickupCount = areaOrderStats.pickupCounts[area.name] || 0;
           const isDriverHere = driverLocation?.areaName === area.name;
 
           return (
@@ -728,13 +727,12 @@ export function BahrainRouteMap({
               onMouseEnter={() => setHoveredArea(area.name)}
               onMouseLeave={() => setHoveredArea(null)}
               onClick={() => {
-                setSelectedAreaDetails(area.name);
                 onSelectAreaAsLocation(area.name);
               }}
               className="absolute -translate-x-1/2 -translate-y-1/2 group cursor-pointer z-20 transition-transform hover:scale-125"
             >
               {isPickup ? (
-                /* Pickup Beacon Pin */
+                /* Selected Pickup Beacon */
                 <div className="relative flex items-center justify-center">
                   <span className="animate-ping absolute inline-flex h-8 w-8 rounded-full bg-blue-400 opacity-80" />
                   <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-blue-600 to-cyan-400 text-white flex items-center justify-center font-black text-[11px] shadow-lg shadow-blue-500/60 border-2 border-white">
@@ -745,7 +743,7 @@ export function BahrainRouteMap({
                   </div>
                 </div>
               ) : isDelivery ? (
-                /* Delivery Beacon Pin */
+                /* Selected Delivery Beacon */
                 <div className="relative flex items-center justify-center">
                   <span className="animate-ping absolute inline-flex h-8 w-8 rounded-full bg-rose-500 opacity-80" />
                   <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-rose-600 to-pink-500 text-white flex items-center justify-center font-black text-[11px] shadow-lg shadow-rose-500/60 border-2 border-white">
@@ -758,17 +756,19 @@ export function BahrainRouteMap({
               ) : isDriverHere ? (
                 /* Driver Current Position Pin */
                 <div className="w-3.5 h-3.5 rounded-full bg-emerald-400 border border-white ring-4 ring-emerald-500/40 animate-pulse" />
-              ) : orderCount > 0 ? (
-                /* Hotspot Pin with Order Count */
+              ) : pickupCount > 0 ? (
+                /* Hotspot with order count */
                 <div className="relative flex items-center justify-center">
-                  <div className="px-1.5 py-0.5 rounded-full bg-amber-500 text-slate-950 text-[9px] font-black border border-white shadow-md">
-                    {orderCount} طلب
+                  <span className="animate-ping absolute inline-flex h-6 w-6 rounded-full bg-cyan-400 opacity-60" />
+                  <div className="px-2 py-0.5 rounded-full bg-gradient-to-r from-cyan-600 to-blue-600 text-white text-[10px] font-black border-2 border-white shadow-lg flex items-center gap-1">
+                    <span>📦</span>
+                    <span>{pickupCount}</span>
                   </div>
                 </div>
               ) : (
                 /* Normal Area Pin Point */
                 <div
-                  className={`w-2.5 h-2.5 rounded-full border transition-all ${
+                  className={`w-2 h-2 rounded-full border transition-all ${
                     isHovered
                       ? 'bg-amber-400 scale-150 ring-4 ring-amber-400/40 border-white'
                       : 'bg-slate-300/60 border-slate-900/80 hover:bg-white hover:scale-125'
@@ -776,7 +776,7 @@ export function BahrainRouteMap({
                 />
               )}
 
-              {/* Instant Area Hover Micro-Card */}
+              {/* Area Hover Card */}
               {isHovered && !isPickup && !isDelivery && (
                 <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2.5 py-1.5 rounded-xl bg-slate-950/95 backdrop-blur-md text-white text-[11px] font-bold whitespace-nowrap shadow-2xl border border-slate-700 z-40 pointer-events-none flex flex-col gap-0.5">
                   <div className="flex items-center gap-1.5 text-white">
@@ -784,6 +784,11 @@ export function BahrainRouteMap({
                     <span>{area.name}</span>
                     <span className="text-[9px] text-slate-400 font-normal">({area.governorate})</span>
                   </div>
+                  {pickupCount > 0 && (
+                    <span className="text-[10px] text-cyan-300 font-extrabold">
+                      📦 ملتقط هنا: {pickupCount} طلب
+                    </span>
+                  )}
                   {driverLocation && (
                     <span className="text-[10px] text-emerald-300 font-mono">
                       يبعد عنك: {calculateDistanceKm(driverLocation.latitude, driverLocation.longitude, area.latitude, area.longitude).toFixed(1)} كم
@@ -796,23 +801,144 @@ export function BahrainRouteMap({
           );
         })}
 
-        {/* 7. Driver Live GPS Vehicle Beacon */}
+        {/* 7. Points of Radar-Captured Orders (نقاط توضح مكان الاوردرات التي يلتقطها الرادار) */}
+        {mappedOrders.map(({ order, fromLoc, toLoc }) => {
+          if (!fromLoc) return null;
+          const pt = projectCoord(fromLoc.lat, fromLoc.lon);
+          const isHighlighted = currentOrder?.id === order.id;
+
+          return (
+            <div
+              key={`radar-order-${order.id}`}
+              style={{ left: `${pt.x}%`, top: `${pt.y}%` }}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectOrderAndFocus(order);
+              }}
+              onMouseEnter={() => setHoveredOrder(order)}
+              onMouseLeave={() => setHoveredOrder(null)}
+              className="absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer z-35 transition-transform hover:scale-125"
+            >
+              <div className="relative flex items-center justify-center">
+                {/* Glowing Radar Pulse Dot */}
+                <span className={`animate-ping absolute inline-flex rounded-full ${
+                  isHighlighted 
+                    ? 'h-9 w-9 bg-cyan-400 opacity-80' 
+                    : 'h-6 w-6 bg-blue-400 opacity-60'
+                }`} />
+
+                {/* Radar Order Badge Dot */}
+                <div className={`px-2 py-0.8 rounded-xl text-white text-[10px] font-black border-2 shadow-2xl flex items-center gap-1.5 transition-all ${
+                  isHighlighted
+                    ? 'bg-gradient-to-tr from-cyan-600 to-blue-600 border-white scale-110 shadow-cyan-500/60 ring-2 ring-cyan-300'
+                    : 'bg-slate-900/95 border-cyan-400/90 hover:bg-cyan-700 hover:border-white'
+                }`}>
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span className="truncate max-w-[90px]">{order.from}</span>
+                  {order.price > 0 && (
+                    <span className="px-1 py-0.2 rounded bg-white/20 text-white font-mono text-[9px]">
+                      {order.price} د.ب
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Hover Order Micro-Card */}
+              {hoveredOrder?.id === order.id && !isHighlighted && (
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 p-2.5 rounded-xl bg-slate-950/98 backdrop-blur-md text-white text-xs whitespace-nowrap shadow-2xl border border-cyan-500/80 z-50 pointer-events-none flex flex-col gap-1 min-w-[190px]">
+                  <div className="flex items-center justify-between gap-2 border-b border-slate-800 pb-1">
+                    <span className="font-black text-cyan-300">📦 طلب ملتقط بالرادار</span>
+                    {order.price > 0 && (
+                      <span className="font-extrabold text-emerald-400">{order.price} د.ب</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5 text-[11px] font-bold">
+                    <span className="text-blue-300">من: {order.from}</span>
+                    <span className="text-slate-400">⬅</span>
+                    <span className="text-rose-300">إلى: {order.to}</span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 truncate max-w-[200px]">
+                    {order.items || order.text}
+                  </p>
+                  <span className="text-[9px] text-cyan-400">انقر لتحديد ورسم مسار التوصيل 👆</span>
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        {/* 8. Compact Traffic Bottlenecks (نقاط الاختناق والازدحام بصورة مختصرة) */}
+        {showTraffic &&
+          BAHRAIN_BOTTLENECKS.map((b) => {
+            const pt = projectCoord(b.lat, b.lon);
+            if (pt.x < -5 || pt.x > 105 || pt.y < -5 || pt.y > 105) return null;
+
+            const isHeavy = b.severity === 'heavy';
+            const isHovered = hoveredBottleneck === b.id;
+
+            return (
+              <div
+                key={`bottleneck-${b.id}`}
+                style={{ left: `${pt.x}%`, top: `${pt.y}%` }}
+                onMouseEnter={() => setHoveredBottleneck(b.id)}
+                onMouseLeave={() => setHoveredBottleneck(null)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setHoveredBottleneck((prev) => (prev === b.id ? null : b.id));
+                }}
+                className="absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer z-32 transition-transform hover:scale-125"
+              >
+                <div className="relative flex items-center justify-center">
+                  {/* Subtle ping */}
+                  <span
+                    className={`animate-ping absolute inline-flex h-4 w-4 rounded-full ${
+                      isHeavy ? 'bg-rose-500' : 'bg-amber-500'
+                    } opacity-50`}
+                  />
+
+                  {/* Micro badge */}
+                  <div
+                    className={`px-1.5 py-0.5 rounded-lg text-white text-[9px] font-black border flex items-center gap-1 shadow-sm transition-all ${
+                      isHeavy
+                        ? 'bg-rose-600/95 border-rose-300'
+                        : 'bg-amber-600/95 border-amber-300'
+                    }`}
+                  >
+                    <span>{isHeavy ? '🛑' : '⚠️'}</span>
+                    <span className="truncate max-w-[70px] hidden xs:inline">{b.name}</span>
+                    <span className="font-mono text-[8px] bg-black/30 px-1 rounded">
+                      {b.delay}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Micro Tooltip */}
+                {isHovered && (
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2.5 py-1.5 rounded-xl bg-slate-950/95 backdrop-blur-md border border-rose-500/60 text-white text-[10px] whitespace-nowrap shadow-xl z-50 pointer-events-none flex flex-col gap-0.5">
+                    <div className="flex items-center gap-1 font-bold">
+                      <span>{isHeavy ? '🛑 نقطة اختناق' : '⚠️ حركة بطيئة'}:</span>
+                      <span className="text-amber-300 font-black">{b.name}</span>
+                      <span className="font-mono text-rose-300">({b.delay})</span>
+                    </div>
+                    <span className="text-[9px] text-slate-400">{b.road}</span>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+        {/* 9. Driver Live GPS Puck */}
         {driverCoords && (
           <div
             style={{ left: `${driverCoords.x}%`, top: `${driverCoords.y}%` }}
-            className="absolute -translate-x-1/2 -translate-y-1/2 z-30 pointer-events-none"
+            className="absolute -translate-x-1/2 -translate-y-1/2 z-40 pointer-events-none"
           >
             <div className="relative flex items-center justify-center">
-              {/* Dual Concentric Pulsing Radar Rings */}
               <span className="animate-ping absolute h-12 w-12 rounded-full bg-emerald-400 opacity-40" />
               <span className="animate-pulse absolute h-8 w-8 rounded-full bg-emerald-500/30" />
-              
-              {/* Vehicle Navigation Center Puck */}
               <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-emerald-600 to-teal-400 text-white flex items-center justify-center border-2 border-white shadow-xl shadow-emerald-500/70">
                 <Navigation className="w-3.5 h-3.5 fill-white rotate-45" />
               </div>
-
-              {/* Floating Driver Area Tag */}
               <div className="absolute top-full mt-1.5 px-2.5 py-0.5 rounded-lg bg-emerald-950/95 text-emerald-200 border border-emerald-500/80 text-[10px] font-black whitespace-nowrap shadow-xl flex items-center gap-1 backdrop-blur-xs">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
                 <span>موقعي: {driverLocation?.areaName || 'البحرين'}</span>
@@ -821,8 +947,8 @@ export function BahrainRouteMap({
           </div>
         )}
 
-        {/* 8. Floating Map Tactical HUD Controls (Top Left) */}
-        <div className="absolute top-3 left-3 flex flex-col gap-1.5 z-30">
+        {/* 9. Floating Tactical Controls (Top Left) */}
+        <div className="absolute top-3 left-3 flex flex-col gap-1.5 z-40">
           <div className="flex flex-col bg-slate-950/85 backdrop-blur-md rounded-xl border border-slate-700/80 p-1 shadow-xl">
             <button
               type="button"
@@ -872,25 +998,22 @@ export function BahrainRouteMap({
           </div>
         </div>
 
-        {/* 9. Floating Compass Rose & Scale Bar (Top Right) */}
-        <div className="absolute top-3 right-3 flex items-center gap-2 z-30 pointer-events-none">
-          {/* North Compass Rose */}
+        {/* 10. Floating Map Compass & Scale (Top Right) */}
+        <div className="absolute top-3 right-3 flex items-center gap-2 z-40 pointer-events-none">
           <div className="px-2.5 py-1.5 rounded-xl bg-slate-950/85 backdrop-blur-md border border-slate-700/80 text-white flex items-center gap-1.5 shadow-xl text-[10px] font-black">
             <span className="text-rose-500 font-extrabold text-xs">N</span>
             <span className="text-slate-400">|</span>
             <span className="text-slate-300">البحرين</span>
           </div>
-
-          {/* Scale Indicator */}
           <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-950/85 backdrop-blur-md border border-slate-700/80 text-white text-[10px] font-mono shadow-xl">
             <div className="w-8 h-1 bg-blue-400 rounded-full" />
             <span>5 كم</span>
           </div>
         </div>
 
-        {/* 10. Selected Order Mission HUD Overlay (Floating Bottom) */}
+        {/* 11. Selected Order Mission HUD Card (Floating Bottom) */}
         {currentOrder && tripMetrics ? (
-          <div className="absolute bottom-3 left-3 right-3 z-30 pointer-events-auto">
+          <div className="absolute bottom-3 left-3 right-3 z-40 pointer-events-auto">
             <div className="p-3 sm:p-3.5 rounded-2xl bg-slate-950/92 backdrop-blur-md border border-slate-700 text-white shadow-2xl flex flex-col md:flex-row md:items-center justify-between gap-3">
               
               {/* Mission Locations */}
@@ -907,7 +1030,7 @@ export function BahrainRouteMap({
                     <span className="text-[10px] px-2 py-0.5 rounded-md bg-rose-600/30 text-rose-300 font-bold border border-rose-500/40">
                       إلى: {currentOrder.to}
                     </span>
-                    {currentOrder.price && (
+                    {currentOrder.price > 0 && (
                       <span className="text-[10px] px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 font-black border border-emerald-500/40">
                         {currentOrder.price} د.ب
                       </span>
@@ -936,13 +1059,13 @@ export function BahrainRouteMap({
                   </div>
                 )}
 
-                {/* Google Maps External Launch Button */}
+                {/* Google Maps External Launch */}
                 <a
                   href={getGoogleMapsNavUrl()}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs shadow-md shadow-blue-600/30 transition-all active:scale-95"
-                  title="فتح المسار في تطبيق خرائط Google"
+                  title="فتح المسار في خرائط Google"
                 >
                   <ExternalLink className="w-3.5 h-3.5" />
                   <span className="hidden sm:inline">Google Maps</span>
@@ -954,12 +1077,12 @@ export function BahrainRouteMap({
           </div>
         ) : (
           /* General Tip if no active order */
-          <div className="absolute bottom-3 left-3 right-3 z-30 pointer-events-none">
+          <div className="absolute bottom-3 left-3 right-3 z-40 pointer-events-none">
             <div className="p-2 sm:p-2.5 rounded-xl bg-slate-950/80 backdrop-blur-md border border-slate-800 text-white text-[11px] flex items-center justify-between gap-2 max-w-lg mx-auto shadow-xl">
               <div className="flex items-center gap-2">
                 <Info className="w-4 h-4 text-cyan-400 shrink-0" />
                 <span className="text-slate-300 text-[10px] sm:text-[11px]">
-                  انقر على أي نقطة منطقة في البحرين لتعيين موقعك، أو اختر طلباً لرسم مساره التفاعلي.
+                  انقر على أي نقطة طلب لرسم مسار التوصيل، أو انقر على منطقة لتعيين موقعك.
                 </span>
               </div>
               <span className="px-2 py-0.5 rounded-md bg-blue-500/20 text-blue-300 text-[9px] font-bold shrink-0">
@@ -971,7 +1094,7 @@ export function BahrainRouteMap({
 
       </div>
 
-      {/* 3. Bottom Interactive Legend & Quick Area Jump Strip */}
+      {/* 4. Bottom Map Legend */}
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs pt-1">
         
         {/* Geographic Legend */}
@@ -982,19 +1105,25 @@ export function BahrainRouteMap({
           </span>
           <span className="flex items-center gap-1.5 text-blue-700">
             <span className="w-2.5 h-2.5 rounded-full bg-blue-600 ring-4 ring-blue-100 inline-block" />
-            <span>الاستلام (From)</span>
+            <span>نقطة استلام طلب (From)</span>
           </span>
           <span className="flex items-center gap-1.5 text-rose-700">
             <span className="w-2.5 h-2.5 rounded-full bg-rose-600 ring-4 ring-rose-100 inline-block" />
-            <span>التسليم (To)</span>
+            <span>نقطة تسليم (To)</span>
           </span>
-          <span className="flex items-center gap-1.5 text-amber-700">
-            <span className="w-2 h-2 rounded-full bg-amber-400 ring-2 ring-amber-200 inline-block" />
-            <span>جسور وطرق سريعة</span>
+          <span className="flex items-center gap-1.5 text-cyan-700">
+            <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 ring-4 ring-cyan-100 inline-block" />
+            <span>نقاط طلبات الرادار</span>
           </span>
+          {showTraffic && (
+            <span className="flex items-center gap-1.5 text-rose-700">
+              <span className="w-2 h-2 rounded-full bg-rose-500 ring-2 ring-rose-200 inline-block" />
+              <span>نقاط اختناق مروري</span>
+            </span>
+          )}
         </div>
 
-        {/* Quick Driver Location Setter Badge */}
+        {/* Driver Location Badge */}
         {driverLocation && (
           <div className="text-[11px] text-slate-500 flex items-center gap-1">
             <span>موقعك المعتمد:</span>
@@ -1004,7 +1133,6 @@ export function BahrainRouteMap({
             </span>
           </div>
         )}
-
       </div>
 
     </div>

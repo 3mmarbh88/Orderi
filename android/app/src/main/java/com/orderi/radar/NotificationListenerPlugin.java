@@ -262,6 +262,9 @@ public class NotificationListenerPlugin extends Plugin {
             double coverageKm = call.getDouble("coverageKm", 10.0);
             double driverLat = call.getDouble("driverLat", 0.0);
             double driverLon = call.getDouble("driverLon", 0.0);
+            boolean blockPassenger = call.getBoolean("blockPassenger", true);
+            boolean notificationsEnabled = call.getBoolean("notificationsEnabled", true);
+
             android.content.SharedPreferences.Editor editor = getContext()
                     .getSharedPreferences("orderi_filter_settings", Context.MODE_PRIVATE).edit();
             editor.putBoolean("ignore_non_matching", ignoreNonMatching);
@@ -269,6 +272,8 @@ public class NotificationListenerPlugin extends Plugin {
             editor.putFloat("coverage_km", (float) coverageKm);
             editor.putFloat("driver_lat", (float) driverLat);
             editor.putFloat("driver_lon", (float) driverLon);
+            editor.putBoolean("block_passenger", blockPassenger);
+            editor.putBoolean("notifications_enabled", notificationsEnabled);
             editor.apply();
             call.resolve();
         } catch (Exception e) {

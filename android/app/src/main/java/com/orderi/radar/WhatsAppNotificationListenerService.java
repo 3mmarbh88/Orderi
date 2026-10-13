@@ -230,14 +230,34 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         boolean looksLikeOrder =
                 (normalized.contains("توصيل") || normalized.contains("طلب") ||
                  normalized.contains("استلام") || normalized.contains("بيك اب") ||
+                 normalized.contains("مشوار") || normalized.contains("توصيلة") ||
+                 normalized.contains("نقل") || normalized.contains("ركاب") ||
                  normalized.contains("pickup") || normalized.contains("delivery"))
                 && (normalized.contains("من ") || normalized.contains("الى") ||
-                    normalized.contains("إلى") || normalized.matches(".*\\d+(?:\\.\\d+)?\\s*(?:د\\.ب|دب|دينار|bd|bhd).*"));
+                    normalized.contains("إلى") || normalized.contains("لـ") ||
+                    normalized.contains("لل") || normalized.contains("مطار") ||
+                    normalized.contains("سلمانية") || normalized.contains("جسر") ||
+                    normalized.matches(".*\\d+(?:\\.\\d+)?\\s*(?:د\\.ب|دب|دينار|bd|bhd).*"));
 
         if (!looksLikeOrder) return;
 
-        // Check if ignore_non_matching is active in native SharedPreferences
         SharedPreferences filterPrefs = getSharedPreferences("orderi_filter_settings", MODE_PRIVATE);
+        boolean notificationsEnabled = filterPrefs.getBoolean("notifications_enabled", true);
+        if (!notificationsEnabled) return; // تم إيقاف الإشعارات في الإعدادات
+
+        // فحص حظر نقل الركاب حسب إعدادات الفلتر
+        boolean blockPassenger = filterPrefs.getBoolean("block_passenger", true);
+        boolean isPassenger = normalized.contains("شخص") || normalized.contains("اشخاص") ||
+                normalized.contains("أشخاص") || normalized.contains("راكب") ||
+                normalized.contains("ركاب") || normalized.contains("توصيل بنات") ||
+                normalized.contains("توصيل طالب") || normalized.contains("توصيل طالبة") ||
+                normalized.contains("توصيل موظف") || normalized.contains("مشوار ركاب");
+
+        if (blockPassenger && isPassenger) {
+            return; // حجب إشعار نقل الركاب لأن السائق مفعّل حظر الركاب في الإعدادات
+        }
+
+        // Check if ignore_non_matching is active in native SharedPreferences
         boolean ignoreNonMatching = filterPrefs.getBoolean("ignore_non_matching", false);
         float minPrice = filterPrefs.getFloat("min_price", 0.0f);
 
@@ -271,6 +291,22 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                     targetLat = 26.2345; targetLon = 50.5510; // سيتي سنتر
                 } else if (normalized.contains("افنيوز") || normalized.contains("الأفنيوز")) {
                     targetLat = 26.2425; targetLon = 50.5780; // الأفنيوز
+                } else if (normalized.contains("مراسي") || normalized.contains("ديار المحرق")) {
+                    targetLat = 26.2940; targetLon = 50.6410; // مراسي جاليريا
+                } else if (normalized.contains("انماء") || normalized.contains("الإنماء")) {
+                    targetLat = 26.1260; targetLon = 50.5740; // مجمع الإنماء
+                } else if (normalized.contains("رملي") || normalized.contains("الرملي")) {
+                    targetLat = 26.1710; targetLon = 50.5400; // مجمع الرملي
+                } else if (normalized.contains("دلمونيا")) {
+                    targetLat = 26.2910; targetLon = 50.6650; // مجمع دلمونيا
+                } else if (normalized.contains("ليوان") || normalized.contains("الليوان")) {
+                    targetLat = 26.1680; targetLon = 50.4850; // مجمع الليوان
+                } else if (normalized.contains("سلمانية") || normalized.contains("السلمانية")) {
+                    targetLat = 26.2120; targetLon = 50.5840; // مستشفى السلمانية
+                } else if (normalized.contains("مطار")) {
+                    targetLat = 26.2708; targetLon = 50.6332; // مطار البحرين
+                } else if (normalized.contains("جسر") || normalized.contains("كوزواي")) {
+                    targetLat = 26.1770; targetLon = 50.4610; // جسر الملك فهد
                 } else if (normalized.contains("منامه") || normalized.contains("المنامة")) {
                     targetLat = 26.2235; targetLon = 50.5876;
                 } else if (normalized.contains("محرق") || normalized.contains("المحرق")) {

@@ -288,6 +288,11 @@ function OrderiApp() {
       }
     } catch {}
   }, []);
+
+  // Sync initial filter settings with native Android service on startup
+  useEffect(() => {
+    syncNativeFilter(filter, driverLocation);
+  }, []);
   const [isBackgroundModalOpen, setIsBackgroundModalOpen] = useState(false);
   const [isAutoSyncModalOpen, setIsAutoSyncModalOpen] = useState(false);
   const [settingsInitialSection, setSettingsInitialSection] = useState<string | null>(null);
@@ -466,6 +471,11 @@ function OrderiApp() {
     )
   );
   const isActivated = isUserLicenseActive || isDeviceTrialValid;
+  const isActivatedRef = useRef(isActivated);
+  useEffect(() => {
+    isActivatedRef.current = isActivated;
+  }, [isActivated]);
+
   const [isBarrierDismissed, setIsBarrierDismissed] = useState(false);
 
   // 8. Active Broadcast (Waiting for Courier) Replay Prompt State
@@ -659,8 +669,12 @@ function OrderiApp() {
 
     processedOrderIdsRef.current.add(raw.id);
 
-    // Block order processing if the program is not activated
-    if (!isProgramActivated(currentUserRef.current)) {
+    // Block order processing if the program is not activated (supports license code and 7-day hardware trial)
+    const isAppActive = isActivatedRef.current || 
+      isProgramActivated(currentUserRef.current) || 
+      Boolean(deviceTrialStatus && (deviceTrialStatus.isActivated || (!deviceTrialStatus.isExpired && deviceTrialStatus.daysRemaining > 0)));
+
+    if (!isAppActive) {
       return;
     }
 
@@ -860,8 +874,9 @@ function OrderiApp() {
         }
       } else {
         // الطلب غير مطابق لشروط الكابتن
-        if (filterRef.current.ignoreNonMatching && !isPassengerBlocked) {
-          // محجوب تماماً من الإشعارات في الخلفية والأصوات بناء على رغبة الكابتن
+        const isPassengerNotice = newOrder.passengerDetection?.level === 'confirmed_passenger' || newOrder.passengerDetection?.level === 'suspicious_passenger';
+        if (filterRef.current.ignoreNonMatching && !isPassengerBlocked && !isPassengerNotice) {
+          // محجوب تماماً من الإشعارات في الخلفية والأصوات بناء على رغبة الكابتن (للبضائع العادية غير المطابقة)
           return;
         }
         if (filterRef.current.soundEnabled) {
@@ -966,7 +981,13 @@ function OrderiApp() {
           aiTierUsed: parsed.parseMethod,
           passengerDetection: parsed.passengerDetection,
         };
-        if (parsed.canCreateOrder) handleProcessIncomingRawOrder(order, false);
+
+        const isPassengerRequest = parsed.passengerDetection?.level === 'confirmed_passenger' || parsed.passengerDetection?.level === 'suspicious_passenger';
+        if (parsed.canCreateOrder || isPassengerRequest) {
+          if (!order.from) order.from = 'موقع العميل / غير محدد 📍';
+          if (!order.to) order.to = 'حسب طلب الراكب 📍';
+          handleProcessIncomingRawOrder(order, false);
+        }
       }).catch(() => {});
     };
 
@@ -986,30 +1007,40 @@ function OrderiApp() {
           if (existing) {
             setFocusedOrder(existing);
           } else if (data.rawText || data.from) {
-            setFocusedOrder({
+            const rawFrom = data.from || 'البحرين';
+            const rawTo = data.to || 'حسب طلب الزبون 📍';
+            const rawPrice = typeof data.price === 'number' ? data.price : 0;
+            const match = evaluateOrderMatch(rawFrom, rawTo, rawPrice, filterRef.current, driverLocationRef.current);
+            const isPassenger = !!data.isPassenger;
+
+            const newOrderFromNotif: ParsedOrder = {
               id: orderId || `ord-notif-${Date.now()}`,
-              from: data.from || 'البحرين',
-              to: data.to || 'حسب طلب الزبون 📍',
-              price: data.price || 0,
-              isPriceUnspecified: !data.price || data.price <= 0,
-              rawText: data.rawText || `${data.from || ''} ← ${data.to || ''}`,
+              from: rawFrom,
+              to: rawTo,
+              price: rawPrice,
+              isPriceUnspecified: rawPrice <= 0,
+              rawText: data.rawText || `${rawFrom} ← ${rawTo}`,
               groupName: 'واتساب',
               senderName: data.senderName || 'معلن واتساب',
+              senderPhone: '',
               receivedAt: new Date(),
               confidence: 90,
-              type: 'طلب واتساب',
+              match,
+              type: isPassenger ? 'طلب توصيل راكب 👥' : 'طلب واتساب',
               notes: '',
               status: 'pending',
               passengerCount: data.passengerCount,
               passengerDetection: {
-                level: data.isPassenger ? 'confirmed_passenger' : 'goods_safe',
-                label: data.isPassenger ? 'نقل أشخاص' : 'توصيل بضائع معتمد',
+                level: isPassenger ? 'confirmed_passenger' : 'goods_safe',
+                label: isPassenger ? 'نقل أشخاص' : 'توصيل بضائع معتمد',
                 matchedPhrases: [],
-                reason: data.isPassenger ? 'إعلان نقل ركاب' : 'طلب توصيل',
-                isForbidden: !!data.isPassenger,
+                reason: isPassenger ? 'إعلان نقل ركاب' : 'طلب توصيل',
+                isForbidden: isPassenger,
                 passengerCount: data.passengerCount,
               },
-            });
+            };
+            setOrders((prev) => [newOrderFromNotif, ...prev.filter(o => o.id !== newOrderFromNotif.id).slice(0, 39)]);
+            setFocusedOrder(newOrderFromNotif);
           }
         });
 
@@ -1022,30 +1053,40 @@ function OrderiApp() {
             if (existing) {
               setFocusedOrder(existing);
             } else if (data.rawText || data.from) {
-              setFocusedOrder({
+              const rawFrom = data.from || 'البحرين';
+              const rawTo = data.to || 'حسب طلب الزبون 📍';
+              const rawPrice = typeof data.price === 'number' ? data.price : 0;
+              const match = evaluateOrderMatch(rawFrom, rawTo, rawPrice, filterRef.current, driverLocationRef.current);
+              const isPassenger = !!data.isPassenger;
+
+              const newOrderFromNotif: ParsedOrder = {
                 id: data.orderId || `ord-notif-${Date.now()}`,
-                from: data.from || 'البحرين',
-                to: data.to || 'حسب طلب الزبون 📍',
-                price: data.price || 0,
-                isPriceUnspecified: !data.price || data.price <= 0,
+                from: rawFrom,
+                to: rawTo,
+                price: rawPrice,
+                isPriceUnspecified: rawPrice <= 0,
                 rawText: data.rawText || '',
                 groupName: 'واتساب',
                 senderName: data.senderName || 'معلن واتساب',
+                senderPhone: '',
                 receivedAt: new Date(),
                 confidence: 90,
-                type: 'طلب واتساب',
+                match,
+                type: isPassenger ? 'طلب توصيل راكب 👥' : 'طلب واتساب',
                 notes: '',
                 status: 'pending',
                 passengerCount: data.passengerCount,
                 passengerDetection: {
-                  level: data.isPassenger ? 'confirmed_passenger' : 'goods_safe',
-                  label: data.isPassenger ? 'نقل أشخاص' : 'توصيل بضائع معتمد',
+                  level: isPassenger ? 'confirmed_passenger' : 'goods_safe',
+                  label: isPassenger ? 'نقل أشخاص' : 'توصيل بضائع معتمد',
                   matchedPhrases: [],
-                  reason: data.isPassenger ? 'إعلان نقل ركاب' : 'طلب توصيل',
-                  isForbidden: !!data.isPassenger,
+                  reason: isPassenger ? 'إعلان نقل ركاب' : 'طلب توصيل',
+                  isForbidden: isPassenger,
                   passengerCount: data.passengerCount,
                 },
-              });
+              };
+              setOrders((prev) => [newOrderFromNotif, ...prev.filter(o => o.id !== newOrderFromNotif.id).slice(0, 39)]);
+              setFocusedOrder(newOrderFromNotif);
             }
           }
         }
@@ -1363,6 +1404,8 @@ function OrderiApp() {
         coverageKm: f.coverageKm,
         driverLat: loc?.latitude || 0,
         driverLon: loc?.longitude || 0,
+        blockPassenger: f.blockPassengerDeliveries !== false,
+        notificationsEnabled: f.notificationsEnabled !== false,
       }).catch(() => {});
     }
   };
@@ -1877,7 +1920,7 @@ function OrderiApp() {
   const matchedCount = availableOrders.filter((o) => o.match.score >= 80).length;
   const vipCount = availableOrders.filter((o) => o.match.score >= 90).length;
   const trustedVipCount = availableOrders.filter((o) => o.contactStatus === 'vip').length;
-  const passengerCount = availableOrders.filter((o) => o.passengerDetection?.level === 'confirmed_passenger').length;
+  const passengerCount = availableOrders.filter((o) => o.passengerDetection?.level === 'confirmed_passenger' || o.passengerDetection?.level === 'suspicious_passenger').length;
   const huntedCount = availableOrders.filter((o) => o.isDestinationHunted).length;
   const todayEarnings = acceptedOrders.reduce((sum, ord) => sum + ord.price, 0);
 
@@ -1896,7 +1939,7 @@ function OrderiApp() {
       return false;
     }
 
-    const isPassengerOrder = ord.passengerDetection?.level === 'confirmed_passenger';
+    const isPassengerOrder = ord.passengerDetection?.level === 'confirmed_passenger' || ord.passengerDetection?.level === 'suspicious_passenger';
     if (!isPassengerOrder && filter.ignoreNonMatching && ord.match.score < 80 && ord.contactStatus !== 'vip') return false;
     if (feedFilter === 'hunted') return !!ord.isDestinationHunted;
     if (feedFilter === 'matched') return ord.match.score >= 80;
