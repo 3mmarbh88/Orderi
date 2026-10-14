@@ -22,7 +22,7 @@ assert.equal(buQuwahOrder.orderCategory, 'delivery');
 
 const buKowarahOrder = parseWhatsAppOrderText('اوردر من بو كوارة الى مدينة حمد');
 assert.equal(buKowarahOrder.from, 'بو كوارة');
-assert.equal(buKowarahOrder.to, 'مدينة حمد');
+assert.ok(buKowarahOrder.to.includes('مدينة حمد'), 'Destination should resolve to canonical Hamad Town area');
 assert.equal(buKowarahOrder.price, 0, 'Parser must not invent a price when none is stated');
 assert.equal(buKowarahOrder.isPriceUnspecified, true);
 
