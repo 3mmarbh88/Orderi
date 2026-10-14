@@ -50,17 +50,19 @@ export function extractClosureKeywords(text: string): {
   matchedWords: string[];
   matchedEmojis: string[];
   hasClosureIntent: boolean;
+  matchedGratitudeWords: string[];
 } {
-  if (!text) return { matchedWords: [], matchedEmojis: [], hasClosureIntent: false };
+  if (!text) return { matchedWords: [], matchedEmojis: [], matchedGratitudeWords: [], hasClosureIntent: false };
   
   const cleaned = cleanDialectText(text);
   const normalized = normalizeArabicText(text);
 
   const { takenKeywords, completionKeywords, gratitudeKeywords, emojis } = getAggregatedClosureDictionary();
-  const allKeywords = [...takenKeywords, ...completionKeywords, ...gratitudeKeywords];
+  // Gratitude is tracked separately: «شكراً» alone must never close an order.
+  const closureKeywords = [...takenKeywords, ...completionKeywords];
 
   const matchedWords: string[] = [];
-  for (const kw of allKeywords) {
+  for (const kw of closureKeywords) {
     const kwClean = cleanDialectText(kw);
     // فحص بالحدود اللفظية لدقة المعنى وعدم التداخل مع كلمات أخرى
     const rxClean = new RegExp(`(?:^|[\\s،,.:!؟-])${kwClean}(?:$|[\\s،,.:!؟-])`, 'i');
@@ -80,8 +82,17 @@ export function extractClosureKeywords(text: string): {
     }
   }
 
-  const hasClosureIntent = matchedWords.length > 0 || matchedEmojis.length > 0;
-  return { matchedWords, matchedEmojis, hasClosureIntent };
+  const matchedGratitudeWords: string[] = [];
+  for (const kw of gratitudeKeywords) {
+    const kwClean = cleanDialectText(kw);
+    if (!kwClean) continue;
+    const rx = new RegExp(`(?:^|[\\s،,.:!؟-])${kwClean}(?:$|[\\s،,.:!؟-])`, 'i');
+    if (rx.test(cleaned) && !matchedGratitudeWords.includes(kw)) matchedGratitudeWords.push(kw);
+  }
+
+  // Emojis are evidence, not proof. The caller must connect them to the advertiser/order.
+  const hasClosureIntent = matchedWords.length > 0;
+  return { matchedWords, matchedEmojis, matchedGratitudeWords, hasClosureIntent };
 }
 
 /**
@@ -141,14 +152,14 @@ export function checkIncomingMessageForClosure(
     return null;
   }
 
-  // ملصقات واتساب: إذا كان الإشعار مجرد كلمة "ملصق" أو "Sticker" بدون نص أو اقتباس واضح، لا نحذف بالخطأ
-  const isPureSticker = /^(?:sticker|ملصق|🖼️\s*ملصق|🖼️\s*sticker)$/i.test(rawText.trim());
-  if (isPureSticker && !message.rawQuotedText) {
-    return null;
-  }
+  // Android may expose a WhatsApp sticker only as «ملصق/Sticker». It must be tied to the advertiser/order.
+  const isPureSticker = /^(?:sticker|ملصق|🖼️\s*ملصق|🖼️\s*sticker|صورة)$/i.test(rawText.trim());
 
-  const { matchedWords, matchedEmojis, hasClosureIntent } = extractClosureKeywords(rawText);
-  if (!hasClosureIntent) return null;
+  const { matchedWords, matchedEmojis, matchedGratitudeWords, hasClosureIntent } = extractClosureKeywords(rawText);
+  const hasEmojiSignal = matchedEmojis.length > 0;
+  if (!hasClosureIntent && !hasEmojiSignal && !isPureSticker) return null;
+  // A generic emoji attached to a thank-you is not closure evidence.
+  const emojiCanSupportClosure = hasEmojiSignal && matchedGratitudeWords.length === 0;
 
   // 1. فحص الطلبات النشطة التي تنتمي لنفس المجموعة حصراً
   const candidateOrders = activeOrders.filter((order) => {
@@ -191,12 +202,13 @@ export function checkIncomingMessageForClosure(
     const toMention = order.to && cleanMsg.includes(cleanDialectText(order.to));
     const priceMention = order.price && order.price > 0 && cleanMsg.includes(order.price.toString());
 
-    const isQuoted = 
+    const isQuoted =
       (message.rawQuotedText && (message.rawQuotedText.includes(order.from) || message.rawQuotedText.includes(order.to))) ||
       rawText.includes(`> ${orderSnippet}`) ||
-      ((fromMention || toMention || priceMention) && (matchedWords.length > 0 || matchedEmojis.length > 0));
+      ((fromMention || toMention || priceMention) && (hasClosureIntent || emojiCanSupportClosure));
+    const advertiserMatch = isAdvertiserSenderMatch(msgSender, msgPhone, order.senderName, order.senderPhone);
 
-    if (isQuoted) {
+    if (isQuoted && (hasClosureIntent || (advertiserMatch && (emojiCanSupportClosure || isPureSticker)))) {
       processedMessageHashes.add(dedupeKey);
       markOrderPermanentlyClosed(order.id);
       return {
@@ -225,8 +237,8 @@ export function checkIncomingMessageForClosure(
   for (const order of sortedCandidates) {
     const isAdvertiser = isAdvertiserSenderMatch(msgSender, msgPhone, order.senderName, order.senderPhone);
 
-    if (isAdvertiser) {
-      // المعلن نفسه كتب «حصلت» أو «تم» أو «حصلت مندوب» أو «تم الحجز» أو أرسل رمز الإنجاز
+    if (isAdvertiser && (hasClosureIntent || isPureSticker || (emojiCanSupportClosure && matchedGratitudeWords.length === 0))) {
+      // The advertiser's explicit closure text, sticker-only reply, or non-gratitude emoji can be evidence.
       processedMessageHashes.add(dedupeKey);
       markOrderPermanentlyClosed(order.id);
       return {
