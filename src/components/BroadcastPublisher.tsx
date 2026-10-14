@@ -50,6 +50,75 @@ interface GroupItem {
   category?: string;
 }
 
+function normalizeGroupKey(name: string): string {
+  return name.normalize('NFKC').replace(/\s+/g, ' ').trim().toLocaleLowerCase();
+}
+
+/** Merge all existing broadcast-group sources instead of allowing an empty legacy key to hide them. */
+function readStoredBroadcastGroups(filterGroups: string[] = []): GroupItem[] {
+  const groups = new Map<string, GroupItem>();
+  const add = (value: unknown, fallbackCategory: string) => {
+    if (!Array.isArray(value)) return;
+    value.forEach((entry, index) => {
+      const item: Record<string, unknown> = typeof entry === 'string'
+        ? { name: entry }
+        : entry && typeof entry === 'object' ? entry as Record<string, unknown> : {};
+      const name = typeof item.name === 'string'
+        ? item.name.trim()
+        : typeof item?.title === 'string' ? item.title.trim() : '';
+      if (!name) return;
+      const key = normalizeGroupKey(name);
+      if (!key || groups.has(key)) return;
+      groups.set(key, {
+        id: typeof item.id === 'string' && item.id ? item.id : `group-${groups.size}-${index}`,
+        name,
+        category: typeof item.category === 'string' && item.category ? item.category : fallbackCategory,
+      });
+    });
+  };
+
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const custom = localStorage.getItem('orderi_custom_broadcast_groups');
+      if (custom) add(JSON.parse(custom), 'مخصص');
+      const mine = localStorage.getItem('orderi_my_whatsapp_groups');
+      if (mine) add(JSON.parse(mine), 'قروباتي');
+    }
+  } catch (error) {
+    console.warn('تعذر قراءة قروبات النشر المحفوظة:', error);
+  }
+  add(filterGroups, 'قروباتي');
+  return Array.from(groups.values());
+}
+
+function readStoredSelectedGroupNames(filterGroups: string[] = []): string[] {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const selected = localStorage.getItem('orderi_broadcast_selected_groups');
+      if (selected) {
+        const parsed: unknown = JSON.parse(selected);
+        if (Array.isArray(parsed)) {
+          return Array.from(new Map(parsed
+            .filter((name): name is string => typeof name === 'string' && !!name.trim())
+            .map((name) => [normalizeGroupKey(name), name.trim()])).values());
+        }
+      }
+      const mine = localStorage.getItem('orderi_my_whatsapp_groups');
+      if (mine) {
+        const parsed: unknown = JSON.parse(mine);
+        if (Array.isArray(parsed)) {
+          return Array.from(new Map(parsed
+            .filter((name): name is string => typeof name === 'string' && !!name.trim())
+            .map((name) => [normalizeGroupKey(name), name.trim()])).values());
+        }
+      }
+    }
+  } catch (error) {
+    console.warn('تعذر قراءة تحديد قروبات النشر المحفوظ:', error);
+  }
+  return Array.from(new Set(filterGroups.filter((name) => typeof name === 'string' && !!name.trim()).map((name) => name.trim())));
+}
+
 export interface BroadcastCustomTemplate {
   id: string;
   title: string;
@@ -113,44 +182,24 @@ export function BroadcastPublisher({
   // The actual final message formula/text
   const [broadcastText, setBroadcastText] = useState('');
 
-  // Groups management - only real groups added by the user
-  const [availableGroups, setAvailableGroups] = useState<GroupItem[]>(() => {
-    try {
-      const saved = localStorage.getItem('orderi_my_whatsapp_groups');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed.map((name: string, idx: number) => ({
-            id: `grp-${idx}`,
-            name,
-            category: 'قروباتي',
-          }));
-        }
-      }
-    } catch {}
-    if (filter.selectedGroups && filter.selectedGroups.length > 0) {
-      return filter.selectedGroups.map((name, idx) => ({
-        id: `filter-grp-${idx}`,
-        name,
-        category: 'قروباتي',
-      }));
-    }
-    return [];
-  });
-  const [selectedGroupNames, setSelectedGroupNames] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem('orderi_my_whatsapp_groups');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed;
-        }
-      }
-    } catch {}
-    return filter.selectedGroups || [];
-  });
+  // Groups management: combine manual groups, legacy saved groups, and radar-selected groups.
+  const [availableGroups, setAvailableGroups] = useState<GroupItem[]>(() =>
+    readStoredBroadcastGroups(filter.selectedGroups || [])
+  );
+  const [selectedGroupNames, setSelectedGroupNames] = useState<string[]>(() =>
+    readStoredSelectedGroupNames(filter.selectedGroups || [])
+  );
   const [groupSearch, setGroupSearch] = useState('');
   const [newGroupName, setNewGroupName] = useState('');
+
+  // Persist selection separately from the group catalogue so it survives app restarts.
+  useEffect(() => {
+    try {
+      localStorage.setItem('orderi_broadcast_selected_groups', JSON.stringify(selectedGroupNames));
+    } catch (error) {
+      console.warn('تعذر حفظ تحديد قروبات النشر:', error);
+    }
+  }, [selectedGroupNames]);
 
   // Published history
   const [broadcastHistory, setBroadcastHistory] = useState<OrderBroadcast[]>([]);
@@ -173,10 +222,8 @@ export function BroadcastPublisher({
       if (savedHistory) {
         setBroadcastHistory(JSON.parse(savedHistory));
       }
-      const savedCustomGroups = localStorage.getItem('orderi_custom_broadcast_groups');
-      if (savedCustomGroups) {
-        setAvailableGroups(JSON.parse(savedCustomGroups));
-      }
+      // Merge keys: an old empty custom-groups array must not erase groups saved elsewhere.
+      setAvailableGroups(readStoredBroadcastGroups(filter.selectedGroups || []));
     } catch {}
   }, []);
 
@@ -297,11 +344,12 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
 
   // Group selection handlers
   const handleToggleGroup = (name: string) => {
-    if (selectedGroupNames.includes(name)) {
-      setSelectedGroupNames(selectedGroupNames.filter((n) => n !== name));
-    } else {
-      setSelectedGroupNames([...selectedGroupNames, name]);
-    }
+    const key = normalizeGroupKey(name);
+    setSelectedGroupNames((current) =>
+      current.some((n) => normalizeGroupKey(n) === key)
+        ? current.filter((n) => normalizeGroupKey(n) !== key)
+        : [...current, name]
+    );
   };
 
   const handleSelectAllGroups = () => {
@@ -315,7 +363,8 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
   const handleAddCustomGroup = () => {
     const trimmed = newGroupName.trim();
     if (!trimmed) return;
-    if (availableGroups.some((g) => g.name === trimmed)) {
+    const key = normalizeGroupKey(trimmed);
+    if (availableGroups.some((g) => normalizeGroupKey(g.name) === key)) {
       onToast('القروب موجود بالفعل');
       return;
     }
@@ -324,11 +373,14 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
       { id: 'custom-' + Date.now(), name: trimmed, category: 'مخصص' }
     ];
     setAvailableGroups(updated);
-    setSelectedGroupNames([...selectedGroupNames, trimmed]);
+    setSelectedGroupNames((current) => [...current, trimmed]);
     setNewGroupName('');
     try {
       localStorage.setItem('orderi_custom_broadcast_groups', JSON.stringify(updated));
-    } catch {}
+      localStorage.setItem('orderi_my_whatsapp_groups', JSON.stringify(updated.map((group) => group.name)));
+    } catch (error) {
+      onToast('تعذر حفظ القروب على هذا الجهاز؛ تحقق من مساحة التخزين');
+    }
     onToast(`تمت إضافة القروب: "${trimmed}"`);
   };
 
@@ -338,7 +390,10 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
     setSelectedGroupNames(selectedGroupNames.filter((n) => n !== name));
     try {
       localStorage.setItem('orderi_custom_broadcast_groups', JSON.stringify(updated));
-    } catch {}
+      localStorage.setItem('orderi_my_whatsapp_groups', JSON.stringify(updated.map((group) => group.name)));
+    } catch (error) {
+      console.warn('تعذر حفظ حذف القروب:', error);
+    }
     onToast('تم حذف القروب');
   };
 
