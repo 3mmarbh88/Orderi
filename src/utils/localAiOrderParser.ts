@@ -129,6 +129,11 @@ export async function parseWhatsAppOrderWithLocalAi(
   // Step 1: Run Fast Tier 1 Heuristics
   const fastResult = parseWhatsAppOrderText(rawText);
 
+  // Same-area shorthand is an explicit route signal; don't let an AI tier rewrite it or send it to cloud fallback.
+  if (fastResult.sameAreaShorthand && fastResult.canCreateOrder) {
+    return { ...fastResult, aiUsed: false, inferenceMs: Math.round(performance.now() - startTime), parseMethod: 'fast_heuristic' };
+  }
+
   // If Fast Pass is highly confident and complete, return immediately (Zero lag for simple orders)
   if (hybridMode && !options.forceAi && fastResult.canCreateOrder && fastResult.confidence >= minConfidence && fastResult.from && fastResult.to) {
     const elapsed = Math.round(performance.now() - startTime);
