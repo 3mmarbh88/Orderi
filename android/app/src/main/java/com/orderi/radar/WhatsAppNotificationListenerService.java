@@ -492,9 +492,11 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                         // Mark as read action (تمييز كمقروء)
                         CharSequence aTitle = action.title;
                         String aTitleStr = aTitle != null ? aTitle.toString().toLowerCase() : "";
-                        boolean isMarkRead = aTitleStr.contains("read") || 
-                                             aTitleStr.contains("مقروء") || 
+                        boolean isMarkRead = aTitleStr.contains("read") ||
+                                             aTitleStr.contains("مقروء") ||
                                              aTitleStr.contains("قراءة") ||
+                                             aTitleStr.contains("تمييز") ||
+                                             aTitleStr.contains("تعليم") ||
                                              aTitleStr.contains("mark");
                         if (isMarkRead) {
                             MarkAsReadHolder readHolder = new MarkAsReadHolder();
