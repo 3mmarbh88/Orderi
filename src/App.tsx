@@ -45,6 +45,7 @@ import {
 import { Header } from './components/Header';
 import { HeroRadar } from './components/HeroRadar';
 import { OrderCard } from './components/OrderCard';
+import { AIQualityPanel } from './components/AIQualityPanel';
 import { FilterSettings } from './components/FilterSettings';
 import { AcceptedLedger } from './components/AcceptedLedger';
 import { BahrainRouteMap } from './components/BahrainRouteMap';
@@ -83,6 +84,7 @@ import { getWhatsAppConnection, markWhatsAppVerified } from './utils/whatsappCon
 import { isNativeAndroid, OrderiNotificationListener, WhatsAppNativeEvent } from './native/orderiNotificationListener';
 import { getWhatsAppListenerStatus, markAllWhatsAppAsRead } from './native/whatsappListener';
 import { isDuplicateOrder, findDuplicateOrderMatch, rememberOrderFingerprint } from './utils/orderDedup';
+import { saveClassificationCorrection } from './utils/localClassificationLearning';
 import { computeClientAiEvaluation } from './utils/aiEvaluator';
 import { detectPassengerDelivery } from './utils/passengerClassifier';
 import { 
@@ -1919,6 +1921,21 @@ function OrderiApp() {
     }
   };
 
+  // Keep classification corrections on-device; never upload raw text for this action.
+  const handleClassificationFeedback = (order: ParsedOrder, label: 'order' | 'advertisement') => {
+    const saved = saveClassificationCorrection(order.rawText || `${order.from} ${order.to}`, label, order.groupName);
+    if (!saved) {
+      showToast('تعذر حفظ التصحيح محلياً؛ تحقق من مساحة التخزين في الجهاز');
+      return;
+    }
+    if (label === 'advertisement') {
+      showToast('تم حفظ التصحيح محلياً كإعلان وإزالته من الرادار');
+      void handleIgnoreOrder(order.id);
+      return;
+    }
+    showToast('تم حفظ التصحيح محلياً كأوردر. الرسائل المشابهة لن تُعتمد تلقائياً دون تطابق واضح');
+  };
+
   // Group Link Sniffer Handlers
   const handleJoinGroup = (link: DiscoveredGroupLink) => {
     window.open(link.url, '_blank');
@@ -2254,6 +2271,12 @@ function OrderiApp() {
         {activeTab === 'radar' && (
           <div id="orders-feed-container" className="space-y-4 sm:space-y-5 scroll-mt-20">
 
+            <AIQualityPanel
+              acceptedCount={acceptedOrders.length}
+              duplicateMerges={orders.reduce((sum, order) => sum + Math.max(0, (order.duplicateCount || 1) - 1), 0)}
+              closedCount={closedCount}
+            />
+
             {/* Unified Command & Feed Toolbar */}
             <div className="p-3 sm:p-4 rounded-2xl bg-white border border-slate-200/90 shadow-2xs space-y-3">
               <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 sm:gap-4">
@@ -2458,6 +2481,7 @@ function OrderiApp() {
                     onRestoreOrder={handleRestoreOrder}
                     onConfirmClosure={handleConfirmClosure}
                     onDismissClosureSuspicion={handleDismissClosureSuspicion}
+                    onClassificationFeedback={handleClassificationFeedback}
                   />
                 ))}
               </div>
