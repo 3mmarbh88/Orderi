@@ -1,4 +1,4 @@
-import { BAHRAIN_AREAS, BAHRAIN_AREA_ALIASES, normalizeArabicText } from '../data/bahrainAreas';
+import { BAHRAIN_AREAS, BAHRAIN_AREA_ALIASES, correctBahrainAreaTyposInText, normalizeArabicText } from '../data/bahrainAreas';
 import { BAHRAIN_LANDMARKS } from '../data/bahrainLandmarks';
 import { HERE_WE_GO_BAHRAIN_PLACES } from '../data/hereWeGoBahrainMap';
 import { detectPassengerDelivery } from './passengerClassifier';
@@ -62,7 +62,7 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
   }
 
   const convertedText = convertArabicNumerals(rawText);
-  const normalized = normalizeArabicText(convertedText);
+  const normalized = normalizeArabicText(correctBahrainAreaTyposInText(convertedText));
 
   // Explicit order quantity: "اوردرين", "2 اوردرات", "ثلاثة طلبات".
   // A trailing number without the word order is not treated as an order count.
