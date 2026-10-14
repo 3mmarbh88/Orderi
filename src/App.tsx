@@ -1029,7 +1029,7 @@ function OrderiApp() {
       import('./utils/localAiOrderParser').then(async ({ parseWhatsAppOrderWithLocalAi }) => {
         const parsed = await parseWhatsAppOrderWithLocalAi(rawText || event.title || '', {
           hybridMode: filterRef.current.localAiConfig?.hybridMode !== false,
-          useCloudFallback: filterRef.current.useCloudAiFallback !== false,
+          useCloudFallback: filterRef.current.useCloudAiFallback === true,
           senderName: event.title,
           groupName,
         });
