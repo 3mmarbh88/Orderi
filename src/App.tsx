@@ -362,6 +362,11 @@ function OrderiApp() {
               groupName,
             });
             if (parsed.canCreateOrder) {
+              if (event.isGroup && groupName && groupName !== 'محادثة خاصة 👤') {
+                void OrderiNotificationListener.markGroupAsRead({ groupName }).catch((err) => {
+                  console.warn('[Orderi] Could not mark source WhatsApp group as read:', err);
+                });
+              }
               handleProcessIncomingRawOrder({
                 id: `android-wa-${event.id}`,
                 from: parsed.from, to: parsed.to, price: parsed.price,
@@ -1069,6 +1074,14 @@ function OrderiApp() {
         if (parsed.canCreateOrder || isPassengerRequest) {
           if (!order.from) order.from = 'موقع العميل / غير محدد 📍';
           if (!order.to) order.to = 'حسب طلب الراكب 📍';
+          // When a genuine order is extracted from a WhatsApp group, ask Android
+          // to use that exact group's cached "Mark as read" notification action.
+          // Never mark a similarly named group or unrelated chats as read.
+          if (isGroup && groupName && groupName !== 'محادثة خاصة 👤' && isNativeAndroid()) {
+            void OrderiNotificationListener.markGroupAsRead({ groupName }).catch((err) => {
+              console.warn('[Orderi] Could not mark source WhatsApp group as read:', err);
+            });
+          }
           handleProcessIncomingRawOrder(order, false);
         }
       }).catch(() => {});
