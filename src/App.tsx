@@ -362,6 +362,13 @@ function OrderiApp() {
               groupName,
             });
             if (parsed.canCreateOrder) {
+              // Refresh can process notifications that arrived while Orderi was suspended.
+              // Apply the same exact-group read action as the live notification path.
+              if (event.isGroup && groupName && groupName !== 'محادثة خاصة 👤') {
+                void OrderiNotificationListener.markGroupAsRead({ groupName }).catch((error) => {
+                  console.warn('[Orderi Native] Could not mark source WhatsApp group as read:', error);
+                });
+              }
               handleProcessIncomingRawOrder({
                 id: `android-wa-${event.id}`,
                 from: parsed.from, to: parsed.to, price: parsed.price,
