@@ -180,6 +180,38 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         return count;
     }
 
+    /**
+     * Marks only the exact source WhatsApp group as read using its cached notification action.
+     * Deliberately avoids broad matching and never cancels unrelated notifications.
+     */
+    public static int markWhatsAppGroupAsRead(android.content.Context context, String groupName) {
+        if (TextUtils.isEmpty(groupName)) return 0;
+        String target = groupName.trim().toLowerCase(java.util.Locale.ROOT);
+        java.util.HashSet<PendingIntent> sent = new java.util.HashSet<>();
+        int count = 0;
+        long now = System.currentTimeMillis();
+
+        for (java.util.Map.Entry<String, MarkAsReadHolder> entry : MARK_AS_READ_ACTIONS.entrySet()) {
+            MarkAsReadHolder holder = entry.getValue();
+            if (holder == null || holder.pendingIntent == null) continue;
+            String key = entry.getKey() == null ? "" : entry.getKey().trim().toLowerCase(java.util.Locale.ROOT);
+            String title = holder.title == null ? "" : holder.title.trim().toLowerCase(java.util.Locale.ROOT);
+            // Exact match only: similar group names must not mark the wrong chat read.
+            if (!target.equals(key) && !target.equals(title)) continue;
+            if (holder.timestamp > 0 && now - holder.timestamp > 30L * 60L * 1000L) continue;
+            if (sent.contains(holder.pendingIntent)) continue;
+            try {
+                holder.pendingIntent.send();
+                sent.add(holder.pendingIntent);
+                count++;
+            } catch (Exception e) {
+                android.util.Log.w("WhatsAppNotificationListenerService",
+                        "Could not mark source group read: " + groupName, e);
+            }
+        }
+        return count;
+    }
+
     public static boolean openWhatsAppConversation(android.content.Context context, String targetTitle) {
         if (TextUtils.isEmpty(targetTitle)) return false;
         String targetNormalized = targetTitle.toLowerCase().trim();
