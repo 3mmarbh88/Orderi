@@ -193,6 +193,10 @@ export function checkIncomingMessageForClosure(
     return diffA - diffB;
   });
 
+  const advertiserMatchedOrders = sortedCandidates.filter((candidate) =>
+    isAdvertiserSenderMatch(msgSender, msgPhone, candidate.senderName, candidate.senderPhone)
+  );
+
   // =========================================================================
   // المستوى الأول: اقتباس مباشر أو ذكر صريح لبيانات المسار أو السعر
   // =========================================================================
@@ -209,8 +213,12 @@ export function checkIncomingMessageForClosure(
       ((fromMention || toMention || priceMention) && (hasClosureIntent || emojiCanSupportClosure));
     const advertiserMatch = isAdvertiserSenderMatch(msgSender, msgPhone, order.senderName, order.senderPhone);
 
+    const contextConfirmsSticker =
+      isPureSticker && advertiserMatch && advertiserMatchedOrders.length === 1;
+
     if (isQuoted && (hasClosureIntent || (advertiserMatch && (emojiCanSupportClosure || isPureSticker)))) {
-      const verdict = hasClosureIntent ? 'confirmed_closed' : 'suspicious_closed';
+      // A sticker is treated as closure only when it is the advertiser's reply and exactly one active order matches.
+      const verdict = hasClosureIntent || contextConfirmsSticker ? 'confirmed_closed' : 'suspicious_closed';
       processedMessageHashes.add(dedupeKey);
       if (verdict === 'confirmed_closed') markOrderPermanentlyClosed(order.id);
       return {
@@ -220,13 +228,15 @@ export function checkIncomingMessageForClosure(
         verdict,
         reason: hasClosureIntent
           ? `اقتباس أو ذكر مباشر لبيانات الطلب (${order.from} ← ${order.to}) مع عبارة إغلاق صريحة: «${rawText}»`
-          : `ردّ برمز/ملصق غامض مرتبط بالطلب (${order.from} ← ${order.to})؛ يحتاج مراجعة لأن محتوى الملصق غير متاح للإشعار.`,
+          : contextConfirmsSticker
+            ? `ردّ صاحب الإعلان بملصق على طلبه الوحيد النشط في المجموعة؛ أُغلق الطلب حسب سياسة الصائد.`
+            : `ردّ برمز/ملصق غامض مرتبط بالطلب (${order.from} ← ${order.to})؛ يحتاج مراجعة لأن محتوى الملصق غير متاح للإشعار.`,
         evidence: {
           replyText: rawText,
           senderName: msgSender || 'عضو بالقروب',
           groupName: msgGroup || order.groupName,
           timestamp: new Date(msgTime).toISOString(),
-          confidence: hasClosureIntent ? 99 : 68,
+          confidence: hasClosureIntent ? 99 : contextConfirmsSticker ? 90 : 68,
           isQuote: true,
           matchedKeywords: [...matchedWords, ...matchedEmojis],
         },
@@ -238,9 +248,6 @@ export function checkIncomingMessageForClosure(
   // المستوى الثاني: ردّ المعلن نفسه. إذا كانت له عدة طلبات نشطة في المجموعة،
   // لا نختار واحداً بالتخمين؛ يلزم اقتباس أو ذكر مسار/سعر واضح.
   // =========================================================================
-  const advertiserMatchedOrders = sortedCandidates.filter((candidate) =>
-    isAdvertiserSenderMatch(msgSender, msgPhone, candidate.senderName, candidate.senderPhone)
-  );
   for (const order of sortedCandidates) {
     const isAdvertiser = isAdvertiserSenderMatch(msgSender, msgPhone, order.senderName, order.senderPhone);
     const cleanMsgForOrder = cleanDialectText(rawText);
@@ -254,8 +261,11 @@ export function checkIncomingMessageForClosure(
       (hasClosureIntent || isPureSticker || (emojiCanSupportClosure && matchedGratitudeWords.length === 0)) &&
       (advertiserMatchedOrders.length === 1 || explicitlyMentionsOrder)
     ) {
-      // Textual closure is strong evidence. An emoji/sticker without readable closure text is only a review signal.
-      const verdict = hasClosureIntent ? 'confirmed_closed' : 'suspicious_closed';
+      // A unique advertiser reply to their own active order is sufficient context for a sticker-only closure.
+      // The notification listener may not expose sticker pixels, so this is contextual inference, not visual recognition.
+      const contextConfirmsSticker = isPureSticker && advertiserMatchedOrders.length === 1;
+      const contextConfirmsEmoji = emojiCanSupportClosure && advertiserMatchedOrders.length === 1;
+      const verdict = hasClosureIntent || contextConfirmsSticker || contextConfirmsEmoji ? 'confirmed_closed' : 'suspicious_closed';
       processedMessageHashes.add(dedupeKey);
       if (verdict === 'confirmed_closed') markOrderPermanentlyClosed(order.id);
       return {
@@ -265,13 +275,17 @@ export function checkIncomingMessageForClosure(
         verdict,
         reason: hasClosureIntent
           ? `أفاد صاحب الإعلان نفسه (${msgSender || order.senderName}) في القروب بعبارة إغلاق: «${rawText}»`
-          : `أرسل صاحب الإعلان رمزاً/ملصقاً بعد الطلب، لكن محتواه غير مقروء من إشعار واتساب؛ يلزم التأكد يدوياً.`,
+          : contextConfirmsSticker
+            ? `أرسل صاحب الإعلان ملصقاً بعد طلبه الوحيد النشط في المجموعة؛ أُغلق الطلب حسب سياسة الصائد.`
+            : contextConfirmsEmoji
+              ? `أرسل صاحب الإعلان رمز إغلاق معروفاً بعد طلبه الوحيد النشط في المجموعة.`
+              : `أرسل صاحب الإعلان رمزاً/ملصقاً لكن لا يمكن ربطه بثقة بطلب واحد؛ يحتاج مراجعة.`,
         evidence: {
           replyText: rawText,
           senderName: msgSender || order.senderName,
           groupName: msgGroup || order.groupName,
           timestamp: new Date(msgTime).toISOString(),
-          confidence: hasClosureIntent ? 98 : 65,
+          confidence: hasClosureIntent ? 98 : contextConfirmsSticker ? 90 : contextConfirmsEmoji ? 88 : 65,
           isQuote: false,
           matchedKeywords: [...matchedWords, ...matchedEmojis],
         },

@@ -880,7 +880,7 @@ function OrderiApp() {
       const notificationLines = rawText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
       const latestLine = notificationLines[notificationLines.length - 1] || '';
       const parsedGroupReply = event.isGroup ? latestLine.match(/^([^:\n]{1,60}):\s*(.+)$/) : null;
-      const closureSenderName = parsedGroupReply?.[1]?.trim() || event.title || '';
+      const closureSenderName = event.messageSender?.trim() || parsedGroupReply?.[1]?.trim() || event.title || '';
       const closureMessageText = parsedGroupReply?.[2]?.trim() || rawText || event.title || '';
 
       // Check for Smart Order Closure (الكشف الذكي عن الطلبات المحجوزة أو المنتهية)

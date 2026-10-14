@@ -105,6 +105,29 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                 }
             } catch (Exception ignored) {}
         }
+        // Extract the latest sender identity from MessagingStyle even when WhatsApp supplies
+        // a non-empty EXTRA_TEXT such as "Sticker". Notification content is the only source here;
+        // this does not read WhatsApp's private database or expose sticker pixels.
+        String messageSender = "";
+        try {
+            Object messages = extras.get(Notification.EXTRA_MESSAGES);
+            if (messages instanceof Parcelable[]) {
+                Parcelable[] messageArray = (Parcelable[]) messages;
+                for (int i = messageArray.length - 1; i >= 0; i--) {
+                    if (!(messageArray[i] instanceof Bundle)) continue;
+                    Bundle message = (Bundle) messageArray[i];
+                    Parcelable senderParcelable = message.getParcelable("sender_person");
+                    if (senderParcelable instanceof android.app.Person) {
+                        CharSequence senderName = ((android.app.Person) senderParcelable).getName();
+                        if (senderName != null && senderName.length() > 0) {
+                            messageSender = senderName.toString();
+                            break;
+                        }
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+
         if (TextUtils.isEmpty(rawText) && !TextUtils.isEmpty(title)) rawText = title;
         if (TextUtils.isEmpty(rawText) && TextUtils.isEmpty(title)) return;
 
@@ -120,6 +143,7 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
             event.put("receivedAt", sbn.getPostTime());
             event.put("key", sbn.getKey());
             event.put("conversationTitle", conversationTitle);
+            event.put("messageSender", messageSender);
             event.put("category", category);
             // WhatsApp commonly exposes a conversation title for group notifications.
             // Do not claim every notification with a title is a group.
