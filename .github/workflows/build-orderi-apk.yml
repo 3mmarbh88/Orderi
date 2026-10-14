@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - feature/local-bahrain-order-understanding-20261014
+      - feature/order-learning-privacy-quality-20261014
     paths:
       - 'src/**'
       - 'android/**'
