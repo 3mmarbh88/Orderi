@@ -282,6 +282,20 @@ public class NotificationListenerPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void dismissOrderNotification(PluginCall call) {
+        try {
+            String rawText = call.getString("rawText", "");
+            int count = WhatsAppNotificationListenerService.dismissOrderNotificationsMatching(getContext(), rawText);
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            ret.put("dismissedCount", count);
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("Failed to dismiss matching Orderi notification", e);
+        }
+    }
+
+    @PluginMethod
     public void markAllAsRead(PluginCall call) {
         try {
             java.util.List<String> targetGroups = new java.util.ArrayList<>();
