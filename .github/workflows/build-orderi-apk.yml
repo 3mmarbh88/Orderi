@@ -39,6 +39,9 @@ jobs:
       - name: Test offline order parsing
         run: npm run test:order-parser
 
+      - name: TypeScript type check
+        run: npm run lint
+
       - name: Build web application
         run: npm run build
 
