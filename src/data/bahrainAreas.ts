@@ -110,12 +110,23 @@ export function findAreaByName(name: string): AreaLocation | undefined {
   if (!name) return undefined;
   const normalized = normalizeArabicText(name);
 
-  // 1. Direct match with standard Bahrain areas
-  const directArea = BAHRAIN_AREAS.find((area) => {
-    const areaNorm = normalizeArabicText(area.name);
-    return areaNorm === normalized || areaNorm.includes(normalized) || normalized.includes(areaNorm);
-  });
-  if (directArea) return directArea;
+  // 1. Prefer exact area matches, then the longest partial match.
+  // This prevents "الرفاع الشرقي" from being reduced to "الرفاع".
+  const exactArea = BAHRAIN_AREAS.find(
+    (area) => normalizeArabicText(area.name) === normalized ||
+      normalizeArabicText(area.nameEn) === normalized,
+  );
+  if (exactArea) return exactArea;
+
+  const partialAreas = BAHRAIN_AREAS
+    .filter((area) => {
+      const areaName = normalizeArabicText(area.name);
+      const areaEnglish = normalizeArabicText(area.nameEn);
+      return areaName.includes(normalized) || normalized.includes(areaName) ||
+        areaEnglish.includes(normalized) || normalized.includes(areaEnglish);
+    })
+    .sort((a, b) => Math.max(b.name.length, b.nameEn.length) - Math.max(a.name.length, a.nameEn.length));
+  if (partialAreas.length) return partialAreas[0];
 
   // 2. Intelligent match with Bahrain malls & landmarks (e.g. مودامول، السيف مول، سيتي سنتر، الأفنيوز)
   const landmark = findLandmarkByName(name);
