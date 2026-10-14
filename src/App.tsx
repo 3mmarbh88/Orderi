@@ -346,8 +346,7 @@ function OrderiApp() {
           const { parseWhatsAppOrderWithLocalAi } = await import('./utils/localAiOrderParser');
           for (const event of pending.events.slice(-30)) {
             const groupName = (event.conversationTitle || event.title || '').trim() || 'محادثة خاصة 👤';
-            const rawText = [event.bigText, event.text, event.subText, event.rawText]
-              .filter(Boolean).join('\n').trim();
+            const rawText = String(event.rawText || event.bigText || event.text || event.subText || '').trim();
             const parsed = await parseWhatsAppOrderWithLocalAi(rawText || event.title || '', {
               hybridMode: filterRef.current.localAiConfig?.hybridMode !== false,
               useCloudFallback: filterRef.current.useCloudAiFallback !== false,
@@ -897,10 +896,10 @@ function OrderiApp() {
     let listenerHandle: { remove: () => Promise<void> } | null = null;
 
     const convertNativeEvent = (event: WhatsAppNativeEvent) => {
-      const rawText = [event.bigText, event.text, event.subText, event.rawText]
-        .filter(Boolean)
-        .join('\n')
-        .trim();
+      // Prefer the actual message body over Android's repeated title/text/bigText
+      // variants. Joining all variants duplicated the message and broke short-sticker
+      // recognition as well as order parsing.
+      const rawText = String(event.rawText || event.bigText || event.text || event.subText || '').trim();
       if (!rawText && !event.title) return;
 
       // Smart resolution of Group Name and whether it's a group
