@@ -88,7 +88,7 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
   // Suppress personal travel announcements (not delivery requests), even when they
   // include a phone number or travel day. Explicit order/delivery language takes priority.
   const hasExplicitOrderLanguage = /(?:اوردر|أوردر|طلب توصيل|طلب|توصيل|مندوب|بيك\s*اب|pickup|delivery|استلام|تسليم|شحن|طرود|بضاعة|كرتون|وجبة|مشوار للعميل|مطلوب\s*(?:مندوب|توصيل))/i.test(rawText);
-  const hasTravelAnnouncementVerb = /(?:^|[\\s،,.])(?:طالع|طالعة|رايح|رايحه|رايحة|مسافر|مسافره|مسافرة|متجه|متجهة|بطلع|بروح|بسافر|متوجه|متوجهة)(?=$|[\\s،,.])/i.test(normalized);
+  const hasTravelAnnouncementVerb = /(?:^|[\s،,.])(?:طالع|طالعة|رايح|رايحه|رايحة|مسافر|مسافره|مسافرة|متجه|متجهة|بطلع|بروح|بسافر|متوجه|متوجهة)(?=$|[\s،,.])/i.test(normalized);
   const mentionsTravelDestination = /(?:الامارات|امارات|الإمارات|دبي|ابوظبي|أبوظبي|الشارقه|الشارقة|عجمان|السعوديه|السعودية|الرياض|جده|جدة|الدمام|الخبر|مكه|مكة|المدينه|المدينة|الكويت|قطر|الدوحه|الدوحة|عمان|مسقط|الاردن|الأردن)/i.test(normalized);
   if (hasTravelAnnouncementVerb && mentionsTravelDestination && !hasExplicitOrderLanguage) {
     return {
@@ -255,8 +255,8 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
     // Matches: "من الرفاع", "استلام من سار", "بالرفاع", "في الرفاع", "عند مجمع السيف"
     if (!fromArea) {
       const fromPattern = startsWithAl
-        ? new RegExp(`(?:(?:من|استلام من|استلام|بيك اب من|بيك اب|موقع|تحميل من|فرع|عند)\\s*(?:مجمع|مول|سوق|منطقة|قرية)?\\s*${kw}\\b|(?:^|[\\s،,.])بال(?:مجمع|مول|سوق|منطقة|قرية)?${core}\\b|(?:^|[\\s،,.])في\\s+(?:مجمع|مول|سوق|منطقة|قرية)?${kw}\\b)`, 'i')
-        : new RegExp(`(?:(?:من|استلام من|استلام|بيك اب من|بيك اب|موقع|تحميل من|فرع|عند)\\s*(?:مجمع|مول|سوق|منطقة|قرية)?\\s*${kw}\\b|(?:^|[\\s،,.])بـ?${kw}\\b|(?:^|[\\s،,.])في\\s+(?:مجمع|مول|سوق|منطقة|قرية)?${kw}\\b)`, 'i');
+        ? new RegExp(`(?:(?:من|استلام من|استلام|بيك اب من|بيك اب|موقع|تحميل من|فرع|عند)\s*(?:مجمع|مول|سوق|منطقة|قرية)?\s*${kw}\\b|(?:^|[\s،,.])بال(?:مجمع|مول|سوق|منطقة|قرية)?${core}\\b|(?:^|[\s،,.])في\s+(?:مجمع|مول|سوق|منطقة|قرية)?${kw}\\b)`, 'i')
+        : new RegExp(`(?:(?:من|استلام من|استلام|بيك اب من|بيك اب|موقع|تحميل من|فرع|عند)\s*(?:مجمع|مول|سوق|منطقة|قرية)?\s*${kw}\\b|(?:^|[\s،,.])بـ?${kw}\\b|(?:^|[\s،,.])في\s+(?:مجمع|مول|سوق|منطقة|قرية)?${kw}\\b)`, 'i');
 
       if (fromPattern.test(normalized)) {
         fromArea = item.placeName;
@@ -267,8 +267,8 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
     // Matches: "الى الرفاع", "للمنامة", "للمطار", "للسلمانية", "للجسر", "لسار", "لـمدينة حمد", "توصيل للرفاع", "مشوار للمطار"
     if (!toArea) {
       const toPattern = startsWithAl
-        ? new RegExp(`(?:(?:الى|إلى|لي|تسليم الى|تسليم ل|تسليم|توصيل الى|توصيل ل|مشوار الى|مشوار ل|توصيلة الى|توصيلة ل|وجهة|مكان|يوصل)\\s*(?:مجمع|مول|سوق|منطقة|قرية)?\\s*${kw}\\b|(?:^|[\\s،,.]|(?:مشوار|توصيل|توصيلة|نقل|روحة|طالع)\\s+)لل(?:مجمع|مول|سوق|منطقة|قرية)?${core}\\b|(?:^|[\\s،,.])لـ?${kw}\\b)`, 'i')
-        : new RegExp(`(?:(?:الى|إلى|لي|تسليم الى|تسليم ل|تسليم|توصيل الى|توصيل ل|مشوار الى|مشوار ل|توصيلة الى|توصيلة ل|وجهة|مكان|يوصل)\\s*(?:مجمع|مول|سوق|منطقة|قرية)?\\s*${kw}\\b|(?:^|[\\s،,.]|(?:مشوار|توصيل|توصيلة|نقل|روحة|طالع)\\s+)لـ?${kw}\\b)`, 'i');
+        ? new RegExp(`(?:(?:الى|إلى|لي|تسليم الى|تسليم ل|تسليم|توصيل الى|توصيل ل|مشوار الى|مشوار ل|توصيلة الى|توصيلة ل|وجهة|مكان|يوصل)\s*(?:مجمع|مول|سوق|منطقة|قرية)?\s*${kw}\\b|(?:^|[\s،,.]|(?:مشوار|توصيل|توصيلة|نقل|روحة|طالع)\s+)لل(?:مجمع|مول|سوق|منطقة|قرية)?${core}\\b|(?:^|[\s،,.])لـ?${kw}\\b)`, 'i')
+        : new RegExp(`(?:(?:الى|إلى|لي|تسليم الى|تسليم ل|تسليم|توصيل الى|توصيل ل|مشوار الى|مشوار ل|توصيلة الى|توصيلة ل|وجهة|مكان|يوصل)\s*(?:مجمع|مول|سوق|منطقة|قرية)?\s*${kw}\\b|(?:^|[\s،,.]|(?:مشوار|توصيل|توصيلة|نقل|روحة|طالع)\s+)لـ?${kw}\\b)`, 'i');
 
       if (toPattern.test(normalized) && (!fromArea || item.placeName !== fromArea || /(?:من|استلام).*?(?:الى|إلى|لل|لـ|تسليم)/i.test(normalized))) {
         toArea = item.placeName;
@@ -421,7 +421,7 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
   let notes = '';
   // Any explicit AC / air-conditioning / refrigeration wording means the goods
   // need cold handling. Do not infer this from the item type alone.
-  const requiresColdStorage = /(?:تكييف|مكيف(?:ات)?|مكيف\\s*هواء|هواء\\s*بارد|حفظ\\s*بارد|بارد|تبريد|ثلاجه|ثلاجات)/i.test(normalized);
+  const requiresColdStorage = /(?:تكييف|مكيف(?:ات)?|مكيف\s*هواء|هواء\s*بارد|حفظ\s*بارد|بارد|تبريد|ثلاجه|ثلاجات)/i.test(normalized);
   if (requiresColdStorage) {
     notes = 'يحتاج حفظ بارد';
   } else {
@@ -430,7 +430,7 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
       'وجبة', 'مستندات', 'أوراق', 'عباية', 'ملابس', 'شحنة', 'أمانات', 'كرتون'
     ];
     for (const kw of noteKeywords) {
-      const kwRegex = new RegExp(`(?:^|[\\s،,.])${kw}(?:$|[\\s،,.])`, 'i');
+      const kwRegex = new RegExp(`(?:^|[\s،,.])${kw}(?:$|[\s،,.])`, 'i');
       if (kwRegex.test(normalized)) {
         notes = kw;
         break;
