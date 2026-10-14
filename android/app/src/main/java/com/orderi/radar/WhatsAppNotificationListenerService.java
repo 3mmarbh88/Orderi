@@ -268,35 +268,67 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
 
         String category = n.category == null ? "" : n.category;
 
-        // Smart Group Name Extraction
+        // Robust group-name extraction across WhatsApp/Android notification layouts.
+        // Prefer explicit MessagingStyle conversation metadata; then inspect title/text
+        // formats without assuming every group name contains a keyword such as "توصيل".
         String detectedGroupName = "";
         String detectedSenderName = title;
+        String combinedVisibleText = !TextUtils.isEmpty(bigText) ? bigText : text;
+        if (TextUtils.isEmpty(combinedVisibleText)) combinedVisibleText = subText;
 
         if (!TextUtils.isEmpty(conversationTitle)) {
-            detectedGroupName = conversationTitle;
-            detectedSenderName = title;
+            detectedGroupName = conversationTitle.trim();
         } else if (isExplicitGroupFlag && !TextUtils.isEmpty(title)) {
-            detectedGroupName = title;
+            detectedGroupName = title.trim();
         } else if (!TextUtils.isEmpty(title) && title.contains(" @ ")) {
-            String[] parts = title.split(" @ ");
-            if (parts.length >= 2) {
+            String[] parts = title.split(" @ ", 2);
+            if (parts.length == 2) {
                 detectedSenderName = parts[0].trim();
                 detectedGroupName = parts[1].trim();
             }
-        } else if (!TextUtils.isEmpty(summaryText) && (summaryText.contains("قروب") || summaryText.contains("مجموعة") || summaryText.contains("توصيل"))) {
-            detectedGroupName = summaryText;
-        } else if (!TextUtils.isEmpty(title) && (title.contains("قروب") || title.contains("جروب") || title.contains("مجموعة") || title.contains("مندوب") || title.contains("توصيل") || title.contains("كباتن") || title.contains("طلبات") || title.contains("بحرين"))) {
-            detectedGroupName = title;
-        } else if (!TextUtils.isEmpty(title) && !TextUtils.isEmpty(text) && text.contains(":")) {
-            detectedGroupName = title;
-            int colonIdx = text.indexOf(':');
-            if (colonIdx > 0 && colonIdx < 35) {
-                detectedSenderName = text.substring(0, colonIdx).trim();
+        }
+
+        // Some WhatsApp versions put "sender: message" in text and the chat/group
+        // title in title. Other versions put "group: sender: message" in the text.
+        if (TextUtils.isEmpty(detectedGroupName) && !TextUtils.isEmpty(title)
+                && !TextUtils.isEmpty(combinedVisibleText)) {
+            int colonIdx = combinedVisibleText.indexOf(':');
+            if (colonIdx > 0 && colonIdx < 70) {
+                String prefix = combinedVisibleText.substring(0, colonIdx).trim();
+                String normalizedPrefix = prefix.toLowerCase(java.util.Locale.ROOT);
+                String normalizedTitle = title.trim().toLowerCase(java.util.Locale.ROOT);
+                boolean prefixIsTitle = normalizedPrefix.equals(normalizedTitle);
+                boolean looksLikeGenericSummary = normalizedPrefix.matches("\\d+\\s+.*")
+                        || normalizedPrefix.contains("رسالة") || normalizedPrefix.contains("messages");
+                if (!prefixIsTitle && !looksLikeGenericSummary && combinedVisibleText.indexOf(':', colonIdx + 1) > colonIdx) {
+                    // Different first label plus a second sender label is a strong group-layout hint.
+                    detectedGroupName = prefix;
+                    int secondColon = combinedVisibleText.indexOf(':', colonIdx + 1);
+                    if (secondColon > colonIdx + 1) {
+                        detectedSenderName = combinedVisibleText.substring(colonIdx + 1, secondColon).trim();
+                    }
+                } else if (prefixIsTitle) {
+                    detectedSenderName = prefix;
+                }
             }
         }
 
+        if (TextUtils.isEmpty(detectedGroupName) && !TextUtils.isEmpty(title)
+                && (title.contains("قروب") || title.contains("جروب") || title.contains("مجموعة")
+                || title.contains("مندوب") || title.contains("توصيل") || title.contains("كباتن")
+                || title.contains("طلبات") || title.contains("بحرين"))) {
+            detectedGroupName = title.trim();
+        }
+
+        if (TextUtils.isEmpty(detectedGroupName) && !TextUtils.isEmpty(summaryText)
+                && (summaryText.contains("قروب") || summaryText.contains("مجموعة")
+                || summaryText.contains("توصيل") || summaryText.contains("كباتن"))) {
+            detectedGroupName = summaryText.trim();
+        }
+
         boolean looksLikeGroup = !TextUtils.isEmpty(detectedGroupName) || isExplicitGroupFlag;
-        String resolvedTitle = !TextUtils.isEmpty(detectedGroupName) ? detectedGroupName : (!TextUtils.isEmpty(conversationTitle) ? conversationTitle : title);
+        String resolvedTitle = !TextUtils.isEmpty(detectedGroupName) ? detectedGroupName
+                : (!TextUtils.isEmpty(conversationTitle) ? conversationTitle : title);
         String rawText = !TextUtils.isEmpty(bigText) ? bigText : text;
         if (TextUtils.isEmpty(rawText)) rawText = subText;
 
