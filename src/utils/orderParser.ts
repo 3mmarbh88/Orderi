@@ -65,17 +65,17 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
   // Explicit order quantity: "اوردرين", "2 اوردرات", "ثلاثة طلبات".
   // A trailing number without the word order is not treated as an order count.
   let orderCount: number | undefined;
-  const numericOrderCount = /(?:^|[\\s،,])([1-9]\\d?)\\s*(?:اوردرات|اوردر|طلبات|طلب)(?=$|[\\s،,.])/i.exec(normalized);
+  const numericOrderCount = /(?:^|[\s،,])([1-9]\d?)\s*(?:اوردرات|اوردر|طلبات|طلب)(?=$|[\s،,.])/i.exec(normalized);
   if (numericOrderCount) {
     const value = Number(numericOrderCount[1]);
     if (value >= 1 && value <= 20) orderCount = value;
   } else if (/(?:اوردرين|اوردران|طلبين|طلبان)/i.test(normalized)) {
     orderCount = 2;
-  } else if (/(?:ثلاثه|ثلاث|ثلاثة)\\s*(?:اوردرات|طلبات|اوردر|طلب)/i.test(normalized)) {
+  } else if (/(?:ثلاثه|ثلاث|ثلاثة)\s*(?:اوردرات|طلبات|اوردر|طلب)/i.test(normalized)) {
     orderCount = 3;
-  } else if (/(?:اربعه|اربع|أربعة)\\s*(?:اوردرات|طلبات|اوردر|طلب)/i.test(normalized)) {
+  } else if (/(?:اربعه|اربع|أربعة)\s*(?:اوردرات|طلبات|اوردر|طلب)/i.test(normalized)) {
     orderCount = 4;
-  } else if (/(?:خمسه|خمس|خمسة)\\s*(?:اوردرات|طلبات|اوردر|طلب)/i.test(normalized)) {
+  } else if (/(?:خمسه|خمس|خمسة)\s*(?:اوردرات|طلبات|اوردر|طلب)/i.test(normalized)) {
     orderCount = 5;
   }
 
@@ -348,7 +348,7 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
   // Only accept a final bare number after both route endpoints were identified,
   // when there is no explicit price, stated order quantity, passenger count or time.
   const hasPersonOrScheduleNumber = /(?:اشخاص|شخص|ركاب|راكب|ساعة|الساعة|هاتف|واتساب)/i.test(normalized);
-  const trailingBareNumber = /(?:^|[\\s،,])([1-9]\\d?(?:\\.\\d+)?)\\s*$/.exec(convertedText);
+  const trailingBareNumber = /(?:^|[\s،,])([1-9]\d?(?:\.\d+)?)\s*$/.exec(convertedText);
   if (price <= 0 && !orderCount && fromArea && toArea &&
       fromArea !== toArea && !hasPersonOrScheduleNumber && trailingBareNumber) {
     const shorthandFare = Number(trailingBareNumber[1]);
