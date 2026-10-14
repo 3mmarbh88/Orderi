@@ -48,6 +48,7 @@ interface OrderiNotificationListenerPlugin {
     blockPassenger?: boolean;
     notificationsEnabled?: boolean;
   }): Promise<void>;
+  markGroupAsRead(options: { groupName: string }): Promise<{ success: boolean; markedCount: number; groupName?: string; reason?: string }>;
   markAllAsRead(options?: { groupNames?: string[] }): Promise<{ success: boolean; markedCount: number; archivedAutomationStarted?: boolean; accessibilityRequired?: boolean }>;
   addListener(
     eventName: 'whatsappNotification',
