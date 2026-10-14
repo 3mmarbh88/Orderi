@@ -57,7 +57,7 @@ assert.match(travelAnnouncement.notes, /إعلان سفر شخصي/);
 const saudiTravelAnnouncement = parseWhatsAppOrderText('رايح السعودية يوم الخميس 36667777');
 assert.equal(saudiTravelAnnouncement.canCreateOrder, false, 'A phone number must not turn a travel announcement into an order');
 
-const actualDeliveryToSaudi = parseWhatsAppOrderText('مطلوب توصيل كرتون إلى السعودية رقم 33334444');
+const actualDeliveryToSaudi = parseWhatsAppOrderText('توصيل كرتون من اللوزي إلى السعودية رقم 33334444');
 assert.equal(actualDeliveryToSaudi.canCreateOrder, true, 'Explicit delivery intent must not be suppressed as a travel announcement');
 
 console.log('Orderi parser tests passed: Bahraini aliases, canonical routes, explicit prices, and passenger classification.');
