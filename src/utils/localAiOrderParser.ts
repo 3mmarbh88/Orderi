@@ -1,6 +1,6 @@
 ﻿
 import { Capacitor, registerPlugin } from '@capacitor/core';
-import { ORDERI_SERVER_URL } from './authManager';
+import { findAreaByName } from '../data/bahrainAreas';
 import {
   parseWhatsAppOrderText,
   hasExplicitOrderIntent,
@@ -173,8 +173,8 @@ export async function parseWhatsAppOrderTextWithLocalAI(
     return rejectAutomaticCreation();
   }
 
-  // Keep non-Android parsing unchanged; Android order intake
-  // must pass the local and server-side verification gates.
+  // The model and all WhatsApp text classification run on-device.
+  // Never send notification contents to a remote AI endpoint.
   if (Capacitor.getPlatform() !== 'android') {
     return fallback;
   }
@@ -196,90 +196,41 @@ export async function parseWhatsAppOrderTextWithLocalAI(
     const localResponse = await LocalAI.analyze({ text: rawText });
     const localAI = parseModelJson(localResponse.text);
 
-    if (!localAI || typeof localAI.is_order !== 'boolean') {
+    if (
+      !localAI ||
+      typeof localAI.is_order !== 'boolean' ||
+      typeof localAI.confidence !== 'number' ||
+      !Number.isFinite(localAI.confidence)
+    ) {
       console.warn('[Orderi AI] Local classification was invalid.');
       return rejectAutomaticCreation();
     }
 
-    // If both the rule parser and Gemma reject the message,
-    // do not spend a server request on an obvious non-candidate.
-    // If they disagree, Gemini is asked to resolve the conflict.
-    if (!fallback.canCreateOrder && localAI.is_order !== true) {
-      return rejectAutomaticCreation();
-    }
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
-
-    let verification: Response;
-
-    try {
-      verification = await fetch(
-        `${ORDERI_SERVER_URL}/api/ai/classify-whatsapp-order`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ rawText }),
-          signal: controller.signal,
-        },
-      );
-    } finally {
-      clearTimeout(timeout);
-    }
-
-    if (!verification.ok) {
-      console.warn(
-        '[Orderi AI] Gemini verification returned HTTP',
-        verification.status,
-      );
-      return rejectAutomaticCreation();
-    }
-
-    const result: unknown = await verification.json();
-
-    if (!result || typeof result !== 'object') {
-      return rejectAutomaticCreation();
-    }
-
-    const verified = result as Record<string, unknown>;
-
-    if (
-      verified.success !== true ||
-      verified.is_order !== true ||
-      typeof verified.confidence !== 'number' ||
-      !Number.isFinite(verified.confidence) ||
-      verified.confidence < 80
-    ) {
+    // Require agreement from the local model. A remote service is not used.
+    if (localAI.is_order !== true || localAI.confidence < 80) {
       return rejectAutomaticCreation();
     }
 
     const verifiedFrom =
-      typeof verified.pickup_area === 'string'
-        ? verified.pickup_area.trim()
+      typeof localAI.pickup_area === 'string'
+        ? localAI.pickup_area.trim()
         : '';
-
     const verifiedTo =
-      typeof verified.destination === 'string'
-        ? verified.destination.trim()
+      typeof localAI.destination === 'string'
+        ? localAI.destination.trim()
         : '';
 
-    if (
-      !isValidAIPlace(verifiedFrom) ||
-      !isValidAIPlace(verifiedTo) ||
-      normalizePlace(verifiedFrom) === normalizePlace(verifiedTo)
-    ) {
-      return rejectAutomaticCreation();
-    }
+    // Existing parser locations win. AI-suggested locations are accepted
+    // only if they resolve to a known Bahrain area or landmark.
+    const aiFrom = isValidAIPlace(verifiedFrom)
+      ? findAreaByName(verifiedFrom)?.name || ''
+      : '';
+    const aiTo = isValidAIPlace(verifiedTo)
+      ? findAreaByName(verifiedTo)?.name || ''
+      : '';
 
-    // Do not invent prices. Preserve an explicit parser price.
-    const price = fallback.price;
-
-    // Keep parser locations when present; use verified locations
-    // only when the parser did not find them.
-    const from = fallback.from || verifiedFrom;
-    const to = fallback.to || verifiedTo;
+    const from = fallback.from || aiFrom;
+    const to = fallback.to || aiTo;
 
     if (
       !from ||
@@ -289,11 +240,14 @@ export async function parseWhatsAppOrderTextWithLocalAI(
       return rejectAutomaticCreation();
     }
 
-    // Recheck the passenger restriction immediately before allowing
-    // automatic creation. AI output cannot override this restriction.
+    // Never let AI override the passenger-transport restriction.
     if (fallback.passengerDetection.isForbidden) {
       return rejectAutomaticCreation();
     }
+
+    // Price and phone come only from explicit deterministic extraction;
+    // AI is not allowed to invent them.
+    const price = fallback.price;
 
     return {
       ...fallback,
@@ -301,12 +255,12 @@ export async function parseWhatsAppOrderTextWithLocalAI(
       to,
       price,
       isPriceUnspecified: price <= 0,
-      confidence: Math.max(fallback.confidence, 80),
+      confidence: Math.max(fallback.confidence, Math.min(100, localAI.confidence)),
       canCreateOrder: true,
     };
   } catch (error) {
     console.warn(
-      '[Orderi AI] Verification failed; automatic creation blocked:',
+      '[Orderi AI] Local analysis failed; automatic creation blocked:',
       error,
     );
     return rejectAutomaticCreation();
