@@ -55,6 +55,8 @@ export const BAHRAIN_AREAS: AreaLocation[] = [
   { id: 'shahrakan', name: 'شهركان', nameEn: 'Shahrakan', governorate: 'الشمالية', latitude: 26.1650, longitude: 50.4550 },
   { id: 'al_qurayyah', name: 'القرية', nameEn: 'Al Qurayyah', governorate: 'الشمالية', latitude: 26.1900, longitude: 50.5000 },
   { id: 'hamad_town', name: 'مدينة حمد', nameEn: 'Hamad Town', governorate: 'الشمالية', latitude: 26.1150, longitude: 50.5069 },
+  // Al Lawzi / إسكان اللوزي: use an area-level coordinate, not a street-level pin.
+  { id: 'lawzi', name: 'اللوزي', nameEn: 'Al Lawzi', governorate: 'الشمالية', latitude: 26.1217, longitude: 50.4891 },
   { id: 'bouri', name: 'بوري', nameEn: 'Bouri', governorate: 'الشمالية', latitude: 26.1650, longitude: 50.4950 },
   { id: 'maqaba', name: 'مقابة', nameEn: 'Maqaba', governorate: 'الشمالية', latitude: 26.2120, longitude: 50.5200 },
   { id: 'shakhoora', name: 'الشاخورة', nameEn: 'Shakhoora', governorate: 'الشمالية', latitude: 26.2200, longitude: 50.5150 },
@@ -148,10 +150,78 @@ export const BAHRAIN_AREA_ALIASES: Record<string, string> = {
   'abu kuwarah': 'bu_kowarah',
   'bu kowarah': 'bu_kowarah',
   'bu kuwarah': 'bu_kowarah',
+  // Common WhatsApp spelling mistakes and shorthand for Al Lawzi.
+  'الوزي': 'lawzi',
+  'اللوزى': 'lawzi',
+  'لوزي': 'lawzi',
+  'اللوزي': 'lawzi',
+  'al lawzi': 'lawzi',
+  'al-lawzi': 'lawzi',
+  'lawzi': 'lawzi',
+  'al lozi': 'lawzi',
+  'lozi': 'lawzi',
 };
 
 function compactPlaceText(value: string): string {
   return normalizeArabicText(value).replace(/[\s.,،؛:()\-_/]/g, '');
+}
+
+function levenshteinDistance(a: string, b: string): number {
+  const left = Array.from(a);
+  const right = Array.from(b);
+  const row = Array.from({ length: right.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= left.length; i++) {
+    let previousDiagonal = row[0];
+    row[0] = i;
+    for (let j = 1; j <= right.length; j++) {
+      const old = row[j];
+      row[j] = Math.min(
+        row[j] + 1,
+        row[j - 1] + 1,
+        previousDiagonal + (left[i - 1] === right[j - 1] ? 0 : 1),
+      );
+      previousDiagonal = old;
+    }
+  }
+  return row[right.length];
+}
+
+function findUniqueTypoCorrection(name: string): AreaLocation | undefined {
+  const tokens = normalizeArabicText(name)
+    .split(/[^\\p{L}\\p{N}]+/u)
+    .filter((token) => token.length >= 4);
+  const candidates = new Map<string, string>();
+  for (const [alias, areaId] of Object.entries(BAHRAIN_AREA_ALIASES)) {
+    const normalizedAlias = normalizeArabicText(alias).replace(/[^\\p{L}\\p{N}]/gu, '');
+    if (normalizedAlias.length >= 4) candidates.set(normalizedAlias, areaId);
+  }
+  for (const area of BAHRAIN_AREAS) {
+    const normalizedName = normalizeArabicText(area.name).replace(/[^\\p{L}\\p{N}]/gu, '');
+    if (normalizedName.length >= 4) candidates.set(normalizedName, area.id);
+  }
+
+  let bestDistance = Number.POSITIVE_INFINITY;
+  let bestIds = new Set<string>();
+  for (const token of tokens) {
+    const compactToken = token.replace(/[^\\p{L}\\p{N}]/gu, '');
+    for (const [candidate, areaId] of candidates) {
+      if (Math.abs(compactToken.length - candidate.length) > 2) continue;
+      const distance = levenshteinDistance(compactToken, candidate);
+      const maxDistance = compactToken.length <= 5 ? 1 : 2;
+      if (distance > maxDistance) continue;
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIds = new Set([areaId]);
+      } else if (distance === bestDistance) {
+        bestIds.add(areaId);
+      }
+    }
+  }
+
+  // Correct only when the closest spelling points to one unambiguous area.
+  if (bestIds.size !== 1) return undefined;
+  const id = Array.from(bestIds)[0];
+  return BAHRAIN_AREAS.find((area) => area.id === id);
 }
 
 export function findAreaByName(name: string): AreaLocation | undefined {
@@ -185,7 +255,11 @@ export function findAreaByName(name: string): AreaLocation | undefined {
   });
   if (directArea) return directArea;
 
-  // 2. Intelligent match with Bahrain malls & landmarks (e.g. مودامول، السيف مول، سيتي سنتر، الأفنيوز)
+  // 2. Conservative typo correction for local area names (unique nearest match only).
+  const correctedArea = findUniqueTypoCorrection(name);
+  if (correctedArea) return correctedArea;
+
+  // 3. Intelligent match with Bahrain malls & landmarks (e.g. مودامول، السيف مول، سيتي سنتر، الأفنيوز)
   const landmark = findLandmarkByName(name);
   if (landmark) {
     return {
