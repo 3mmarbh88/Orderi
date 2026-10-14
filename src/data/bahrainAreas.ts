@@ -106,9 +106,52 @@ export function calculateDistanceKm(
   return Math.round(R * c * 10) / 10;
 }
 
+/**
+ * Common Bahraini place-name abbreviations used in WhatsApp order messages.
+ * Roundabout numbers are only resolved to Hamad Town at area level here; they
+ * must not be treated as precise roundabout coordinates until verified map
+ * coordinates are added to the dedicated places dataset.
+ */
+const BAHRAIN_AREA_ALIASES: Record<string, string> = {
+  'م عيسى': 'isa_town',
+  'م. عيسى': 'isa_town',
+  'مدينه عيسى': 'isa_town',
+  'مدينة عيسى': 'isa_town',
+  'isa town': 'isa_town',
+  'isa-town': 'isa_town',
+  'م حمد': 'hamad_town',
+  'م. حمد': 'hamad_town',
+  'مدينه حمد': 'hamad_town',
+  'مدينة حمد': 'hamad_town',
+  'hamad town': 'hamad_town',
+  'hamad-town': 'hamad_town',
+};
+
+function compactPlaceText(value: string): string {
+  return normalizeArabicText(value).replace(/[\\s.,،؛:()\\-_/]/g, '');
+}
+
 export function findAreaByName(name: string): AreaLocation | undefined {
   if (!name) return undefined;
   const normalized = normalizeArabicText(name);
+  const compact = compactPlaceText(name);
+
+  // 0. Resolve common local abbreviations before fuzzy area matching.
+  for (const [alias, areaId] of Object.entries(BAHRAIN_AREA_ALIASES)) {
+    if (compactPlaceText(alias) === compact) {
+      const aliasedArea = BAHRAIN_AREAS.find((area) => area.id === areaId);
+      if (aliasedArea) return aliasedArea;
+    }
+  }
+
+  // A numbered roundabout in a message that explicitly mentions Hamad Town
+  // identifies the town, but not a verified exact roundabout pin.
+  const mentionsHamadTown = /مدينة\\s*حمد|مدينه\\s*حمد|م\\.?\\s*حمد|hamad\\s*town/i.test(name);
+  const mentionsNumberedRoundabout = /(?:دوار|دوار رقم|roundabout)\\s*[0-9٠-٩]+/i.test(name);
+  if (mentionsHamadTown && mentionsNumberedRoundabout) {
+    return BAHRAIN_AREAS.find((area) => area.id === 'hamad_town');
+  }
+
 
   // 1. Direct match with standard Bahrain areas
   const directArea = BAHRAIN_AREAS.find((area) => {
