@@ -300,13 +300,18 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                 boolean prefixIsTitle = normalizedPrefix.equals(normalizedTitle);
                 boolean looksLikeGenericSummary = normalizedPrefix.matches("\\d+\\s+.*")
                         || normalizedPrefix.contains("رسالة") || normalizedPrefix.contains("messages");
-                if (!prefixIsTitle && !looksLikeGenericSummary && combinedVisibleText.indexOf(':', colonIdx + 1) > colonIdx) {
-                    // Different first label plus a second sender label is a strong group-layout hint.
+                int secondColon = combinedVisibleText.indexOf(':', colonIdx + 1);
+                if (!prefixIsTitle && !looksLikeGenericSummary && secondColon > colonIdx) {
+                    // Layout: "Group: Sender: message" (title may be the sender).
                     detectedGroupName = prefix;
-                    int secondColon = combinedVisibleText.indexOf(':', colonIdx + 1);
                     if (secondColon > colonIdx + 1) {
                         detectedSenderName = combinedVisibleText.substring(colonIdx + 1, secondColon).trim();
                     }
+                } else if (!prefixIsTitle && !looksLikeGenericSummary) {
+                    // Layout: title="Group name", text="Sender: message".
+                    // Keep the title as the group, and preserve the sender from the text.
+                    detectedGroupName = title.trim();
+                    detectedSenderName = prefix;
                 } else if (prefixIsTitle) {
                     detectedSenderName = prefix;
                 }
