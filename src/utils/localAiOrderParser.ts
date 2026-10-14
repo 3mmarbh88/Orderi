@@ -9,6 +9,7 @@ import {
   HereWeGoPlace 
 } from '../data/hereWeGoBahrainMap';
 import { detectPassengerDelivery } from './passengerClassifier';
+import { findLearnedClassification } from './localClassificationLearning';
 
 export interface LocalAIExtractionResult {
   from: string;
@@ -112,6 +113,25 @@ export async function parseWhatsAppOrderWithLocalAi(
 
   // Step 1: Run Fast Tier 1 Heuristics
   const fastResult = parseWhatsAppOrderText(rawText);
+
+  // Exact user corrections can suppress the same text on this device.
+  // Near matches are never auto-applied; they remain suggestions only.
+  const learnedCorrection = findLearnedClassification(rawText);
+  if (learnedCorrection?.match === 'exact' && learnedCorrection.shouldAutoApply && learnedCorrection.label === 'advertisement') {
+    return {
+      ...fastResult,
+      from: '',
+      to: '',
+      price: 0,
+      phone: '',
+      notes: 'إعلان مستبعد بناءً على تصحيح محلي',
+      confidence: 0,
+      canCreateOrder: false,
+      aiUsed: false,
+      inferenceMs: Math.round(performance.now() - startTime),
+      parseMethod: 'fast_heuristic',
+    };
+  }
 
   // Never let the local LLM reinterpret a message already identified as a
   // personal travel announcement; otherwise model output could re-add it to Radar.
