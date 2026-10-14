@@ -331,6 +331,40 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
             detectedGroupName = summaryText.trim();
         }
 
+        // MessagingStyle can expose the actual sender separately from the visible title.
+        // If the sender differs from the notification title, the title is usually the group
+        // name (even when Android omits EXTRA_CONVERSATION_TITLE and the group name has no keywords).
+        // For direct chats, the sender normally matches the title, so they are not misclassified.
+        if (TextUtils.isEmpty(detectedGroupName) && !TextUtils.isEmpty(title)
+                && Build.VERSION.SDK_INT >= 24) {
+            try {
+                Object messages = extras.get(Notification.EXTRA_MESSAGES);
+                if (messages instanceof Parcelable[]) {
+                    String latestSender = "";
+                    for (Parcelable item : (Parcelable[]) messages) {
+                        if (!(item instanceof Bundle)) continue;
+                        Bundle message = (Bundle) item;
+                        String senderName = "";
+                        if (Build.VERSION.SDK_INT >= 28) {
+                            Parcelable senderParcelable = message.getParcelable("sender_person");
+                            if (senderParcelable instanceof android.app.Person) {
+                                senderName = safe(((android.app.Person) senderParcelable).getName());
+                            }
+                        }
+                        if (TextUtils.isEmpty(senderName)) {
+                            senderName = safe(message.getCharSequence("sender"));
+                        }
+                        if (!TextUtils.isEmpty(senderName)) latestSender = senderName.trim();
+                    }
+                    if (!TextUtils.isEmpty(latestSender)
+                            && !latestSender.equalsIgnoreCase(title.trim())) {
+                        detectedGroupName = title.trim();
+                        detectedSenderName = latestSender;
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
+
         boolean looksLikeGroup = !TextUtils.isEmpty(detectedGroupName) || isExplicitGroupFlag;
         String resolvedTitle = !TextUtils.isEmpty(detectedGroupName) ? detectedGroupName
                 : (!TextUtils.isEmpty(conversationTitle) ? conversationTitle : title);
