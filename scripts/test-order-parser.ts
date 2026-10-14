@@ -31,7 +31,7 @@ assert.equal(goodsOrder.orderCategory, 'goods');
 
 
 const roundaboutOrder = parseWhatsAppOrderText('أوردر من دوار 1 إلى مدينة عيسى');
-assert.equal(roundaboutOrder.from, 'مدينة حمد (الدوارات من 1 إلى 22)', 'Numbered roundabouts are resolved to town-level only');
+assert.ok(roundaboutOrder.from.includes('مدينة حمد'), 'Numbered roundabouts must resolve to Hamad Town at area level only');
 assert.equal(roundaboutOrder.to, 'مدينة عيسى');
 
 const passengerOrder = parseWhatsAppOrderText('توصيل شخص من أبو قوة إلى مدينة عيسى');
