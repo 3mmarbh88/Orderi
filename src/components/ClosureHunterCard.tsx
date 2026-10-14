@@ -28,7 +28,8 @@ import {
   BASE_CLOSURE_EMOJIS,
   STORAGE_KEY_LEARNED_CLOSURES,
   SEED_AI_LEARNED_EXPRESSIONS,
-  syncLearnedExpressions
+  syncLearnedExpressions,
+  resetLearnedExpressionsToDefaults
 } from '../utils/aiClosureLearner';
 import { extractClosureKeywords } from '../utils/orderClosureDetector';
 import { playAlertTone } from '../utils/sound';
@@ -105,9 +106,13 @@ export const ClosureHunterCard: React.FC<ClosureHunterCardProps> = ({
   };
 
   const handleResetToDefaults = () => {
-    if (typeof window !== 'undefined' && window.confirm('هل تريد استعادة الكلمات والرموز الافتراضية للصائد؟')) {
+    if (typeof window !== 'undefined' && window.confirm('هل تريد استعادة الكلمات والرموز الافتراضية للصائد؟ سيتم تطبيق ذلك على هذا الجهاز وخادم Orderi للحساب الحالي.')) {
+      // Reset locally even if the server is offline, then let the sync helper reconcile when possible.
       localStorage.setItem(STORAGE_KEY_LEARNED_CLOSURES, JSON.stringify(SEED_AI_LEARNED_EXPRESSIONS));
       setLearnedExprs(SEED_AI_LEARNED_EXPRESSIONS);
+      resetLearnedExpressionsToDefaults().then(setLearnedExprs).catch(() => {
+        setLearnedExprs(getStoredLearnedExpressions());
+      });
     }
   };
 
