@@ -141,14 +141,13 @@ export function checkIncomingMessageForClosure(
     return null;
   }
 
-  // ملصقات واتساب: إذا كان الإشعار مجرد كلمة "ملصق" أو "Sticker" بدون نص أو اقتباس واضح، لا نحذف بالخطأ
+  // WhatsApp may expose a sticker as a generic "ملصق" notification.
+  // Do not treat an arbitrary sticker as closure until we can safely bind it
+  // to the same advertiser and a single recent order in the same group.
   const isPureSticker = /^(?:sticker|ملصق|🖼️\s*ملصق|🖼️\s*sticker)$/i.test(rawText.trim());
-  if (isPureSticker && !message.rawQuotedText) {
-    return null;
-  }
 
   const { matchedWords, matchedEmojis, hasClosureIntent } = extractClosureKeywords(rawText);
-  if (!hasClosureIntent) return null;
+  if (!hasClosureIntent && !isPureSticker) return null;
 
   // 1. فحص الطلبات النشطة التي تنتمي لنفس المجموعة حصراً
   const candidateOrders = activeOrders.filter((order) => {
@@ -168,6 +167,36 @@ export function checkIncomingMessageForClosure(
   });
 
   if (candidateOrders.length === 0) return null;
+
+  // Sticker-only closure: only close when the same advertiser sent it in the same group
+  // and exactly one active order is a plausible match. Otherwise leave orders untouched.
+  if (isPureSticker && !message.rawQuotedText) {
+    const stickerCandidates = candidateOrders.filter((order) =>
+      isAdvertiserSenderMatch(msgSender, msgPhone, order.senderName, order.senderPhone)
+    );
+    if (stickerCandidates.length === 1) {
+      const order = stickerCandidates[0];
+      processedMessageHashes.add(dedupeKey);
+      markOrderPermanentlyClosed(order.id);
+      return {
+        isMatch: true,
+        orderId: order.id,
+        matchedOrder: order,
+        verdict: 'confirmed_closed',
+        reason: 'أرسل معلن الطلب الأصلي ملصق واتساب في نفس القروب، وكان هناك طلب نشط واحد فقط مطابق له.',
+        evidence: {
+          replyText: rawText,
+          senderName: msgSender || order.senderName,
+          groupName: msgGroup || order.groupName,
+          timestamp: new Date(msgTime).toISOString(),
+          confidence: 85,
+          isQuote: false,
+          matchedKeywords: ['ملصق واتساب من المعلن الأصلي'],
+        },
+      };
+    }
+    return null;
+  }
 
   // 2. ترتيب الطلبات المرشحة حسب الأولوية الزمنية وتطابق المعلن
   const sortedCandidates = [...candidateOrders].sort((a, b) => {
