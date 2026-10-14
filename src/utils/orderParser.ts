@@ -1,4 +1,4 @@
-import { BAHRAIN_AREAS, normalizeArabicText } from '../data/bahrainAreas';
+import { BAHRAIN_AREAS, BAHRAIN_AREA_ALIASES, normalizeArabicText } from '../data/bahrainAreas';
 import { BAHRAIN_LANDMARKS } from '../data/bahrainLandmarks';
 import { detectPassengerDelivery } from './passengerClassifier';
 import { PassengerDetection } from '../types';
@@ -169,6 +169,12 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
       keywords: [a.name, a.nameEn],
       isLandmark: false,
     })),
+    // Alias keywords resolve to the canonical area name so route matching and map filters
+    // use one stable location ID/name (e.g. "أبو قوة" -> "بو قوة").
+    ...Object.entries(BAHRAIN_AREA_ALIASES).flatMap(([alias, areaId]) => {
+      const area = BAHRAIN_AREAS.find((candidate) => candidate.id === areaId);
+      return area ? [{ name: area.name, keywords: [alias], isLandmark: false }] : [];
+    }),
   ];
 
   // Flatten and sort keywords by length descending so longer compound names match first
