@@ -168,6 +168,26 @@ public class NotificationListenerPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void openWhatsAppGroupConversation(PluginCall call) {
+        String groupName = call.getString("groupName", "").trim();
+        JSObject ret = new JSObject();
+        if (android.text.TextUtils.isEmpty(groupName)) {
+            ret.put("success", false);
+            ret.put("method", "missing_group_name");
+            call.resolve(ret);
+            return;
+        }
+
+        // Only open an exact matching group notification intent. Never guess
+        // between similarly named groups or fall back to an unrelated chat.
+        boolean opened = WhatsAppNotificationListenerService.openWhatsAppGroupConversation(
+                getContext(), groupName);
+        ret.put("success", opened);
+        ret.put("method", opened ? "cached_group_notification" : "group_not_found");
+        call.resolve(ret);
+    }
+
+    @PluginMethod
     public void reachAdvertiserPrivateChat(PluginCall call) {
         try {
             String phone = call.getString("phone", "");
