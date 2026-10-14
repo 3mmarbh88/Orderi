@@ -113,10 +113,13 @@ export async function parseWhatsAppOrderWithLocalAi(
 
   // Step 1: Fast offline parsing with a conservative local correction lookup.
   const learnedCorrection = findLearnedClassification(rawText);
+  const explicitDeliveryIntent = /(?:اوردر|أوردر|طلب توصيل|طلب|توصيل|مندوب|pickup|delivery|استلام|تسليم|شحن|طرود|بضاعة|كرتون|وجبة)/i.test(rawText);
   const exactOrderCorrection = learnedCorrection?.match === 'exact' &&
     learnedCorrection.shouldAutoApply && learnedCorrection.label === 'order';
   let fastResult = parseWhatsAppOrderText(rawText, {
-    allowTravelAnnouncementAsOrder: exactOrderCorrection,
+    // A saved label alone cannot override a personal-travel safeguard. Explicit
+    // delivery intent is still required before reconsidering travel-like text.
+    allowTravelAnnouncementAsOrder: exactOrderCorrection && explicitDeliveryIntent,
   });
 
   // A positive correction may override the travel-announcement rule only when
@@ -125,7 +128,6 @@ export async function parseWhatsAppOrderWithLocalAi(
   if (exactOrderCorrection && fastResult.canCreateOrder) {
     const canonicalFrom = snapToOfficialBahrainArea(fastResult.from);
     const canonicalTo = snapToOfficialBahrainArea(fastResult.to);
-    const explicitDeliveryIntent = /(?:اوردر|أوردر|طلب توصيل|طلب|توصيل|مندوب|pickup|delivery|استلام|تسليم|شحن|طرود|بضاعة|كرتون|وجبة)/i.test(rawText);
     if (canonicalFrom && (canonicalTo || (explicitDeliveryIntent && fastResult.to.trim()))) {
       fastResult = {
         ...fastResult,
