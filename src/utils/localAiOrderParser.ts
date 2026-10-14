@@ -9,6 +9,7 @@ import {
   HereWeGoPlace 
 } from '../data/hereWeGoBahrainMap';
 import { detectPassengerDelivery } from './passengerClassifier';
+import { detectAdvertisementMessage } from './advertisementClassifier';
 
 export interface LocalAIExtractionResult {
   from: string;
@@ -107,6 +108,23 @@ export async function parseWhatsAppOrderWithLocalAi(
   const hybridMode = options.hybridMode !== false;
   const minConfidence = options.minConfidence ?? 85;
   const useCloudFallback = options.useCloudFallback !== false;
+
+  // Reject promotional/service-provider ads before any AI tier can reinterpret them as orders.
+  // This also prevents message content from being sent to the optional cloud fallback for known ads.
+  const advertisement = detectAdvertisementMessage(rawText);
+  if (advertisement.isAdvertisement) {
+    const fastResult = parseWhatsAppOrderText(rawText);
+    return {
+      ...fastResult,
+      isAdvertisement: true,
+      advertisementReason: advertisement.reason,
+      canCreateOrder: false,
+      confidence: 0,
+      aiUsed: false,
+      inferenceMs: Math.round(performance.now() - startTime),
+      parseMethod: 'fast_heuristic',
+    };
+  }
 
   // Step 1: Run Fast Tier 1 Heuristics
   const fastResult = parseWhatsAppOrderText(rawText);
