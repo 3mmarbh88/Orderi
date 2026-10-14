@@ -143,8 +143,8 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
 
                                 for (Notification.Action act : actionsList) {
                                     if (act != null && act.actionIntent != null) {
-                                        // WhatsApp mark-as-read action has NO RemoteInputs, or has read-related title
-                                        boolean isReply = act.getRemoteInputs() != null && act.getRemoteInputs().length > 0;
+                                        // Only execute an action whose title clearly indicates marking as read.
+                                        // Other no-input actions can archive, mute, or dismiss a chat.
                                         String actTitle = act.title != null ? act.title.toString().toLowerCase() : "";
                                         boolean isMarkReadTitle = actTitle.contains("read") || 
                                                                   actTitle.contains("مقروء") || 
@@ -155,7 +155,7 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                                                                   actTitle.contains("gelesen") ||
                                                                   actTitle.contains("lu");
 
-                                        if (!isReply || isMarkReadTitle) {
+                                        if (isMarkReadTitle) {
                                             try {
                                                 if (!sentIntents.contains(act.actionIntent)) {
                                                     act.actionIntent.send();

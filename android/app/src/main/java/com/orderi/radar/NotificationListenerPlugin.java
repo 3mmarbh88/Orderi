@@ -318,9 +318,19 @@ public class NotificationListenerPlugin extends Plugin {
             }
 
             int count = WhatsAppNotificationListenerService.markAllWhatsAppAsRead(getContext(), targetGroups);
+
+            // Notification actions cannot reach archived chats that have no active notification.
+            // When Accessibility is enabled, open WhatsApp and let the native service perform
+            // a bounded best-effort pass over explicitly marked unread chats in Archived.
+            boolean accessibilityEnabled = OrderiAccessibilityService.isAccessibilityEnabled(getContext());
+            boolean archivedAutomationStarted = accessibilityEnabled
+                    && OrderiAccessibilityService.requestMarkArchivedChatsRead(getContext());
+
             JSObject ret = new JSObject();
             ret.put("success", true);
             ret.put("markedCount", count);
+            ret.put("archivedAutomationStarted", archivedAutomationStarted);
+            ret.put("accessibilityRequired", !accessibilityEnabled);
             call.resolve(ret);
         } catch (Exception e) {
             call.reject("Failed to mark WhatsApp groups as read", e);
