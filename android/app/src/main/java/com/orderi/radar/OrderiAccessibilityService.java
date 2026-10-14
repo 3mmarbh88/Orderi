@@ -170,9 +170,18 @@ public class OrderiAccessibilityService extends AccessibilityService {
                 }
             }
             emptyScans++;
-            // Require two clean scans to avoid declaring completion while the list is rendering.
-            if (emptyScans >= 2) finishMarkAllRead("تمت معالجة " + chatsOpened + " محادثة؛ تحقق من واتساب للتأكد");
-            else handler.postDelayed(scanRunnable, 1000L);
+            // Do not mistake WhatsApp's "Unread" filter chip for a chat marker.
+            // If no actual unread-chat marker was exposed by Accessibility, report
+            // that detection failed instead of claiming the inbox was cleared.
+            if (emptyScans >= 2) {
+                if (chatsOpened == 0) {
+                    finishMarkAllRead("لم أتمكن من تحديد محادثات غير مقروءة من واجهة واتساب. لم يتم تأكيد قراءة أي محادثة.");
+                } else {
+                    finishMarkAllRead("تم فتح " + chatsOpened + " محادثة، لكن تعذر العثور على علامات إضافية. تحقق من واتساب للتأكد.");
+                }
+            } else {
+                handler.postDelayed(scanRunnable, 1000L);
+            }
         } catch (Exception e) {
             handler.postDelayed(scanRunnable, 1000L);
         } finally {
@@ -196,9 +205,13 @@ public class OrderiAccessibilityService extends AccessibilityService {
     private boolean isUnreadLabel(CharSequence value) {
         if (value == null) return false;
         String s = value.toString().toLowerCase(Locale.ROOT);
+        // Match message-specific indicators only. A bare "غير مقروءة" may
+        // be the WhatsApp filter chip, not an unread badge on a conversation.
         return s.contains("unread message") || s.contains("unread messages")
-            || s.contains("غير مقروء") || s.contains("رسائل غير مقروءة")
-            || s.contains("رسالة غير مقروءة") || s.contains("رسائل جديدة");
+            || s.contains("رسائل غير مقروءة") || s.contains("رسالة غير مقروءة")
+            || s.contains("رسائل غير مقروءه") || s.contains("رسالة غير مقروءه")
+            || s.contains("رسائل جديدة") || s.contains("رسالة جديدة")
+            || s.matches(".*\\\\d+.*غير مقروء.*");
     }
 
     private void finishMarkAllRead(String message) {
