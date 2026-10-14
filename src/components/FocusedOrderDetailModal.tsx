@@ -17,7 +17,8 @@ import {
   Layers,
   Lock,
   ArrowRight,
-  Clock
+  Clock,
+  ExternalLink
 } from 'lucide-react';
 import { ParsedOrder } from '../types';
 import { 
@@ -279,7 +280,32 @@ export const FocusedOrderDetailModal: React.FC<FocusedOrderDetailModalProps> = (
                   +{effectivePhone}
                 </span>
               )}
-              <span>القروب: <strong className="text-slate-800">{order.groupName || 'واتساب'}</strong></span>
+              <button
+                type="button"
+                onClick={async () => {
+                  const groupName = (order.groupName || '').trim();
+                  if (!groupName || groupName === 'واتساب') {
+                    alert('اسم القروب غير متوفر في بيانات هذا الأوردر.');
+                    return;
+                  }
+                  try {
+                    const { openWhatsAppGroupConversation } = await import('../native/whatsappListener');
+                    const result = await openWhatsAppGroupConversation(groupName);
+                    if (!result.success) {
+                      alert('لم أجد إشعار واتساب محفوظًا لهذا القروب. افتح واتساب وتأكد من وجود إشعار حديث من القروب، ثم حاول مرة أخرى.');
+                    }
+                  } catch {
+                    alert('تعذّر فتح القروب. تأكد من تثبيت واتساب وتفعيل صلاحية إشعارات Orderi.');
+                  }
+                }}
+                className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] font-bold text-emerald-800 hover:bg-emerald-100 active:scale-[0.98] transition"
+                aria-label={`فتح قروب واتساب ${order.groupName || ''}`}
+                title="فتح القروب الأصلي في واتساب"
+              >
+                <span>القروب:</span>
+                <strong>{order.groupName || 'واتساب'}</strong>
+                <ExternalLink className="h-3 w-3 shrink-0" />
+              </button>
             </div>
           </div>
 
