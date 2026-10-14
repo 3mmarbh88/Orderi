@@ -102,7 +102,7 @@ function expandBahrainAreaAliases(text: string): string {
     ['رفاع', 'الرفاع'],
   ];
 
-  let expanded = text.replace(/\\s+/g, ' ').trim();
+  let expanded = text.replace(/\s+/g, ' ').trim();
   const boundary = '[^a-z0-9\\u0600-\\u06FF]';
 
   for (const [alias, canonical] of aliases.sort(
