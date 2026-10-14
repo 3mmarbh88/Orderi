@@ -398,15 +398,22 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
 
   // 4. Notes / Package Type extraction (ensuring word boundaries)
   let notes = '';
-  const noteKeywords = [
-    'ورد', 'باقة', 'زهور', 'كيك', 'حلويات', 'عطور', 'هدية', 'أكل', 'مطعم',
-    'وجبة', 'مستندات', 'أوراق', 'عباية', 'ملابس', 'شحنة', 'أمانات', 'كرتون'
-  ];
-  for (const kw of noteKeywords) {
-    const kwRegex = new RegExp(`(?:^|[\\s،,.])${kw}(?:$|[\\s،,.])`, 'i');
-    if (kwRegex.test(normalized)) {
-      notes = kw;
-      break;
+  // Any explicit AC / air-conditioning / refrigeration wording means the goods
+  // need cold handling. Do not infer this from the item type alone.
+  const requiresColdStorage = /(?:تكييف|مكيف(?:ات)?|مكيف\\s*هواء|هواء\\s*بارد|حفظ\\s*بارد|بارد|تبريد|ثلاجه|ثلاجات)/i.test(normalized);
+  if (requiresColdStorage) {
+    notes = 'يحتاج حفظ بارد';
+  } else {
+    const noteKeywords = [
+      'ورد', 'باقة', 'زهور', 'كيك', 'حلويات', 'عطور', 'هدية', 'أكل', 'مطعم',
+      'وجبة', 'مستندات', 'أوراق', 'عباية', 'ملابس', 'شحنة', 'أمانات', 'كرتون'
+    ];
+    for (const kw of noteKeywords) {
+      const kwRegex = new RegExp(`(?:^|[\\s،,.])${kw}(?:$|[\\s،,.])`, 'i');
+      if (kwRegex.test(normalized)) {
+        notes = kw;
+        break;
+      }
     }
   }
 
