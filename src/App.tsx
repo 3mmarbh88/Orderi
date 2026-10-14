@@ -1069,6 +1069,22 @@ function OrderiApp() {
         if (parsed.canCreateOrder || isPassengerRequest) {
           if (!order.from) order.from = 'موقع العميل / غير محدد 📍';
           if (!order.to) order.to = 'حسب طلب الراكب 📍';
+
+          // Once local AI confirms an order from a group, ask Android to use
+          // that group's own explicit WhatsApp "Mark as read" notification action.
+          // This intentionally does not open WhatsApp or touch unrelated chats.
+          if (isGroup && groupName && groupName !== 'قروب واتساب') {
+            OrderiNotificationListener.markGroupAsRead({ groupName }).then((result) => {
+              if (result.success) {
+                console.log('[Orderi Native] Source WhatsApp group marked as read:', groupName);
+              } else {
+                console.log('[Orderi Native] WhatsApp did not expose a matching Mark as read action for:', groupName);
+              }
+            }).catch((error) => {
+              console.warn('[Orderi Native] Could not mark source WhatsApp group as read:', error);
+            });
+          }
+
           handleProcessIncomingRawOrder(order, false);
         }
       }).catch(() => {});
