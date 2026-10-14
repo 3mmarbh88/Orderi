@@ -1,6 +1,8 @@
 import { strict as assert } from 'node:assert';
 import { findAreaByName } from '../src/data/bahrainAreas';
 import { parseWhatsAppOrderText } from '../src/utils/orderParser';
+import { saveClassificationCorrection, findLearnedClassification } from '../src/utils/localClassificationLearning';
+import { parseWhatsAppOrderWithLocalAi } from '../src/utils/localAiOrderParser';
 
 function testBahrainAlias(alias: string, expectedId: string): void {
   const area = findAreaByName(alias);
@@ -59,5 +61,33 @@ assert.equal(saudiTravelAnnouncement.canCreateOrder, false, 'A phone number must
 
 const actualDeliveryToSaudi = parseWhatsAppOrderText('توصيل كرتون من اللوزي إلى السعودية رقم 33334444');
 assert.equal(actualDeliveryToSaudi.canCreateOrder, true, 'Explicit delivery intent must not be suppressed as a travel announcement');
+
+
+// Local learning must be device-local and conservative.
+const localMemory = new Map<string, string>();
+Object.defineProperty(globalThis, 'localStorage', {
+  configurable: true,
+  value: {
+    getItem: (key: string) => localMemory.get(key) ?? null,
+    setItem: (key: string, value: string) => { localMemory.set(key, value); },
+    removeItem: (key: string) => { localMemory.delete(key); },
+    clear: () => localMemory.clear(),
+  },
+});
+
+const correctedAdText = 'إعلان خدمات خاصة ورقم التواصل 33334444';
+assert.ok(saveClassificationCorrection(correctedAdText, 'advertisement'));
+const exactAdCorrection = findLearnedClassification('اعلان خدمات خاصة ورقم التواصل 33334444');
+assert.equal(exactAdCorrection?.label, 'advertisement');
+assert.equal(exactAdCorrection?.shouldAutoApply, true);
+
+const localCorrectedParse = await parseWhatsAppOrderWithLocalAi(correctedAdText);
+assert.equal(localCorrectedParse.canCreateOrder, false, 'An exact local ad correction must suppress the same message');
+assert.match(localCorrectedParse.notes, /تصحيح محلي/);
+
+const conflictText = 'إعلان خدمات خاصة ورقم التواصل 35556666';
+saveClassificationCorrection(conflictText, 'advertisement');
+saveClassificationCorrection(conflictText, 'order');
+assert.equal(findLearnedClassification(conflictText), null, 'Conflicting local labels must not auto-classify a message');
 
 console.log('Orderi parser tests passed: Bahraini aliases, canonical routes, explicit prices, and passenger classification.');
