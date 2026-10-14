@@ -111,12 +111,37 @@ export async function parseWhatsAppOrderWithLocalAi(
   // Local-first privacy: cloud parsing is opt-in only; notification text must never leave the device by default.
   const useCloudFallback = options.useCloudFallback === true;
 
-  // Step 1: Run Fast Tier 1 Heuristics
-  const fastResult = parseWhatsAppOrderText(rawText);
+  // Step 1: Fast offline parsing with a conservative local correction lookup.
+  const learnedCorrection = findLearnedClassification(rawText);
+  const exactOrderCorrection = learnedCorrection?.match === 'exact' &&
+    learnedCorrection.shouldAutoApply && learnedCorrection.label === 'order';
+  let fastResult = parseWhatsAppOrderText(rawText, {
+    allowTravelAnnouncementAsOrder: exactOrderCorrection,
+  });
+
+  // A positive correction may override the travel-announcement rule only when
+  // a real Bahraini pickup resolves and the destination is recognized or the
+  // message explicitly contains delivery/order intent. Never invent route data.
+  if (exactOrderCorrection && fastResult.canCreateOrder) {
+    const canonicalFrom = snapToOfficialBahrainArea(fastResult.from);
+    const canonicalTo = snapToOfficialBahrainArea(fastResult.to);
+    const explicitDeliveryIntent = /(?:اوردر|أوردر|طلب توصيل|طلب|توصيل|مندوب|pickup|delivery|استلام|تسليم|شحن|طرود|بضاعة|كرتون|وجبة)/i.test(rawText);
+    if (canonicalFrom && (canonicalTo || (explicitDeliveryIntent && fastResult.to.trim()))) {
+      fastResult = {
+        ...fastResult,
+        from: canonicalFrom,
+        to: canonicalTo || fastResult.to,
+        confidence: Math.min(85, Math.max(60, fastResult.confidence)),
+        notes: [fastResult.notes, 'تم تأكيد التصنيف بتصحيح محلي سابق'].filter(Boolean).join(' — '),
+      };
+    } else {
+      // The label alone is not enough to fabricate a route or make an unusable order.
+      fastResult = parseWhatsAppOrderText(rawText);
+    }
+  }
 
   // Exact user corrections can suppress the same text on this device.
   // Near matches are never auto-applied; they remain suggestions only.
-  const learnedCorrection = findLearnedClassification(rawText);
   if (learnedCorrection?.match === 'exact' && learnedCorrection.shouldAutoApply && learnedCorrection.label === 'advertisement') {
     return {
       ...fastResult,
