@@ -46,8 +46,9 @@ public class OrderiLocalAIPlugin extends Plugin {
         for (File candidate : candidatePaths) {
             if (candidate.exists() && candidate.length() > 1024 * 1024) { // > 1MB
                 modelFile = candidate;
-                isModelLoaded = true;
-                Log.i(TAG, "Located local AI model file: " + candidate.getAbsolutePath() + " (" + (candidate.length() / (1024 * 1024)) + " MB)");
+                // A file on disk is not proof that LiteRT-LM was initialized.
+                isModelLoaded = false;
+                Log.i(TAG, "Located local model file (runtime initialization still required): " + candidate.getAbsolutePath() + " (" + (candidate.length() / (1024 * 1024)) + " MB)");
                 return;
             }
         }
@@ -76,11 +77,13 @@ public class OrderiLocalAIPlugin extends Plugin {
             checkAndLocateModel();
             JSObject ret = new JSObject();
             if (modelFile != null && modelFile.exists()) {
-                isModelLoaded = true;
-                ret.put("success", true);
-                ret.put("status", "loaded");
-                ret.put("memoryUsedMb", 584);
+                // Do not report "loaded": this plugin currently has no Engine/Conversation inference call.
+                isModelLoaded = false;
+                ret.put("success", false);
+                ret.put("status", "runtime_not_initialized");
+                ret.put("message", "Model file exists, but LiteRT-LM inference runtime is not initialized by this plugin.");
             } else {
+                isModelLoaded = false;
                 ret.put("success", false);
                 ret.put("status", "model_file_missing");
                 ret.put("message", "Model file gemma3-1b-it-int4.litertlm not found on device storage");
@@ -218,8 +221,9 @@ public class OrderiLocalAIPlugin extends Plugin {
             ret.put("to", toArea);
             ret.put("price", price);
             ret.put("phone", phone);
-            ret.put("notes", isModelLoaded ? "تحليل محلي عبر Gemma 3 1B LiteRT" : "تحليل محلي عبر المحرك الهجين السريع");
-            ret.put("confidence", 92);
+            ret.put("notes", "استخراج محلي بالقواعد والأنماط؛ لم يتم تشغيل نموذج LLM");
+            ret.put("modelLoaded", false);
+            ret.put("confidence", 68);
             ret.put("inferenceTimeMs", elapsedMs);
             call.resolve(ret);
         });
@@ -229,7 +233,7 @@ public class OrderiLocalAIPlugin extends Plugin {
     public void getStatus(PluginCall call) {
         JSObject ret = new JSObject();
         ret.put("initialized", true);
-        ret.put("modelLoaded", isModelLoaded);
+        ret.put("modelLoaded", false);
         ret.put("modelName", "Gemma 3 1B LiteRT (" + MODEL_FILENAME + ")");
         ret.put("ramMb", 584);
         call.resolve(ret);
