@@ -211,7 +211,7 @@ public class OrderiAccessibilityService extends AccessibilityService {
             || s.contains("رسائل غير مقروءة") || s.contains("رسالة غير مقروءة")
             || s.contains("رسائل غير مقروءه") || s.contains("رسالة غير مقروءه")
             || s.contains("رسائل جديدة") || s.contains("رسالة جديدة")
-            || s.matches(".*\\\\d+.*غير مقروء.*");
+            || s.matches(".*\\d+.*غير مقروء.*");
     }
 
     private void finishMarkAllRead(String message) {
