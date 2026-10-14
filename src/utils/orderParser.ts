@@ -1,5 +1,6 @@
 import { BAHRAIN_AREAS, BAHRAIN_AREA_ALIASES, normalizeArabicText } from '../data/bahrainAreas';
 import { BAHRAIN_LANDMARKS } from '../data/bahrainLandmarks';
+import { HERE_WE_GO_BAHRAIN_PLACES } from '../data/hereWeGoBahrainMap';
 import { detectPassengerDelivery } from './passengerClassifier';
 import { PassengerDetection } from '../types';
 
@@ -163,6 +164,24 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
       isLandmark: true,
       parentArea: lm.parentAreaName,
     })),
+    // Include the local HERE WeGo knowledge base for malls, markets, hospitals,
+    // dining streets/hubs, residential places, and other mapped landmarks.
+    ...HERE_WE_GO_BAHRAIN_PLACES.map((place) => ({
+      name: place.name,
+      keywords: [place.name, place.nameEn, ...place.keywords],
+      isLandmark: true,
+      parentArea: place.parentAreaName,
+    })),
+    // Numbered roundabouts are mapped only to Hamad Town at area level.
+    // Do not invent a precise pin: verified roundabout coordinates are not in this dataset.
+    ...Array.from({ length: 22 }, (_, index) => {
+      const number = index + 1;
+      return {
+        name: 'مدينة حمد',
+        keywords: [`دوار ${number}`, `دوار رقم ${number}`, `roundabout ${number}`],
+        isLandmark: false,
+      };
+    }),
     // Standard Geographic Areas
     ...BAHRAIN_AREAS.map((a) => ({
       name: a.name,
