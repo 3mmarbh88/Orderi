@@ -734,13 +734,16 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
             for (android.service.notification.StatusBarNotification active : manager.getActiveNotifications()) {
                 Notification notification = active.getNotification();
                 if (notification == null || notification.extras == null) continue;
-                String title = safe(String.valueOf(notification.extras.getCharSequence(Notification.EXTRA_TITLE)));
-                String text = safe(String.valueOf(notification.extras.getCharSequence(Notification.EXTRA_TEXT)));
-                String bigText = safe(String.valueOf(notification.extras.getCharSequence(Notification.EXTRA_BIG_TEXT)));
+                CharSequence titleValue = notification.extras.getCharSequence(Notification.EXTRA_TITLE);
+                CharSequence textValue = notification.extras.getCharSequence(Notification.EXTRA_TEXT);
+                CharSequence bigTextValue = notification.extras.getCharSequence(Notification.EXTRA_BIG_TEXT);
+                String title = titleValue == null ? "" : titleValue.toString();
+                String text = textValue == null ? "" : textValue.toString();
+                String bigText = bigTextValue == null ? "" : bigTextValue.toString();
                 String combined = (title + " " + text + " " + bigText).toLowerCase()
                         .replace('إ', 'ا').replace('أ', 'ا').replace('آ', 'ا')
                         .replaceAll("\\s+", " ").trim();
-                if (combined.contains(normalizedNeedle) || normalizedNeedle.contains(combined)) {
+                if (combined.length() >= 8 && (combined.contains(normalizedNeedle) || normalizedNeedle.contains(combined))) {
                     manager.cancel(active.getId());
                     cancelled++;
                 }
