@@ -210,20 +210,23 @@ export function checkIncomingMessageForClosure(
     const advertiserMatch = isAdvertiserSenderMatch(msgSender, msgPhone, order.senderName, order.senderPhone);
 
     if (isQuoted && (hasClosureIntent || (advertiserMatch && (emojiCanSupportClosure || isPureSticker)))) {
+      const verdict = hasClosureIntent ? 'confirmed_closed' : 'suspicious_closed';
       processedMessageHashes.add(dedupeKey);
-      markOrderPermanentlyClosed(order.id);
+      if (verdict === 'confirmed_closed') markOrderPermanentlyClosed(order.id);
       return {
         isMatch: true,
         orderId: order.id,
         matchedOrder: order,
-        verdict: 'confirmed_closed',
-        reason: `اقتباس أو ذكر مباشر لبيانات الطلب (${order.from} ← ${order.to}) مع تأكيد اكتماله: «${rawText}»`,
+        verdict,
+        reason: hasClosureIntent
+          ? `اقتباس أو ذكر مباشر لبيانات الطلب (${order.from} ← ${order.to}) مع عبارة إغلاق صريحة: «${rawText}»`
+          : `ردّ برمز/ملصق غامض مرتبط بالطلب (${order.from} ← ${order.to})؛ يحتاج مراجعة لأن محتوى الملصق غير متاح للإشعار.`,
         evidence: {
           replyText: rawText,
           senderName: msgSender || 'عضو بالقروب',
           groupName: msgGroup || order.groupName,
           timestamp: new Date(msgTime).toISOString(),
-          confidence: 99,
+          confidence: hasClosureIntent ? 99 : 68,
           isQuote: true,
           matchedKeywords: [...matchedWords, ...matchedEmojis],
         },
@@ -251,21 +254,24 @@ export function checkIncomingMessageForClosure(
       (hasClosureIntent || isPureSticker || (emojiCanSupportClosure && matchedGratitudeWords.length === 0)) &&
       (advertiserMatchedOrders.length === 1 || explicitlyMentionsOrder)
     ) {
-      // The advertiser's explicit closure text, sticker-only reply, or non-gratitude emoji can be evidence.
+      // Textual closure is strong evidence. An emoji/sticker without readable closure text is only a review signal.
+      const verdict = hasClosureIntent ? 'confirmed_closed' : 'suspicious_closed';
       processedMessageHashes.add(dedupeKey);
-      markOrderPermanentlyClosed(order.id);
+      if (verdict === 'confirmed_closed') markOrderPermanentlyClosed(order.id);
       return {
         isMatch: true,
         orderId: order.id,
         matchedOrder: order,
-        verdict: 'confirmed_closed',
-        reason: `أفاد صاحب الإعلان نفسه (${msgSender || order.senderName}) في القروب بأنه حصل على مندوب: «${rawText}»`,
+        verdict,
+        reason: hasClosureIntent
+          ? `أفاد صاحب الإعلان نفسه (${msgSender || order.senderName}) في القروب بعبارة إغلاق: «${rawText}»`
+          : `أرسل صاحب الإعلان رمزاً/ملصقاً بعد الطلب، لكن محتواه غير مقروء من إشعار واتساب؛ يلزم التأكد يدوياً.`,
         evidence: {
           replyText: rawText,
           senderName: msgSender || order.senderName,
           groupName: msgGroup || order.groupName,
           timestamp: new Date(msgTime).toISOString(),
-          confidence: 98,
+          confidence: hasClosureIntent ? 98 : 65,
           isQuote: false,
           matchedKeywords: [...matchedWords, ...matchedEmojis],
         },
