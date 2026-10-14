@@ -25,6 +25,7 @@ interface OrderiLocalAIPluginType {
   loadModel(): Promise<{ success: boolean; status: string; memoryUsedMb?: number }>;
   parseOrder(options: { text: string }): Promise<{
     success: boolean;
+    modelLoaded?: boolean;
     from: string;
     to: string;
     price: number;
@@ -128,7 +129,7 @@ export async function parseWhatsAppOrderWithLocalAi(
   if (isAndroid) {
     try {
       const nativeResponse = await OrderiLocalAIPlugin.parseOrder({ text: rawText });
-      if (nativeResponse && nativeResponse.success && (nativeResponse.from || nativeResponse.to)) {
+      if (nativeResponse && nativeResponse.success && nativeResponse.modelLoaded === true && (nativeResponse.from || nativeResponse.to)) {
         const fromArea = snapToOfficialBahrainArea(nativeResponse.from) || fastResult.from;
         const toArea = snapToOfficialBahrainArea(nativeResponse.to) || fastResult.to;
         const price = (typeof nativeResponse.price === 'number' && nativeResponse.price > 0)
@@ -156,7 +157,7 @@ export async function parseWhatsAppOrderWithLocalAi(
         };
       }
     } catch (err) {
-      console.warn('[LocalAI] Native plugin call bypassed or model loading, checking cloud tier:', err);
+      console.warn('[LocalAI] Native model inference unavailable; continuing with offline rule-based parsing:', err);
     }
   }
 
@@ -238,9 +239,9 @@ export async function parseWhatsAppOrderWithLocalAi(
     from: refinedFrom || fastResult.from,
     to: refinedTo || fastResult.to,
     canCreateOrder: Boolean(refinedFrom || refinedTo || fastResult.price > 0),
-    aiUsed: options.forceAi || !hybridMode,
+    aiUsed: false,
     inferenceMs: elapsed,
-    parseMethod: options.forceAi ? 'local_ai' : 'fast_heuristic',
+    parseMethod: 'fallback',
   };
 }
 
@@ -366,11 +367,11 @@ export async function runLocalAiDiagnosticTest(
 
   const elapsed = Math.max(12, Math.round(performance.now() - start));
 
-  let engineUsed = 'Gemma 3 1B INT4 (محلي)';
+  let engineUsed = 'محلل محلي بالقواعد + قاموس البحرين';
   if (parsed.parseMethod === 'cloud_ai') {
-    engineUsed = 'Gemini 3.8 Flash (سحابي)';
-  } else if (parsed.parseMethod === 'fast_heuristic') {
-    engineUsed = 'المحرك الهجين الفوري + HERE WeGo';
+    engineUsed = 'Gemini (سحابي - اختياري)';
+  } else if (parsed.parseMethod === 'local_ai') {
+    engineUsed = 'نموذج محلي محمّل فعلياً';
   }
 
   steps.push({
