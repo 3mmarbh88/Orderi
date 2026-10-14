@@ -1063,7 +1063,8 @@ function OrderiApp() {
         // just because the parser cannot confidently classify them. Preserve the original
         // message and label uncertain fields instead of inventing a route or price.
         const isClosureOnlyReply = /^(?:تم|تم\s*الحمد\s*لله|حصلت|حصل|اخذت|أخذت|انحجز|انحجزت|خلص|خلاص|شكرا|شكرًا|مشكور|مشكوره|يعطيك\s*العافيه|sticker|ملصق|👍+|🙏+|✅+|👌+)\s*[.!؟👍🙏✅👌]*$/i.test(normalizedMessage.trim());
-        const shouldMirrorNotification = rawText.trim().length > 0 && !isClosureOnlyReply;
+        const notificationContent = String(rawText || event.title || '').trim();
+        const shouldMirrorNotification = notificationContent.length > 0 && !isClosureOnlyReply;
         if (parsed.canCreateOrder || isPassengerRequest || shouldShowIncompleteOrder || shouldMirrorNotification) {
           if (!order.from) order.from = 'موقع الاستلام غير محدد 📍';
           if (!order.to) order.to = 'وجهة التوصيل غير محددة 📍';
