@@ -214,9 +214,15 @@ public class OrderiAccessibilityService extends AccessibilityService {
         if (root == null) return;
         try {
             if (waitingForChatToClose) {
-                waitingForChatToClose = false;
-                performGlobalAction(GLOBAL_ACTION_BACK);
-                archivedReadEventRetries = 0;
+                // Do not immediately navigate back on the first list animation event.
+                // Confirm WhatsApp opened an actual chat by locating its message composer.
+                if (findInputField(root) != null) {
+                    waitingForChatToClose = false;
+                    performGlobalAction(GLOBAL_ACTION_BACK);
+                    archivedReadEventRetries = 0;
+                } else if (++archivedReadEventRetries > 8) {
+                    finishArchivedReadPass("Could not confirm an archived chat opened");
+                }
                 return;
             }
 
