@@ -162,7 +162,7 @@ function OrderiApp() {
               )
             : [];
 
-          return { ...DEFAULT_FILTER, ...parsed, contacts: existingContacts };
+          return { ...DEFAULT_FILTER, ...parsed, contacts: existingContacts, useLocalAi: true, useCloudAiFallback: false };
         }
       }
     } catch {}
