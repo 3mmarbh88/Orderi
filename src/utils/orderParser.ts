@@ -19,6 +19,8 @@ export interface RawParsedResult {
   notes: string;
   confidence: number;
   canCreateOrder: boolean;
+  /** True when repeated area shorthand means a same-area trip (e.g. محرق محرق). */
+  sameAreaShorthand?: boolean;
   /** True when this message promotes a service/business instead of requesting a delivery. */
   isAdvertisement?: boolean;
   advertisementReason?: string;
@@ -258,6 +260,48 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
       if (toPattern.test(normalized) && (!fromArea || item.placeName !== fromArea || /(?:من|استلام).*?(?:الى|إلى|لل|لـ|تسليم)/i.test(normalized))) {
         toArea = item.placeName;
       }
+    }
+  }
+
+  // WhatsApp shorthand sometimes repeats a single area to mean pickup and drop-off in that same area:
+  // "محرق محرق", "منامه منامه", "قلالي قلالي". Resolve only when no explicit route endpoint was found.
+  let sameAreaShorthand = false;
+  if (!fromArea && !toArea) {
+    const isArabicOrLatinWord = (ch: string | undefined) => !!ch && /[\\p{L}\\p{N}]/u.test(ch);
+    for (const area of BAHRAIN_AREAS) {
+      const areaName = normalizeArabicText(area.name);
+      const candidates = new Set([areaName, areaName.startsWith('ال') ? areaName.slice(2) : areaName]);
+      // Also account for common spelling variants like منامه for المنامة.
+      if (area.id === 'manama') { candidates.add('منامه'); candidates.add('المنامه'); }
+      if (area.id === 'muharraq') { candidates.add('محرق'); candidates.add('المحرق'); }
+      for (const candidate of candidates) {
+        if (candidate.length < 3) continue;
+        let firstIndex = -1;
+        let searchFrom = 0;
+        while (searchFrom < normalized.length) {
+          const idx = normalized.indexOf(candidate, searchFrom);
+          if (idx < 0) break;
+          const before = normalized[idx - 1];
+          const after = normalized[idx + candidate.length];
+          if (!isArabicOrLatinWord(before) && !isArabicOrLatinWord(after)) {
+            if (firstIndex >= 0) {
+              const between = normalized.slice(firstIndex + candidate.length, idx);
+              // Repeated area should be a compact shorthand, not two mentions far apart in a long advert.
+              if (between.length <= 12 && /^[\\s،,./-]*$/.test(between)) {
+                fromArea = area.name;
+                toArea = area.name;
+                sameAreaShorthand = true;
+                break;
+              }
+            } else {
+              firstIndex = idx;
+            }
+          }
+          searchFrom = idx + candidate.length;
+        }
+        if (sameAreaShorthand) break;
+      }
+      if (sameAreaShorthand) break;
     }
   }
 
@@ -526,6 +570,7 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
     notes,
     confidence,
     canCreateOrder,
+    sameAreaShorthand,
     isAdvertisement: advertisementDetection.isAdvertisement,
     advertisementReason: advertisementDetection.reason,
     passengerDetection,
