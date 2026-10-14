@@ -7,6 +7,8 @@ export interface RawParsedResult {
   from: string;
   to: string;
   price: number;
+  /** Explicit number of orders advertised, when the message states it. */
+  orderCount?: number;
   isPriceUnspecified?: boolean;
   passengerCount?: number;
   scheduledTime?: string;
@@ -59,6 +61,23 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
 
   const convertedText = convertArabicNumerals(rawText);
   const normalized = normalizeArabicText(convertedText);
+
+  // Explicit order quantity: "اوردرين", "2 اوردرات", "ثلاثة طلبات".
+  // A trailing number without the word order is not treated as an order count.
+  let orderCount: number | undefined;
+  const numericOrderCount = /(?:^|[\\s،,])([1-9]\\d?)\\s*(?:اوردرات|اوردر|طلبات|طلب)(?=$|[\\s،,.])/i.exec(normalized);
+  if (numericOrderCount) {
+    const value = Number(numericOrderCount[1]);
+    if (value >= 1 && value <= 20) orderCount = value;
+  } else if (/(?:اوردرين|اوردران|طلبين|طلبان)/i.test(normalized)) {
+    orderCount = 2;
+  } else if (/(?:ثلاثه|ثلاث|ثلاثة)\\s*(?:اوردرات|طلبات|اوردر|طلب)/i.test(normalized)) {
+    orderCount = 3;
+  } else if (/(?:اربعه|اربع|أربعة)\\s*(?:اوردرات|طلبات|اوردر|طلب)/i.test(normalized)) {
+    orderCount = 4;
+  } else if (/(?:خمسه|خمس|خمسة)\\s*(?:اوردرات|طلبات|اوردر|طلب)/i.test(normalized)) {
+    orderCount = 5;
+  }
 
   // 1. Detect Passenger Transport vs Goods Delivery first (أشخاص / ركاب مقابل بضائع)
   const passengerDetection = detectPassengerDelivery(rawText);
@@ -325,6 +344,17 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
     }
   }
 
+  // Bahraini shorthand fare: "عسكر عراد 2" commonly means 2 BHD.
+  // Only accept a final bare number after both route endpoints were identified,
+  // when there is no explicit price, stated order quantity, passenger count or time.
+  const hasPersonOrScheduleNumber = /(?:اشخاص|شخص|ركاب|راكب|ساعة|الساعة|هاتف|واتساب)/i.test(normalized);
+  const trailingBareNumber = /(?:^|[\\s،,])([1-9]\\d?(?:\\.\\d+)?)\\s*$/.exec(convertedText);
+  if (price <= 0 && !orderCount && fromArea && toArea &&
+      fromArea !== toArea && !hasPersonOrScheduleNumber && trailingBareNumber) {
+    const shorthandFare = Number(trailingBareNumber[1]);
+    if (shorthandFare > 0 && shorthandFare <= 100) price = shorthandFare;
+  }
+
   // Comprehensive Intent Detection (Goods deliveries + Passenger rides)
   const hasOrderIntent = /(?:اوردر|طلب|توصيل|توصيل[ةه]|توصيلني|يوصلني|مشوار|مشاوير|مندوب|بيك اب|pickup|delivery|شخص|اشخاص|راكب|ركاب|بنت|بنات|طفل|اطفال|طالب|طالب[ةه]|طلاب|طالبات|موظف|موظف[ةه]|موظفين|عمال|سيار[ةه]|دريول|سائق|دوام|مدرس[ةه]|جامع[ةه])/i.test(normalized) || /(?:اوردر|أوردر|طلب|توصيل|توصيلة|توصيله|مشوار|مشاوير|شخص|أشخاص|اشخاص|راكب|ركاب|بنت|طفل|أطفال|طالب|طالبة|موظف|موظفة|سيارة|دريول|سائق|دوام|مدرسة|جامعة)/i.test(rawText);
 
@@ -407,6 +437,7 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
     from: fromArea,
     to: toArea,
     price: price > 0 ? price : 0,
+    orderCount,
     isPriceUnspecified,
     passengerCount: passengerDetection.passengerCount,
     scheduledTime,
