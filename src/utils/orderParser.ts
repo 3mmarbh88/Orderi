@@ -8,6 +8,7 @@ export interface RawParsedResult {
   from: string;
   to: string;
   price: number;
+  orderCategory?: 'delivery' | 'goods' | 'passengers';
   /** Explicit number of orders advertised, when the message states it. */
   orderCount?: number;
   isPriceUnspecified?: boolean;
@@ -457,11 +458,21 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
 
   const canCreateOrder = !!fromArea && !!toArea;
   const isPriceUnspecified = !price || price <= 0;
+  const hasGoodsIntent = /(?:كرتون|كراتين|شحنة|شحنات|طرد|طرود|بضاعة|بضائع|اكل|أكل|وجبة|وجبات|مطعم|كافيه|سوبرماركت|ورد|ورود|كيك|حلويات|عطور|هدية|عباية|ملابس|مستندات|أوراق|قطع غيار|شنطة|امانة|أمانة)/i.test(normalized);
+  const orderCategory: 'delivery' | 'goods' | 'passengers' | undefined =
+    passengerDetection.level !== 'goods_safe'
+      ? 'passengers'
+      : hasGoodsIntent
+        ? 'goods'
+        : hasOrderIntent
+          ? 'delivery'
+          : undefined;
 
   return {
     from: fromArea,
     to: toArea,
     price: price > 0 ? price : 0,
+    orderCategory,
     orderCount,
     isPriceUnspecified,
     passengerCount: passengerDetection.passengerCount,
