@@ -12,6 +12,7 @@ export interface WhatsAppNativeEvent {
   key?: string;
   isGroup?: boolean;
   conversationTitle?: string;
+  messageSender?: string;
   category?: string;
 }
 
