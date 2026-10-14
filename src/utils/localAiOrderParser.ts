@@ -25,6 +25,7 @@ interface OrderiLocalAIPluginType {
   loadModel(): Promise<{ success: boolean; status: string; memoryUsedMb?: number }>;
   parseOrder(options: { text: string }): Promise<{
     success: boolean;
+    modelLoaded?: boolean;
     from: string;
     to: string;
     price: number;
@@ -50,7 +51,7 @@ export const DEFAULT_LOCAL_AI_CONFIG = {
   modelPath: 'models/gemma3-1b-it-int4.litertlm',
   hybridMode: true,
   minConfidenceForFastPass: 85,
-  status: 'ready' as const,
+  status: 'unloaded' as const,
 };
 
 /**
@@ -106,10 +107,22 @@ export async function parseWhatsAppOrderWithLocalAi(
   const startTime = performance.now();
   const hybridMode = options.hybridMode !== false;
   const minConfidence = options.minConfidence ?? 85;
-  const useCloudFallback = options.useCloudFallback !== false;
+  // Local-first privacy: cloud parsing is opt-in only; notification text must never leave the device by default.
+  const useCloudFallback = options.useCloudFallback === true;
 
   // Step 1: Run Fast Tier 1 Heuristics
   const fastResult = parseWhatsAppOrderText(rawText);
+
+  // Never let the local LLM reinterpret a message already identified as a
+  // personal travel announcement; otherwise model output could re-add it to Radar.
+  if (fastResult.notes === 'إعلان سفر شخصي — مستبعد من الرادار') {
+    return {
+      ...fastResult,
+      aiUsed: false,
+      inferenceMs: Math.round(performance.now() - startTime),
+      parseMethod: 'fast_heuristic',
+    };
+  }
 
   // If Fast Pass is highly confident and complete, return immediately (Zero lag for simple orders)
   if (hybridMode && !options.forceAi && fastResult.canCreateOrder && fastResult.confidence >= minConfidence && fastResult.from && fastResult.to) {
@@ -127,7 +140,7 @@ export async function parseWhatsAppOrderWithLocalAi(
   if (isAndroid) {
     try {
       const nativeResponse = await OrderiLocalAIPlugin.parseOrder({ text: rawText });
-      if (nativeResponse && nativeResponse.success && (nativeResponse.from || nativeResponse.to)) {
+      if (nativeResponse && nativeResponse.success && nativeResponse.modelLoaded === true && (nativeResponse.from || nativeResponse.to)) {
         const fromArea = snapToOfficialBahrainArea(nativeResponse.from) || fastResult.from;
         const toArea = snapToOfficialBahrainArea(nativeResponse.to) || fastResult.to;
         const price = (typeof nativeResponse.price === 'number' && nativeResponse.price > 0)
@@ -146,7 +159,7 @@ export async function parseWhatsAppOrderWithLocalAi(
           passengerCount: passengerDet.passengerCount,
           phone: nativeResponse.phone || fastResult.phone,
           notes: nativeResponse.notes || fastResult.notes || 'تم التحليل عبر الذكاء الاصطناعي المحلي (Gemma 3 1B)',
-          confidence: Math.max(88, nativeResponse.confidence || 90),
+          confidence: Math.max(0, Math.min(100, nativeResponse.confidence ?? 70)),
           canCreateOrder: Boolean(fromArea || toArea || price > 0),
           passengerDetection: passengerDet,
           aiUsed: true,
@@ -155,7 +168,7 @@ export async function parseWhatsAppOrderWithLocalAi(
         };
       }
     } catch (err) {
-      console.warn('[LocalAI] Native plugin call bypassed or model loading, checking cloud tier:', err);
+      console.warn('[LocalAI] Native model inference unavailable; continuing with offline rule-based parsing:', err);
     }
   }
 
@@ -237,9 +250,9 @@ export async function parseWhatsAppOrderWithLocalAi(
     from: refinedFrom || fastResult.from,
     to: refinedTo || fastResult.to,
     canCreateOrder: Boolean(refinedFrom || refinedTo || fastResult.price > 0),
-    aiUsed: options.forceAi || !hybridMode,
+    aiUsed: false,
     inferenceMs: elapsed,
-    parseMethod: options.forceAi ? 'local_ai' : 'fast_heuristic',
+    parseMethod: 'fallback',
   };
 }
 
@@ -263,14 +276,14 @@ export async function checkLocalAIStatus(): Promise<{
   if (!isAndroid) {
     return {
       isNativeAndroid: false,
-      modelAvailable: true,
+      modelAvailable: false,
       modelName: DEFAULT_LOCAL_AI_CONFIG.modelName,
       modelPath: DEFAULT_LOCAL_AI_CONFIG.modelPath,
       hereWeGoPlacesCount,
       hereWeGoActive: true,
-      status: 'ready',
-      detail: `يعمل عبر المحرك الهجين التكيفي المباشر مع قاعدة بيانات HERE WeGo (${hereWeGoPlacesCount} معلماً ومجمعاً تجارياً)`,
-      architecture: 'هجين ثلاثي حقيقي: قواعد HERE WeGo + نموذج Gemma 3 1B INT4 + ذكاء Gemini السحابي',
+      status: 'unloaded',
+      detail: `المحلل المحلي السريع وقاعدة بيانات HERE WeGo (${hereWeGoPlacesCount} معلماً ومجمعاً تجارياً) متاحان؛ نموذج Gemma غير مؤكد التحميل في بيئة الويب.`,
+      architecture: 'محلل محلي بالقواعد + قاموس البحرين؛ لا يستخدم خدمة AI سحابية افتراضياً',
     };
   }
 
@@ -283,23 +296,23 @@ export async function checkLocalAIStatus(): Promise<{
       modelPath: res.modelPath || DEFAULT_LOCAL_AI_CONFIG.modelPath,
       hereWeGoPlacesCount,
       hereWeGoActive: true,
-      status: res.available ? 'ready' : 'unloaded',
-      detail: res.available 
-        ? `نموذج Gemma 3 1B متاح محلياً على الهاتف (${res.fileSizeMb || 584} MB) ويعمل دون إنترنت مع قاعدة خرائط HERE WeGo`
-        : `ملف النموذج ${DEFAULT_LOCAL_AI_CONFIG.modelPath} مدمج في هيكل النظام، والمحرك الهجين التكيفي وقاعدة HERE WeGo تعملان بنشاط تام`,
+      status: 'unloaded',
+      detail: res.available
+        ? `تم العثور على ملف نموذج محلي (${res.fileSizeMb || 0} MB)، لكن وجود الملف وحده لا يثبت أن محرك Gemma يعمل. المحلل المحلي بالقواعد متاح.`
+        : `ملف النموذج غير موجود؛ يعمل المحلل المحلي بالقواعد وقاموس البحرين دون إرسال النص إلى السحابة.`,
       architecture: 'LiteRT On-Device LLM + Native Capacitor Bridge + HERE WeGo Places',
     };
   } catch (err: any) {
     return {
       isNativeAndroid: true,
-      modelAvailable: true,
+      modelAvailable: false,
       modelName: DEFAULT_LOCAL_AI_CONFIG.modelName,
       modelPath: DEFAULT_LOCAL_AI_CONFIG.modelPath,
       hereWeGoPlacesCount,
       hereWeGoActive: true,
-      status: 'ready',
-      detail: `جسر الذكاء الاصطناعي المحلي متصل بنجاح، وقاعدة خرائط HERE WeGo نشطة (${hereWeGoPlacesCount} معلماً)`,
-      architecture: 'المحرك الهجين التكيفي المتكامل',
+      status: 'unloaded',
+      detail: `تعذر التحقق من تحميل نموذج Gemma؛ سيستمر التحليل المحلي بالقواعد وقاعدة HERE WeGo (${hereWeGoPlacesCount} معلماً).`,
+      architecture: 'محلل محلي بالقواعد + قاعدة معالم البحرين؛ دون اتصال سحابي افتراضي',
     };
   }
 }
@@ -360,16 +373,16 @@ export async function runLocalAiDiagnosticTest(
   // Step 3: Run the local hybrid parser
   const parsed = await parseWhatsAppOrderWithLocalAi(text, {
     forceAi: true,
-    useCloudFallback: options.forceCloudFallback !== false,
+    useCloudFallback: options.forceCloudFallback === true,
   });
 
   const elapsed = Math.max(12, Math.round(performance.now() - start));
 
-  let engineUsed = 'Gemma 3 1B INT4 (محلي)';
+  let engineUsed = 'محلل محلي بالقواعد + قاموس البحرين';
   if (parsed.parseMethod === 'cloud_ai') {
-    engineUsed = 'Gemini 3.8 Flash (سحابي)';
-  } else if (parsed.parseMethod === 'fast_heuristic') {
-    engineUsed = 'المحرك الهجين الفوري + HERE WeGo';
+    engineUsed = 'Gemini (سحابي - اختياري)';
+  } else if (parsed.parseMethod === 'local_ai') {
+    engineUsed = 'نموذج محلي محمّل فعلياً';
   }
 
   steps.push({

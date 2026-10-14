@@ -160,6 +160,7 @@ export interface ParsedOrder {
   from: string;
   to: string;
   price: number;
+  orderCategory?: 'delivery' | 'goods' | 'passengers';
   orderCount?: number; // عدد الطلبات المعلن عنه صراحةً، وليس عدد المناطق
   isPriceUnspecified?: boolean;
   passengerCount?: number; // عدد الأشخاص/الركاب منفصلاً عن السعر

@@ -89,16 +89,8 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
       setModelStatus(statusRes);
       const gLatency = Math.max(2, Math.round(performance.now() - gStart));
 
-      // 4. فحص اتصال الذكاء السحابي الاحتياطي
-      const cStart = performance.now();
-      let cloudPassed = true;
-      try {
-        const ping = await fetch('/api/health');
-        cloudPassed = ping.ok;
-      } catch {
-        cloudPassed = true;
-      }
-      const cLatency = Math.max(16, Math.round(performance.now() - cStart));
+      // Cloud AI is intentionally not contacted during the local-only readiness check.
+      const cLatency = 0;
 
       const totalElapsed = Math.round(performance.now() - t0);
       const isAndroid = Capacitor.getPlatform() === 'android';
@@ -118,30 +110,26 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
           {
             id: 'passenger_radar',
             name: 'رادار كشف ومنع نقل الركاب',
-            detail: `نشط بنسبة دقة 100% ويمنع إعلانات الأشخاص تلقائياً`,
+            detail: `تصنيف محلي أولي لعبارات نقل الأشخاص؛ لا توجد نسبة دقة مضمونة ويجب مراجعة الحالات الملتبسة`,
             latencyMs: pLatency,
             status: 'passed',
           },
           {
             id: 'gemma3_model',
-            name: 'محرك ونموذج Gemma 3 1B INT4 (584 MB)',
-            detail: isAndroid 
-              ? 'متصل عبر جسر أندرويد الأصلي مع ملف gemma3-1b-it-int4.litertlm' 
-              : 'يعمل عبر المحرك الهجين التكيفي ونموذج INT4 السريع',
+            name: 'المحلل المحلي (قواعد + قاموس البحرين)',
+            detail: statusRes.detail,
             latencyMs: gLatency,
-            status: 'passed',
+            status: statusRes.status === 'ready' ? 'passed' : 'warning',
           },
           {
             id: 'cloud_gemini',
-            name: 'الذكاء السحابي الاحتياطي (Gemini 3.8 Flash)',
-            detail: cloudPassed 
-              ? 'متصل وجاهز للاستدعاء التلقائي عند استلام نصوص معقدة'
-              : 'جاهز ويعمل عند الحاجة',
+            name: 'تحليل AI السحابي',
+            detail: 'معطّل افتراضياً؛ لا يتم إرسال نصوص إشعارات واتساب إلى AI خارجي. فحص الصحة لا يرسل محتوى الرسائل.',
             latencyMs: cLatency,
-            status: 'passed',
+            status: 'warning',
           },
         ],
-        summary: `كافة مكونات الذكاء الاصطناعي وخريطة HERE WeGo جاهزة وتعمل في جميع أجزاء البرنامج`,
+        summary: `تم فحص قاموس البحرين وتصنيف الركاب. نموذج Gemma غير محسوب على أنه جاهز ما لم يثبت تشغيله فعلياً، والتحليل السحابي معطّل افتراضياً.`,
       };
 
       setReadinessAudit(audit);
@@ -174,14 +162,14 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <h3 className="text-base sm:text-lg font-black tracking-tight">
-                الذكاء الاصطناعي الهجين (Gemma 3 1B + HERE WeGo) 🧠
+                فهم الطلبات محلياً + قاموس البحرين 🧠
               </h3>
               <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-white/20 text-white border border-white/30">
                 {isEnabled ? 'مفعّل وشغال ⚡' : 'معطّل'}
               </span>
             </div>
             <p className="text-xs text-white/80 mt-0.5 leading-relaxed">
-              محرك تكيفي هجين داخلي وخارجي مدمج مع خريطة HERE WeGo الشاملة لمعالم وأسواق ومجمعات البحرين
+              محلل محلي بالقواعد ومعالم البحرين؛ لا يرسل نص إشعار واتساب إلى AI خارجي افتراضياً
             </p>
           </div>
         </div>
@@ -213,7 +201,7 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
       <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-x-reverse divide-slate-100 bg-slate-50/70 border-b border-slate-100 text-center text-xs">
         <div className="p-3">
           <span className="text-[10px] text-slate-400 font-bold block">النموذج المدمج</span>
-          <span className="text-xs font-black text-slate-800">Gemma 3 1B INT4</span>
+          <span className="text-xs font-black text-slate-800">{modelStatus?.modelAvailable ? "ملف نموذج موجود (غير كافٍ لإثبات التشغيل)" : "نموذج LLM غير محمّل"}</span>
         </div>
         <div className="p-3">
           <span className="text-[10px] text-slate-400 font-bold block">خريطة HERE WeGo</span>
@@ -223,13 +211,13 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
         </div>
         <div className="p-3">
           <span className="text-[10px] text-slate-400 font-bold block">المعمارية</span>
-          <span className="text-xs font-black text-emerald-700">هجين ثلاثي الطبقات ⚡</span>
+          <span className="text-xs font-black text-emerald-700">محلل محلي + قاموس المواقع</span>
         </div>
         <div className="p-3">
           <span className="text-[10px] text-slate-400 font-bold block">حالة الاتصال</span>
           <span className="text-xs font-black text-violet-700 flex items-center justify-center gap-1">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-            <span>محلي + سحابي تكيفي</span>
+            <span>محلي افتراضياً</span>
           </span>
         </div>
       </div>
@@ -247,14 +235,14 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
                 <h4 className="text-xs sm:text-sm font-black text-indigo-950 flex items-center gap-2">
                   <span>حالة المحرك ونموذج الذكاء الاصطناعي:</span>
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-800">
-                    gemma3-1b-it-int4.litertlm (584 MB)
+                    {modelStatus?.modelAvailable ? 'ملف نموذج موجود - التشغيل غير مؤكد' : 'نموذج LLM غير محمّل'}
                   </span>
                 </h4>
                 <p className="text-[11px] text-indigo-800/80 mt-0.5 leading-relaxed">
-                  {modelStatus?.detail || 'تم دمج وتفعيل المحرك الهجين التكيفي للعمل مع نموذج Gemma 3 وقاعدة خرائط HERE WeGo.'}
+                  {modelStatus?.detail || 'يعمل المحلل المحلي بالقواعد وقاموس المواقع؛ لم يتم تأكيد تحميل نموذج LLM فعلياً.'}
                 </p>
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] text-indigo-600 font-semibold">
-                  <span>⚡ المعمارية: {modelStatus?.architecture || 'هجين محلي وسحابي'}</span>
+                  <span>⚡ المعمارية: {modelStatus?.architecture || 'محلل محلي بالقواعد + قاموس البحرين'}</span>
                   <span>·</span>
                   <span>📍 قاعدة HERE WeGo: {HERE_WE_GO_BAHRAIN_PLACES.length}+ معلماً تعمل في الخلفية</span>
                 </div>
@@ -281,7 +269,7 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
                     <Check className="w-3.5 h-3.5 stroke-[3]" />
                   </div>
                   <h5 className="text-xs font-black text-slate-900">
-                    نتيجة فحص الجاهزية: كافة الأنظمة جاهزة 100% 🚀 ({readinessAudit.totalElapsedMs} ms)
+                    {readinessAudit.items.every((item) => item.status === 'passed') ? 'اكتمل فحص الجاهزية' : 'اكتمل الفحص مع ملاحظات تحتاج معالجة'} ({readinessAudit.totalElapsedMs} ms)
                   </h5>
                 </div>
 

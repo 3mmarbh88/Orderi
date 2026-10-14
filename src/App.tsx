@@ -132,6 +132,8 @@ const DEFAULT_FILTER: OrderFilter = {
   autoBlockBlacklist: true,
   preventDuplicateOrders: true,
   blockPassengerDeliveries: true,
+  useLocalAi: true,
+  useCloudAiFallback: false,
   autoCloseOrdersEnabled: true,
   autoCloseAmbiguousAction: 'flag',
   excludeMyOwnAds: true,
@@ -160,7 +162,7 @@ function OrderiApp() {
               )
             : [];
 
-          return { ...DEFAULT_FILTER, ...parsed, contacts: existingContacts };
+          return { ...DEFAULT_FILTER, ...parsed, contacts: existingContacts, useLocalAi: true, useCloudAiFallback: false };
         }
       }
     } catch {}
@@ -357,7 +359,7 @@ function OrderiApp() {
               .filter(Boolean).join('\n').trim();
             const parsed = await parseWhatsAppOrderWithLocalAi(rawText || event.title || '', {
               hybridMode: filterRef.current.localAiConfig?.hybridMode !== false,
-              useCloudFallback: filterRef.current.useCloudAiFallback !== false,
+              useCloudFallback: filterRef.current.useCloudAiFallback === true,
               senderName: event.title,
               groupName,
             });
@@ -1027,7 +1029,7 @@ function OrderiApp() {
       import('./utils/localAiOrderParser').then(async ({ parseWhatsAppOrderWithLocalAi }) => {
         const parsed = await parseWhatsAppOrderWithLocalAi(rawText || event.title || '', {
           hybridMode: filterRef.current.localAiConfig?.hybridMode !== false,
-          useCloudFallback: filterRef.current.useCloudAiFallback !== false,
+          useCloudFallback: filterRef.current.useCloudAiFallback === true,
           senderName: event.title,
           groupName,
         });

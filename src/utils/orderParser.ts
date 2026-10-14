@@ -1,5 +1,6 @@
-import { BAHRAIN_AREAS, normalizeArabicText } from '../data/bahrainAreas';
+import { BAHRAIN_AREAS, BAHRAIN_AREA_ALIASES, correctBahrainAreaTyposInText, normalizeArabicText } from '../data/bahrainAreas';
 import { BAHRAIN_LANDMARKS } from '../data/bahrainLandmarks';
+import { HERE_WE_GO_BAHRAIN_PLACES } from '../data/hereWeGoBahrainMap';
 import { detectPassengerDelivery } from './passengerClassifier';
 import { PassengerDetection } from '../types';
 
@@ -7,6 +8,7 @@ export interface RawParsedResult {
   from: string;
   to: string;
   price: number;
+  orderCategory?: 'delivery' | 'goods' | 'passengers';
   /** Explicit number of orders advertised, when the message states it. */
   orderCount?: number;
   isPriceUnspecified?: boolean;
@@ -60,7 +62,7 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
   }
 
   const convertedText = convertArabicNumerals(rawText);
-  const normalized = normalizeArabicText(convertedText);
+  const normalized = normalizeArabicText(correctBahrainAreaTyposInText(convertedText));
 
   // Explicit order quantity: "اوردرين", "2 اوردرات", "ثلاثة طلبات".
   // A trailing number without the word order is not treated as an order count.
@@ -82,6 +84,27 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
   // 1. Detect Passenger Transport vs Goods Delivery first (أشخاص / ركاب مقابل بضائع)
   const passengerDetection = detectPassengerDelivery(rawText);
   const passengerCount = passengerDetection.passengerCount;
+
+  // Suppress personal travel announcements (not delivery requests), even when they
+  // include a phone number or travel day. Explicit order/delivery language takes priority.
+  const hasExplicitOrderLanguage = /(?:اوردر|أوردر|طلب توصيل|طلب|توصيل|مندوب|بيك\s*اب|pickup|delivery|استلام|تسليم|شحن|طرود|بضاعة|كرتون|وجبة|مشوار للعميل|مطلوب\s*(?:مندوب|توصيل))/i.test(rawText);
+  const hasTravelAnnouncementVerb = /(?:^|[\s،,.])(?:طالع|طالعة|رايح|رايحه|رايحة|مسافر|مسافره|مسافرة|متجه|متجهة|بطلع|بروح|بسافر|متوجه|متوجهة)(?=$|[\s،,.])/i.test(normalized);
+  const mentionsTravelDestination = /(?:الامارات|امارات|الإمارات|دبي|ابوظبي|أبوظبي|الشارقه|الشارقة|عجمان|السعوديه|السعودية|الرياض|جده|جدة|الدمام|الخبر|مكه|مكة|المدينه|المدينة|الكويت|قطر|الدوحه|الدوحة|عمان|مسقط|الاردن|الأردن)/i.test(normalized);
+  if (hasTravelAnnouncementVerb && mentionsTravelDestination && !hasExplicitOrderLanguage) {
+    return {
+      from: '',
+      to: '',
+      price: 0,
+      orderCategory: undefined,
+      isPriceUnspecified: true,
+      passengerCount: passengerDetection.passengerCount,
+      phone: '',
+      notes: 'إعلان سفر شخصي — مستبعد من الرادار',
+      confidence: 0,
+      canCreateOrder: false,
+      passengerDetection,
+    };
+  }
 
   // 2. Detect Phone Number (Bahrain format: 8 digits starting with 3, 6, 17 or prefixed with 973)
   let phone = '';
@@ -163,12 +186,36 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
       isLandmark: true,
       parentArea: lm.parentAreaName,
     })),
+    // Include the local HERE WeGo knowledge base for malls, markets, hospitals,
+    // dining streets/hubs, residential places, and other mapped landmarks.
+    ...HERE_WE_GO_BAHRAIN_PLACES.map((place) => ({
+      name: place.name,
+      keywords: [place.name, place.nameEn, ...place.keywords],
+      isLandmark: true,
+      parentArea: place.parentAreaName,
+    })),
+    // Numbered roundabouts are mapped only to Hamad Town at area level.
+    // Do not invent a precise pin: verified roundabout coordinates are not in this dataset.
+    ...Array.from({ length: 22 }, (_, index) => {
+      const number = index + 1;
+      return {
+        name: 'مدينة حمد',
+        keywords: [`دوار ${number}`, `دوار رقم ${number}`, `roundabout ${number}`],
+        isLandmark: false,
+      };
+    }),
     // Standard Geographic Areas
     ...BAHRAIN_AREAS.map((a) => ({
       name: a.name,
       keywords: [a.name, a.nameEn],
       isLandmark: false,
     })),
+    // Alias keywords resolve to the canonical area name so route matching and map filters
+    // use one stable location ID/name (e.g. "أبو قوة" -> "بو قوة").
+    ...Object.entries(BAHRAIN_AREA_ALIASES).flatMap(([alias, areaId]) => {
+      const area = BAHRAIN_AREAS.find((candidate) => candidate.id === areaId);
+      return area ? [{ name: area.name, keywords: [alias], isLandmark: false }] : [];
+    }),
   ];
 
   // Flatten and sort keywords by length descending so longer compound names match first
@@ -372,15 +419,22 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
 
   // 4. Notes / Package Type extraction (ensuring word boundaries)
   let notes = '';
-  const noteKeywords = [
-    'ورد', 'باقة', 'زهور', 'كيك', 'حلويات', 'عطور', 'هدية', 'أكل', 'مطعم',
-    'وجبة', 'مستندات', 'أوراق', 'عباية', 'ملابس', 'شحنة', 'أمانات', 'كرتون'
-  ];
-  for (const kw of noteKeywords) {
-    const kwRegex = new RegExp(`(?:^|[\\s،,.])${kw}(?:$|[\\s،,.])`, 'i');
-    if (kwRegex.test(normalized)) {
-      notes = kw;
-      break;
+  // Any explicit AC / air-conditioning / refrigeration wording means the goods
+  // need cold handling. Do not infer this from the item type alone.
+  const requiresColdStorage = /(?:تكييف|مكيف(?:ات)?|مكيف\\s*هواء|هواء\\s*بارد|حفظ\\s*بارد|بارد|تبريد|ثلاجه|ثلاجات)/i.test(normalized);
+  if (requiresColdStorage) {
+    notes = 'يحتاج حفظ بارد';
+  } else {
+    const noteKeywords = [
+      'ورد', 'باقة', 'زهور', 'كيك', 'حلويات', 'عطور', 'هدية', 'أكل', 'مطعم',
+      'وجبة', 'مستندات', 'أوراق', 'عباية', 'ملابس', 'شحنة', 'أمانات', 'كرتون'
+    ];
+    for (const kw of noteKeywords) {
+      const kwRegex = new RegExp(`(?:^|[\\s،,.])${kw}(?:$|[\\s،,.])`, 'i');
+      if (kwRegex.test(normalized)) {
+        notes = kw;
+        break;
+      }
     }
   }
 
@@ -432,11 +486,23 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
 
   const canCreateOrder = !!fromArea && !!toArea;
   const isPriceUnspecified = !price || price <= 0;
+  const goodsKeywords = ['كرتون', 'كراتين', 'شحنة', 'شحنات', 'طرد', 'طرود', 'بضاعة', 'بضائع', 'اكل', 'أكل', 'وجبة', 'وجبات', 'مطعم', 'كافيه', 'سوبرماركت', 'ورد', 'ورود', 'كيك', 'حلويات', 'عطور', 'هدية', 'عباية', 'ملابس', 'مستندات', 'أوراق', 'شنطة', 'امانة', 'أمانة'].map(normalizeArabicText);
+  const normalizedTokens = normalized.split(/\s+/);
+  const hasGoodsIntent = goodsKeywords.some((keyword) => normalizedTokens.includes(keyword)) || normalized.includes('قطع غيار');
+  const orderCategory: 'delivery' | 'goods' | 'passengers' | undefined =
+    passengerDetection.level !== 'goods_safe'
+      ? 'passengers'
+      : hasGoodsIntent
+        ? 'goods'
+        : hasOrderIntent
+          ? 'delivery'
+          : undefined;
 
   return {
     from: fromArea,
     to: toArea,
     price: price > 0 ? price : 0,
+    orderCategory,
     orderCount,
     isPriceUnspecified,
     passengerCount: passengerDetection.passengerCount,

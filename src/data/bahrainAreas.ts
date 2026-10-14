@@ -39,6 +39,7 @@ export const BAHRAIN_AREAS: AreaLocation[] = [
   { id: 'halat_salta', name: 'حالة بو ماهر والصلطة', nameEn: 'Halat Bu Maher', governorate: 'المحرق', latitude: 26.2480, longitude: 50.6150 },
 
   // الشمالية (Northern Governorate)
+  { id: 'bu_quwah', name: 'بو قوة', nameEn: 'Bu Quwah', governorate: 'الشمالية', latitude: 26.2047, longitude: 50.5200 },
   { id: 'sar', name: 'سار', nameEn: 'Saar', governorate: 'الشمالية', latitude: 26.2050, longitude: 50.5100 },
   { id: 'janabiya', name: 'الجنبية', nameEn: 'Janabiya', governorate: 'الشمالية', latitude: 26.2110, longitude: 50.5060 },
   { id: 'budaiya', name: 'البديع', nameEn: 'Budaiya', governorate: 'الشمالية', latitude: 26.2180, longitude: 50.4780 },
@@ -54,6 +55,8 @@ export const BAHRAIN_AREAS: AreaLocation[] = [
   { id: 'shahrakan', name: 'شهركان', nameEn: 'Shahrakan', governorate: 'الشمالية', latitude: 26.1650, longitude: 50.4550 },
   { id: 'al_qurayyah', name: 'القرية', nameEn: 'Al Qurayyah', governorate: 'الشمالية', latitude: 26.1900, longitude: 50.5000 },
   { id: 'hamad_town', name: 'مدينة حمد', nameEn: 'Hamad Town', governorate: 'الشمالية', latitude: 26.1150, longitude: 50.5069 },
+  // Al Lawzi / إسكان اللوزي: use an area-level coordinate, not a street-level pin.
+  { id: 'lawzi', name: 'اللوزي', nameEn: 'Al Lawzi', governorate: 'الشمالية', latitude: 26.1217, longitude: 50.4891 },
   { id: 'bouri', name: 'بوري', nameEn: 'Bouri', governorate: 'الشمالية', latitude: 26.1650, longitude: 50.4950 },
   { id: 'maqaba', name: 'مقابة', nameEn: 'Maqaba', governorate: 'الشمالية', latitude: 26.2120, longitude: 50.5200 },
   { id: 'shakhoora', name: 'الشاخورة', nameEn: 'Shakhoora', governorate: 'الشمالية', latitude: 26.2200, longitude: 50.5150 },
@@ -66,6 +69,7 @@ export const BAHRAIN_AREAS: AreaLocation[] = [
   { id: 'sadad', name: 'صدد', nameEn: 'Sadad', governorate: 'الشمالية', latitude: 26.1550, longitude: 50.4600 },
 
   // الجنوبية (Southern Governorate)
+  { id: 'bu_kowarah', name: 'بو كوارة', nameEn: 'Bu Kowarah', governorate: 'الجنوبية', latitude: 26.1382, longitude: 50.5657 },
   { id: 'riffa', name: 'الرفاع', nameEn: 'Riffa', governorate: 'الجنوبية', latitude: 26.1300, longitude: 50.5550 },
   { id: 'riffa_sharqi', name: 'الرفاع الشرقي', nameEn: 'East Riffa', governorate: 'الجنوبية', latitude: 26.1200, longitude: 50.5700 },
   { id: 'riffa_gharbi', name: 'الرفاع الغربي', nameEn: 'West Riffa', governorate: 'الجنوبية', latitude: 26.1380, longitude: 50.5400 },
@@ -112,7 +116,7 @@ export function calculateDistanceKm(
  * must not be treated as precise roundabout coordinates until verified map
  * coordinates are added to the dedicated places dataset.
  */
-const BAHRAIN_AREA_ALIASES: Record<string, string> = {
+export const BAHRAIN_AREA_ALIASES: Record<string, string> = {
   'م عيسى': 'isa_town',
   'م. عيسى': 'isa_town',
   'مدينه عيسى': 'isa_town',
@@ -125,10 +129,99 @@ const BAHRAIN_AREA_ALIASES: Record<string, string> = {
   'مدينة حمد': 'hamad_town',
   'hamad town': 'hamad_town',
   'hamad-town': 'hamad_town',
+  'أبو قوة': 'bu_quwah',
+  'ابو قوة': 'bu_quwah',
+  'أبوقوة': 'bu_quwah',
+  'ابوقوة': 'bu_quwah',
+  'بو قوة': 'bu_quwah',
+  'بو قوه': 'bu_quwah',
+  'abu quwah': 'bu_quwah',
+  'abu quwa': 'bu_quwah',
+  'bu quwah': 'bu_quwah',
+  'أبو كوارة': 'bu_kowarah',
+  'ابو كوارة': 'bu_kowarah',
+  'أبو كواره': 'bu_kowarah',
+  'ابو كواره': 'bu_kowarah',
+  'بو كوارة': 'bu_kowarah',
+  'بو كواره': 'bu_kowarah',
+  'بوكوارة': 'bu_kowarah',
+  'بوكواره': 'bu_kowarah',
+  'abu kowarah': 'bu_kowarah',
+  'abu kuwarah': 'bu_kowarah',
+  'bu kowarah': 'bu_kowarah',
+  'bu kuwarah': 'bu_kowarah',
+  // Common WhatsApp spelling mistakes and shorthand for Al Lawzi.
+  'الوزي': 'lawzi',
+  'اللوزى': 'lawzi',
+  'لوزي': 'lawzi',
+  'اللوزي': 'lawzi',
+  'al lawzi': 'lawzi',
+  'al-lawzi': 'lawzi',
+  'lawzi': 'lawzi',
+  'al lozi': 'lawzi',
+  'lozi': 'lawzi',
 };
 
 function compactPlaceText(value: string): string {
   return normalizeArabicText(value).replace(/[\s.,،؛:()\-_/]/g, '');
+}
+
+function levenshteinDistance(a: string, b: string): number {
+  const left = Array.from(a);
+  const right = Array.from(b);
+  const row = Array.from({ length: right.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= left.length; i++) {
+    let previousDiagonal = row[0];
+    row[0] = i;
+    for (let j = 1; j <= right.length; j++) {
+      const old = row[j];
+      row[j] = Math.min(
+        row[j] + 1,
+        row[j - 1] + 1,
+        previousDiagonal + (left[i - 1] === right[j - 1] ? 0 : 1),
+      );
+      previousDiagonal = old;
+    }
+  }
+  return row[right.length];
+}
+
+function findUniqueTypoCorrection(name: string): AreaLocation | undefined {
+  const tokens = normalizeArabicText(name)
+    .split(/[^\\p{L}\\p{N}]+/u)
+    .filter((token) => token.length >= 4);
+  const candidates = new Map<string, string>();
+  for (const [alias, areaId] of Object.entries(BAHRAIN_AREA_ALIASES)) {
+    const normalizedAlias = normalizeArabicText(alias).replace(/[^\\p{L}\\p{N}]/gu, '');
+    if (normalizedAlias.length >= 4) candidates.set(normalizedAlias, areaId);
+  }
+  for (const area of BAHRAIN_AREAS) {
+    const normalizedName = normalizeArabicText(area.name).replace(/[^\\p{L}\\p{N}]/gu, '');
+    if (normalizedName.length >= 4) candidates.set(normalizedName, area.id);
+  }
+
+  let bestDistance = Number.POSITIVE_INFINITY;
+  let bestIds = new Set<string>();
+  for (const token of tokens) {
+    const compactToken = token.replace(/[^\\p{L}\\p{N}]/gu, '');
+    for (const [candidate, areaId] of candidates) {
+      if (Math.abs(compactToken.length - candidate.length) > 2) continue;
+      const distance = levenshteinDistance(compactToken, candidate);
+      const maxDistance = compactToken.length <= 5 ? 1 : 2;
+      if (distance > maxDistance) continue;
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIds = new Set([areaId]);
+      } else if (distance === bestDistance) {
+        bestIds.add(areaId);
+      }
+    }
+  }
+
+  // Correct only when the closest spelling points to one unambiguous area.
+  if (bestIds.size !== 1) return undefined;
+  const id = Array.from(bestIds)[0];
+  return BAHRAIN_AREAS.find((area) => area.id === id);
 }
 
 export function findAreaByName(name: string): AreaLocation | undefined {
@@ -162,7 +255,11 @@ export function findAreaByName(name: string): AreaLocation | undefined {
   });
   if (directArea) return directArea;
 
-  // 2. Intelligent match with Bahrain malls & landmarks (e.g. مودامول، السيف مول، سيتي سنتر، الأفنيوز)
+  // 2. Conservative typo correction for local area names (unique nearest match only).
+  const correctedArea = findUniqueTypoCorrection(name);
+  if (correctedArea) return correctedArea;
+
+  // 3. Intelligent match with Bahrain malls & landmarks (e.g. مودامول، السيف مول، سيتي سنتر، الأفنيوز)
   const landmark = findLandmarkByName(name);
   if (landmark) {
     return {
@@ -187,6 +284,16 @@ export function normalizeArabicText(text: string): string {
     .replace(/ة/g, 'ه')
     .replace(/ى/g, 'ي')
     .replace(/[\u064B-\u065F]/g, ''); // Remove tashkeel/diacritics
+}
+
+/** Replace only uniquely matched location tokens with their canonical area names. */
+export function correctBahrainAreaTyposInText(text: string): string {
+  if (!text) return text;
+  return text.replace(/[\\p{L}\\p{N}]+/gu, (token) => {
+    if (token.length < 4) return token;
+    const corrected = findUniqueTypoCorrection(token);
+    return corrected ? corrected.name : token;
+  });
 }
 
 export function findNearestArea(lat: number, lon: number): { area: AreaLocation; distanceKm: number } {

@@ -10,6 +10,15 @@ import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
+import com.google.ai.edge.litertlm.Backend;
+import com.google.ai.edge.litertlm.Contents;
+import com.google.ai.edge.litertlm.Conversation;
+import com.google.ai.edge.litertlm.ConversationConfig;
+import com.google.ai.edge.litertlm.Engine;
+import com.google.ai.edge.litertlm.EngineConfig;
+
+import org.json.JSONObject;
+
 import java.io.File;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -20,10 +29,15 @@ import java.util.regex.Pattern;
 public class OrderiLocalAIPlugin extends Plugin {
     private static final String TAG = "OrderiLocalAI";
     private static final String MODEL_FILENAME = "gemma3-1b-it-int4.litertlm";
+    private static final String SYSTEM_INSTRUCTION = "أنت محلل طلبات توصيل في البحرين. استخرج فقط المعلومات الموجودة صراحة في رسالة واتساب. لا تخترع منطقة أو سعراً أو رقماً. أعد JSON صالحاً فقط بالحقول from وto وprice وphone وnotes وconfidence. إذا لم تعرف قيمة نصية أعد نصاً فارغاً، وإذا لم يذكر السعر أعد 0، واجعل confidence رقماً من 0 إلى 100.";
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private final Object modelLock = new Object();
     private boolean isModelLoaded = false;
+    private boolean modelInitializationAttempted = false;
     private File modelFile = null;
+    private Engine modelEngine = null;
+    private Conversation modelConversation = null;
 
     @Override
     public void load() {
@@ -46,8 +60,9 @@ public class OrderiLocalAIPlugin extends Plugin {
         for (File candidate : candidatePaths) {
             if (candidate.exists() && candidate.length() > 1024 * 1024) { // > 1MB
                 modelFile = candidate;
-                isModelLoaded = true;
-                Log.i(TAG, "Located local AI model file: " + candidate.getAbsolutePath() + " (" + (candidate.length() / (1024 * 1024)) + " MB)");
+                // Model-file presence and initialized inference runtime are separate states.
+                isModelLoaded = modelConversation != null && modelEngine != null && modelEngine.isInitialized();
+                Log.i(TAG, "Located local model file (runtime initialization still required): " + candidate.getAbsolutePath() + " (" + (candidate.length() / (1024 * 1024)) + " MB)");
                 return;
             }
         }
@@ -73,17 +88,24 @@ public class OrderiLocalAIPlugin extends Plugin {
     @PluginMethod
     public void loadModel(PluginCall call) {
         executor.execute(() -> {
-            checkAndLocateModel();
             JSObject ret = new JSObject();
-            if (modelFile != null && modelFile.exists()) {
-                isModelLoaded = true;
-                ret.put("success", true);
-                ret.put("status", "loaded");
-                ret.put("memoryUsedMb", 584);
-            } else {
+            try {
+                modelInitializationAttempted = false;
+                if (initializeModel()) {
+                    ret.put("success", true);
+                    ret.put("status", "loaded");
+                    ret.put("modelPath", modelFile.getAbsolutePath());
+                } else {
+                    ret.put("success", false);
+                    ret.put("status", "model_file_missing");
+                    ret.put("message", "Model file gemma3-1b-it-int4.litertlm not found in app model directories.");
+                }
+            } catch (Exception e) {
+                isModelLoaded = false;
                 ret.put("success", false);
-                ret.put("status", "model_file_missing");
-                ret.put("message", "Model file gemma3-1b-it-int4.litertlm not found on device storage");
+                ret.put("status", "load_failed");
+                ret.put("message", e.getMessage() == null ? "LiteRT-LM initialization failed" : e.getMessage());
+                Log.e(TAG, "Unable to initialize on-device model", e);
             }
             call.resolve(ret);
         });
@@ -210,28 +232,112 @@ public class OrderiLocalAIPlugin extends Plugin {
                 }
             }
 
-            long elapsedMs = SystemClock.elapsedRealtime() - startMs;
+            boolean modelUsed = false;
+            int confidence = 68;
+            String notes = "استخراج محلي بالقواعد والأنماط؛ نموذج Gemma غير متاح على هذا الجهاز";
+            try {
+                if (initializeModel()) {
+                    String prompt = "حلل رسالة واتساب التالية كطلب محتمل في البحرين. استخرج نقطة الاستلام from والوجهة to والسعر الصريح بالدينار price ورقم الهاتف الظاهر phone وملاحظات البضاعة notes. لا تخلط عدد الأشخاص أو الدوارات مع السعر. لا تستنتج سعراً غير مذكور. أعد JSON فقط.\n<WHATSAPP_MESSAGE>\n" + text + "\n</WHATSAPP_MESSAGE>";
+                    String modelOutput = modelConversation.sendMessage(prompt).toString();
+                    JSONObject parsed = extractJsonObject(modelOutput);
+                    String modelFrom = parsed.optString("from", "").trim();
+                    String modelTo = parsed.optString("to", "").trim();
+                    if (!isUnknown(modelFrom)) fromArea = modelFrom;
+                    if (!isUnknown(modelTo)) toArea = modelTo;
+                    double modelPrice = parsed.optDouble("price", 0.0);
+                    if (modelPrice > 0 && modelPrice <= 100) price = (float) modelPrice;
+                    String modelPhone = parsed.optString("phone", "").replaceAll("[^0-9]", "");
+                    if (modelPhone.length() >= 8) {
+                        phone = modelPhone.startsWith("973") ? modelPhone : "973" + modelPhone;
+                    }
+                    String modelNotes = parsed.optString("notes", "").trim();
+                    if (!isUnknown(modelNotes)) notes = modelNotes;
+                    confidence = Math.max(0, Math.min(100, parsed.optInt("confidence", 75)));
+                    modelUsed = true;
+                    notes = (notes.isEmpty() ? "" : notes + " · ") + "تم التحليل فعلياً على الهاتف باستخدام Gemma / LiteRT-LM";
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "On-device inference failed; returning local rule-based extraction", e);
+            }
 
+            long elapsedMs = SystemClock.elapsedRealtime() - startMs;
             JSObject ret = new JSObject();
-            ret.put("success", true);
+            ret.put("success", !fromArea.isEmpty() || !toArea.isEmpty() || price > 0);
             ret.put("from", fromArea);
             ret.put("to", toArea);
             ret.put("price", price);
             ret.put("phone", phone);
-            ret.put("notes", isModelLoaded ? "تحليل محلي عبر Gemma 3 1B LiteRT" : "تحليل محلي عبر المحرك الهجين السريع");
-            ret.put("confidence", 92);
+            ret.put("notes", notes);
+            ret.put("modelLoaded", modelUsed && isModelLoaded);
+            ret.put("confidence", confidence);
             ret.put("inferenceTimeMs", elapsedMs);
             call.resolve(ret);
         });
     }
 
+    private boolean initializeModel() throws Exception {
+        synchronized (modelLock) {
+            if (modelConversation != null && modelEngine != null && modelEngine.isInitialized()) {
+                isModelLoaded = true;
+                return true;
+            }
+            checkAndLocateModel();
+            if (modelFile == null || !modelFile.exists()) return false;
+            if (modelInitializationAttempted) return false;
+            modelInitializationAttempted = true;
+
+            Engine candidate = new Engine(new EngineConfig(modelFile.getAbsolutePath(), new Backend.CPU(null, null)));
+            try {
+                candidate.initialize();
+                Conversation candidateConversation = candidate.createConversation(
+                        new ConversationConfig(Contents.Companion.of(SYSTEM_INSTRUCTION)));
+                modelEngine = candidate;
+                modelConversation = candidateConversation;
+                isModelLoaded = true;
+                Log.i(TAG, "LiteRT-LM model initialized for on-device order extraction.");
+                return true;
+            } catch (Exception e) {
+                try { candidate.close(); } catch (Exception ignored) {}
+                isModelLoaded = false;
+                throw e;
+            }
+        }
+    }
+
+    private JSONObject extractJsonObject(String output) throws Exception {
+        if (output == null) throw new IllegalArgumentException("Empty model response");
+        int start = output.indexOf('{');
+        int end = output.lastIndexOf('}');
+        if (start < 0 || end <= start) throw new IllegalArgumentException("Model did not return valid JSON");
+        return new JSONObject(output.substring(start, end + 1));
+    }
+
+    private boolean isUnknown(String value) {
+        if (value == null) return true;
+        String normalized = value.trim().toLowerCase();
+        return normalized.isEmpty() || normalized.equals("null") || normalized.equals("unknown")
+                || normalized.equals("غير محدد") || normalized.equals("غير معروف") || normalized.equals("لا يوجد");
+    }
+
     @PluginMethod
     public void getStatus(PluginCall call) {
         JSObject ret = new JSObject();
-        ret.put("initialized", true);
+        ret.put("initialized", modelEngine != null && modelEngine.isInitialized());
         ret.put("modelLoaded", isModelLoaded);
         ret.put("modelName", "Gemma 3 1B LiteRT (" + MODEL_FILENAME + ")");
-        ret.put("ramMb", 584);
         call.resolve(ret);
+    }
+
+    @Override
+    protected void handleOnDestroy() {
+        synchronized (modelLock) {
+            try { if (modelConversation != null) modelConversation.close(); } catch (Exception ignored) {}
+            try { if (modelEngine != null) modelEngine.close(); } catch (Exception ignored) {}
+            modelConversation = null;
+            modelEngine = null;
+            isModelLoaded = false;
+        }
+        executor.shutdown();
+        super.handleOnDestroy();
     }
 }

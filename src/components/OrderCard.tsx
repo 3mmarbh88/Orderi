@@ -26,7 +26,8 @@ import {
   AlertCircle,
   CheckCircle2,
   MoveHorizontal,
-  Target
+  Target,
+  Snowflake
 } from 'lucide-react';
 import { ParsedOrder } from '../types';
 import { MatcherLocation } from '../utils/matcher';
@@ -208,6 +209,7 @@ export function OrderCard({
   const passenger = order.passengerDetection || detectPassengerDelivery(order.rawText);
   const isConfirmedPassenger = passenger.level === 'confirmed_passenger';
   const isSuspiciousPassenger = passenger.level === 'suspicious_passenger';
+  const requiresColdStorage = /(?:تكييف|مكيف(?:ات)?|مكيف\\s*هواء|هواء\\s*بارد|حفظ\\s*بارد|بارد|تبريد|ثلاجه|ثلاجات)/i.test(`${order.rawText || ''} ${order.notes || ''}`);
 
   const { match } = order;
   const isVip = match.score >= 90;
@@ -406,6 +408,14 @@ export function OrderCard({
             <span className="text-[10px] bg-black/30 px-2 py-0.5 rounded-full shrink-0 font-bold">
               تحقق يدوي
             </span>
+          </div>
+        )}
+
+        {/* Cold-chain handling alert: triggered only by explicit message wording. */}
+        {requiresColdStorage && (
+          <div className="bg-sky-50 border-y border-sky-200 text-sky-950 px-4 py-2.5 flex items-center gap-2 text-xs sm:text-sm font-extrabold">
+            <Snowflake className="w-4 h-4 text-sky-700 shrink-0" />
+            <span>يتطلب حفظاً بارداً — تكييف / تبريد مطلوب أثناء النقل</span>
           </div>
         )}
 
