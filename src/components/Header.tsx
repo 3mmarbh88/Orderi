@@ -162,11 +162,11 @@ export function Header({
   return (
     <>
       <header 
-        className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/80 shadow-xs w-full max-w-full overflow-hidden"
+        className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/80 shadow-xs w-full max-w-full"
         style={{ paddingTop: 'max(0px, env(safe-area-inset-top))' }}
       >
         <div className="max-w-7xl mx-auto px-2 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-14 sm:h-20 gap-1 sm:gap-2 w-full max-w-full">
+          <div className="flex items-center justify-between h-14 sm:h-20 gap-1.5 sm:gap-2 w-full max-w-full">
             
             {/* Logo & Identity */}
             <div className="flex items-center gap-1.5 sm:gap-3 shrink-0 min-w-0">
@@ -192,13 +192,13 @@ export function Header({
                     🇧🇭
                   </span>
 
-                  {/* 7-Day Device Trial Badge */}
+                  {/* 7-Day Device Trial Badge (Compact on mobile) */}
                   {trialStatus && onOpenTrialModal && (
                     <button
                       type="button"
                       onClick={onOpenTrialModal}
                       title="تفاصيل الفترة التجريبية وترخيص هذا الهاتف"
-                      className={`h-6 sm:h-7.5 flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-black transition-all border shrink-0 cursor-pointer active:scale-95 shadow-2xs ${
+                      className={`h-6 sm:h-7.5 flex items-center gap-1 px-1.5 sm:px-2 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-black transition-all border shrink-0 cursor-pointer active:scale-95 shadow-2xs ${
                         trialStatus.isActivated
                           ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
                           : trialStatus.isExpired
@@ -208,20 +208,18 @@ export function Header({
                     >
                       {trialStatus.isActivated ? (
                         <>
-                          <ShieldCheck className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-600" />
-                          <span className="hidden xs:inline">مفعّل 🇧🇭</span>
+                          <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                          <span className="hidden sm:inline">مفعّل</span>
                         </>
                       ) : trialStatus.isExpired ? (
                         <>
-                          <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-rose-600" />
-                          <span>انتهت التجربة (7 أيام) ⚠️</span>
+                          <Clock className="w-3 h-3 text-rose-600" />
+                          <span>انتهت</span>
                         </>
                       ) : (
                         <>
-                          <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-600 animate-spin-slow" />
-                          <span>
-                            تجربة: {trialStatus.daysRemaining > 0 ? `${trialStatus.daysRemaining} يوم` : `${trialStatus.hoursRemaining} س`} ⏳
-                          </span>
+                          <Clock className="w-3 h-3 text-amber-600 animate-spin-slow" />
+                          <span>{trialStatus.daysRemaining > 0 ? `${trialStatus.daysRemaining}ي` : `${trialStatus.hoursRemaining}س`} ⏳</span>
                         </>
                       )}
                     </button>
@@ -314,8 +312,8 @@ export function Header({
               </button>
             </nav>
 
-            {/* Quick Action Controls */}
-            <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+            {/* Desktop Quick Action Controls (Hidden on mobile, visible on tablet/desktop) */}
+            <div className="hidden md:flex items-center gap-1 sm:gap-1.5 shrink-0">
               
               {/* GPS Location & Live Vehicle Tracking Button */}
               <div className="flex items-center gap-1">
@@ -335,7 +333,7 @@ export function Header({
                   ) : (
                     <MapPin className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 ${isGpsLoading ? 'animate-bounce text-amber-600' : 'text-emerald-600'}`} />
                   )}
-                  <span className="hidden xs:inline text-[10px] sm:text-xs max-w-[65px] sm:max-w-[130px] truncate">
+                  <span className="text-[10px] sm:text-xs max-w-[65px] sm:max-w-[130px] truncate">
                     {isGpsLoading ? '...' : (carSpeedKmh > 10 ? `${carSpeedKmh} كم/س` : driverLocation?.areaName || 'موقعي')}
                   </span>
                   {isCarTrackingActive && (
@@ -377,11 +375,11 @@ export function Header({
                     <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${isWhatsAppConnected || isStreamConnected ? 'bg-emerald-400 opacity-75' : 'bg-amber-400 opacity-75'}`} />
                     <span className={`relative inline-flex rounded-full h-1.5 w-1.5 sm:h-2 sm:w-2 ${isWhatsAppConnected || isStreamConnected ? 'bg-emerald-500' : 'bg-amber-500'}`} />
                   </span>
-                  <span className="hidden sm:inline text-xs">{isWhatsAppConnected ? 'متصل' : 'ربط'}</span>
+                  <span className="text-xs">{isWhatsAppConnected ? 'متصل' : 'ربط'}</span>
                 </button>
               )}
 
-              {/* Mark All WhatsApp Groups as Read Button (تحديد الكل وقراءة جميع قروبات الواتساب) */}
+              {/* Mark All WhatsApp Groups as Read Button */}
               {onMarkAllWhatsAppAsRead && (
                 <button
                   type="button"
@@ -394,7 +392,7 @@ export function Header({
                       ? 'bg-teal-100 text-teal-800 border-teal-300 opacity-90 cursor-wait'
                       : 'bg-teal-50 hover:bg-teal-100 text-teal-950 border-teal-300/90 hover:border-teal-400'
                   }`}
-                  title="تحديد الكل و(Mark as Read) لجميع قروبات الواتساب المرتبطة بالبرنامج لتصفير عداد الرسائل في واتساب"
+                  title="تحديد الكل و(Mark as Read) لجميع قروبات الواتساب لتصفير عداد الرسائل"
                 >
                   {isMarkingInternal ? (
                     <RefreshCw className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-teal-700 animate-spin shrink-0" />
@@ -413,7 +411,7 @@ export function Header({
               <button
                 onClick={onToggleSound}
                 title={soundEnabled ? 'كتم التنبيهات الصوتية' : 'تفعيل التنبيهات الصوتية'}
-                className={`h-9 w-9 sm:h-10 sm:w-10 flex items-center justify-center rounded-xl border transition-all active:scale-95 ${
+                className={`h-9 w-9 sm:h-10 sm:w-10 flex items-center justify-center rounded-xl border transition-all active:scale-95 cursor-pointer ${
                   soundEnabled
                     ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
                     : 'bg-slate-100 text-slate-400 border-slate-200 hover:bg-slate-200'
@@ -422,12 +420,12 @@ export function Header({
                 {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
               </button>
 
-              {/* Screen Wake Lock Switch (Keep screen awake while driving) - hidden on small mobile */}
+              {/* Screen Wake Lock Switch */}
               {onToggleKeepScreenAwake && (
                 <button
                   onClick={onToggleKeepScreenAwake}
                   title={keepScreenAwake ? 'إبقاء الشاشة مضاءة: مفعّل ☀️' : 'إبقاء الشاشة مضاءة: معطّل 🌙'}
-                  className={`hidden sm:flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-xl border transition-all active:scale-95 ${
+                  className={`h-9 w-9 sm:h-10 sm:w-10 flex items-center justify-center rounded-xl border transition-all active:scale-95 cursor-pointer ${
                     keepScreenAwake
                       ? 'bg-amber-50 text-amber-600 border-amber-300'
                       : 'bg-slate-100 text-slate-400 border-slate-200 hover:bg-slate-200'
@@ -437,12 +435,12 @@ export function Header({
                 </button>
               )}
 
-              {/* Discovered WhatsApp Group Links Sniffer Button - hidden on mobile screens */}
+              {/* Discovered WhatsApp Group Links Sniffer Button */}
               {onOpenDiscoveredGroupsModal && (
                 <button
                   onClick={onOpenDiscoveredGroupsModal}
                   title="صائد روابط قروبات التوصيل المنشورة في الواتساب"
-                  className={`hidden md:flex h-9 sm:h-10 items-center gap-1.5 px-2.5 sm:px-3 rounded-xl text-xs font-black transition-all shadow-xs border active:scale-95 ${
+                  className={`h-9 sm:h-10 flex items-center gap-1.5 px-2.5 sm:px-3 rounded-xl text-xs font-black transition-all shadow-xs border active:scale-95 cursor-pointer ${
                     newDiscoveredGroupsCount > 0
                       ? 'bg-gradient-to-r from-teal-600 to-emerald-600 text-white border-teal-500'
                       : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
@@ -453,7 +451,7 @@ export function Header({
                 </button>
               )}
 
-              {/* PWA Install & APK Modal Button - visible on tablet/desktop */}
+              {/* PWA Install & APK Modal Button */}
               {onOpenAPKModal && (
                 <button
                   onClick={onOpenAPKModal}
@@ -465,7 +463,7 @@ export function Header({
                 </button>
               )}
 
-              {/* PWA Install Button (Desktop/Tablet) */}
+              {/* PWA Install Button */}
               <div className="hidden sm:block">
                 <PWAInstallButton />
               </div>
@@ -474,30 +472,145 @@ export function Header({
               <button
                 onClick={onToggleRadar}
                 title={liveRadarActive ? 'إيقاف الرادار مؤقتاً' : 'تفعيل الرادار'}
-                className={`h-9 px-2 sm:h-10 sm:px-3.5 flex items-center justify-center gap-1 rounded-xl text-xs font-bold transition-all active:scale-95 ${
+                className={`h-9 px-2 sm:h-10 sm:px-3.5 flex items-center justify-center gap-1.5 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer ${
                   liveRadarActive
                     ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
                     : 'bg-slate-200 text-slate-700'
                 }`}
               >
                 <Wifi className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${liveRadarActive ? 'animate-pulse' : ''}`} />
-                <span className="hidden sm:inline">{liveRadarActive ? 'جاهز 🟢' : 'متوقف'}</span>
+                <span>{liveRadarActive ? 'جاهز 🟢' : 'متوقف'}</span>
               </button>
 
-              {/* Exit / Logout Button (خروج من البرنامج) */}
+              {/* Exit / Logout Button (خروج من البرنامج) - Desktop */}
               <button
                 onClick={() => setIsExitConfirmOpen(true)}
-                title="خروج من البرنامج"
-                aria-label="خروج من البرنامج"
-                className="h-9 px-2 sm:h-10 sm:px-3 flex items-center justify-center gap-1 rounded-xl text-xs font-black bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition-all active:scale-95 shadow-2xs cursor-pointer shrink-0"
+                title="خروج من البرنامج بالكامل"
+                aria-label="خروج من البرنامج بالكامل"
+                className="h-9 px-3 sm:h-10 sm:px-4 flex items-center justify-center gap-1.5 rounded-xl text-xs font-black bg-rose-600 hover:bg-rose-700 text-white border border-rose-500 transition-all active:scale-95 shadow-sm shadow-rose-600/30 cursor-pointer shrink-0"
               >
-                <LogOut className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-rose-600 shrink-0" />
-                <span className="hidden xs:inline text-[11px] sm:text-xs">خروج</span>
+                <LogOut className="w-4 h-4 text-white shrink-0" />
+                <span className="text-xs font-black text-white">خروج</span>
               </button>
 
             </div>
 
+            {/* Mobile Top Actions (Always visible on phone screen) */}
+            <div className="flex md:hidden items-center gap-1.5 shrink-0">
+              {/* Sound Toggle */}
+              <button
+                onClick={onToggleSound}
+                title={soundEnabled ? 'كتم الصوت' : 'تفعيل الصوت'}
+                className={`h-8 w-8 flex items-center justify-center rounded-xl border transition-all active:scale-95 shrink-0 cursor-pointer ${
+                  soundEnabled
+                    ? 'bg-blue-50 text-blue-700 border-blue-200'
+                    : 'bg-slate-100 text-slate-400 border-slate-200'
+                }`}
+              >
+                {soundEnabled ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
+              </button>
+
+              {/* Live Radar Toggle */}
+              <button
+                onClick={onToggleRadar}
+                title={liveRadarActive ? 'إيقاف الرادار' : 'تشغيل الرادار'}
+                className={`h-8 px-2 flex items-center justify-center gap-1 rounded-xl text-xs font-bold transition-all active:scale-95 shrink-0 cursor-pointer ${
+                  liveRadarActive
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'bg-slate-200 text-slate-700'
+                }`}
+              >
+                <Wifi className={`w-3.5 h-3.5 ${liveRadarActive ? 'animate-pulse' : ''}`} />
+                <span className="text-[10px] font-bold">{liveRadarActive ? 'جاهز' : 'متوقف'}</span>
+              </button>
+
+              {/* Exit / Logout Button (خروج من البرنامج) - GUARANTEED VISIBLE ON MOBILE */}
+              <button
+                id="header-mobile-exit-button"
+                onClick={() => setIsExitConfirmOpen(true)}
+                title="خروج من البرنامج بالكامل"
+                aria-label="خروج من البرنامج بالكامل"
+                className="h-8 px-2.5 sm:px-3 flex items-center justify-center gap-1 rounded-xl text-xs font-black bg-rose-600 hover:bg-rose-700 text-white border border-rose-500 shadow-sm shadow-rose-600/30 transition-all active:scale-95 cursor-pointer shrink-0"
+              >
+                <LogOut className="w-3.5 h-3.5 text-white shrink-0" />
+                <span className="text-xs font-black text-white shrink-0">خروج</span>
+              </button>
+            </div>
+
           </div>
+        </div>
+
+        {/* Mobile Secondary Action Toolbar (Row 2 on phone screen: Location, WhatsApp, Mark Read) */}
+        <div className="md:hidden border-t border-slate-100 bg-slate-50/95 px-2 py-1.5 flex items-center justify-between gap-1.5 overflow-x-auto no-scrollbar">
+          {/* GPS Location & Live Vehicle Tracking */}
+          <button
+            onClick={onRequestGps}
+            title={isCarTrackingActive ? "تتبع حركة السيارة نشط: انقر لتحديث موقعك الآن عبر GPS" : "تحديد وتحديث موقعك الحالي عبر GPS"}
+            className="h-8 flex items-center gap-1 px-2 rounded-lg text-[11px] font-bold border border-slate-200 bg-white text-slate-700 shadow-2xs shrink-0 active:scale-95 cursor-pointer"
+          >
+            {isCarTrackingActive ? (
+              <Car className="w-3.5 h-3.5 text-emerald-600 animate-pulse shrink-0" />
+            ) : (
+              <MapPin className={`w-3.5 h-3.5 shrink-0 ${isGpsLoading ? 'animate-bounce text-amber-600' : 'text-emerald-600'}`} />
+            )}
+            <span className="max-w-[85px] truncate">{isGpsLoading ? '...' : (carSpeedKmh > 10 ? `${carSpeedKmh} كم/س` : driverLocation?.areaName || 'موقعي')}</span>
+          </button>
+
+          {/* WhatsApp Auto-Sync */}
+          {onOpenAutoSyncModal && (
+            <button
+              onClick={onOpenAutoSyncModal}
+              title="ربط واتساب وقراءة الإشعارات"
+              className={`h-8 flex items-center gap-1 px-2 rounded-lg text-[11px] font-bold border shadow-2xs shrink-0 active:scale-95 cursor-pointer ${
+                isWhatsAppConnected
+                  ? 'bg-emerald-600 text-white border-emerald-500'
+                  : 'bg-emerald-50 text-emerald-900 border-emerald-300'
+              }`}
+            >
+              <QrCode className={`w-3.5 h-3.5 shrink-0 ${isWhatsAppConnected ? 'text-white' : 'text-emerald-700'}`} />
+              <span>{isWhatsAppConnected ? 'واتساب متصل' : 'ربط واتساب'}</span>
+            </button>
+          )}
+
+          {/* Mark All WhatsApp Groups as Read */}
+          {onMarkAllWhatsAppAsRead && (
+            <button
+              type="button"
+              onClick={handleMarkReadClick}
+              disabled={isMarkingInternal}
+              title="تحديد الكل وقراءة جميع قروبات الواتساب"
+              className="h-8 flex items-center gap-1 px-2 rounded-lg text-[11px] font-bold border border-teal-300 bg-teal-50 text-teal-950 shadow-2xs shrink-0 active:scale-95 cursor-pointer"
+            >
+              {isMarkingInternal ? (
+                <RefreshCw className="w-3.5 h-3.5 text-teal-700 animate-spin shrink-0" />
+              ) : (
+                <CheckCheck className={`w-3.5 h-3.5 shrink-0 ${justMarked ? 'text-emerald-600' : 'text-teal-700'}`} />
+              )}
+              <span className="shrink-0">{isMarkingInternal ? 'جاري...' : justMarked ? 'مقروءة ✓✓' : 'قراءة الكل'}</span>
+            </button>
+          )}
+
+          {/* Commitments if any */}
+          {onOpenCommitments && commitmentsCount > 0 && (
+            <button
+              onClick={onOpenCommitments}
+              className="h-8 flex items-center gap-1 px-2 rounded-lg text-[11px] font-bold border border-indigo-200 bg-indigo-50 text-indigo-900 shadow-2xs shrink-0 active:scale-95 cursor-pointer"
+            >
+              <CalendarDays className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+              <span>ارتباط ({commitmentsCount})</span>
+            </button>
+          )}
+
+          {/* Discovered Groups if any */}
+          {onOpenDiscoveredGroupsModal && newDiscoveredGroupsCount > 0 && (
+            <button
+              onClick={onOpenDiscoveredGroupsModal}
+              className="h-8 flex items-center gap-1 px-2 rounded-lg text-[11px] font-bold border border-emerald-400 bg-emerald-50 text-emerald-900 shadow-2xs shrink-0 active:scale-95 cursor-pointer"
+            >
+              <LinkIcon className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+              <span>قروبات ({newDiscoveredGroupsCount})</span>
+            </button>
+          )}
         </div>
       </header>
 
@@ -505,14 +618,14 @@ export function Header({
       <nav 
         id="mobile-bottom-nav" 
         aria-label="التنقل الرئيسي للهاتف"
-        className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-2xl border-t border-slate-200/90 shadow-[0_-4px_24px_rgba(0,0,0,0.09)] px-2 py-1 flex items-center justify-around"
+        className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-2xl border-t border-slate-200/90 shadow-[0_-4px_24px_rgba(0,0,0,0.09)] px-1.5 py-1 flex items-center justify-between"
         style={{ paddingBottom: 'max(0.6rem, env(safe-area-inset-bottom))' }}
       >
         {/* 1. Radar Feed */}
         <button
           id="mobile-nav-radar"
           onClick={() => onTabChange('radar')}
-          className={`min-h-[48px] flex flex-col items-center justify-center py-1.5 px-2 rounded-2xl transition-all flex-1 active:scale-95 ${
+          className={`min-h-[48px] flex flex-col items-center justify-center py-1.5 px-1 rounded-xl transition-all flex-1 active:scale-95 cursor-pointer ${
             activeTab === 'radar'
               ? 'text-emerald-700 font-black bg-emerald-50/80 shadow-2xs'
               : 'text-slate-500 hover:text-slate-800'
@@ -527,42 +640,42 @@ export function Header({
               </span>
             )}
           </div>
-          <span className="text-[11px] mt-0.5">الرادار</span>
+          <span className="text-[10px] sm:text-[11px] mt-0.5">الرادار</span>
         </button>
 
         {/* 2. Interactive Map */}
         <button
           id="mobile-nav-map"
           onClick={() => onTabChange('map')}
-          className={`min-h-[48px] flex flex-col items-center justify-center py-1.5 px-2 rounded-2xl transition-all flex-1 active:scale-95 ${
+          className={`min-h-[48px] flex flex-col items-center justify-center py-1.5 px-1 rounded-xl transition-all flex-1 active:scale-95 cursor-pointer ${
             activeTab === 'map'
               ? 'text-emerald-700 font-black bg-emerald-50/80 shadow-2xs'
               : 'text-slate-500 hover:text-slate-800'
           }`}
         >
           <Map className={`w-5 h-5 ${activeTab === 'map' ? 'text-emerald-600' : 'text-slate-500'}`} />
-          <span className="text-[11px] mt-0.5">الخريطة</span>
+          <span className="text-[10px] sm:text-[11px] mt-0.5">الخريطة</span>
         </button>
 
         {/* 3. CENTER BUTTON: Broadcast */}
         <button
           id="mobile-nav-broadcast"
           onClick={() => onTabChange('broadcast')}
-          className={`min-h-[48px] flex flex-col items-center justify-center py-1.5 px-2 rounded-2xl transition-all flex-1 active:scale-95 ${
+          className={`min-h-[48px] flex flex-col items-center justify-center py-1.5 px-1 rounded-xl transition-all flex-1 active:scale-95 cursor-pointer ${
             activeTab === 'broadcast'
               ? 'text-emerald-700 font-black bg-emerald-50/80 shadow-2xs'
               : 'text-slate-500 hover:text-slate-800'
           }`}
         >
           <Send className={`w-5 h-5 ${activeTab === 'broadcast' ? 'text-emerald-600' : 'text-slate-500'}`} />
-          <span className="text-[11px] mt-0.5">نشر طلب</span>
+          <span className="text-[10px] sm:text-[11px] mt-0.5">نشر طلب</span>
         </button>
 
         {/* 4. Accepted Ledger & Daily Earnings */}
         <button
           id="mobile-nav-ledger"
           onClick={() => onTabChange('ledger')}
-          className={`min-h-[48px] flex flex-col items-center justify-center py-1.5 px-2 rounded-2xl transition-all flex-1 relative active:scale-95 ${
+          className={`min-h-[48px] flex flex-col items-center justify-center py-1.5 px-1 rounded-xl transition-all flex-1 relative active:scale-95 cursor-pointer ${
             activeTab === 'ledger'
               ? 'text-emerald-700 font-black bg-emerald-50/80 shadow-2xs'
               : 'text-slate-500 hover:text-slate-800'
@@ -576,21 +689,33 @@ export function Header({
               </span>
             )}
           </div>
-          <span className="text-[11px] mt-0.5">المقبولة</span>
+          <span className="text-[10px] sm:text-[11px] mt-0.5">المقبولة</span>
         </button>
 
         {/* 5. Filter Settings */}
         <button
           id="mobile-nav-settings"
           onClick={() => onTabChange('settings')}
-          className={`min-h-[48px] flex flex-col items-center justify-center py-1.5 px-2 rounded-2xl transition-all flex-1 active:scale-95 ${
+          className={`min-h-[48px] flex flex-col items-center justify-center py-1.5 px-1 rounded-xl transition-all flex-1 active:scale-95 cursor-pointer ${
             activeTab === 'settings'
               ? 'text-emerald-700 font-black bg-emerald-50/80 shadow-2xs'
               : 'text-slate-500 hover:text-slate-800'
           }`}
         >
           <Sliders className={`w-5 h-5 ${activeTab === 'settings' ? 'text-emerald-600' : 'text-slate-500'}`} />
-          <span className="text-[11px] mt-0.5">الفلتر</span>
+          <span className="text-[10px] sm:text-[11px] mt-0.5">الفلتر</span>
+        </button>
+
+        {/* 6. Exit Button (خروج من البرنامج) - In Mobile Bottom Navigation Bar */}
+        <button
+          id="mobile-nav-exit"
+          onClick={() => setIsExitConfirmOpen(true)}
+          className="min-h-[48px] flex flex-col items-center justify-center py-1.5 px-1 rounded-xl transition-all flex-1 active:scale-95 text-rose-600 hover:text-rose-700 hover:bg-rose-50/80 cursor-pointer"
+          title="خروج من البرنامج بالكامل"
+          aria-label="خروج من البرنامج بالكامل"
+        >
+          <LogOut className="w-5 h-5 text-rose-600" />
+          <span className="text-[10px] sm:text-[11px] font-black text-rose-700 mt-0.5">خروج</span>
         </button>
       </nav>
 

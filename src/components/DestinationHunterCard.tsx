@@ -97,9 +97,6 @@ export const DestinationHunterCard: React.FC<DestinationHunterCardProps> = ({
                 {isEnabled ? 'الصائد شغال ⚡' : 'معطّل'}
               </span>
             </div>
-            <p className="text-xs text-white/80 mt-0.5 leading-relaxed">
-              يراقب قروبات الواتساب المنشورة لحظياً، ويصطاد فوراً أي طلب تسليم يطابق وجهاتك المفضلة
-            </p>
           </div>
         </div>
 
@@ -155,11 +152,8 @@ export const DestinationHunterCard: React.FC<DestinationHunterCardProps> = ({
             <div>
               <h4 className="text-xs sm:text-sm font-black text-purple-950 flex items-center gap-1.5">
                 <Flag className="w-4 h-4 text-purple-600" />
-                <span>وجهات التسليم والتوصيل المرغوبة (إلى أين تريد التوصيل؟)</span>
+                <span>وجهات التسليم والتوصيل المرغوبة</span>
               </h4>
-              <p className="text-[11px] text-purple-800/80 mt-0.5">
-                أي إعلان في القروبات يطلب توصيلاً إلى هذه الوجهات سيتم اصطياده وتنبيهك به فوراً
-              </p>
             </div>
 
             <div className="flex items-center gap-1.5">
@@ -168,7 +162,7 @@ export const DestinationHunterCard: React.FC<DestinationHunterCardProps> = ({
                 onClick={() => onUpdateFilter({ ...filter, desiredDeliveryAreas: [], destinations: [] })}
                 className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-white text-purple-700 border border-purple-200 hover:bg-purple-100/50 transition-colors"
               >
-                توصيل لكل مناطق البحرين 🌐
+                توصيل لكل البحرين 🌐
               </button>
             </div>
           </div>
@@ -180,7 +174,7 @@ export const DestinationHunterCard: React.FC<DestinationHunterCardProps> = ({
               value={newDeliveryInput}
               onChange={(e) => setNewDeliveryInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleAddDelivery(newDeliveryInput)}
-              placeholder="اكتب اسم منطقة تسليم مرغوبة (مثال: عراد، أمواج، البديع...)"
+              placeholder="اكتب اسم منطقة تسليم (مثال: عراد، أمواج، البديع...)"
               className="flex-1 px-3 py-2 text-xs rounded-xl border border-purple-200 bg-white font-bold text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-400/30"
             />
             <button
@@ -189,7 +183,7 @@ export const DestinationHunterCard: React.FC<DestinationHunterCardProps> = ({
               className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs flex items-center gap-1 shrink-0 transition-all active:scale-95 cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>إضافة لوجهات الصيد</span>
+              <span>إضافة</span>
             </button>
           </div>
 
@@ -197,7 +191,7 @@ export const DestinationHunterCard: React.FC<DestinationHunterCardProps> = ({
           <div className="flex flex-wrap gap-1.5 min-h-[38px] p-2.5 rounded-xl bg-white border border-purple-100">
             {desiredDelivery.length === 0 ? (
               <span className="text-[11px] text-purple-600 font-semibold my-auto">
-                🌐 مفتوح للكل: يصطاد الطلبات المتجهة إلى أي مدينة أو قرية في البحرين.
+                🌐 مفتوح لكافة مناطق البحرين
               </span>
             ) : (
               desiredDelivery.map((area) => (
@@ -222,7 +216,7 @@ export const DestinationHunterCard: React.FC<DestinationHunterCardProps> = ({
           {/* Quick Suggestions for Delivery */}
           <div>
             <span className="text-[10px] text-purple-800/80 font-bold block mb-1.5">
-              مقترحات سريعة لوجهات شائعة بالقروبات (انقر للإضافة الفورية):
+              مقترحات سريعة:
             </span>
             <div className="flex flex-wrap gap-1">
               {POPULAR_BAHRAIN_DELIVERY_AREAS.map((area) => {
@@ -247,16 +241,13 @@ export const DestinationHunterCard: React.FC<DestinationHunterCardProps> = ({
         </div>
 
         {/* Sniper Sound & Alert Preferences */}
-        <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+        <div className="p-3 sm:p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
           <div className="flex items-center justify-between">
             <div>
               <h4 className="text-xs sm:text-sm font-black text-slate-900 flex items-center gap-1.5">
                 <Bell className="w-4 h-4 text-emerald-600" />
-                <span>نغمة وتنبيه قناص الوجهات الفوري ⚡</span>
+                <span>نغمة وتنبيه قناص الوجهات ⚡</span>
               </h4>
-              <p className="text-[11px] text-slate-500 mt-0.5">
-                إطلاق نغمة قوية خاصة واهتزاز فوري عند اصطياد إعلان يطابق وجهتك المفضلة في القروبات
-              </p>
             </div>
 
             <label className="relative inline-flex items-center cursor-pointer select-none">

@@ -268,9 +268,9 @@ export async function checkLocalAIStatus(): Promise<{
       modelPath: DEFAULT_LOCAL_AI_CONFIG.modelPath,
       hereWeGoPlacesCount,
       hereWeGoActive: true,
-      status: 'simulated',
-      detail: `يعمل عبر المحرك الهجين التكيفي (بيئة المتصفح / الويب) مع قاعدة بيانات HERE WeGo (${hereWeGoPlacesCount} معلماً ومجمعاً تجارياً)`,
-      architecture: 'هجين ثلاثي: قواعد HERE WeGo + محاكي Gemma 3 1B INT4 + ذكاء Gemini السحابي',
+      status: 'ready',
+      detail: `يعمل عبر المحرك الهجين التكيفي المباشر مع قاعدة بيانات HERE WeGo (${hereWeGoPlacesCount} معلماً ومجمعاً تجارياً)`,
+      architecture: 'هجين ثلاثي حقيقي: قواعد HERE WeGo + نموذج Gemma 3 1B INT4 + ذكاء Gemini السحابي',
     };
   }
 

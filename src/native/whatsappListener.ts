@@ -30,6 +30,17 @@ export async function openWhatsAppAccessibilitySettings(): Promise<void> {
   await OrderiNotificationListener.openAccessibilitySettings();
 }
 
+export async function openWhatsAppGroupConversation(groupName: string): Promise<{ success: boolean; method: string }> {
+  if (!isNativeAndroid()) {
+    return { success: false, method: 'not_native' };
+  }
+  try {
+    return await OrderiNotificationListener.openWhatsAppGroupConversation({ groupName });
+  } catch {
+    return { success: false, method: 'error' };
+  }
+}
+
 export async function sendNativeQuickReply(options: {
   groupName?: string;
   phone?: string;

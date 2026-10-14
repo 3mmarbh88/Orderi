@@ -240,10 +240,17 @@ function OrderiApp() {
   useEffect(() => {
     try {
       const banned = [
+        'قروب مندوبين البحرين 🇧🇭',
+        'قروب توصيل المنامة والرفاع 📦',
+        'قروب كباتن المحرق والحد 🚗',
+        'قروب طلبات المحافظة الشمالية ⚡',
+        'قروب توصيل مدينة حمد وعيسى 📍',
         'قروب مندوبي البحرين 🇧🇭',
         'طلبات التوصيل - المنامة والمحرق',
         'توصيل سريع الرفاع ومدينة عيسى',
         'شبكة مناديب التوصيل السريع',
+        'شبكة مندوبي البحرين العامة 🇧🇭',
+        'كباتن توصيل المحرق والحد 🚗',
       ];
 
       // Clean orderi_my_whatsapp_groups
@@ -2476,6 +2483,7 @@ function OrderiApp() {
             isGpsLoading={isGpsLoading}
             currentUser={currentUser}
             onOpenAuthModal={handleOpenAuthModal}
+            onLogout={handleLogout}
             onUpdateFilter={handleUpdateFilter}
             onRequestGps={handleRequestGps}
             onSetManualLocation={handleSetManualLocation}

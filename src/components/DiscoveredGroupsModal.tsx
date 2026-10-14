@@ -233,33 +233,19 @@ export function DiscoveredGroupsModal({
         {/* Groups List */}
         <div className="flex-1 overflow-y-auto p-3.5 sm:p-5 space-y-3">
           {filteredGroups.length === 0 ? (
-            <div className="text-center py-12 px-4 space-y-3">
-              <div className="w-14 h-14 rounded-3xl bg-slate-100 text-slate-400 mx-auto flex items-center justify-center">
-                <LinkIcon className="w-7 h-7" />
+            <div className="text-center py-10 px-4 space-y-3">
+              <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-400 mx-auto flex items-center justify-center">
+                <LinkIcon className="w-6 h-6" />
               </div>
-              <h3 className="text-sm font-black text-slate-700">لا توجد روابط قروبات في هذا القسم</h3>
-              <p className="text-xs text-slate-500 max-w-sm mx-auto leading-relaxed">
-                أي شخص ينشر رابط دعوة لقروب واتساب في القروبات المفتوحة سيلتقطه الرادار فوراً، وينبهك لتنضم إليه وتراقبه.
-              </p>
-              <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
+              <h3 className="text-sm font-black text-slate-700">لا توجد روابط قروبات مضافة حالياً</h3>
+              <div className="flex items-center justify-center pt-2">
                 <button
                   type="button"
                   onClick={() => setShowAddManual(true)}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black shadow-xs transition-all cursor-pointer"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black shadow-xs transition-all cursor-pointer active:scale-95"
                 >
                   <Plus className="w-4 h-4" />
                   <span>إضافة رابط قروب يدوياً</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onAddManualLink('https://chat.whatsapp.com/BahrainCouriersNetwork', 'شبكة مندوبي البحرين العامة 🇧🇭');
-                    onAddManualLink('https://chat.whatsapp.com/ManamaRiffaDelivery', 'قروب توصيل المنامة والرفاع 📦');
-                    onAddManualLink('https://chat.whatsapp.com/MuharraqDeliveryCaptains', 'كباتن توصيل المحرق والحد 🚗');
-                  }}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold border border-blue-200 transition-all cursor-pointer shadow-2xs"
-                >
-                  <span>+ إضافة روابط قروبات توصيل بالبحرين</span>
                 </button>
               </div>
             </div>

@@ -51,7 +51,8 @@ import {
   ShieldAlert,
   Target,
   Tag,
-  Cpu
+  Cpu,
+  LogOut
 } from 'lucide-react';
 import { DestinationHunterCard } from './DestinationHunterCard';
 import { ClosureHunterCard } from './ClosureHunterCard';
@@ -86,6 +87,7 @@ interface FilterSettingsProps {
   isGpsLoading: boolean;
   currentUser?: CaptainUser | null;
   onOpenAuthModal?: (tab?: 'login' | 'register' | 'activate') => void;
+  onLogout?: () => void;
   onUpdateFilter: (newFilter: OrderFilter) => void;
   onRequestGps: () => void;
   onSetManualLocation: (area: AreaLocation) => void;
@@ -106,6 +108,7 @@ export function FilterSettings({
   isGpsLoading,
   currentUser,
   onOpenAuthModal,
+  onLogout,
   onUpdateFilter,
   onRequestGps,
   onSetManualLocation,
@@ -791,17 +794,6 @@ export function FilterSettings({
                 </div>
               </div>
 
-        {/* Informational Banner: Same phone context */}
-        <div className="p-3.5 rounded-2xl bg-emerald-50/60 border border-emerald-200/80 text-xs text-emerald-900 space-y-1.5">
-          <div className="flex items-center gap-2 font-black text-emerald-950">
-            <Smartphone className="w-4 h-4 text-emerald-700 shrink-0" />
-            <span>رصد وسحب تلقائي من نفس هاتف الواتساب:</span>
-          </div>
-          <p className="text-[11px] leading-relaxed text-emerald-800/90 font-medium">
-            بما أن Ordari يعمل على نفس الهاتف الذي يحتوي على تطبيق واتساب، فإن أي إشعار يردك من قروباتك المنضم إليها يتم التقاطه فوراً ومقارنته بالمناطق والأسعار المحددة في الفلتر.
-          </p>
-        </div>
-
         {/* Automatic Group Link Sniffer & Hunter Feature Card */}
         <div className="p-4 rounded-2xl bg-gradient-to-r from-teal-50 via-emerald-50 to-teal-50/40 border border-teal-200/90 space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -818,9 +810,6 @@ export function FilterSettings({
                     مفعّل تلقائياً ⚡
                   </span>
                 </div>
-                <p className="text-[11px] text-slate-600 mt-0.5">
-                  عندما ينشر أي شخص في قروباتك رابطاً لدعوة قروب توصيل جديد (chat.whatsapp.com)، يلتقطه الرادار فوراً ويسألك لتنضم إليه وتراقبه.
-                </p>
               </div>
             </div>
 
@@ -941,10 +930,6 @@ export function FilterSettings({
               </button>
             </div>
 
-            <p className="text-[11px] text-blue-900/80 leading-relaxed font-medium">
-              هذه هي القروبات الحقيقية التي استلم تطبيقك إشعارات ورسائل منها على الهاتف. عند النقر على الزر أعلاه، يتم ربطها واعتمادها فوراً في حسابك ورقمك الواتساب لمراقبة وسحب كافة طلبات التوصيل منها تلقائياً.
-            </p>
-
             <div className="flex flex-wrap gap-2 pt-0.5">
               {detectedIncomingGroups.map((discGroup) => {
                 const isAlreadyInMyGroups = myGroups.includes(discGroup);
@@ -976,48 +961,14 @@ export function FilterSettings({
             </div>
           </div>
         ) : (
-          <div className="p-3.5 sm:p-4 rounded-2xl bg-gradient-to-br from-slate-50 to-blue-50/30 border border-slate-200 space-y-2.5">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2 text-xs font-black text-slate-800">
-                <Smartphone className="w-4 h-4 text-emerald-600" />
-                <span>رصد إشعارات قروبات واتساب:</span>
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-200">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
-                  مستعد وجاهز للرصد التلقائي 🟢
-                </span>
-              </div>
-            </div>
-            <p className="text-[11px] text-slate-600 leading-relaxed font-medium">
-              بمجرد وصول أي رسالة من أي قروب واتساب مرتبط على جهازك، سيلتقط رادار أوردي اسم القروب تلقائياً من الإشعار ويُدرجه هنا لربطه واعتماده بضغطة واحدة.
-            </p>
-            <div className="pt-1 space-y-1.5">
-              <div className="text-[10px] font-black text-slate-500">أو يمكنك إضافة أشهر قروبات التوصيل في البحرين بضغطة زر:</div>
-              <div className="flex flex-wrap gap-1.5">
-                {[
-                  'قروب مندوبين البحرين 🇧🇭',
-                  'قروب توصيل المنامة والرفاع 📦',
-                  'قروب كباتن المحرق والحد 🚗',
-                  'قروب طلبات المحافظة الشمالية ⚡',
-                  'قروب توصيل مدينة حمد وعيسى 📍',
-                ].map((sugg) => {
-                  const isAdded = myGroups.includes(sugg);
-                  return (
-                    <button
-                      key={sugg}
-                      type="button"
-                      onClick={() => !isAdded && handleAddMyGroup(sugg)}
-                      className={`text-xs px-2.5 py-1 rounded-xl border flex items-center gap-1 transition-all ${
-                        isAdded
-                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200 font-bold'
-                          : 'bg-white hover:bg-emerald-50 text-slate-700 border-slate-200 hover:border-emerald-300 font-medium cursor-pointer shadow-2xs'
-                      }`}
-                    >
-                      <span>{sugg}</span>
-                      {isAdded ? <Check className="w-3 h-3 text-emerald-600" /> : <Plus className="w-3 h-3 text-emerald-600" />}
-                    </button>
-                  );
-                })}
-              </div>
+          <div className="p-3 sm:p-3.5 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-xs font-black text-slate-800">
+              <Smartphone className="w-4 h-4 text-emerald-600" />
+              <span>رصد إشعارات قروبات واتساب:</span>
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-200">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                جاهز للرصد التلقائي 🟢
+              </span>
             </div>
           </div>
         )}
@@ -1892,9 +1843,6 @@ export function FilterSettings({
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-blue-100">
                 <div>
                   <h4 className="text-sm font-black text-slate-900">تحليل الإعلانات ومطابقتها بشروطك المحددة:</h4>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    الذكاء الاصطناعي يقرأ لهجة رسائل الإعلانات الأصلية بالواتساب، ويطابقها حرفياً مع شروطك وملاحظاتك الخاصة
-                  </p>
                 </div>
 
                 <label className="relative inline-flex items-center gap-2 cursor-pointer select-none">
@@ -1916,26 +1864,17 @@ export function FilterSettings({
               </div>
 
               {/* Custom notes textarea */}
-              <div className="space-y-2">
-                <label className="text-xs font-black text-slate-800 flex items-center justify-between">
-                  <span>شروطك وملاحظاتك الخاصة الإضافية (اكتبها بالعامية أو الفصحى):</span>
-                  <span className="text-[10px] font-normal text-slate-400">يقرأها الذكاء الاصطناعي عند تحليل كل إعلان</span>
+              <div className="space-y-1.5">
+                <label className="text-xs font-black text-slate-800 block">
+                  شروطك وملاحظاتك الخاصة الإضافية
                 </label>
                 <textarea
-                  rows={4}
+                  rows={3}
                   value={localFilter.customConditionsNotes || ''}
                   onChange={(e) => setLocalFilter({ ...localFilter, customConditionsNotes: e.target.value })}
-                  placeholder={`مثال:
-- لا أقبل توصيل أطعمة أو آيسكريم وقت الظهيرة.
-- أفضل أن يكون الدفع عبر بنفت بي BenefitPay.
-- الطلبات إلى ديار المحرق وجزر أمواج أو درة البحرين لا تقل عن 3 دينار.
-- حمولات خفيفة فقط ولا أقبل كراتين ثقيلة.`}
-                  className="w-full p-3.5 rounded-2xl border border-slate-200 bg-white text-xs font-medium text-slate-800 placeholder:text-slate-400 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none leading-relaxed shadow-2xs"
+                  placeholder="اكتب شروطك وملاحظاتك الخاصة هنا..."
+                  className="w-full p-3 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-800 placeholder:text-slate-400 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none leading-relaxed shadow-2xs"
                 />
-                <p className="text-[11px] text-slate-500 flex items-center gap-1.5 pt-0.5">
-                  <span className="text-amber-500 font-bold">💡 نصيحة:</span>
-                  <span>كلما كانت شروطك أوضح، استطاع الذكاء الاصطناعي تنبيهك إلى أي عيب أو محظور خفي داخل رسالة المعلن فوراً.</span>
-                </p>
               </div>
 
             </div>
@@ -2434,9 +2373,6 @@ export function FilterSettings({
                             {localFilter.preventDuplicateOrders !== false ? 'مفعل لمنع التكرار (ON) ✅' : 'معطل (OFF)'}
                           </span>
                         </div>
-                        <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
-                          مقارنة بيانات الطلب ورقم المعلن عبر كافة قروبات الواتساب ودمجها في طلب واحد
-                        </p>
                       </div>
                     </div>
 
@@ -2462,19 +2398,10 @@ export function FilterSettings({
                       </span>
                     </button>
                   </div>
-
-                  <div className="p-3 rounded-xl bg-purple-50/70 border border-purple-100 text-purple-950 text-xs space-y-1">
-                    <p className="font-bold text-[11px]">
-                      🛡️ آلية الذكاء الاصطناعي لمنع التكرار:
-                    </p>
-                    <p className="text-[11px] text-purple-900/80 leading-relaxed">
-                      عند قيام تاجر أو معلن بنشر نفس الطلب في عدة قروبات واتساب، يتعرف البرنامج على رقم المعلن والمسار فوراً ويعرض لك طلباً واحداً فقط مع تمييزه بعلامة <strong>«مكرر في عدة قروبات (تم دمجه)»</strong> لمنع الإزعاج.
-                    </p>
-                  </div>
                 </div>
 
                 {/* Exclude My Own Ads Card (استبعاد إعلاناتي الشخصية) */}
-                <div className="p-4 rounded-2xl bg-white border border-slate-200/90 shadow-xs space-y-4">
+                <div className="p-4 rounded-2xl bg-white border border-slate-200/90 shadow-xs space-y-3">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-start gap-3">
                       <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
@@ -2493,9 +2420,6 @@ export function FilterSettings({
                             {localFilter.excludeMyOwnAds !== false ? 'مفعل للاستبعاد (ON) ✅' : 'معطل (OFF)'}
                           </span>
                         </div>
-                        <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
-                          حجب الطلبات التي تعلن عنها بنفسك في قروبات الواتساب حتى لا يعرضها الرادار لك كأوردرات واردة أو يرسل إشعارات عنها
-                        </p>
                       </div>
                     </div>
 
@@ -2547,17 +2471,6 @@ export function FilterSettings({
                         </span>
                       )}
                     </div>
-                  </div>
-
-                  <div className="p-3 rounded-xl bg-indigo-50/70 border border-indigo-100 text-indigo-950 text-xs space-y-1.5 leading-relaxed">
-                    <p className="font-bold text-[11px] flex items-center gap-1">
-                      <span>🎯 كيف تضمن عمل الاستبعاد بدقة؟</span>
-                    </p>
-                    <ul className="text-[11px] text-indigo-900/90 space-y-1 list-disc list-inside">
-                      <li><strong>رقم هاتفك:</strong> يقارن الرقم مع هوية مرسل الإعلان فور وصوله.</li>
-                      <li><strong>هوية الرسالة:</strong> يستفيد النظام من بيانات إشعارات واتساب عندما تكشف المرسل.</li>
-                      <li><strong>حماية إعلانات الآخرين:</strong> لا يعتمد النظام على تطابق نص الإعلان وحده، لضمان استمرار ظهور إعلانات بقية المناديب والمعلنين.</li>
-                    </ul>
                   </div>
                 </div>
 
@@ -2717,6 +2630,17 @@ export function FilterSettings({
                     >
                       تبديل الحساب
                     </button>
+                    {onLogout && (
+                      <button
+                        type="button"
+                        onClick={onLogout}
+                        className="px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer"
+                        title="خروج من البرنامج بالكامل"
+                      >
+                        <LogOut className="w-3.5 h-3.5 text-rose-600" />
+                        <span>خروج من البرنامج</span>
+                      </button>
+                    )}
                   </div>
                 </div>
               ) : (
@@ -2747,6 +2671,17 @@ export function FilterSettings({
                     >
                       حساب جديد
                     </button>
+                    {onLogout && (
+                      <button
+                        type="button"
+                        onClick={onLogout}
+                        className="px-4 py-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer"
+                        title="خروج من البرنامج بالكامل"
+                      >
+                        <LogOut className="w-3.5 h-3.5 text-rose-600" />
+                        <span>خروج</span>
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
@@ -2796,29 +2731,9 @@ export function FilterSettings({
                 </button>
               </div>
 
-              {/* Features Unlocked & WhatsApp Activation Request */}
-              <div className="p-3 sm:p-4 rounded-2xl bg-white border border-slate-200/90 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-black text-slate-800">الميزات المفعلة عند إدخال كود التفعيل:</span>
-                  <span className="text-[10px] text-emerald-700 font-bold">رادار Ordari 🇧🇭</span>
-                </div>
-
-                <ul className="space-y-1.5 text-xs text-slate-700">
-                  <li className="flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                    <span>سحب فوري لكافة طلبات مجموعات واتساب على نفس الهاتف</span>
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                    <span>فحص الذكاء الاصطناعي بـ Gemini AI لشروط التوصيل</span>
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                    <span>العمل في الخلفية واستقبال الإشعارات فوق خرائط Google</span>
-                  </li>
-                </ul>
-
-                <div className="pt-2 border-t border-slate-100 flex flex-col sm:flex-row gap-2">
+              {/* WhatsApp Activation Request Direct Actions */}
+              <div className="p-3 sm:p-4 rounded-2xl bg-white border border-slate-200/90 space-y-2.5">
+                <div className="flex flex-col sm:flex-row gap-2">
                   {/* WhatsApp Direct Contact Button to Request Activation Code */}
                   <a
                     href={ACTIVATION_WHATSAPP_LINK}
@@ -2849,11 +2764,23 @@ export function FilterSettings({
 
       </div>
 
-      {/* Save Button Floating / Sticky at bottom */}
-      <div className="flex justify-end pt-4">
+      {/* Save & Exit Buttons at bottom */}
+      <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-4">
+        {onLogout && (
+          <button
+            type="button"
+            onClick={onLogout}
+            className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3.5 rounded-2xl bg-rose-600 hover:bg-rose-700 text-white font-black text-sm shadow-md shadow-rose-600/20 transition-all active:scale-[0.98] cursor-pointer"
+            title="إغلاق البرنامج والخروج بالكامل"
+          >
+            <LogOut className="w-4 h-4 text-white" />
+            <span>إغلاق البرنامج والخروج 🛑</span>
+          </button>
+        )}
+
         <button
           onClick={handleSave}
-          className="w-full sm:w-auto flex items-center justify-center gap-2 px-8 py-4 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-base shadow-lg shadow-emerald-600/25 transition-all hover:scale-[1.01] active:scale-[0.98]"
+          className="w-full sm:w-auto flex items-center justify-center gap-2 px-8 py-4 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-base shadow-lg shadow-emerald-600/25 transition-all hover:scale-[1.01] active:scale-[0.98] cursor-pointer"
         >
           <CheckCircle2 className="w-5 h-5" />
           <span>حفظ التعديلات وتفعيل شروط الفلتر</span>

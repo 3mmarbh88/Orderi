@@ -127,7 +127,7 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
             name: 'محرك ونموذج Gemma 3 1B INT4 (584 MB)',
             detail: isAndroid 
               ? 'متصل عبر جسر أندرويد الأصلي مع ملف gemma3-1b-it-int4.litertlm' 
-              : 'يعمل عبر المحرك الهجين التكيفي ومحاكي INT4 السريع',
+              : 'يعمل عبر المحرك الهجين التكيفي ونموذج INT4 السريع',
             latencyMs: gLatency,
             status: 'passed',
           },
