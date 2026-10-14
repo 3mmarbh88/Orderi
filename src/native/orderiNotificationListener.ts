@@ -49,6 +49,7 @@ interface OrderiNotificationListenerPlugin {
     notificationsEnabled?: boolean;
   }): Promise<void>;
   markAllAsRead(options?: { groupNames?: string[] }): Promise<{ success: boolean; markedCount: number; archivedAutomationStarted?: boolean; accessibilityRequired?: boolean }>;
+  markGroupAsRead(options: { groupName: string }): Promise<{ success: boolean; markedCount: number; method: string }>;
   addListener(
     eventName: 'whatsappNotification',
     listenerFunc: (event: WhatsAppNativeEvent) => void,
