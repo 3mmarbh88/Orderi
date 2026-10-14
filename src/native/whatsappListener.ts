@@ -97,3 +97,14 @@ export async function markAllWhatsAppAsRead(groupNames?: string[]): Promise<{ su
 }
 
 
+
+
+/** Dismiss the matching native Orderi alert when an advertiser confirms closure. */
+export async function dismissNativeOrderNotification(rawText: string): Promise<void> {
+  if (!isNativeAndroid() || !rawText?.trim()) return;
+  try {
+    await OrderiNotificationListener.dismissOrderNotification({ rawText });
+  } catch (err) {
+    console.warn('[Orderi] Could not dismiss native order notification:', err);
+  }
+}
