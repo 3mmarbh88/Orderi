@@ -148,7 +148,7 @@ export async function parseWhatsAppOrderWithLocalAi(
           passengerCount: passengerDet.passengerCount,
           phone: nativeResponse.phone || fastResult.phone,
           notes: nativeResponse.notes || fastResult.notes || 'تم التحليل عبر الذكاء الاصطناعي المحلي (Gemma 3 1B)',
-          confidence: Math.max(88, nativeResponse.confidence || 90),
+          confidence: Math.max(0, Math.min(100, nativeResponse.confidence ?? 70)),
           canCreateOrder: Boolean(fromArea || toArea || price > 0),
           passengerDetection: passengerDet,
           aiUsed: true,
