@@ -459,7 +459,7 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
   const canCreateOrder = !!fromArea && !!toArea;
   const isPriceUnspecified = !price || price <= 0;
   const goodsKeywords = ['كرتون', 'كراتين', 'شحنة', 'شحنات', 'طرد', 'طرود', 'بضاعة', 'بضائع', 'اكل', 'أكل', 'وجبة', 'وجبات', 'مطعم', 'كافيه', 'سوبرماركت', 'ورد', 'ورود', 'كيك', 'حلويات', 'عطور', 'هدية', 'عباية', 'ملابس', 'مستندات', 'أوراق', 'شنطة', 'امانة', 'أمانة'].map(normalizeArabicText);
-  const normalizedTokens = normalized.split(/\\s+/);
+  const normalizedTokens = normalized.split(/\s+/);
   const hasGoodsIntent = goodsKeywords.some((keyword) => normalizedTokens.includes(keyword)) || normalized.includes('قطع غيار');
   const orderCategory: 'delivery' | 'goods' | 'passengers' | undefined =
     passengerDetection.level !== 'goods_safe'
