@@ -361,7 +361,7 @@ function OrderiApp() {
                 orderCount: parsed.orderCount,
                 isPriceUnspecified: parsed.isPriceUnspecified,
                 rawText: rawText || event.title || '', groupName,
-                senderName: event.title || 'WhatsApp', senderPhone: parsed.phone,
+                senderName: event.senderName || event.title || 'WhatsApp', senderPhone: parsed.phone,
                 receivedAt: new Date(event.receivedAt || Date.now()),
                 confidence: parsed.confidence, type: 'whatsapp_notification',
                 notes: parsed.notes, status: 'pending',
@@ -995,9 +995,14 @@ function OrderiApp() {
       if (filterRef.current.autoCloseOrdersEnabled !== false) {
         const closureMessageData = {
           text: rawText || event.title || '',
-          senderName: event.title,
+          // MessagingStyle exposes the actual author separately from the chat title.
+          // Using event.title here often compared the group name to the advertiser,
+          // preventing valid "تم / حصلت" closure replies from matching.
+          senderName: event.senderName || event.title,
+          senderPhone: (event as any).senderPhone || '',
           groupName,
           timestamp: event.receivedAt || Date.now(),
+          messageId: event.id,
         };
 
         const fastClosureMatch = checkIncomingMessageForClosure(
@@ -1021,7 +1026,7 @@ function OrderiApp() {
         const parsed = await parseWhatsAppOrderWithLocalAi(rawText || event.title || '', {
           hybridMode: filterRef.current.localAiConfig?.hybridMode !== false,
           useCloudFallback: filterRef.current.useCloudAiFallback !== false,
-          senderName: event.title,
+          senderName: event.senderName || event.title,
           groupName,
         });
         const order = {
@@ -1033,7 +1038,7 @@ function OrderiApp() {
           isPriceUnspecified: parsed.isPriceUnspecified,
           rawText: rawText || event.title || '',
           groupName,
-          senderName: event.title || 'WhatsApp',
+          senderName: event.senderName || event.title || 'WhatsApp',
           senderPhone: parsed.phone,
           receivedAt: new Date(event.receivedAt || Date.now()),
           confidence: parsed.confidence,
@@ -1047,9 +1052,21 @@ function OrderiApp() {
         };
 
         const isPassengerRequest = parsed.passengerDetection?.level === 'confirmed_passenger' || parsed.passengerDetection?.level === 'suspicious_passenger';
-        if (parsed.canCreateOrder || isPassengerRequest) {
-          if (!order.from) order.from = 'موقع العميل / غير محدد 📍';
-          if (!order.to) order.to = 'حسب طلب الراكب 📍';
+        const normalizedMessage = rawText
+          .replace(/[إأآ]/g, 'ا')
+          .replace(/[\u064B-\u065F\u0640]/g, '')
+          .toLowerCase();
+        const hasExplicitOrderIntent = /(?:اوردر|طلب توصيل|توصيل|توصيله|استلام|مندوب|delivery|pickup)/i.test(normalizedMessage);
+        const looksLikeServiceAdvertisement = /(?:على انستغرام|على instagram|instagram|متوفرون|متوفرين|على اتم الاستعداد|خدماتنا|للحجز|للتواصل|مشاوير خاصة|مواصلات الاسطورة)/i.test(normalizedMessage);
+        const hasUsefulOrderContext = /(?:من\s|الى\s|إلى\s|لل|لـ|د\.ب|دب|دينار|bd|bhd|عسكر|عراد|الرفاع|سار|المنامة|المحرق|مدينة عيسى|مدينة حمد|مطار|السيف|العدلية|سترة)/i.test(normalizedMessage);
+        const shouldShowIncompleteOrder = hasExplicitOrderIntent && !looksLikeServiceAdvertisement && (hasUsefulOrderContext || isPassengerRequest);
+        if (parsed.canCreateOrder || isPassengerRequest || shouldShowIncompleteOrder) {
+          if (!order.from) order.from = 'موقع الاستلام غير محدد 📍';
+          if (!order.to) order.to = 'وجهة التوصيل غير محددة 📍';
+          if (!parsed.canCreateOrder && !isPassengerRequest) {
+            order.notes = [order.notes, 'تم التقاط إعلان توصيل لكن المسار غير مكتمل؛ يلزم التحقق من النص الأصلي'].filter(Boolean).join(' • ');
+            order.confidence = Math.min(order.confidence || 50, 55);
+          }
           handleProcessIncomingRawOrder(order, false);
         }
       }).catch(() => {});
