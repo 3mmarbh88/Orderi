@@ -37,6 +37,33 @@ export function convertArabicNumerals(str: string): string {
 /**
  * Parses raw text from WhatsApp messages to extract delivery order parameters
  */
+/**
+ * Bounded edit distance for local typo tolerance. Stops once the limit is exceeded.
+ * This is intentionally conservative: short/common words are never fuzzy-matched.
+ */
+function boundedEditDistance(a: string, b: string, limit: number): number {
+  if (Math.abs(a.length - b.length) > limit) return limit + 1;
+  let previous = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const current = [i];
+    let rowMin = i;
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      current[j] = Math.min(current[j - 1] + 1, previous[j] + 1, previous[j - 1] + cost);
+      rowMin = Math.min(rowMin, current[j]);
+    }
+    if (rowMin > limit) return limit + 1;
+    previous = current;
+  }
+  return previous[b.length];
+}
+
+function getPlaceTypoLimit(keyword: string): number {
+  // Keep fuzzy matching conservative to avoid confusing nearby or similarly named places.
+  if (keyword.length < 4) return 0;
+  return keyword.length <= 5 ? 1 : 2;
+}
+
 export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
   if (!rawText || typeof rawText !== 'string') {
     return {
@@ -208,8 +235,8 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
     // Matches: "من الرفاع", "استلام من سار", "بالرفاع", "في الرفاع", "عند مجمع السيف"
     if (!fromArea) {
       const fromPattern = startsWithAl
-        ? new RegExp(`(?:(?:من|استلام من|استلام|بيك اب من|بيك اب|موقع|تحميل من|فرع|عند)\\s*(?:مجمع|مول|سوق|منطقة|قرية)?\\s*${kw}\\b|(?:^|[\\s،,.])بال(?:مجمع|مول|سوق|منطقة|قرية)?${core}\\b|(?:^|[\\s،,.])في\\s+(?:مجمع|مول|سوق|منطقة|قرية)?${kw}\\b)`, 'i')
-        : new RegExp(`(?:(?:من|استلام من|استلام|بيك اب من|بيك اب|موقع|تحميل من|فرع|عند)\\s*(?:مجمع|مول|سوق|منطقة|قرية)?\\s*${kw}\\b|(?:^|[\\s،,.])بـ?${kw}\\b|(?:^|[\\s،,.])في\\s+(?:مجمع|مول|سوق|منطقة|قرية)?${kw}\\b)`, 'i');
+        ? new RegExp(`(?:(?:من|استلام من|استلام|بيك اب من|بيك اب|موقع|تحميل من|فرع|عند)\s*(?:مجمع|مول|سوق|منطقة|قرية)?\s*${kw}\\b|(?:^|[\s،,.])بال(?:مجمع|مول|سوق|منطقة|قرية)?${core}\\b|(?:^|[\s،,.])في\s+(?:مجمع|مول|سوق|منطقة|قرية)?${kw}\\b)`, 'i')
+        : new RegExp(`(?:(?:من|استلام من|استلام|بيك اب من|بيك اب|موقع|تحميل من|فرع|عند)\s*(?:مجمع|مول|سوق|منطقة|قرية)?\s*${kw}\\b|(?:^|[\s،,.])بـ?${kw}\\b|(?:^|[\s،,.])في\s+(?:مجمع|مول|سوق|منطقة|قرية)?${kw}\\b)`, 'i');
 
       if (fromPattern.test(normalized)) {
         fromArea = item.placeName;
@@ -220,8 +247,8 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
     // Matches: "الى الرفاع", "للمنامة", "للمطار", "للسلمانية", "للجسر", "لسار", "لـمدينة حمد", "توصيل للرفاع", "مشوار للمطار"
     if (!toArea) {
       const toPattern = startsWithAl
-        ? new RegExp(`(?:(?:الى|إلى|لي|تسليم الى|تسليم ل|تسليم|توصيل الى|توصيل ل|مشوار الى|مشوار ل|توصيلة الى|توصيلة ل|وجهة|مكان|يوصل)\\s*(?:مجمع|مول|سوق|منطقة|قرية)?\\s*${kw}\\b|(?:^|[\\s،,.]|(?:مشوار|توصيل|توصيلة|نقل|روحة|طالع)\\s+)لل(?:مجمع|مول|سوق|منطقة|قرية)?${core}\\b|(?:^|[\\s،,.])لـ?${kw}\\b)`, 'i')
-        : new RegExp(`(?:(?:الى|إلى|لي|تسليم الى|تسليم ل|تسليم|توصيل الى|توصيل ل|مشوار الى|مشوار ل|توصيلة الى|توصيلة ل|وجهة|مكان|يوصل)\\s*(?:مجمع|مول|سوق|منطقة|قرية)?\\s*${kw}\\b|(?:^|[\\s،,.]|(?:مشوار|توصيل|توصيلة|نقل|روحة|طالع)\\s+)لـ?${kw}\\b)`, 'i');
+        ? new RegExp(`(?:(?:الى|إلى|لي|تسليم الى|تسليم ل|تسليم|توصيل الى|توصيل ل|مشوار الى|مشوار ل|توصيلة الى|توصيلة ل|وجهة|مكان|يوصل)\s*(?:مجمع|مول|سوق|منطقة|قرية)?\s*${kw}\\b|(?:^|[\s،,.]|(?:مشوار|توصيل|توصيلة|نقل|روحة|طالع)\s+)لل(?:مجمع|مول|سوق|منطقة|قرية)?${core}\\b|(?:^|[\s،,.])لـ?${kw}\\b)`, 'i')
+        : new RegExp(`(?:(?:الى|إلى|لي|تسليم الى|تسليم ل|تسليم|توصيل الى|توصيل ل|مشوار الى|مشوار ل|توصيلة الى|توصيلة ل|وجهة|مكان|يوصل)\s*(?:مجمع|مول|سوق|منطقة|قرية)?\s*${kw}\\b|(?:^|[\s،,.]|(?:مشوار|توصيل|توصيلة|نقل|روحة|طالع)\s+)لـ?${kw}\\b)`, 'i');
 
       if (toPattern.test(normalized) && (!fromArea || item.placeName !== fromArea || /(?:من|استلام).*?(?:الى|إلى|لل|لـ|تسليم)/i.test(normalized))) {
         toArea = item.placeName;
@@ -276,6 +303,51 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
         const alreadySub = foundPlaces.some((f) => Math.abs(f.index - idx) < 4);
         if (!alreadySub) {
           foundPlaces.push({ name: item.placeName, index: idx, intentType });
+        }
+      }
+    }
+
+    // Typo-tolerant fallback: only runs when exact matching did not identify both endpoints.
+    // Examples: common one-letter mistakes in الرفاع / مدينة عيسى / السلمانية.
+    // It does not replace exact matches, and requires a minimum name length + a strict edit-distance limit.
+    if (foundPlaces.length < 2) {
+      const tokens: { value: string; index: number }[] = [];
+      const tokenPattern = /[ء-يA-Za-z0-9]+/g;
+      let tokenMatch: RegExpExecArray | null;
+      while ((tokenMatch = tokenPattern.exec(normalized)) !== null) {
+        tokens.push({ value: tokenMatch[0], index: tokenMatch.index });
+      }
+
+      const seenFuzzy = new Set<string>();
+      for (const item of allKeywordItems) {
+        const keyword = item.normalizedKeyword.trim();
+        const keywordWords = keyword.split(/\s+/).filter(Boolean);
+        const limit = getPlaceTypoLimit(keyword.replace(/\s/g, ''));
+        if (!limit || keywordWords.length === 0) continue;
+
+        // Compare equal-sized word windows so multi-word names stay aligned.
+        for (let startIndex = 0; startIndex < tokens.length; startIndex++) {
+          const window = tokens.slice(startIndex, startIndex + keywordWords.length);
+          if (window.length !== keywordWords.length) continue;
+          const candidate = window.map((token) => token.value).join(' ');
+          if (candidate === keyword) continue;
+          const compactCandidate = candidate.replace(/\s/g, '');
+          const compactKeyword = keyword.replace(/\s/g, '');
+          const distance = boundedEditDistance(compactCandidate, compactKeyword, limit);
+          if (distance < 1 || distance > limit || distance / Math.max(compactCandidate.length, compactKeyword.length) > 0.22) continue;
+
+          const matchIndex = window[0].index;
+          const dedupeKey = item.placeName + ':' + Math.floor(matchIndex / 3);
+          if (seenFuzzy.has(dedupeKey)) continue;
+          seenFuzzy.add(dedupeKey);
+
+          const before = normalized.slice(Math.max(0, matchIndex - 22), matchIndex);
+          let intentType: 'from' | 'to' | undefined;
+          if (/(?:من|استلام|بيك\s*اب|عند|في|بال)\s*$/.test(before)) intentType = 'from';
+          else if (/(?:الى|إلى|ل|لل|توصيل|مشوار|تسليم|وجهة)\s*$/.test(before)) intentType = 'to';
+
+          const alreadySub = foundPlaces.some((found) => Math.abs(found.index - matchIndex) < 4);
+          if (!alreadySub) foundPlaces.push({ name: item.placeName, index: matchIndex, intentType });
         }
       }
     }
@@ -377,7 +449,7 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
     'وجبة', 'مستندات', 'أوراق', 'عباية', 'ملابس', 'شحنة', 'أمانات', 'كرتون'
   ];
   for (const kw of noteKeywords) {
-    const kwRegex = new RegExp(`(?:^|[\\s،,.])${kw}(?:$|[\\s،,.])`, 'i');
+    const kwRegex = new RegExp(`(?:^|[\s،,.])${kw}(?:$|[\s،,.])`, 'i');
     if (kwRegex.test(normalized)) {
       notes = kw;
       break;
