@@ -706,6 +706,27 @@ export function OrderCard({
             </div>
           </div>
 
+          {/* Compact AI match control: keeps the feature without the large explanation panel */}
+          <div className="flex justify-end -mt-1">
+            <button
+              type="button"
+              title={order.aiAnalysis ? 'عرض تحليل مطابقة الطلب' : 'فحص مطابقة الطلب بالذكاء الاصطناعي'}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (order.aiAnalysis) {
+                  setShowAiModal(true);
+                } else {
+                  onEvaluateAi?.(order);
+                }
+              }}
+              disabled={order.isAnalyzingAi}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 text-[10px] font-bold disabled:opacity-60"
+            >
+              <Sparkles className={`w-3 h-3 ${order.isAnalyzingAi ? 'animate-spin' : ''}`} />
+              {order.isAnalyzingAi ? '...' : order.aiAnalysis ? `${order.aiAnalysis.score}%` : 'AI'}
+            </button>
+          </div>
+
           {/* Original WhatsApp Message Accordion */}
           <div className="rounded-xl bg-slate-50 border border-slate-200/70 p-3">
             <button 
@@ -1169,6 +1190,19 @@ export function OrderCard({
             </div>
           </div>
         </div>
+      )}
+
+      {/* AI Match Analysis Details Modal */}
+      {showAiModal && order.aiAnalysis && (
+        <AIMatchModal
+          order={order}
+          analysis={order.aiAnalysis}
+          onClose={() => setShowAiModal(false)}
+          onAccept={(acceptedOrder) => {
+            setShowAiModal(false);
+            onAccept(acceptedOrder);
+          }}
+        />
       )}
 
       {/* AI Match Analysis Details Modal */}
