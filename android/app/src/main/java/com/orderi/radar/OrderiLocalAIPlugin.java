@@ -286,7 +286,7 @@ public class OrderiLocalAIPlugin extends Plugin {
             if (modelInitializationAttempted) return false;
             modelInitializationAttempted = true;
 
-            Engine candidate = new Engine(new EngineConfig(modelFile.getAbsolutePath(), new Backend.CPU()));
+            Engine candidate = new Engine(new EngineConfig(modelFile.getAbsolutePath(), new Backend.CPU(null, null)));
             try {
                 candidate.initialize();
                 Conversation candidateConversation = candidate.createConversation(
