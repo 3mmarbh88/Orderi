@@ -302,6 +302,27 @@ public class NotificationListenerPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void markGroupAsRead(PluginCall call) {
+        String groupName = call.getString("groupName", "").trim();
+        if (android.text.TextUtils.isEmpty(groupName)) {
+            JSObject ret = new JSObject();
+            ret.put("success", false);
+            ret.put("markedCount", 0);
+            ret.put("reason", "missing_group_name");
+            call.resolve(ret);
+            return;
+        }
+
+        int count = WhatsAppNotificationListenerService.markWhatsAppGroupAsRead(getContext(), groupName);
+        JSObject ret = new JSObject();
+        ret.put("success", count > 0);
+        ret.put("markedCount", count);
+        ret.put("groupName", groupName);
+        ret.put("reason", count > 0 ? "notification_action_sent" : "no_mark_as_read_action_available");
+        call.resolve(ret);
+    }
+
+    @PluginMethod
     public void markAllAsRead(PluginCall call) {
         try {
             java.util.List<String> targetGroups = new java.util.ArrayList<>();
