@@ -3,6 +3,7 @@ package com.orderi.radar;
 import android.accessibilityservice.AccessibilityService;
 import android.content.ComponentName;
 import android.content.Context;
+import android.content.Intent;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.text.TextUtils;
@@ -120,19 +121,62 @@ public class OrderiAccessibilityService extends AccessibilityService {
         return false;
     }
 
+    /**
+     * Starts a bounded Accessibility pass over WhatsApp's Archived section.
+     * Returns true only when the service is connected and WhatsApp can be launched.
+     */
+    public static boolean requestMarkArchivedChatsRead(Context context) {
+        if (context == null || !isAccessibilityEnabled(context) || instance == null) {
+            return false;
+        }
+
+        Intent launchIntent = context.getPackageManager().getLaunchIntentForPackage(PACKAGE_WHATSAPP);
+        if (launchIntent == null) {
+            return false;
+        }
+
+        OrderiAccessibilityService service = instance;
+        service.archivedSectionOpened = false;
+        service.waitingForChatToClose = false;
+        service.archivedReadEventRetries = 0;
+        service.archivedChatsVisited = 0;
+        service.archivedUnreadChatsVisited.clear();
+        markArchivedChatsRequested = true;
+
+        try {
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            context.startActivity(launchIntent);
+            Log.i(TAG, "Started archived-chat read pass");
+            return true;
+        } catch (Exception e) {
+            markArchivedChatsRequested = false;
+            Log.w(TAG, "Could not launch WhatsApp for archived-chat read pass", e);
+            return false;
+        }
+    }
+
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
-        if (event == null || !isSendingInProgress.get()) return;
-        if (pendingMessageToSend == null) return;
+        if (event == null) return;
+
+        CharSequence pkg = event.getPackageName();
+        if (pkg == null || !PACKAGE_WHATSAPP.contentEquals(pkg)) return;
+
+        // Archived-chat processing is independent of the private-message workflow.
+        // The previous guard returned early whenever no message was queued, so this
+        // automation could never run even though the helper methods existed.
+        if (markArchivedChatsRequested) {
+            handleArchivedChatsReadEvent();
+            return;
+        }
+
+        if (!isSendingInProgress.get() || pendingMessageToSend == null) return;
 
         // Expire pending operation after 30 seconds
         if (System.currentTimeMillis() - pendingMessageTimestamp > 30000L) {
             resetOperation();
             return;
         }
-
-        CharSequence pkg = event.getPackageName();
-        if (pkg == null || !PACKAGE_WHATSAPP.contentEquals(pkg)) return;
 
         AccessibilityNodeInfo rootNode = getRootInActiveWindow();
         if (rootNode == null) return;
