@@ -19,7 +19,6 @@ import {
   Star,
   ShieldAlert,
   Zap,
-  Lightbulb,
   AlertTriangle,
   Layers,
   RefreshCw,
