@@ -195,6 +195,28 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         return false;
     }
 
+    /**
+     * Open a group only when a cached notification intent matches its name exactly
+     * and that notification was identified as a group.
+     */
+    public static boolean openWhatsAppGroupConversation(android.content.Context context, String targetTitle) {
+        if (TextUtils.isEmpty(targetTitle)) return false;
+        String targetNormalized = targetTitle.trim().toLowerCase(java.util.Locale.ROOT);
+        for (java.util.Map.Entry<String, ChatIntentHolder> entry : CHAT_INTENTS.entrySet()) {
+            ChatIntentHolder holder = entry.getValue();
+            if (holder == null || !holder.isGroup || holder.contentIntent == null) continue;
+            String key = entry.getKey();
+            if (key == null || !key.trim().toLowerCase(java.util.Locale.ROOT).equals(targetNormalized)) continue;
+            try {
+                holder.contentIntent.send();
+                return true;
+            } catch (Exception e) {
+                Log.w(TAG, "Unable to open cached WhatsApp group intent", e);
+            }
+        }
+        return false;
+    }
+
     public static boolean sendQuickReply(android.content.Context context, String targetGroupOrPhone, String replyText) {
         if (TextUtils.isEmpty(replyText)) return false;
 
