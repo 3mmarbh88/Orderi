@@ -89,16 +89,8 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
       setModelStatus(statusRes);
       const gLatency = Math.max(2, Math.round(performance.now() - gStart));
 
-      // 4. فحص اتصال الذكاء السحابي الاحتياطي
-      const cStart = performance.now();
-      let cloudPassed = true;
-      try {
-        const ping = await fetch('/api/health');
-        cloudPassed = ping.ok;
-      } catch {
-        cloudPassed = true;
-      }
-      const cLatency = Math.max(16, Math.round(performance.now() - cStart));
+      // Cloud AI is intentionally not contacted during the local-only readiness check.
+      const cLatency = 0;
 
       const totalElapsed = Math.round(performance.now() - t0);
       const isAndroid = Capacitor.getPlatform() === 'android';
@@ -118,7 +110,7 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
           {
             id: 'passenger_radar',
             name: 'رادار كشف ومنع نقل الركاب',
-            detail: `نشط بنسبة دقة 100% ويمنع إعلانات الأشخاص تلقائياً`,
+            detail: `تصنيف محلي أولي لعبارات نقل الأشخاص؛ لا توجد نسبة دقة مضمونة ويجب مراجعة الحالات الملتبسة`,
             latencyMs: pLatency,
             status: 'passed',
           },
@@ -243,14 +235,14 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
                 <h4 className="text-xs sm:text-sm font-black text-indigo-950 flex items-center gap-2">
                   <span>حالة المحرك ونموذج الذكاء الاصطناعي:</span>
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-800">
-                    gemma3-1b-it-int4.litertlm (584 MB)
+                    {modelStatus?.modelAvailable ? 'ملف نموذج موجود - التشغيل غير مؤكد' : 'نموذج LLM غير محمّل'}
                   </span>
                 </h4>
                 <p className="text-[11px] text-indigo-800/80 mt-0.5 leading-relaxed">
                   {modelStatus?.detail || 'يعمل المحلل المحلي بالقواعد وقاموس المواقع؛ لم يتم تأكيد تحميل نموذج LLM فعلياً.'}
                 </p>
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] text-indigo-600 font-semibold">
-                  <span>⚡ المعمارية: {modelStatus?.architecture || 'هجين محلي وسحابي'}</span>
+                  <span>⚡ المعمارية: {modelStatus?.architecture || 'محلل محلي بالقواعد + قاموس البحرين'}</span>
                   <span>·</span>
                   <span>📍 قاعدة HERE WeGo: {HERE_WE_GO_BAHRAIN_PLACES.length}+ معلماً تعمل في الخلفية</span>
                 </div>
@@ -277,7 +269,7 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
                     <Check className="w-3.5 h-3.5 stroke-[3]" />
                   </div>
                   <h5 className="text-xs font-black text-slate-900">
-                    نتيجة فحص الجاهزية: كافة الأنظمة جاهزة 100% 🚀 ({readinessAudit.totalElapsedMs} ms)
+                    {readinessAudit.items.every((item) => item.status === 'passed') ? 'اكتمل فحص الجاهزية' : 'اكتمل الفحص مع ملاحظات تحتاج معالجة'} ({readinessAudit.totalElapsedMs} ms)
                   </h5>
                 </div>
 
