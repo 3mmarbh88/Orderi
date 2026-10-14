@@ -54,6 +54,7 @@ interface OrderCardProps {
   onRestoreOrder?: (orderId: string) => void;
   onConfirmClosure?: (orderId: string) => void;
   onDismissClosureSuspicion?: (orderId: string) => void;
+  onClassificationFeedback?: (order: ParsedOrder, label: 'order' | 'advertisement') => void;
 }
 
 export function OrderCard({
@@ -67,6 +68,7 @@ export function OrderCard({
   onRestoreOrder,
   onConfirmClosure,
   onDismissClosureSuspicion,
+  onClassificationFeedback,
 }: OrderCardProps) {
   const [showFullText, setShowFullText] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -945,6 +947,19 @@ export function OrderCard({
                 <MessageCircle className={`w-4 h-4 ${isConfirmedPassenger ? 'text-red-700' : 'text-emerald-700'}`} />
               </button>
             </div>
+
+            {/* User feedback: save corrections locally to improve future classification */}
+            {onClassificationFeedback && order.rawText && (
+              <div className="flex items-center gap-2 mt-2">
+                <span className="text-[10px] text-slate-500 shrink-0">تصحيح التصنيف:</span>
+                <button type="button" onClick={() => onClassificationFeedback(order, 'order')} className="min-h-[34px] flex-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-[11px] font-bold text-emerald-800 hover:bg-emerald-100" title="حفظ التصحيح محلياً كأوردر">
+                  هذا أوردر ✓
+                </button>
+                <button type="button" onClick={() => onClassificationFeedback(order, 'advertisement')} className="min-h-[34px] flex-1 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] font-bold text-amber-800 hover:bg-amber-100" title="حفظ التصحيح محلياً كإعلان وإزالته من الرادار">
+                  هذا إعلان ✕
+                </button>
+              </div>
+            )}
 
             {/* Secondary Touch Actions Row */}
             <div className="flex items-center gap-1 sm:gap-2">
