@@ -375,7 +375,7 @@ public class OrderiLocalAIPlugin extends Plugin {
                         + "price, distance_km, sender_name, "
                         + "sender_phone, notes. "
                         + "استخدم null للقيم غير الموجودة، ولا تخترع معلومات. "
-                        + "افهم العربية واللهجات الخليجية.\\n"
+                        + "افهم العربية واللهجات الخليجية.\n"
                         + "نص الرسالة المراد تصنيفها:\n"
                         + input;
 
