@@ -268,35 +268,106 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
 
         String category = n.category == null ? "" : n.category;
 
-        // Smart Group Name Extraction
+        // Robust group-name extraction across WhatsApp/Android notification layouts.
+        // Prefer explicit MessagingStyle conversation metadata; then inspect title/text
+        // formats without assuming every group name contains a keyword such as "توصيل".
         String detectedGroupName = "";
         String detectedSenderName = title;
+        String combinedVisibleText = !TextUtils.isEmpty(bigText) ? bigText : text;
+        if (TextUtils.isEmpty(combinedVisibleText)) combinedVisibleText = subText;
 
         if (!TextUtils.isEmpty(conversationTitle)) {
-            detectedGroupName = conversationTitle;
-            detectedSenderName = title;
+            detectedGroupName = conversationTitle.trim();
         } else if (isExplicitGroupFlag && !TextUtils.isEmpty(title)) {
-            detectedGroupName = title;
+            detectedGroupName = title.trim();
         } else if (!TextUtils.isEmpty(title) && title.contains(" @ ")) {
-            String[] parts = title.split(" @ ");
-            if (parts.length >= 2) {
+            String[] parts = title.split(" @ ", 2);
+            if (parts.length == 2) {
                 detectedSenderName = parts[0].trim();
                 detectedGroupName = parts[1].trim();
             }
-        } else if (!TextUtils.isEmpty(summaryText) && (summaryText.contains("قروب") || summaryText.contains("مجموعة") || summaryText.contains("توصيل"))) {
-            detectedGroupName = summaryText;
-        } else if (!TextUtils.isEmpty(title) && (title.contains("قروب") || title.contains("جروب") || title.contains("مجموعة") || title.contains("مندوب") || title.contains("توصيل") || title.contains("كباتن") || title.contains("طلبات") || title.contains("بحرين"))) {
-            detectedGroupName = title;
-        } else if (!TextUtils.isEmpty(title) && !TextUtils.isEmpty(text) && text.contains(":")) {
-            detectedGroupName = title;
-            int colonIdx = text.indexOf(':');
-            if (colonIdx > 0 && colonIdx < 35) {
-                detectedSenderName = text.substring(0, colonIdx).trim();
+        }
+
+        // Some WhatsApp versions put "sender: message" in text and the chat/group
+        // title in title. Other versions put "group: sender: message" in the text.
+        if (TextUtils.isEmpty(detectedGroupName) && !TextUtils.isEmpty(title)
+                && !TextUtils.isEmpty(combinedVisibleText)) {
+            int colonIdx = combinedVisibleText.indexOf(':');
+            if (colonIdx > 0 && colonIdx < 70) {
+                String prefix = combinedVisibleText.substring(0, colonIdx).trim();
+                String normalizedPrefix = prefix.toLowerCase(java.util.Locale.ROOT);
+                String normalizedTitle = title.trim().toLowerCase(java.util.Locale.ROOT);
+                boolean prefixIsTitle = normalizedPrefix.equals(normalizedTitle);
+                boolean looksLikeGenericSummary = normalizedPrefix.matches("\\d+\\s+.*")
+                        || normalizedPrefix.contains("رسالة") || normalizedPrefix.contains("messages");
+                int secondColon = combinedVisibleText.indexOf(':', colonIdx + 1);
+                if (!prefixIsTitle && !looksLikeGenericSummary && secondColon > colonIdx) {
+                    // Layout: "Group: Sender: message" (title may be the sender).
+                    detectedGroupName = prefix;
+                    if (secondColon > colonIdx + 1) {
+                        detectedSenderName = combinedVisibleText.substring(colonIdx + 1, secondColon).trim();
+                    }
+                } else if (!prefixIsTitle && !looksLikeGenericSummary) {
+                    // Layout: title="Group name", text="Sender: message".
+                    // Keep the title as the group, and preserve the sender from the text.
+                    detectedGroupName = title.trim();
+                    detectedSenderName = prefix;
+                } else if (prefixIsTitle) {
+                    detectedSenderName = prefix;
+                }
             }
         }
 
+        if (TextUtils.isEmpty(detectedGroupName) && !TextUtils.isEmpty(title)
+                && (title.contains("قروب") || title.contains("جروب") || title.contains("مجموعة")
+                || title.contains("مندوب") || title.contains("توصيل") || title.contains("كباتن")
+                || title.contains("طلبات") || title.contains("بحرين"))) {
+            detectedGroupName = title.trim();
+        }
+
+        if (TextUtils.isEmpty(detectedGroupName) && !TextUtils.isEmpty(summaryText)
+                && (summaryText.contains("قروب") || summaryText.contains("مجموعة")
+                || summaryText.contains("توصيل") || summaryText.contains("كباتن"))) {
+            detectedGroupName = summaryText.trim();
+        }
+
+        // MessagingStyle can expose the actual sender separately from the visible title.
+        // If the sender differs from the notification title, the title is usually the group
+        // name (even when Android omits EXTRA_CONVERSATION_TITLE and the group name has no keywords).
+        // For direct chats, the sender normally matches the title, so they are not misclassified.
+        if (TextUtils.isEmpty(detectedGroupName) && !TextUtils.isEmpty(title)
+                && Build.VERSION.SDK_INT >= 24) {
+            try {
+                Object messages = extras.get(Notification.EXTRA_MESSAGES);
+                if (messages instanceof Parcelable[]) {
+                    String latestSender = "";
+                    for (Parcelable item : (Parcelable[]) messages) {
+                        if (!(item instanceof Bundle)) continue;
+                        Bundle message = (Bundle) item;
+                        String senderName = "";
+                        if (Build.VERSION.SDK_INT >= 28) {
+                            Parcelable senderParcelable = message.getParcelable("sender_person");
+                            if (senderParcelable instanceof android.app.Person) {
+                                senderName = safe(((android.app.Person) senderParcelable).getName());
+                            }
+                        }
+                        if (TextUtils.isEmpty(senderName)) {
+                            senderName = safe(message.getCharSequence("sender"));
+                        }
+                        if (!TextUtils.isEmpty(senderName)) latestSender = senderName.trim();
+                    }
+                    if (!TextUtils.isEmpty(latestSender)
+                            && !latestSender.equalsIgnoreCase(title.trim())) {
+                        detectedGroupName = title.trim();
+                        detectedSenderName = latestSender;
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
+
         boolean looksLikeGroup = !TextUtils.isEmpty(detectedGroupName) || isExplicitGroupFlag;
-        String resolvedTitle = !TextUtils.isEmpty(detectedGroupName) ? detectedGroupName : (!TextUtils.isEmpty(conversationTitle) ? conversationTitle : title);
+        String resolvedTitle = !TextUtils.isEmpty(detectedGroupName) ? detectedGroupName
+                : (!TextUtils.isEmpty(conversationTitle) ? conversationTitle : title);
         String rawText = !TextUtils.isEmpty(bigText) ? bigText : text;
         if (TextUtils.isEmpty(rawText)) rawText = subText;
 
