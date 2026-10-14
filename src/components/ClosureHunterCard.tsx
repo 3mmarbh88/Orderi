@@ -27,7 +27,9 @@ import {
   BASE_GRATITUDE_KEYWORDS,
   BASE_CLOSURE_EMOJIS,
   STORAGE_KEY_LEARNED_CLOSURES,
-  SEED_AI_LEARNED_EXPRESSIONS
+  SEED_AI_LEARNED_EXPRESSIONS,
+  syncLearnedExpressions,
+  resetLearnedExpressionsToDefaults
 } from '../utils/aiClosureLearner';
 import { extractClosureKeywords } from '../utils/orderClosureDetector';
 import { playAlertTone } from '../utils/sound';
@@ -53,6 +55,13 @@ export const ClosureHunterCard: React.FC<ClosureHunterCardProps> = ({
 
   useEffect(() => {
     setLearnedExprs(getStoredLearnedExpressions());
+    let cancelled = false;
+    syncLearnedExpressions().then((items) => {
+      if (!cancelled) setLearnedExprs(items);
+    }).catch(() => {
+      // Keep the local-first dictionary usable when the server is offline.
+    });
+    return () => { cancelled = true; };
   }, []);
 
   const isEnabled = filter.autoCloseOrdersEnabled !== false;
@@ -97,9 +106,13 @@ export const ClosureHunterCard: React.FC<ClosureHunterCardProps> = ({
   };
 
   const handleResetToDefaults = () => {
-    if (typeof window !== 'undefined' && window.confirm('هل تريد استعادة الكلمات والرموز الافتراضية للصائد؟')) {
+    if (typeof window !== 'undefined' && window.confirm('هل تريد استعادة الكلمات والرموز الافتراضية للصائد؟ سيتم تطبيق ذلك على هذا الجهاز وخادم Orderi للحساب الحالي.')) {
+      // Reset locally even if the server is offline, then let the sync helper reconcile when possible.
       localStorage.setItem(STORAGE_KEY_LEARNED_CLOSURES, JSON.stringify(SEED_AI_LEARNED_EXPRESSIONS));
       setLearnedExprs(SEED_AI_LEARNED_EXPRESSIONS);
+      resetLearnedExpressionsToDefaults().then(setLearnedExprs).catch(() => {
+        setLearnedExprs(getStoredLearnedExpressions());
+      });
     }
   };
 
@@ -291,6 +304,10 @@ export const ClosureHunterCard: React.FC<ClosureHunterCardProps> = ({
               <span>إضافة للصائد</span>
             </button>
           </div>
+
+          <p className="text-[11px] leading-5 text-slate-600 mt-2">
+            تُزامَن الكلمات والرموز مع خادم Orderi حسب حسابك. لا يُرفع نص رسالة واتساب الأصلي. الملصق الذي يظهر كـ «Sticker/ملصق» لا يثبت الإغلاق وحده؛ يجب ربطه بالمعلن والطلب النشط.
+          </p>
 
           {/* Quick Emoji Buttons */}
           <div className="flex items-center gap-1.5 pt-1">

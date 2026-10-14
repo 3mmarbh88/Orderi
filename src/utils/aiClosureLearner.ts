@@ -1,4 +1,5 @@
 import { LearnedClosureExpression, ClosureCategory } from '../types';
+import { getCurrentUser, ORDERI_SERVER_URL } from './authManager';
 
 /**
  * AI-Powered Closure Expressions Learning Engine
@@ -176,12 +177,23 @@ export function addOrUpdateLearnedExpression(newExpr: Omit<LearnedClosureExpress
 
   saveLearnedExpressions(current);
 
-  // إرسال للخادم للتخزين المستمر بالتوازي
-  fetch('/api/save-learned-closure', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(updatedItem),
-  }).catch(() => {});
+  // Local-first sync. Never upload sourceContext because it may contain private WhatsApp text.
+  const captainPhone = (getCurrentUser()?.phone || '').replace(/\D/g, '');
+  if (captainPhone) {
+    fetch(`${ORDERI_SERVER_URL}/api/closure-expressions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        captainPhone,
+        phrase: updatedItem.phrase,
+        category: updatedItem.category,
+        meaning: updatedItem.meaning,
+        confidence: updatedItem.confidence,
+        learnedAt: updatedItem.learnedAt,
+        isAiLearned: updatedItem.isAiLearned,
+      }),
+    }).catch(() => {});
+  }
 
   return updatedItem;
 }
@@ -191,14 +203,109 @@ export function addOrUpdateLearnedExpression(newExpr: Omit<LearnedClosureExpress
  */
 export function deleteLearnedExpression(id: string): LearnedClosureExpression[] {
   const current = getStoredLearnedExpressions();
+  const deleted = current.find(item => item.id === id);
   const filtered = current.filter(item => item.id !== id);
   saveLearnedExpressions(filtered);
 
-  fetch(`/api/learned-closure-expressions/${id}`, {
-    method: 'DELETE',
-  }).catch(() => {});
+  const captainPhone = (getCurrentUser()?.phone || '').replace(/\D/g, '');
+  if (captainPhone && deleted) {
+    fetch(`${ORDERI_SERVER_URL}/api/closure-expressions?captainPhone=${encodeURIComponent(captainPhone)}&phrase=${encodeURIComponent(deleted.phrase)}`, {
+      method: 'DELETE',
+    }).catch(() => {});
+  }
 
   return filtered;
+}
+
+/**
+ * مزامنة محلية أولاً مع قاموس هذا الكابتن في خادم Orderi.
+ * لا تُرسل أمثلة الرسائل أو sourceContext لأنها قد تتضمن محتوى خاصاً من واتساب.
+ */
+export async function syncLearnedExpressions(): Promise<LearnedClosureExpression[]> {
+  const local = getStoredLearnedExpressions();
+  const captainPhone = (getCurrentUser()?.phone || '').replace(/\D/g, '');
+  if (!captainPhone) return local;
+
+  try {
+    const response = await fetch(`${ORDERI_SERVER_URL}/api/closure-expressions?captainPhone=${encodeURIComponent(captainPhone)}`);
+    if (!response.ok) return local;
+    const payload = await response.json();
+    const remoteItems = Array.isArray(payload?.expressions) ? payload.expressions : [];
+    const byPhrase = new Map<string, LearnedClosureExpression>();
+    for (const item of remoteItems) {
+      if (!item || typeof item.phrase !== 'string' || !item.phrase.trim()) continue;
+      const category = item.category as ClosureCategory;
+      if (!['taken', 'completion', 'gratitude', 'emoji'].includes(category)) continue;
+      const normalized = item.phrase.trim().toLocaleLowerCase();
+      byPhrase.set(normalized, {
+        id: String(item.id || `remote-${normalized}`),
+        phrase: item.phrase.trim(),
+        category,
+        meaning: typeof item.meaning === 'string' ? item.meaning : '',
+        confidence: Math.max(0, Math.min(100, Number(item.confidence) || 90)),
+        learnedAt: item.learned_at || new Date().toISOString(),
+        isAiLearned: Boolean(item.is_ai_learned),
+      });
+    }
+
+    // Local version wins on conflicts so an offline edit is not overwritten.
+    for (const item of local) byPhrase.set(item.phrase.trim().toLocaleLowerCase(), item);
+    const merged = Array.from(byPhrase.values());
+    saveLearnedExpressions(merged);
+
+    // Upload local/merged entries individually; the server upserts by captain + phrase.
+    await Promise.all(merged.map(item => fetch(`${ORDERI_SERVER_URL}/api/closure-expressions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        captainPhone,
+        phrase: item.phrase,
+        category: item.category,
+        meaning: item.meaning,
+        confidence: item.confidence,
+        learnedAt: item.learnedAt,
+        isAiLearned: item.isAiLearned,
+      }),
+    }).catch(() => undefined)));
+    return merged;
+  } catch {
+    return local;
+  }
+}
+
+/**
+ * إعادة ضبط القاموس محلياً وعلى خادم Orderi للحساب الحالي.
+ */
+export async function resetLearnedExpressionsToDefaults(): Promise<LearnedClosureExpression[]> {
+  const current = await syncLearnedExpressions();
+  const captainPhone = (getCurrentUser()?.phone || '').replace(/\D/g, '');
+  if (captainPhone) {
+    await Promise.all(current.map(item =>
+      fetch(`${ORDERI_SERVER_URL}/api/closure-expressions?captainPhone=${encodeURIComponent(captainPhone)}&phrase=${encodeURIComponent(item.phrase)}`, {
+        method: 'DELETE',
+      }).catch(() => undefined)
+    ));
+  }
+
+  saveLearnedExpressions(SEED_AI_LEARNED_EXPRESSIONS);
+  if (captainPhone) {
+    await Promise.all(SEED_AI_LEARNED_EXPRESSIONS.map(item =>
+      fetch(`${ORDERI_SERVER_URL}/api/closure-expressions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          captainPhone,
+          phrase: item.phrase,
+          category: item.category,
+          meaning: item.meaning,
+          confidence: item.confidence,
+          learnedAt: item.learnedAt,
+          isAiLearned: item.isAiLearned,
+        }),
+      }).catch(() => undefined)
+    ));
+  }
+  return SEED_AI_LEARNED_EXPRESSIONS;
 }
 
 /**

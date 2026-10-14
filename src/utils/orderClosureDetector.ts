@@ -50,17 +50,19 @@ export function extractClosureKeywords(text: string): {
   matchedWords: string[];
   matchedEmojis: string[];
   hasClosureIntent: boolean;
+  matchedGratitudeWords: string[];
 } {
-  if (!text) return { matchedWords: [], matchedEmojis: [], hasClosureIntent: false };
+  if (!text) return { matchedWords: [], matchedEmojis: [], matchedGratitudeWords: [], hasClosureIntent: false };
   
   const cleaned = cleanDialectText(text);
   const normalized = normalizeArabicText(text);
 
   const { takenKeywords, completionKeywords, gratitudeKeywords, emojis } = getAggregatedClosureDictionary();
-  const allKeywords = [...takenKeywords, ...completionKeywords, ...gratitudeKeywords];
+  // Gratitude is tracked separately: «شكراً» alone must never close an order.
+  const closureKeywords = [...takenKeywords, ...completionKeywords];
 
   const matchedWords: string[] = [];
-  for (const kw of allKeywords) {
+  for (const kw of closureKeywords) {
     const kwClean = cleanDialectText(kw);
     // فحص بالحدود اللفظية لدقة المعنى وعدم التداخل مع كلمات أخرى
     const rxClean = new RegExp(`(?:^|[\\s،,.:!؟-])${kwClean}(?:$|[\\s،,.:!؟-])`, 'i');
@@ -80,8 +82,17 @@ export function extractClosureKeywords(text: string): {
     }
   }
 
-  const hasClosureIntent = matchedWords.length > 0 || matchedEmojis.length > 0;
-  return { matchedWords, matchedEmojis, hasClosureIntent };
+  const matchedGratitudeWords: string[] = [];
+  for (const kw of gratitudeKeywords) {
+    const kwClean = cleanDialectText(kw);
+    if (!kwClean) continue;
+    const rx = new RegExp(`(?:^|[\\s،,.:!؟-])${kwClean}(?:$|[\\s،,.:!؟-])`, 'i');
+    if (rx.test(cleaned) && !matchedGratitudeWords.includes(kw)) matchedGratitudeWords.push(kw);
+  }
+
+  // Emojis are evidence, not proof. The caller must connect them to the advertiser/order.
+  const hasClosureIntent = matchedWords.length > 0;
+  return { matchedWords, matchedEmojis, matchedGratitudeWords, hasClosureIntent };
 }
 
 /**
@@ -141,14 +152,14 @@ export function checkIncomingMessageForClosure(
     return null;
   }
 
-  // ملصقات واتساب: إذا كان الإشعار مجرد كلمة "ملصق" أو "Sticker" بدون نص أو اقتباس واضح، لا نحذف بالخطأ
+  // Android may expose a WhatsApp sticker only as «ملصق/Sticker». It must be tied to the advertiser/order.
   const isPureSticker = /^(?:sticker|ملصق|🖼️\s*ملصق|🖼️\s*sticker)$/i.test(rawText.trim());
-  if (isPureSticker && !message.rawQuotedText) {
-    return null;
-  }
 
-  const { matchedWords, matchedEmojis, hasClosureIntent } = extractClosureKeywords(rawText);
-  if (!hasClosureIntent) return null;
+  const { matchedWords, matchedEmojis, matchedGratitudeWords, hasClosureIntent } = extractClosureKeywords(rawText);
+  const hasEmojiSignal = matchedEmojis.length > 0;
+  if (!hasClosureIntent && !hasEmojiSignal && !isPureSticker) return null;
+  // A generic emoji attached to a thank-you is not closure evidence.
+  const emojiCanSupportClosure = hasEmojiSignal && matchedGratitudeWords.length === 0;
 
   // 1. فحص الطلبات النشطة التي تنتمي لنفس المجموعة حصراً
   const candidateOrders = activeOrders.filter((order) => {
@@ -159,7 +170,8 @@ export function checkIncomingMessageForClosure(
       (msgGroup && order.groupName && (order.groupName.includes(msgGroup) || msgGroup.includes(order.groupName))) ||
       (order.crossPostedGroups && order.crossPostedGroups.some((g) => g.includes(msgGroup) || msgGroup.includes(g)));
 
-    if (!inSameGroup && msgGroup) return false;
+    // Never infer a group closure from a private/unknown conversation.
+    if (!msgGroup || !inSameGroup) return false;
 
     // نافذة زمنية واقعية: خلال 3 ساعات من نشر الإعلان
     const orderTime = new Date(order.receivedAt).getTime();
@@ -191,26 +203,30 @@ export function checkIncomingMessageForClosure(
     const toMention = order.to && cleanMsg.includes(cleanDialectText(order.to));
     const priceMention = order.price && order.price > 0 && cleanMsg.includes(order.price.toString());
 
-    const isQuoted = 
+    const isQuoted =
       (message.rawQuotedText && (message.rawQuotedText.includes(order.from) || message.rawQuotedText.includes(order.to))) ||
       rawText.includes(`> ${orderSnippet}`) ||
-      ((fromMention || toMention || priceMention) && (matchedWords.length > 0 || matchedEmojis.length > 0));
+      ((fromMention || toMention || priceMention) && (hasClosureIntent || emojiCanSupportClosure));
+    const advertiserMatch = isAdvertiserSenderMatch(msgSender, msgPhone, order.senderName, order.senderPhone);
 
-    if (isQuoted) {
+    if (isQuoted && (hasClosureIntent || (advertiserMatch && (emojiCanSupportClosure || isPureSticker)))) {
+      const verdict = hasClosureIntent ? 'confirmed_closed' : 'suspicious_closed';
       processedMessageHashes.add(dedupeKey);
-      markOrderPermanentlyClosed(order.id);
+      if (verdict === 'confirmed_closed') markOrderPermanentlyClosed(order.id);
       return {
         isMatch: true,
         orderId: order.id,
         matchedOrder: order,
-        verdict: 'confirmed_closed',
-        reason: `اقتباس أو ذكر مباشر لبيانات الطلب (${order.from} ← ${order.to}) مع تأكيد اكتماله: «${rawText}»`,
+        verdict,
+        reason: hasClosureIntent
+          ? `اقتباس أو ذكر مباشر لبيانات الطلب (${order.from} ← ${order.to}) مع عبارة إغلاق صريحة: «${rawText}»`
+          : `ردّ برمز/ملصق غامض مرتبط بالطلب (${order.from} ← ${order.to})؛ يحتاج مراجعة لأن محتوى الملصق غير متاح للإشعار.`,
         evidence: {
           replyText: rawText,
           senderName: msgSender || 'عضو بالقروب',
           groupName: msgGroup || order.groupName,
           timestamp: new Date(msgTime).toISOString(),
-          confidence: 99,
+          confidence: hasClosureIntent ? 99 : 68,
           isQuote: true,
           matchedKeywords: [...matchedWords, ...matchedEmojis],
         },
@@ -219,28 +235,43 @@ export function checkIncomingMessageForClosure(
   }
 
   // =========================================================================
-  // المستوى الثاني: مرسل الرسالة هو نفس صاحب الإعلان الصادر عنه الطلب
-  // (الأولوية للطلب الأقرب زمنياً الصادر عن المعلن نفسه)
+  // المستوى الثاني: ردّ المعلن نفسه. إذا كانت له عدة طلبات نشطة في المجموعة،
+  // لا نختار واحداً بالتخمين؛ يلزم اقتباس أو ذكر مسار/سعر واضح.
   // =========================================================================
+  const advertiserMatchedOrders = sortedCandidates.filter((candidate) =>
+    isAdvertiserSenderMatch(msgSender, msgPhone, candidate.senderName, candidate.senderPhone)
+  );
   for (const order of sortedCandidates) {
     const isAdvertiser = isAdvertiserSenderMatch(msgSender, msgPhone, order.senderName, order.senderPhone);
+    const cleanMsgForOrder = cleanDialectText(rawText);
+    const explicitlyMentionsOrder =
+      (order.from && cleanMsgForOrder.includes(cleanDialectText(order.from))) ||
+      (order.to && cleanMsgForOrder.includes(cleanDialectText(order.to))) ||
+      (order.price && order.price > 0 && cleanMsgForOrder.includes(order.price.toString()));
 
-    if (isAdvertiser) {
-      // المعلن نفسه كتب «حصلت» أو «تم» أو «حصلت مندوب» أو «تم الحجز» أو أرسل رمز الإنجاز
+    if (
+      isAdvertiser &&
+      (hasClosureIntent || isPureSticker || (emojiCanSupportClosure && matchedGratitudeWords.length === 0)) &&
+      (advertiserMatchedOrders.length === 1 || explicitlyMentionsOrder)
+    ) {
+      // Textual closure is strong evidence. An emoji/sticker without readable closure text is only a review signal.
+      const verdict = hasClosureIntent ? 'confirmed_closed' : 'suspicious_closed';
       processedMessageHashes.add(dedupeKey);
-      markOrderPermanentlyClosed(order.id);
+      if (verdict === 'confirmed_closed') markOrderPermanentlyClosed(order.id);
       return {
         isMatch: true,
         orderId: order.id,
         matchedOrder: order,
-        verdict: 'confirmed_closed',
-        reason: `أفاد صاحب الإعلان نفسه (${msgSender || order.senderName}) في القروب بأنه حصل على مندوب: «${rawText}»`,
+        verdict,
+        reason: hasClosureIntent
+          ? `أفاد صاحب الإعلان نفسه (${msgSender || order.senderName}) في القروب بعبارة إغلاق: «${rawText}»`
+          : `أرسل صاحب الإعلان رمزاً/ملصقاً بعد الطلب، لكن محتواه غير مقروء من إشعار واتساب؛ يلزم التأكد يدوياً.`,
         evidence: {
           replyText: rawText,
           senderName: msgSender || order.senderName,
           groupName: msgGroup || order.groupName,
           timestamp: new Date(msgTime).toISOString(),
-          confidence: 98,
+          confidence: hasClosureIntent ? 98 : 65,
           isQuote: false,
           matchedKeywords: [...matchedWords, ...matchedEmojis],
         },
