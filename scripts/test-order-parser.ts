@@ -18,12 +18,16 @@ assert.equal(buQuwahOrder.from, 'بو قوة');
 assert.equal(buQuwahOrder.to, 'مدينة عيسى');
 assert.equal(buQuwahOrder.price, 3);
 assert.equal(buQuwahOrder.canCreateOrder, true);
+assert.equal(buQuwahOrder.orderCategory, 'delivery');
 
 const buKowarahOrder = parseWhatsAppOrderText('اوردر من بو كوارة الى مدينة حمد');
 assert.equal(buKowarahOrder.from, 'بو كوارة');
 assert.equal(buKowarahOrder.to, 'مدينة حمد');
 assert.equal(buKowarahOrder.price, 0, 'Parser must not invent a price when none is stated');
 assert.equal(buKowarahOrder.isPriceUnspecified, true);
+
+const goodsOrder = parseWhatsAppOrderText('اوردر من بو كوارة إلى مدينة حمد كرتون');
+assert.equal(goodsOrder.orderCategory, 'goods');
 
 
 const roundaboutOrder = parseWhatsAppOrderText('أوردر من دوار 1 إلى مدينة عيسى');
@@ -32,5 +36,6 @@ assert.equal(roundaboutOrder.to, 'مدينة عيسى');
 
 const passengerOrder = parseWhatsAppOrderText('توصيل شخص من أبو قوة إلى مدينة عيسى');
 assert.equal(passengerOrder.passengerDetection.level, 'confirmed_passenger');
+assert.equal(passengerOrder.orderCategory, 'passengers');
 
 console.log('Orderi parser tests passed: Bahraini aliases, canonical routes, explicit prices, and passenger classification.');
