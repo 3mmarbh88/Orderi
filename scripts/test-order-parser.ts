@@ -12,6 +12,8 @@ testBahrainAlias('أبو قوة', 'bu_quwah');
 testBahrainAlias('ابوقوة', 'bu_quwah');
 testBahrainAlias('بو كوارة', 'bu_kowarah');
 testBahrainAlias('أبو كواره', 'bu_kowarah');
+testBahrainAlias('الوزي', 'lawzi');
+testBahrainAlias('اللوزى', 'lawzi');
 
 const buQuwahOrder = parseWhatsAppOrderText('أوردر من أبو قوة إلى مدينة عيسى 3 د.ب');
 assert.equal(buQuwahOrder.from, 'بو قوة');
@@ -33,6 +35,14 @@ assert.equal(goodsOrder.orderCategory, 'goods');
 const roundaboutOrder = parseWhatsAppOrderText('أوردر من دوار 1 إلى مدينة عيسى');
 assert.ok(roundaboutOrder.from.includes('مدينة حمد'), 'Numbered roundabouts must resolve to Hamad Town at area level only');
 assert.equal(roundaboutOrder.to, 'مدينة عيسى');
+
+const typoAreaOrder = parseWhatsAppOrderText('أوردر من الوزي إلى مدينة عيسى');
+assert.equal(typoAreaOrder.from, 'اللوزي', 'Common misspelling الوزي should be normalized to اللوزي on Radar');
+
+const coldStorageOrder = parseWhatsAppOrderText('أوردر من اللوزي إلى مدينة عيسى يحتاج تكييف ومكيف هواء');
+assert.match(coldStorageOrder.notes, /حفظ بارد/, 'Explicit AC wording should flag cold storage');
+const coldWordOrder = parseWhatsAppOrderText('توصيل من اللوزي إلى سار بارد');
+assert.match(coldWordOrder.notes, /حفظ بارد/, 'Explicit cold wording should flag cold storage');
 
 const passengerOrder = parseWhatsAppOrderText('توصيل شخص من أبو قوة إلى مدينة عيسى');
 assert.equal(passengerOrder.passengerDetection.level, 'confirmed_passenger');
