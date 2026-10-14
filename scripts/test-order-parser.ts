@@ -85,6 +85,21 @@ const localCorrectedParse = await parseWhatsAppOrderWithLocalAi(correctedAdText)
 assert.equal(localCorrectedParse.canCreateOrder, false, 'An exact local ad correction must suppress the same message');
 assert.match(localCorrectedParse.notes, /تصحيح محلي/);
 
+
+const similarA = 'announcement delivery item pickup location route price timing group contact sender goods package parcel urgent client address note service details pickup-ready delivery-window tracking-confirmation';
+const similarB = similarA.replace('urgent', 'priority');
+const similarQuery = similarA.replace('urgent', 'express');
+saveClassificationCorrection(similarA, 'advertisement');
+saveClassificationCorrection(similarB, 'advertisement');
+const similarSuggestion = findLearnedClassification(similarQuery);
+assert.equal(similarSuggestion?.match, 'similar-suggestion');
+assert.equal(similarSuggestion?.shouldAutoApply, false, 'Similar messages must never be auto-classified from examples alone');
+
+const vagueTravelCorrection = 'طالع يوم الخميس الإمارات 34445555';
+saveClassificationCorrection(vagueTravelCorrection, 'order');
+const safeTravelCorrection = await parseWhatsAppOrderWithLocalAi(vagueTravelCorrection);
+assert.equal(safeTravelCorrection.canCreateOrder, false, 'A positive correction without a trustworthy pickup/route must not invent an order');
+
 const conflictText = 'إعلان خدمات خاصة ورقم التواصل 35556666';
 saveClassificationCorrection(conflictText, 'advertisement');
 saveClassificationCorrection(conflictText, 'order');
