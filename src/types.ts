@@ -160,6 +160,7 @@ export interface ParsedOrder {
   from: string;
   to: string;
   price: number;
+  orderCount?: number; // عدد الطلبات المعلن عنه صراحةً، وليس عدد المناطق
   isPriceUnspecified?: boolean;
   passengerCount?: number; // عدد الأشخاص/الركاب منفصلاً عن السعر
   scheduledTime?: string; // وقت التوصيل المحدد بالساعة (e.g. "الساعة 8 مساءً" أو "08:00 مساء")

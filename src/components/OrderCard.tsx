@@ -644,6 +644,14 @@ export function OrderCard({
           </div>
         </div>
 
+        {order.orderCount && order.orderCount > 1 && (
+          <div className="mx-4 sm:mx-5 mt-3 px-3 py-2 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-900 text-sm font-bold flex items-center gap-2">
+            <Layers size={16} />
+            <span>عدد الطلبات المذكور في الإعلان: {order.orderCount}</span>
+            <span className="text-xs font-medium text-indigo-700">— تحقق من تفاصيل كل مسار</span>
+          </div>
+        )}
+
         {/* Route Details Box */}
         <div className="p-4 sm:p-5 space-y-4">
           

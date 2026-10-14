@@ -141,6 +141,7 @@ export async function parseWhatsAppOrderWithLocalAi(
           from: fromArea,
           to: toArea,
           price,
+          orderCount: fastResult.orderCount,
           isPriceUnspecified: price <= 0,
           passengerCount: passengerDet.passengerCount,
           phone: nativeResponse.phone || fastResult.phone,
