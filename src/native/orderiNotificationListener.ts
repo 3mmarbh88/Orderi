@@ -20,6 +20,7 @@ export interface WhatsAppNativeEvent {
 
 interface OrderiNotificationListenerPlugin {
   isEnabled(): Promise<{ enabled: boolean }>;
+  openWhatsAppGroupConversation(options: { groupName: string }): Promise<{ success: boolean; method: string }>;
   openSettings(): Promise<void>;
   isAccessibilityEnabled(): Promise<{ enabled: boolean }>;
   openAccessibilitySettings(): Promise<void>;
@@ -63,3 +64,15 @@ export const OrderiNotificationListener = registerPlugin<OrderiNotificationListe
 );
 
 export const isNativeAndroid = () => Capacitor.getPlatform() === 'android';
+
+/** Open the exact WhatsApp group using its cached Android notification intent. */
+export async function openWhatsAppGroupConversation(groupName: string): Promise<{ success: boolean; method: string }> {
+  if (!isNativeAndroid()) return { success: false, method: 'not_native' };
+  const name = groupName.trim();
+  if (!name) return { success: false, method: 'missing_group_name' };
+  try {
+    return await OrderiNotificationListener.openWhatsAppGroupConversation({ groupName: name });
+  } catch {
+    return { success: false, method: 'error' };
+  }
+}
