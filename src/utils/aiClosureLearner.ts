@@ -274,6 +274,41 @@ export async function syncLearnedExpressions(): Promise<LearnedClosureExpression
 }
 
 /**
+ * إعادة ضبط القاموس محلياً وعلى خادم Orderi للحساب الحالي.
+ */
+export async function resetLearnedExpressionsToDefaults(): Promise<LearnedClosureExpression[]> {
+  const current = await syncLearnedExpressions();
+  const captainPhone = (getCurrentUser()?.phone || '').replace(/\D/g, '');
+  if (captainPhone) {
+    await Promise.all(current.map(item =>
+      fetch(`${ORDERI_SERVER_URL}/api/closure-expressions?captainPhone=${encodeURIComponent(captainPhone)}&phrase=${encodeURIComponent(item.phrase)}`, {
+        method: 'DELETE',
+      }).catch(() => undefined)
+    ));
+  }
+
+  saveLearnedExpressions(SEED_AI_LEARNED_EXPRESSIONS);
+  if (captainPhone) {
+    await Promise.all(SEED_AI_LEARNED_EXPRESSIONS.map(item =>
+      fetch(`${ORDERI_SERVER_URL}/api/closure-expressions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          captainPhone,
+          phrase: item.phrase,
+          category: item.category,
+          meaning: item.meaning,
+          confidence: item.confidence,
+          learnedAt: item.learnedAt,
+          isAiLearned: item.isAiLearned,
+        }),
+      }).catch(() => undefined)
+    ));
+  }
+  return SEED_AI_LEARNED_EXPRESSIONS;
+}
+
+/**
  * استخراج الكلمات والرموز المجمعة (الأساسية + المتعلمة بالذكاء الاصطناعي)
  */
 export function getAggregatedClosureDictionary(): {
