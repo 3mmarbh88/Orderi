@@ -9,6 +9,7 @@ import {
   HereWeGoPlace 
 } from '../data/hereWeGoBahrainMap';
 import { detectPassengerDelivery } from './passengerClassifier';
+import { findLearnedClassification } from './localClassificationLearning';
 
 export interface LocalAIExtractionResult {
   from: string;
@@ -110,8 +111,54 @@ export async function parseWhatsAppOrderWithLocalAi(
   // Local-first privacy: cloud parsing is opt-in only; notification text must never leave the device by default.
   const useCloudFallback = options.useCloudFallback === true;
 
-  // Step 1: Run Fast Tier 1 Heuristics
-  const fastResult = parseWhatsAppOrderText(rawText);
+  // Step 1: Fast offline parsing with a conservative local correction lookup.
+  const learnedCorrection = findLearnedClassification(rawText);
+  const explicitDeliveryIntent = /(?:اوردر|أوردر|طلب توصيل|طلب|توصيل|مندوب|pickup|delivery|استلام|تسليم|شحن|طرود|بضاعة|كرتون|وجبة)/i.test(rawText);
+  const exactOrderCorrection = learnedCorrection?.match === 'exact' &&
+    learnedCorrection.shouldAutoApply && learnedCorrection.label === 'order';
+  let fastResult = parseWhatsAppOrderText(rawText, {
+    // A saved label alone cannot override a personal-travel safeguard. Explicit
+    // delivery intent is still required before reconsidering travel-like text.
+    allowTravelAnnouncementAsOrder: exactOrderCorrection && explicitDeliveryIntent,
+  });
+
+  // A positive correction may override the travel-announcement rule only when
+  // a real Bahraini pickup resolves and the destination is recognized or the
+  // message explicitly contains delivery/order intent. Never invent route data.
+  if (exactOrderCorrection && fastResult.canCreateOrder) {
+    const canonicalFrom = snapToOfficialBahrainArea(fastResult.from);
+    const canonicalTo = snapToOfficialBahrainArea(fastResult.to);
+    if (canonicalFrom && (canonicalTo || (explicitDeliveryIntent && fastResult.to.trim()))) {
+      fastResult = {
+        ...fastResult,
+        from: canonicalFrom,
+        to: canonicalTo || fastResult.to,
+        confidence: Math.min(85, Math.max(60, fastResult.confidence)),
+        notes: [fastResult.notes, 'تم تأكيد التصنيف بتصحيح محلي سابق'].filter(Boolean).join(' — '),
+      };
+    } else {
+      // The label alone is not enough to fabricate a route or make an unusable order.
+      fastResult = parseWhatsAppOrderText(rawText);
+    }
+  }
+
+  // Exact user corrections can suppress the same text on this device.
+  // Near matches are never auto-applied; they remain suggestions only.
+  if (learnedCorrection?.match === 'exact' && learnedCorrection.shouldAutoApply && learnedCorrection.label === 'advertisement') {
+    return {
+      ...fastResult,
+      from: '',
+      to: '',
+      price: 0,
+      phone: '',
+      notes: 'إعلان مستبعد بناءً على تصحيح محلي',
+      confidence: 0,
+      canCreateOrder: false,
+      aiUsed: false,
+      inferenceMs: Math.round(performance.now() - startTime),
+      parseMethod: 'fast_heuristic',
+    };
+  }
 
   // Never let the local LLM reinterpret a message already identified as a
   // personal travel announcement; otherwise model output could re-add it to Radar.

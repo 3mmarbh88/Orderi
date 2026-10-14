@@ -39,7 +39,7 @@ export function convertArabicNumerals(str: string): string {
 /**
  * Parses raw text from WhatsApp messages to extract delivery order parameters
  */
-export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
+export function parseWhatsAppOrderText(rawText: string, options: { allowTravelAnnouncementAsOrder?: boolean } = {}): RawParsedResult {
   if (!rawText || typeof rawText !== 'string') {
     return {
       from: '',
@@ -90,7 +90,7 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
   const hasExplicitOrderLanguage = /(?:اوردر|أوردر|طلب توصيل|طلب|توصيل|مندوب|بيك\s*اب|pickup|delivery|استلام|تسليم|شحن|طرود|بضاعة|كرتون|وجبة|مشوار للعميل|مطلوب\s*(?:مندوب|توصيل))/i.test(rawText);
   const hasTravelAnnouncementVerb = /(?:^|[\s،,.])(?:طالع|طالعة|رايح|رايحه|رايحة|مسافر|مسافره|مسافرة|متجه|متجهة|بطلع|بروح|بسافر|متوجه|متوجهة)(?=$|[\s،,.])/i.test(normalized);
   const mentionsTravelDestination = /(?:الامارات|امارات|الإمارات|دبي|ابوظبي|أبوظبي|الشارقه|الشارقة|عجمان|السعوديه|السعودية|الرياض|جده|جدة|الدمام|الخبر|مكه|مكة|المدينه|المدينة|الكويت|قطر|الدوحه|الدوحة|عمان|مسقط|الاردن|الأردن)/i.test(normalized);
-  if (hasTravelAnnouncementVerb && mentionsTravelDestination && !hasExplicitOrderLanguage) {
+  if (hasTravelAnnouncementVerb && mentionsTravelDestination && !hasExplicitOrderLanguage && !options.allowTravelAnnouncementAsOrder) {
     return {
       from: '',
       to: '',

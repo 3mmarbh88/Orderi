@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - feature/local-bahrain-order-understanding-20261014
+      - feature/order-learning-privacy-quality-20261014
     paths:
       - 'src/**'
       - 'android/**'
@@ -37,6 +38,9 @@ jobs:
 
       - name: Test offline order parsing
         run: npm run test:order-parser
+
+      - name: TypeScript type check
+        run: npm run lint
 
       - name: Build web application
         run: npm run build
