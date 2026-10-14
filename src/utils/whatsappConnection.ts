@@ -96,7 +96,7 @@ export function markWhatsAppVerified(groupName?: string): WhatsAppConnection {
   return save({
     phoneNumber: previous?.phoneNumber || '',
     deviceId: previous?.deviceId || getDeviceId(),
-    status: previous?.phoneNumber ? 'connected' : 'pending',
+    status: 'connected',
     connectedAt: previous?.connectedAt || now,
     lastSeenAt: now,
     groups,

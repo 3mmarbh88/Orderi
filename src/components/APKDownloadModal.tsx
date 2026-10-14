@@ -30,10 +30,18 @@ export const APKDownloadModal: React.FC<APKDownloadModalProps> = ({
   onShowToast,
 }) => {
   const { isInstallable, isInstalled, isIOS, install } = usePWAInstall();
-  const [activeTab, setActiveTab] = useState<'direct_apk' | 'builder_apk' | 'macrodroid'>('direct_apk');
+  const [activeTab, setActiveTab] = useState<'native_apk' | 'direct_apk' | 'builder_apk' | 'macrodroid'>('native_apk');
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [copiedMacroLink, setCopiedMacroLink] = useState(false);
+  const [copiedCommand, setCopiedCommand] = useState<string | null>(null);
   const [isInstalling, setIsInstalling] = useState(false);
+
+  const copyCommandText = (cmd: string) => {
+    navigator.clipboard.writeText(cmd);
+    setCopiedCommand(cmd);
+    setTimeout(() => setCopiedCommand(null), 2000);
+    onShowToast('📋 تم نسخ الأمر بنجاح');
+  };
 
   if (!isOpen) return null;
 
@@ -187,47 +195,235 @@ export const APKDownloadModal: React.FC<APKDownloadModalProps> = ({
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex border-b border-slate-200 bg-slate-50 px-6 pt-3 gap-2 overflow-x-auto">
+        <div className="flex border-b border-slate-200 bg-slate-50 px-4 sm:px-6 pt-3 gap-1.5 sm:gap-2 overflow-x-auto">
+          <button
+            onClick={() => setActiveTab('native_apk')}
+            className={`flex items-center gap-1.5 sm:gap-2 pb-3 px-2 sm:px-3 text-xs font-black border-b-2 transition-all shrink-0 cursor-pointer ${
+              activeTab === 'native_apk'
+                ? 'border-emerald-600 text-emerald-800'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <Smartphone className="w-4 h-4 text-emerald-600" />
+            <span>1. تطبيق أندرويد الأصلي (Capacitor APK)</span>
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-600 text-white font-bold">الموصى به ⭐️</span>
+          </button>
+
           <button
             onClick={() => setActiveTab('direct_apk')}
-            className={`flex items-center gap-2 pb-3 px-3 text-xs font-black border-b-2 transition-all shrink-0 ${
+            className={`flex items-center gap-1.5 sm:gap-2 pb-3 px-2 sm:px-3 text-xs font-black border-b-2 transition-all shrink-0 cursor-pointer ${
               activeTab === 'direct_apk'
                 ? 'border-emerald-600 text-emerald-800'
                 : 'border-transparent text-slate-500 hover:text-slate-700'
             }`}
           >
             <Zap className="w-4 h-4" />
-            <span>1. تثبيت أصلي فوري (WebAPK بضغطة زر)</span>
+            <span>2. تثبيت فوري كـ WebAPK</span>
             <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold">الأسرع ⚡</span>
           </button>
 
           <button
             onClick={() => setActiveTab('builder_apk')}
-            className={`flex items-center gap-2 pb-3 px-3 text-xs font-black border-b-2 transition-all shrink-0 ${
+            className={`flex items-center gap-1.5 sm:gap-2 pb-3 px-2 sm:px-3 text-xs font-black border-b-2 transition-all shrink-0 cursor-pointer ${
               activeTab === 'builder_apk'
                 ? 'border-emerald-600 text-emerald-800'
                 : 'border-transparent text-slate-500 hover:text-slate-700'
             }`}
           >
             <Download className="w-4 h-4" />
-            <span>2. توليد وتحميل ملف .APK مستقل</span>
+            <span>3. توليد APK أونلاين (PWABuilder)</span>
           </button>
 
           <button
             onClick={() => setActiveTab('macrodroid')}
-            className={`flex items-center gap-2 pb-3 px-3 text-xs font-black border-b-2 transition-all shrink-0 ${
+            className={`flex items-center gap-1.5 sm:gap-2 pb-3 px-2 sm:px-3 text-xs font-black border-b-2 transition-all shrink-0 cursor-pointer ${
               activeTab === 'macrodroid'
                 ? 'border-emerald-600 text-emerald-800'
                 : 'border-transparent text-slate-500 hover:text-slate-700'
             }`}
           >
             <BellRing className="w-4 h-4" />
-            <span>3. ربط إشعارات الواتساب بهاتفك (MacroDroid)</span>
+            <span>4. ربط المتصفح (MacroDroid)</span>
           </button>
         </div>
 
         {/* Modal Body */}
         <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-6">
+
+          {/* TAB 0: Native APK (Capacitor & Android Studio) */}
+          {activeTab === 'native_apk' && (
+            <div className="space-y-5">
+              {/* Feature highlight banner */}
+              <div className="bg-gradient-to-br from-emerald-900 via-teal-900 to-slate-900 text-white rounded-3xl p-5 sm:p-6 shadow-md border border-emerald-700/40 space-y-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <span className="inline-block px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-[10px] font-black uppercase tracking-wider mb-2">
+                      مشروع أندرويد أصلي مدمج في الكود
+                    </span>
+                    <h4 className="text-base sm:text-lg font-black text-white flex items-center gap-2">
+                      التقاط فوري لطلبات الواتساب في الخلفية عبر الـ APK
+                    </h4>
+                    <p className="text-xs text-emerald-100/90 leading-relaxed mt-1">
+                      عند تحويل البرنامج إلى APK وتشغيله على هاتفك، يعمل قارئ الإشعارات المدمج <strong>(WhatsAppNotificationListenerService)</strong> تلقائياً بالخلفية ليلتقط رسائل مجموعات واتساب العادي وواتساب الأعمال لحظياً بدون الحاجة إلى واتساب ويب أو مسح QR أو تشغيل برامج وسيطة!
+                    </p>
+                  </div>
+                  <div className="w-12 h-12 rounded-2xl bg-white/10 backdrop-blur-md border border-white/20 shrink-0 p-2 flex items-center justify-center">
+                    <Smartphone className="w-7 h-7 text-emerald-300" />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                  <div className="flex items-center gap-2 bg-white/10 backdrop-blur-xs p-2.5 rounded-xl border border-white/10 text-xs font-bold text-emerald-100">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span>التقاط من com.whatsapp و com.whatsapp.w4b</span>
+                  </div>
+                  <div className="flex items-center gap-2 bg-white/10 backdrop-blur-xs p-2.5 rounded-xl border border-white/10 text-xs font-bold text-emerald-100">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span>عمل متواصل في الخلفية حتى مع إغلاق الشاشة</span>
+                  </div>
+                  <div className="flex items-center gap-2 bg-white/10 backdrop-blur-xs p-2.5 rounded-xl border border-white/10 text-xs font-bold text-emerald-100">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span>تنبيهات صوتية فورية واهتزاز قوي للطلبات المطابقة</span>
+                  </div>
+                  <div className="flex items-center gap-2 bg-white/10 backdrop-blur-xs p-2.5 rounded-xl border border-white/10 text-xs font-bold text-emerald-100">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span>ردود سريعة بضغطة زر دون الخروج من الخريطة</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Step by Step Build Instructions */}
+              <div className="bg-slate-50 border border-slate-200/90 rounded-3xl p-5 sm:p-6 space-y-4">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-black text-sm shadow-xs">
+                    🛠️
+                  </div>
+                  <h4 className="text-sm font-black text-slate-900">أوامر بناء وتوليد ملف Ordari.apk</h4>
+                </div>
+
+                <div className="space-y-3">
+                  {/* Command 1 */}
+                  <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-2xs space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-700">1. بناء ومزامنة الواجهة مع مجلد أندرويد:</span>
+                      <button
+                        onClick={() => copyCommandText('npm run cap:sync')}
+                        className="flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2 py-1 rounded-lg border border-emerald-200 cursor-pointer transition-colors"
+                      >
+                        {copiedCommand === 'npm run cap:sync' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                        <span>{copiedCommand === 'npm run cap:sync' ? 'تم النسخ' : 'نسخ الأمر'}</span>
+                      </button>
+                    </div>
+                    <code className="block bg-slate-900 text-emerald-400 text-xs font-mono p-2.5 rounded-xl dir-ltr text-left">
+                      npm run cap:sync
+                    </code>
+                  </div>
+
+                  {/* Command 2 */}
+                  <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-2xs space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-700">2. فتح المشروع في Android Studio أو بنائه مباشرة:</span>
+                      <button
+                        onClick={() => copyCommandText('npx cap open android')}
+                        className="flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2 py-1 rounded-lg border border-emerald-200 cursor-pointer transition-colors"
+                      >
+                        {copiedCommand === 'npx cap open android' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                        <span>{copiedCommand === 'npx cap open android' ? 'تم النسخ' : 'نسخ الأمر'}</span>
+                      </button>
+                    </div>
+                    <code className="block bg-slate-900 text-emerald-400 text-xs font-mono p-2.5 rounded-xl dir-ltr text-left">
+                      npx cap open android
+                    </code>
+                    <p className="text-[11px] text-slate-500 pr-1">
+                      في Android Studio: اضغط على <strong>Build &gt; Build Bundle(s) / APK(s) &gt; Build APK(s)</strong>.
+                    </p>
+                  </div>
+
+                  {/* Command 3 */}
+                  <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-2xs space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-700">أو البناء مباشرة عبر سطر الأوامر (Terminal):</span>
+                      <button
+                        onClick={() => copyCommandText('cd android && ./gradlew assembleDebug')}
+                        className="flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2 py-1 rounded-lg border border-emerald-200 cursor-pointer transition-colors"
+                      >
+                        {copiedCommand === 'cd android && ./gradlew assembleDebug' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                        <span>{copiedCommand === 'cd android && ./gradlew assembleDebug' ? 'تم النسخ' : 'نسخ الأمر'}</span>
+                      </button>
+                    </div>
+                    <code className="block bg-slate-900 text-emerald-400 text-xs font-mono p-2.5 rounded-xl dir-ltr text-left">
+                      cd android && ./gradlew assembleDebug
+                    </code>
+                    <p className="text-[11px] text-slate-600 font-medium pt-1">
+                      📍 مكان ملف الـ APK الناتج:
+                      <br />
+                      <span className="font-mono text-emerald-700 font-bold dir-ltr inline-block">android/app/build/outputs/apk/debug/app-debug.apk</span>
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Critical Settings Checklist on Android Device */}
+              <div className="bg-amber-50/80 border border-amber-200/90 rounded-3xl p-5 sm:p-6 space-y-3.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-base">⚠️</span>
+                  <h4 className="text-sm font-black text-amber-950">
+                    الشروط الأربعة الضرورية لعمل رادار الواتساب بعد تثبيت الـ APK على هاتفك:
+                  </h4>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex items-start gap-3 bg-white p-3.5 rounded-2xl border border-amber-200 shadow-2xs">
+                    <div className="w-6 h-6 rounded-full bg-emerald-600 text-white font-black text-xs flex items-center justify-center shrink-0 mt-0.5">
+                      1
+                    </div>
+                    <div className="text-xs">
+                      <strong className="text-slate-900 block font-bold">منح إذن "الوصول إلى الإشعارات" (Notification Access):</strong>
+                      <span className="text-slate-600 leading-relaxed block mt-0.5">
+                        افتح إعدادات هاتفك الأندرويد &gt; التطبيقات &gt; وصول خاص &gt; الوصول إلى الإشعارات &gt; فعّل <strong>Orderi - WhatsApp Reader</strong>.
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-3 bg-white p-3.5 rounded-2xl border border-amber-200 shadow-2xs">
+                    <div className="w-6 h-6 rounded-full bg-emerald-600 text-white font-black text-xs flex items-center justify-center shrink-0 mt-0.5">
+                      2
+                    </div>
+                    <div className="text-xs">
+                      <strong className="text-slate-900 block font-bold">إلغاء قيود توفير البطارية (Unrestricted Battery):</strong>
+                      <span className="text-slate-600 leading-relaxed block mt-0.5">
+                        إعدادات الهاتف &gt; التطبيقات &gt; Orderi &gt; البطارية &gt; اختر <strong>"غير مقيّد" (Unrestricted)</strong> حتى لا يوقفه الأندرويد في الخلفية أثناء القيادة أو قفل الشاشة.
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-3 bg-white p-3.5 rounded-2xl border border-amber-200 shadow-2xs">
+                    <div className="w-6 h-6 rounded-full bg-emerald-600 text-white font-black text-xs flex items-center justify-center shrink-0 mt-0.5">
+                      3
+                    </div>
+                    <div className="text-xs">
+                      <strong className="text-slate-900 block font-bold">تفعيل إشعارات مجموعات الواتساب في WhatsApp:</strong>
+                      <span className="text-slate-600 leading-relaxed block mt-0.5">
+                        تأكد أن قروبات توصيل الطلبات في واتساب ليست مكتومة كلياً بدون إشعار، وتأكد من تفعيل "إظهار الإشعارات" في واتساب حتى تصل الإشعارات لنظام أندرويد ليقرأها الرادار.
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-3 bg-white p-3.5 rounded-2xl border border-amber-200 shadow-2xs">
+                    <div className="w-6 h-6 rounded-full bg-emerald-600 text-white font-black text-xs flex items-center justify-center shrink-0 mt-0.5">
+                      4
+                    </div>
+                    <div className="text-xs">
+                      <strong className="text-slate-900 block font-bold">منح صلاحية الموقع الجغرافي (Location):</strong>
+                      <span className="text-slate-600 leading-relaxed block mt-0.5">
+                        لحساب المسافة الحقيقية بين موقع سيارتك ومطعم أو نقطة استلام الطلب داخل البحرين ومطابقتها مع شروطك.
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* TAB 1: Direct WebAPK Install */}
           {activeTab === 'direct_apk' && (
