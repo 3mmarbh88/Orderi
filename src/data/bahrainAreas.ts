@@ -39,6 +39,7 @@ export const BAHRAIN_AREAS: AreaLocation[] = [
   { id: 'halat_salta', name: 'حالة بو ماهر والصلطة', nameEn: 'Halat Bu Maher', governorate: 'المحرق', latitude: 26.2480, longitude: 50.6150 },
 
   // الشمالية (Northern Governorate)
+  { id: 'bu_quwah', name: 'بو قوة', nameEn: 'Bu Quwah', governorate: 'الشمالية', latitude: 26.2047, longitude: 50.5200 },
   { id: 'sar', name: 'سار', nameEn: 'Saar', governorate: 'الشمالية', latitude: 26.2050, longitude: 50.5100 },
   { id: 'janabiya', name: 'الجنبية', nameEn: 'Janabiya', governorate: 'الشمالية', latitude: 26.2110, longitude: 50.5060 },
   { id: 'budaiya', name: 'البديع', nameEn: 'Budaiya', governorate: 'الشمالية', latitude: 26.2180, longitude: 50.4780 },
@@ -66,6 +67,7 @@ export const BAHRAIN_AREAS: AreaLocation[] = [
   { id: 'sadad', name: 'صدد', nameEn: 'Sadad', governorate: 'الشمالية', latitude: 26.1550, longitude: 50.4600 },
 
   // الجنوبية (Southern Governorate)
+  { id: 'bu_kowarah', name: 'بو كوارة', nameEn: 'Bu Kowarah', governorate: 'الجنوبية', latitude: 26.1382, longitude: 50.5657 },
   { id: 'riffa', name: 'الرفاع', nameEn: 'Riffa', governorate: 'الجنوبية', latitude: 26.1300, longitude: 50.5550 },
   { id: 'riffa_sharqi', name: 'الرفاع الشرقي', nameEn: 'East Riffa', governorate: 'الجنوبية', latitude: 26.1200, longitude: 50.5700 },
   { id: 'riffa_gharbi', name: 'الرفاع الغربي', nameEn: 'West Riffa', governorate: 'الجنوبية', latitude: 26.1380, longitude: 50.5400 },
@@ -112,7 +114,7 @@ export function calculateDistanceKm(
  * must not be treated as precise roundabout coordinates until verified map
  * coordinates are added to the dedicated places dataset.
  */
-const BAHRAIN_AREA_ALIASES: Record<string, string> = {
+export const BAHRAIN_AREA_ALIASES: Record<string, string> = {
   'م عيسى': 'isa_town',
   'م. عيسى': 'isa_town',
   'مدينه عيسى': 'isa_town',
@@ -125,6 +127,27 @@ const BAHRAIN_AREA_ALIASES: Record<string, string> = {
   'مدينة حمد': 'hamad_town',
   'hamad town': 'hamad_town',
   'hamad-town': 'hamad_town',
+  'أبو قوة': 'bu_quwah',
+  'ابو قوة': 'bu_quwah',
+  'أبوقوة': 'bu_quwah',
+  'ابوقوة': 'bu_quwah',
+  'بو قوة': 'bu_quwah',
+  'بو قوه': 'bu_quwah',
+  'abu quwah': 'bu_quwah',
+  'abu quwa': 'bu_quwah',
+  'bu quwah': 'bu_quwah',
+  'أبو كوارة': 'bu_kowarah',
+  'ابو كوارة': 'bu_kowarah',
+  'أبو كواره': 'bu_kowarah',
+  'ابو كواره': 'bu_kowarah',
+  'بو كوارة': 'bu_kowarah',
+  'بو كواره': 'bu_kowarah',
+  'بوكوارة': 'bu_kowarah',
+  'بوكواره': 'bu_kowarah',
+  'abu kowarah': 'bu_kowarah',
+  'abu kuwarah': 'bu_kowarah',
+  'bu kowarah': 'bu_kowarah',
+  'bu kuwarah': 'bu_kowarah',
 };
 
 function compactPlaceText(value: string): string {
