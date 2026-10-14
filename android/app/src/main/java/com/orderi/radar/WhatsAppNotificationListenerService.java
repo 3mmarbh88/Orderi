@@ -211,7 +211,7 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                 holder.contentIntent.send();
                 return true;
             } catch (Exception e) {
-                Log.w(TAG, "Unable to open cached WhatsApp group intent", e);
+                android.util.Log.w("WhatsAppNotificationListenerService", "Unable to open cached WhatsApp group intent", e);
             }
         }
         return false;
