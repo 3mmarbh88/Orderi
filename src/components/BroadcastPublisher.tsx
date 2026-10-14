@@ -51,7 +51,7 @@ interface GroupItem {
 }
 
 function normalizeGroupKey(name: string): string {
-  return name.normalize('NFKC').replace(/\\s+/g, ' ').trim().toLocaleLowerCase();
+  return name.normalize('NFKC').replace(/\s+/g, ' ').trim().toLocaleLowerCase();
 }
 
 /** Merge all existing broadcast-group sources instead of allowing an empty legacy key to hide them. */
