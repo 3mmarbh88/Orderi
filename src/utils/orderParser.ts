@@ -80,6 +80,48 @@ function cleanText(value: string): string {
     .trim();
 }
 
+/**
+ * يوحّد الاختصارات والأسماء الشعبية الشائعة في إعلانات التوصيل البحرينية
+ * قبل البحث عن المناطق. لا يغيّر قاعدة إنشاء الطلب؛ تبقى نية التوصيل
+ * الصريحة وبقية فحوصات السلامة مطلوبة.
+ */
+function expandBahrainAreaAliases(text: string): string {
+  const aliases: Array<[string, string]> = [
+    ['م. عيسى', 'مدينة عيسى'],
+    ['م عيسى', 'مدينة عيسى'],
+    ['م. عيسي', 'مدينة عيسى'],
+    ['م عيسي', 'مدينة عيسى'],
+    ['م. حمد', 'مدينة حمد'],
+    ['م حمد', 'مدينة حمد'],
+    ['الجنيبية', 'الجنبية'],
+    ['الجنيبيه', 'الجنبية'],
+    ['جنيبية', 'الجنبية'],
+    ['جنيبيه', 'الجنبية'],
+    ['قضيبية', 'القضيبية'],
+    ['قضيبيه', 'القضيبية'],
+    ['رفاع', 'الرفاع'],
+  ];
+
+  let expanded = text.replace(/\\s+/g, ' ').trim();
+  const boundary = '[^a-z0-9\\u0600-\\u06FF]';
+
+  for (const [alias, canonical] of aliases.sort(
+    (a, b) => b[0].length - a[0].length,
+  )) {
+    const normalizedAlias = normalizeArabicText(alias);
+    const normalizedCanonical = normalizeArabicText(canonical);
+    if (!normalizedAlias || normalizedAlias === normalizedCanonical) continue;
+
+    const pattern = new RegExp(
+      `(^|${boundary})(${escapeRegExp(normalizedAlias)})(?=$|${boundary})`,
+      'gi',
+    );
+    expanded = expanded.replace(pattern, `$1${normalizedCanonical}`);
+  }
+
+  return expanded;
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -516,7 +558,7 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
   }
 
   const convertedText = convertArabicNumerals(rawText);
-  const normalized = normalizeArabicText(convertedText);
+  const normalized = expandBahrainAreaAliases(normalizeArabicText(convertedText));
   const passengerDetection = detectPassengerDelivery(rawText);
 
   const phone = extractPhone(convertedText);
