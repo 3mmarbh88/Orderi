@@ -28,6 +28,7 @@ interface OrderiNotificationListenerPlugin {
   getPending(): Promise<{ events: WhatsAppNativeEvent[] }>;
   getClickedOrder?(): Promise<{ order?: any }>;
   moveToBackground(): Promise<void>;
+  markAllWhatsAppRead(): Promise<{ started: boolean; message: string }>;
   updateFilterSettings?(options: {
     ignoreNonMatching: boolean;
     minPrice: number;

@@ -1,30 +1,46 @@
 package com.orderi.radar;
 
 import android.accessibilityservice.AccessibilityService;
-import android.accessibilityservice.AccessibilityServiceInfo;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.Settings;
-import android.text.TextUtils;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
+import android.widget.Toast;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Orderi Accessibility Service for WhatsApp Automation.
- * Allows Orderi to automatically send acceptance messages to the target WhatsApp group
- * in the background or semi-background without user manual tapping.
+ * Accessibility helpers for WhatsApp. Read-all is opt-in and runs visibly in
+ * WhatsApp's UI; it does not access WhatsApp's private database.
  */
 public class OrderiAccessibilityService extends AccessibilityService {
     public static final String PACKAGE_WHATSAPP = "com.whatsapp";
-    private static OrderiAccessibilityService instance = null;
-    private static String pendingMessageToSend = null;
-    private static long pendingMessageTimestamp = 0L;
+    private static OrderiAccessibilityService instance;
+    private static String pendingMessageToSend;
+    private static long pendingMessageTimestamp;
     private static final AtomicBoolean isSendingInProgress = new AtomicBoolean(false);
+
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private boolean markAllReadActive = false;
+    private boolean waitingForChatToOpen = false;
+    private int chatsOpened = 0;
+    private int emptyScans = 0;
+    private int scanCount = 0;
+
+    private final Runnable scanRunnable = this::scanUnreadChats;
+    private final Runnable returnFromChatRunnable = () -> {
+        if (!markAllReadActive) return;
+        performGlobalAction(GLOBAL_ACTION_BACK);
+        waitingForChatToOpen = false;
+        handler.postDelayed(scanRunnable, 1100L);
+    };
 
     @Override
     public void onServiceConnected() {
@@ -34,12 +50,47 @@ public class OrderiAccessibilityService extends AccessibilityService {
 
     @Override
     public void onDestroy() {
+        cancelMarkAllRead();
         instance = null;
         super.onDestroy();
     }
 
-    public static boolean isServiceRunning() {
-        return instance != null;
+    public static boolean isServiceRunning() { return instance != null; }
+
+    public static boolean startMarkAllRead(Context context) {
+        OrderiAccessibilityService service = instance;
+        if (service == null) return false;
+        Intent launch = context.getPackageManager().getLaunchIntentForPackage(PACKAGE_WHATSAPP);
+        if (launch == null) return false;
+        service.handler.post(() -> {
+            service.cancelMarkAllRead();
+            service.markAllReadActive = true;
+            service.waitingForChatToOpen = false;
+            service.chatsOpened = 0;
+            service.emptyScans = 0;
+            service.scanCount = 0;
+            launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            try {
+                context.startActivity(launch);
+                Toast.makeText(context, "Orderi: بدء قراءة المحادثات غير المقروءة", Toast.LENGTH_SHORT).show();
+                service.handler.postDelayed(service.scanRunnable, 1600L);
+            } catch (Exception e) {
+                service.cancelMarkAllRead();
+            }
+        });
+        return true;
+    }
+
+    public static boolean isAccessibilityEnabled(Context context) {
+        try {
+            int enabled = Settings.Secure.getInt(context.getContentResolver(), Settings.Secure.ACCESSIBILITY_ENABLED, 0);
+            if (enabled != 1) return false;
+            String services = Settings.Secure.getString(context.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+            if (services == null) return false;
+            String expected = new ComponentName(context, OrderiAccessibilityService.class).flattenToString();
+            for (String service : services.split(":")) if (service.equalsIgnoreCase(expected)) return true;
+        } catch (Exception ignored) {}
+        return false;
     }
 
     public static void queueMessageToSend(String message) {
@@ -48,87 +99,133 @@ public class OrderiAccessibilityService extends AccessibilityService {
         isSendingInProgress.set(true);
     }
 
-    public static boolean isAccessibilityEnabled(Context context) {
-        try {
-            int accessibilityEnabled = Settings.Secure.getInt(
-                    context.getContentResolver(),
-                    Settings.Secure.ACCESSIBILITY_ENABLED, 0);
-            if (accessibilityEnabled != 1) return false;
-
-            String services = Settings.Secure.getString(
-                    context.getContentResolver(),
-                    Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
-            if (services == null) return false;
-
-            ComponentName expected = new ComponentName(context, OrderiAccessibilityService.class);
-            String colonSplit = expected.flattenToString();
-            for (String s : services.split(":")) {
-                if (s.equalsIgnoreCase(colonSplit)) return true;
-            }
-        } catch (Exception ignored) {}
-        return false;
-    }
-
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
-        if (event == null || !isSendingInProgress.get()) return;
-        if (pendingMessageToSend == null) return;
+        if (event == null) return;
+        CharSequence packageName = event.getPackageName();
+        if (packageName == null || !PACKAGE_WHATSAPP.contentEquals(packageName)) return;
 
-        // Expire pending message after 20 seconds
+        if (markAllReadActive) {
+            if (!waitingForChatToOpen) handler.removeCallbacks(scanRunnable);
+            handler.postDelayed(scanRunnable, 350L);
+            return;
+        }
+
+        if (!isSendingInProgress.get() || pendingMessageToSend == null) return;
         if (System.currentTimeMillis() - pendingMessageTimestamp > 20000L) {
             pendingMessageToSend = null;
             isSendingInProgress.set(false);
             return;
         }
 
-        CharSequence pkg = event.getPackageName();
-        if (pkg == null || !PACKAGE_WHATSAPP.contentEquals(pkg)) return;
-
-        AccessibilityNodeInfo rootNode = getRootInActiveWindow();
-        if (rootNode == null) return;
-
+        AccessibilityNodeInfo root = getRootInActiveWindow();
+        if (root == null) return;
         try {
-            // Find input field in WhatsApp
-            AccessibilityNodeInfo inputField = findInputField(rootNode);
-            if (inputField != null) {
-                Bundle arguments = new Bundle();
-                arguments.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, pendingMessageToSend);
-                inputField.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments);
-
-                // Small delay or directly find and click send button
-                AccessibilityNodeInfo sendButton = findSendButton(rootNode);
-                if (sendButton != null) {
-                    sendButton.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+            AccessibilityNodeInfo input = findInputField(root);
+            if (input != null) {
+                Bundle args = new Bundle();
+                args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, pendingMessageToSend);
+                input.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args);
+                AccessibilityNodeInfo send = findSendButton(root);
+                if (send != null && send.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
                     pendingMessageToSend = null;
                     isSendingInProgress.set(false);
-
-                    // Return to Orderi or close WhatsApp window after auto-send
                     performGlobalAction(GLOBAL_ACTION_BACK);
                 }
             }
         } catch (Exception ignored) {
         } finally {
-            rootNode.recycle();
+            root.recycle();
         }
+    }
+
+    private void scanUnreadChats() {
+        if (!markAllReadActive || waitingForChatToOpen) return;
+        scanCount++;
+        if (scanCount > 120) { finishMarkAllRead("توقفت العملية للحماية من التكرار"); return; }
+        AccessibilityNodeInfo root = getRootInActiveWindow();
+        if (root == null) {
+            if (emptyScans++ > 3) finishMarkAllRead("تعذر قراءة واجهة واتساب");
+            else handler.postDelayed(scanRunnable, 900L);
+            return;
+        }
+        try {
+            AccessibilityNodeInfo unread = findUnreadMarker(root);
+            if (unread != null) {
+                AccessibilityNodeInfo row = unread;
+                for (int i = 0; i < 6 && row.getParent() != null; i++) {
+                    AccessibilityNodeInfo parent = row.getParent();
+                    if (parent == null) break;
+                    row = parent;
+                    if (row.isClickable()) break;
+                }
+                boolean clicked = row.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+                if (!clicked) clicked = unread.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+                if (clicked) {
+                    chatsOpened++;
+                    emptyScans = 0;
+                    waitingForChatToOpen = true;
+                    handler.postDelayed(returnFromChatRunnable, 1800L);
+                    return;
+                }
+            }
+            emptyScans++;
+            // Require two clean scans to avoid declaring completion while the list is rendering.
+            if (emptyScans >= 2) finishMarkAllRead("تمت معالجة " + chatsOpened + " محادثة؛ تحقق من واتساب للتأكد");
+            else handler.postDelayed(scanRunnable, 1000L);
+        } catch (Exception e) {
+            handler.postDelayed(scanRunnable, 1000L);
+        } finally {
+            root.recycle();
+        }
+    }
+
+    private AccessibilityNodeInfo findUnreadMarker(AccessibilityNodeInfo node) {
+        if (node == null) return null;
+        CharSequence text = node.getText();
+        CharSequence desc = node.getContentDescription();
+        if (isUnreadLabel(text) || isUnreadLabel(desc)) return node;
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            AccessibilityNodeInfo found = findUnreadMarker(child);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    private boolean isUnreadLabel(CharSequence value) {
+        if (value == null) return false;
+        String s = value.toString().toLowerCase(Locale.ROOT);
+        return s.contains("unread message") || s.contains("unread messages")
+            || s.contains("غير مقروء") || s.contains("رسائل غير مقروءة")
+            || s.contains("رسالة غير مقروءة") || s.contains("رسائل جديدة");
+    }
+
+    private void finishMarkAllRead(String message) {
+        if (!markAllReadActive) return;
+        markAllReadActive = false;
+        waitingForChatToOpen = false;
+        handler.removeCallbacks(scanRunnable);
+        handler.removeCallbacks(returnFromChatRunnable);
+        Toast.makeText(this, "Orderi: " + message, Toast.LENGTH_LONG).show();
+        // WhatsApp was opened by this task; return to Orderi when possible.
+        performGlobalAction(GLOBAL_ACTION_BACK);
+    }
+
+    private void cancelMarkAllRead() {
+        markAllReadActive = false;
+        waitingForChatToOpen = false;
+        handler.removeCallbacks(scanRunnable);
+        handler.removeCallbacks(returnFromChatRunnable);
     }
 
     private AccessibilityNodeInfo findInputField(AccessibilityNodeInfo node) {
         if (node == null) return null;
-        
-        // Search by view ID first
         List<AccessibilityNodeInfo> list = node.findAccessibilityNodeInfosByViewId("com.whatsapp:id/entry");
-        if (list != null && !list.isEmpty()) {
-            return list.get(0);
-        }
-
-        // Search by class name (EditText)
-        if ("android.widget.EditText".contentEquals(node.getClassName())) {
-            return node;
-        }
-
+        if (list != null && !list.isEmpty()) return list.get(0);
+        if ("android.widget.EditText".contentEquals(node.getClassName())) return node;
         for (int i = 0; i < node.getChildCount(); i++) {
-            AccessibilityNodeInfo child = node.getChild(i);
-            AccessibilityNodeInfo result = findInputField(child);
+            AccessibilityNodeInfo result = findInputField(node.getChild(i));
             if (result != null) return result;
         }
         return null;
@@ -136,25 +233,15 @@ public class OrderiAccessibilityService extends AccessibilityService {
 
     private AccessibilityNodeInfo findSendButton(AccessibilityNodeInfo node) {
         if (node == null) return null;
-
-        // Search by view ID
         List<AccessibilityNodeInfo> list = node.findAccessibilityNodeInfosByViewId("com.whatsapp:id/send");
-        if (list != null && !list.isEmpty()) {
-            return list.get(0);
-        }
-
-        // Search by content description (English and Arabic)
+        if (list != null && !list.isEmpty()) return list.get(0);
         CharSequence desc = node.getContentDescription();
         if (desc != null) {
-            String text = desc.toString().toLowerCase();
-            if (text.contains("send") || text.contains("إرسال") || text.contains("ارسال")) {
-                return node;
-            }
+            String text = desc.toString().toLowerCase(Locale.ROOT);
+            if (text.contains("send") || text.contains("إرسال") || text.contains("ارسال")) return node;
         }
-
         for (int i = 0; i < node.getChildCount(); i++) {
-            AccessibilityNodeInfo child = node.getChild(i);
-            AccessibilityNodeInfo result = findSendButton(child);
+            AccessibilityNodeInfo result = findSendButton(node.getChild(i));
             if (result != null) return result;
         }
         return null;
@@ -164,5 +251,6 @@ public class OrderiAccessibilityService extends AccessibilityService {
     public void onInterrupt() {
         pendingMessageToSend = null;
         isSendingInProgress.set(false);
+        cancelMarkAllRead();
     }
 }

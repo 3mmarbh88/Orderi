@@ -178,6 +178,27 @@ public class NotificationListenerPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void markAllWhatsAppRead(PluginCall call) {
+        if (!OrderiAccessibilityService.isAccessibilityEnabled(getContext())) {
+            call.reject("فعّل خدمة إمكانية الوصول الخاصة بـ Orderi أولاً من إعدادات Android");
+            return;
+        }
+        if (!OrderiAccessibilityService.isServiceRunning()) {
+            call.reject("خدمة Orderi لإمكانية الوصول غير جاهزة؛ أعد تفعيلها ثم حاول مجدداً");
+            return;
+        }
+        boolean started = OrderiAccessibilityService.startMarkAllRead(getContext());
+        if (!started) {
+            call.reject("تعذر فتح واتساب العادي على هذا الجهاز");
+            return;
+        }
+        JSObject result = new JSObject();
+        result.put("started", true);
+        result.put("message", "بدأت معالجة المحادثات غير المقروءة في واتساب");
+        call.resolve(result);
+    }
+
+    @PluginMethod
     public void updateFilterSettings(PluginCall call) {
         try {
             boolean ignoreNonMatching = call.getBoolean("ignoreNonMatching", false);

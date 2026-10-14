@@ -272,6 +272,25 @@ function OrderiApp() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isRadarRefreshing, setIsRadarRefreshing] = useState(false);
 
+  const handleMarkAllWhatsAppRead = async () => {
+    if (!isNativeAndroid()) {
+      showToast('ميزة قراءة الكل متاحة في تطبيق Android فقط');
+      return;
+    }
+    try {
+      const access = await OrderiNotificationListener.isAccessibilityEnabled();
+      if (!access.enabled) {
+        showToast('يرجى تفعيل خدمة إمكانية الوصول الخاصة بـ Orderi ثم إعادة الضغط');
+        await OrderiNotificationListener.openAccessibilitySettings();
+        return;
+      }
+      const result = await OrderiNotificationListener.markAllWhatsAppRead();
+      if (result.started) showToast('بدأت معالجة المحادثات غير المقروءة في واتساب. اترك واتساب مفتوحاً حتى ينتهي.');
+    } catch (error: any) {
+      showToast(error?.message || 'تعذر بدء قراءة محادثات واتساب');
+    }
+  };
+
   // Pull-to-refresh: re-read pending native WhatsApp events and refresh the
   // locally stored radar feed without creating duplicates.
   const refreshRadar = async () => {
@@ -2027,6 +2046,15 @@ function OrderiApp() {
                       <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
                     </span>
                     <h2 className="text-sm font-black text-slate-900 tracking-tight">رادار الطلبات الواردة</h2>
+                    <button
+                      type="button"
+                      onClick={(event) => { event.stopPropagation(); void handleMarkAllWhatsAppRead(); }}
+                      title="فتح واتساب ومحاولة قراءة المحادثات غير المقروءة"
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] font-black text-emerald-800 hover:bg-emerald-100 active:scale-95 transition"
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      قراءة الكل
+                    </button>
                   </div>
 
                   <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-slate-100 text-slate-700 border border-slate-200">
