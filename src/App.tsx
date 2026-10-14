@@ -745,6 +745,24 @@ function OrderiApp() {
       return;
     }
 
+    // Classify passengers before duplicate handling so no later path can bypass filters.
+    const passengerDetection = raw.passengerDetection || detectPassengerDelivery(raw.rawText || `${raw.from} ${raw.to}`, {
+      isBlockForbiddenEnabled: filterRef.current.blockPassengerDeliveries !== false,
+    });
+    const isPassengerOrder =
+      passengerDetection.level === 'confirmed_passenger' ||
+      passengerDetection.level === 'suspicious_passenger';
+
+    // The "ignore non-matching" setting applies to passenger ads too, including VIP senders.
+    // Keep the existing VIP exception only for ordinary goods orders.
+    if (
+      filterRef.current.ignoreNonMatching &&
+      match.score < 80 &&
+      (isPassengerOrder || contactCheck.status !== 'vip')
+    ) {
+      return;
+    }
+
     // Compare order & advertiser across WhatsApp groups to prevent duplicates
     if (filterRef.current.preventDuplicateOrders !== false) {
       const existingMatch = findDuplicateOrderMatch(raw, ordersRef.current);
@@ -782,11 +800,6 @@ function OrderiApp() {
     if (isDuplicateOrder(raw)) {
       return;
     }
-
-    // Detect Passenger Delivery status (كاشف نقل الركاب والأشخاص)
-    const passengerDetection = raw.passengerDetection || detectPassengerDelivery(raw.rawText || `${raw.from} ${raw.to}`, {
-      isBlockForbiddenEnabled: filterRef.current.blockPassengerDeliveries !== false,
-    });
 
     // Check Desired Destination Hunting (صائد وجهات التوصيل والتسليم المرغوبة في القروبات)
     const destinationHunt = checkOrderDestinationHunt(
@@ -882,9 +895,8 @@ function OrderiApp() {
         }
       } else {
         // الطلب غير مطابق لشروط الكابتن
-        const isPassengerNotice = newOrder.passengerDetection?.level === 'confirmed_passenger' || newOrder.passengerDetection?.level === 'suspicious_passenger';
-        if (filterRef.current.ignoreNonMatching && !isPassengerBlocked && !isPassengerNotice) {
-          // محجوب تماماً من الإشعارات في الخلفية والأصوات بناء على رغبة الكابتن (للبضائع العادية غير المطابقة)
+        if (filterRef.current.ignoreNonMatching && newOrder.match.score < 80 && (isPassengerOrder || contactCheck.status !== 'vip')) {
+          // لا نصدر تنبيهاً لطلب غير مطابق؛ يشمل ذلك نقل الركاب، ولا يسمح لتصنيف الراكب بتجاوز الفلتر.
           return;
         }
         if (filterRef.current.soundEnabled) {
@@ -2060,7 +2072,8 @@ function OrderiApp() {
     }
 
     const isPassengerOrder = ord.passengerDetection?.level === 'confirmed_passenger' || ord.passengerDetection?.level === 'suspicious_passenger';
-    if (!isPassengerOrder && filter.ignoreNonMatching && ord.match.score < 80 && ord.contactStatus !== 'vip') return false;
+    // Previously passenger ads bypassed this check and remained visible even when unmatched.
+    if (filter.ignoreNonMatching && ord.match.score < 80 && (isPassengerOrder || ord.contactStatus !== 'vip')) return false;
     if (feedFilter === 'hunted') return !!ord.isDestinationHunted;
     if (feedFilter === 'matched') return ord.match.score >= 80;
     if (feedFilter === 'vip') return ord.match.score >= 90;
