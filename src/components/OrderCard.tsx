@@ -555,15 +555,6 @@ export function OrderCard({
                     <span>خاص دايركت 👤</span>
                   </span>
                 )}
-                {order.crossPostedGroups && order.crossPostedGroups.length > 1 && (
-                  <span 
-                    className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-purple-100 text-purple-900 border border-purple-300 shadow-2xs"
-                    title={`تم نشر هذا الطلب في ${order.crossPostedGroups.length} قروبات وتم دمجه لمنع التكرار`}
-                  >
-                    <Layers className="w-3 h-3 text-purple-700" />
-                    <span>مكرر في {order.crossPostedGroups.length} قروبات (تم دمجه ✓)</span>
-                  </span>
-                )}
                 {order.outreachStatus === 'chat_opened_pending_send' && (
                   <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-blue-100 text-blue-900 border border-blue-300 shadow-2xs">
                     <MessageCircle className="w-3 h-3 text-blue-700" />
@@ -715,72 +706,514 @@ export function OrderCard({
             </div>
           </div>
 
-          {/* AI Match with Captain's Conditions (Gemini AI Feature) */}
-          <div className="pt-0.5">
-            {order.aiAnalysis ? (
-              <div 
-                onClick={() => setShowAiModal(true)}
-                className="w-full p-3 rounded-2xl bg-gradient-to-l from-indigo-50/90 via-blue-50/80 to-emerald-50/80 border border-blue-200/80 hover:border-blue-300 shadow-2xs hover:shadow-xs transition-all cursor-pointer group"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <div className="w-7 h-7 rounded-xl bg-gradient-to-tr from-blue-700 to-indigo-600 text-white flex items-center justify-center shrink-0 shadow-xs">
-                      <Sparkles className="w-3.5 h-3.5 fill-white" />
-                    </div>
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-xs font-black text-slate-900">مطابقة شروطي بالـ AI:</span>
-                      <span className="px-2 py-0.5 rounded-lg bg-white text-blue-800 text-[11px] font-black border border-blue-200 shadow-2xs">
-                        {order.aiAnalysis.score}% {order.aiAnalysis.verdictLabel}
-                      </span>
-                    </div>
-                  </div>
-                  <span className="text-[11px] font-black text-blue-700 group-hover:underline shrink-0 flex items-center gap-1">
-                    <span>تفاصيل التحليل</span>
-                    <ArrowLeft className="w-3 h-3" />
-                  </span>
+          {/* Original WhatsApp Message Accordion */}
+          <div className="rounded-xl bg-slate-50 border border-slate-200/70 p-3">
+            <button 
+              onClick={() => setShowFullText(!showFullText)}
+              className="w-full flex items-center justify-between text-xs font-bold text-slate-600 hover:text-slate-900 transition-colors"
+            >
+              <span className="flex items-center gap-1.5">
+                <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
+                <span>نص رسالة الواتساب الأصلية</span>
+              </span>
+              <span className="flex items-center gap-1 text-[11px] text-blue-600 font-medium">
+                <span>{showFullText ? 'إخفاء' : 'عرض'}</span>
+                {showFullText ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+              </span>
+            </button>
+
+            {showFullText && (
+              <div className="mt-2.5 pt-2.5 border-t border-slate-200/70">
+                <p className="text-xs text-slate-700 font-mono leading-relaxed whitespace-pre-wrap bg-white p-3 rounded-lg border border-slate-200/60">
+                  {order.rawText}
+                </p>
+                <div className="mt-2 flex flex-wrap items-center justify-between text-[11px] text-slate-500">
+                  <span>المعلن: <strong>{order.senderName || 'غير معروف'}</strong></span>
+                  {order.senderPhone && (
+                    <span dir="ltr" className="font-mono text-blue-600 font-bold">
+                      +{order.senderPhone}
+                    </span>
+                  )}
                 </div>
 
-                {order.aiAnalysis.captainAdvice && (
-                  <div className="mt-2 text-[11px] font-bold text-slate-700 bg-white/80 p-2 rounded-xl border border-blue-100 flex items-start gap-1.5">
-                    <Lightbulb className="w-3.5 h-3.5 text-amber-500 fill-amber-400 shrink-0 mt-0.5" />
-                    <span className="line-clamp-2">{order.aiAnalysis.captainAdvice}</span>
+                {onToggleContact && order.senderPhone && (
+                  <div className="mt-2.5 pt-2 border-t border-slate-200/60 flex items-center justify-between gap-2">
+                    <span className="text-[10px] text-slate-400 font-bold">تصنيف صاحب الإعلان:</span>
+                    <div className="flex items-center gap-1.5">
+                      {order.contactStatus !== 'vip' ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onToggleContact(order, 'vip');
+                          }}
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 text-[10px] font-bold border border-amber-200 transition-colors cursor-pointer"
+                        >
+                          <Star className="w-3 h-3 fill-amber-400 text-amber-500" />
+                          <span>⭐ تمييز كـ VIP</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onToggleContact(order, 'vip');
+                          }}
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-100 text-amber-900 text-[10px] font-black border border-amber-300 transition-colors cursor-pointer"
+                        >
+                          <Star className="w-3 h-3 fill-amber-500 text-amber-600" />
+                          <span>متجر موثوق VIP ✓</span>
+                        </button>
+                      )}
+
+                      {order.contactStatus !== 'blacklist' ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onToggleContact(order, 'blacklist');
+                          }}
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 text-[10px] font-bold border border-rose-200 transition-colors cursor-pointer"
+                        >
+                          <ShieldAlert className="w-3 h-3 text-rose-600" />
+                          <span>🚫 حظر (قائمة سوداء)</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onToggleContact(order, 'blacklist');
+                          }}
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-100 text-rose-900 text-[10px] font-black border border-rose-300 transition-colors cursor-pointer"
+                        >
+                          <ShieldAlert className="w-3 h-3 text-rose-600" />
+                          <span>في القائمة السوداء ✗</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
-            ) : (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onEvaluateAi?.(order);
-                }}
-                disabled={order.isAnalyzingAi}
-                className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-blue-50/90 via-indigo-50/90 to-purple-50/90 hover:from-blue-100 hover:to-indigo-100 border border-blue-200/90 text-blue-950 text-xs font-black flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-60 shadow-2xs hover:shadow-xs active:scale-[0.99]"
-              >
-                <Sparkles className={`w-3.5 h-3.5 text-blue-600 ${order.isAnalyzingAi ? 'animate-spin' : 'fill-blue-500'}`} />
-                <span>
-                  {order.isAnalyzingAi ? 'جاري فحص رسالة المعلن ومطابقتها مع شروطك...' : '✨ فحص مطابقة الإعلان لشروطي بالذكاء الاصطناعي'}
-                </span>
-              </button>
             )}
           </div>
 
-          {/* Multi-group deduplication notice banner */}
-          {order.crossPostedGroups && order.crossPostedGroups.length > 1 && (
-            <div className="p-2.5 rounded-xl bg-purple-50 border border-purple-200/90 text-purple-950 flex items-start gap-2 text-xs">
-              <Layers className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
-              <div className="min-w-0 space-y-0.5">
-                <span className="font-black text-purple-900 block text-[11px]">
-                  🛡️ تم منع التكرار: نُشر هذا الإعلان في {order.crossPostedGroups.length} قروبات واتساب وتم دمجه
+          {/* Action Buttons: Responsive Mobile Stack / Desktop Row */}
+          <div className="space-y-2 pt-1">
+            {/* Primary Action Button (Accept & Reply on WhatsApp Instantly Without Redirection) */}
+            <div className="flex items-center gap-2">
+              {order.status === 'closed_taken' ? (
+                <div className="flex items-center gap-2 w-full">
+                  <div className="flex-1 min-h-[48px] flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl sm:rounded-2xl bg-slate-100 border border-slate-300 text-slate-700 font-bold text-xs">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    <span>الطلب مغلق — تم أخذه في القروب 🏷️</span>
+                  </div>
+                  {onRestoreOrder && (
+                    <button
+                      type="button"
+                      onClick={() => onRestoreOrder(order.id)}
+                      className="min-h-[48px] px-3.5 py-2.5 rounded-xl sm:rounded-2xl bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs border border-blue-200 transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer shrink-0"
+                      title="استعادة هذا الطلب إلى الرادار المتاح إذا كان لا يزال متاحاً"
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                      <span>إعادة للرادار</span>
+                    </button>
+                  )}
+                </div>
+              ) : order.status === 'suspicious_closed' ? (
+                <div className="space-y-2 w-full">
+                  <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-950 text-xs flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 truncate">
+                      <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                      <span className="truncate">رد محتمل بالقروب: «{order.closureEvidence?.replyText || 'تم'}» ({order.closureEvidence?.senderName || 'عضو'})</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {onConfirmClosure && (
+                      <button
+                        type="button"
+                        onClick={() => onConfirmClosure(order.id)}
+                        className="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs transition-all cursor-pointer shadow-xs"
+                      >
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                        <span>تأكيد إغلاقه (تم أخذه) ✓</span>
+                      </button>
+                    )}
+                    {onDismissClosureSuspicion && (
+                      <button
+                        type="button"
+                        onClick={() => onDismissClosureSuspicion(order.id)}
+                        className="min-h-[44px] px-3.5 py-2 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold text-xs border border-amber-300 transition-all cursor-pointer"
+                      >
+                        لا يزال متاحاً ↺
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleQuickAutoReply}
+                  disabled={isAutoReplying}
+                  className={`flex-1 min-h-[48px] flex items-center justify-center gap-2 py-3 px-3.5 sm:px-4 rounded-xl sm:rounded-2xl text-white font-black text-xs sm:text-sm shadow-md transition-all active:scale-[0.98] cursor-pointer ${
+                    isMyBroadcast 
+                      ? 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 shadow-purple-600/25' 
+                      : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-emerald-600/25'
+                  }`}
+                >
+                  {isAutoReplying ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                      <span>جاري فتح الخاص مع صاحب الإعلان...</span>
+                    </>
+                  ) : isMyBroadcast ? (
+                    <>
+                      <Reply className="w-4 h-4" />
+                      <span>حصلت مندوب (رد: تم فوراً) 🎯</span>
+                    </>
+                  ) : order.outreachStatus === 'chat_opened_pending_send' ? (
+                    <>
+                      <MessageCircle className="w-4 h-4 text-emerald-200" />
+                      <div className="flex flex-col items-center leading-tight">
+                        <span className="flex items-center gap-1">
+                          <span>المحادثة مفتوحة في واتساب</span>
+                          <span className="text-[11px] font-bold text-emerald-200">💬</span>
+                        </span>
+                        <span className="text-[10px] font-normal text-emerald-100">
+                          (الرسالة جاهزة — اضغط لإعادة فتح المحادثة الخاصة)
+                        </span>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <Zap className="w-4 h-4 fill-amber-300 text-amber-300 animate-pulse" />
+                      <div className="flex flex-col items-center leading-tight">
+                        <span className="flex items-center gap-1">
+                          <span>قبول الطلب والتواصل عبر واتساب</span>
+                          <span className="text-[11px] font-bold text-amber-200">👤⚡</span>
+                        </span>
+                        <span className="text-[10px] font-normal text-emerald-100">
+                          (محادثة خاصة في واتساب العادي — بدون أي رد بالقروب 🔒)
+                        </span>
+                      </div>
+                    </>
+                  )}
+                </button>
+              )}
+
+              {/* View Message Template / Dialog */}
+              <button
+                type="button"
+                onClick={() => setShowAcceptDialog(true)}
+                title={isConfirmedPassenger ? "معاينة نص الإعلان وتفاصيل الحظر" : "معاينة نص الرسالة وخيارات القبول بالخاص"}
+                className={`min-h-[48px] px-3 flex items-center justify-center rounded-xl sm:rounded-2xl border transition-all active:scale-95 cursor-pointer shrink-0 ${
+                  isConfirmedPassenger
+                    ? 'bg-red-50 hover:bg-red-100 text-red-800 border-red-200'
+                    : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-200'
+                }`}
+              >
+                <MessageCircle className={`w-4 h-4 ${isConfirmedPassenger ? 'text-red-700' : 'text-emerald-700'}`} />
+              </button>
+            </div>
+
+            {/* Secondary Touch Actions Row */}
+            <div className="flex items-center gap-1 sm:gap-2">
+              {/* Direct WhatsApp chat with advertiser in Private */}
+              {effectivePhone && (
+                <button
+                  type="button"
+                  onClick={handleQuickAutoReply}
+                  title="فتح المحادثة الخاصة في واتساب مباشرة مع صاحب الإعلان"
+                  className="min-h-[44px] flex-1 flex items-center justify-center gap-1 py-2 px-1.5 sm:px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[11px] sm:text-xs font-bold border border-emerald-200 transition-all active:scale-95 cursor-pointer whitespace-nowrap"
+                >
+                  <MessageCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-600 shrink-0" />
+                  <span>خاص واتساب</span>
+                </button>
+              )}
+
+              {/* Quick Copy Response */}
+              <button
+                onClick={handleCopy}
+                title={isMyBroadcast ? 'نسخ صيغة رد (تم)' : 'نسخ صيغة الرد الخاص'}
+                className="min-h-[44px] flex-1 flex items-center justify-center gap-1 py-2 px-1.5 sm:px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] sm:text-xs font-bold border border-slate-200 transition-all active:scale-95 whitespace-nowrap"
+              >
+                {copied ? <Check className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-600 shrink-0" /> : <Copy className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-500 shrink-0" />}
+                <span>{copied ? 'تم النسخ!' : 'نسخ الرد'}</span>
+              </button>
+
+              {/* Direct Phone Call if available */}
+              {effectivePhone && (
+                <a
+                  href={`tel:+${effectivePhone}`}
+                  title="اتصال هاتفي مباشر بالمعلن"
+                  className="min-h-[44px] flex-1 flex items-center justify-center gap-1 py-2 px-1.5 sm:px-3 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 text-[11px] sm:text-xs font-bold border border-blue-200 transition-all active:scale-95 whitespace-nowrap"
+                >
+                  <Phone className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-600 shrink-0" />
+                  <span>اتصال</span>
+                </a>
+              )}
+
+              {/* Remove / Ignore Order Button & Mark as Read in WhatsApp */}
+              <button
+                type="button"
+                onClick={() => onIgnore(order.id)}
+                title="مسح الطلب من الرادار وتحديده كمقروء (تمت قراءتها ✓✓) في الواتساب"
+                aria-label="مسح الطلب وتحديده كمقروء في الواتساب"
+                className="min-h-[44px] px-2 sm:px-3 flex items-center justify-center gap-1 rounded-xl bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 border border-slate-200 hover:border-rose-200 transition-all active:scale-95 cursor-pointer shrink-0"
+              >
+                <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-500 shrink-0" />
+                <span className="text-[10px] sm:text-[11px] font-bold flex items-center gap-0.5 whitespace-nowrap">
+                  <span>مسح</span>
+                  <span className="text-emerald-600 font-black text-[9px] sm:text-[10px]" title="تمت قراءتها في الواتساب">✓✓</span>
                 </span>
-                <p className="text-[10px] text-purple-800 truncate">
-                  القروبات: {order.crossPostedGroups.join(' • ')}
+              </button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+      {/* Accept Order Modal Confirmation */}
+      {showAcceptDialog && (
+        <div 
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-200"
+          onClick={() => setShowAcceptDialog(false)}
+        >
+          <div 
+            className="w-full max-w-md bg-white rounded-t-3xl sm:rounded-3xl p-5 sm:p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[90vh] overflow-y-auto pb-safe"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Mobile Sheet Drag Handle */}
+            <div className="sm:hidden w-10 h-1.5 bg-slate-300 rounded-full mx-auto -mt-1 mb-2" />
+            
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+                {isMyBroadcast ? <Reply className="w-6 h-6" /> : <MessageCircle className="w-6 h-6" />}
+              </div>
+              <div>
+                <h3 className="text-base sm:text-lg font-black text-slate-900">
+                  {isMyBroadcast ? 'نشر رد (تم) في نفس القروبات' : 'قبول الطلب وإرسال الرد في الخاص 👤'}
+                </h3>
+                <p className="text-xs text-slate-500">
+                  {isMyBroadcast 
+                    ? 'سيتم نشر رد (تم) فوراً في القروبات وإغلاق الطلب' 
+                    : 'الرد يُرسل في المحادثة الخاصة مع صاحب الإعلان مباشرة (وليس في القروب) 🔒'}
                 </p>
               </div>
             </div>
-          )}
 
-          {/* Original WhatsApp Message Accordion */}
+            {/* Target Destination Info Badge */}
+            {!isMyBroadcast && (
+              <div className="p-3.5 rounded-2xl bg-emerald-50/90 border border-emerald-200 text-xs text-emerald-950 space-y-2 shadow-2xs">
+                <div className="flex items-center justify-between font-bold">
+                  <span className="flex items-center gap-1.5 text-emerald-900">
+                    <Lock className="w-4 h-4 text-emerald-700" />
+                    <span>وجهة الرد التلقائي:</span>
+                  </span>
+                  <span className="bg-emerald-600 text-white text-[10px] px-2.5 py-0.5 rounded-full font-black shadow-xs">
+                    خاص مباشر (دايركت) 👤
+                  </span>
+                </div>
+                <div className="text-[11px] text-emerald-900 space-y-1 pt-0.5 leading-relaxed">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-600">المعلن (المستلم):</span>
+                    <strong className="font-bold text-slate-900">{order.senderName || 'صاحب الإعلان'} ({effectivePhone || order.senderPhone})</strong>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-600">قروب الإعلان:</span>
+                    <strong className="text-slate-800">{order.groupName || 'قروب واتساب'}</strong>
+                  </div>
+                  <div className="mt-1 text-emerald-900 font-bold bg-white/80 p-2 rounded-xl border border-emerald-200/70">
+                    🔒 خصوصية تامة: لن يُنشر أي رد داخل قروب الواتساب، بل سيتم فتح المحادثة الخاصة مع المعلن مباشرة للتنسيق والاتفاق.
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="p-3.5 sm:p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+              <span className="text-xs font-bold text-slate-500 block">
+                {isMyBroadcast ? 'صيغة رد (تم) باقتباس الإعلان:' : 'معاينة نص الرسالة المرسلة في الخاص للمعلن:'}
+              </span>
+              <div className="p-3 rounded-xl bg-white border border-slate-200 text-xs text-slate-800 leading-relaxed font-mono whitespace-pre-wrap max-h-40 sm:max-h-48 overflow-y-auto">
+                {fullWhatsAppMessage}
+              </div>
+            </div>
+
+            <div className="p-3 rounded-xl bg-blue-50/80 border border-blue-200/70 text-xs text-blue-900 flex items-center justify-between">
+              <span>{isMyBroadcast ? 'قيمة الطلب المنشور:' : 'أجرة التوصيل المسجلة:'}</span>
+              <strong className="text-sm font-black text-blue-700">
+                {(!order.price || order.price <= 0 || order.isPriceUnspecified)
+                  ? 'غير محددة في الإعلان (تجاهل السعر • بالاتفاق 🤝)'
+                  : `${order.price.toFixed(1)} د.ب`}
+              </strong>
+            </div>
+
+            {isConfirmedPassenger && (
+              <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-950 flex items-center justify-between text-xs">
+                <div className="flex items-center gap-1.5 font-black text-red-700">
+                  <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                  <span>تحذير: توصيل أشخاص ممنوع 🚫</span>
+                </div>
+                <span className="text-[10px] font-bold text-red-800 bg-red-100 px-2 py-0.5 rounded-full border border-red-200">
+                  تحذير ركاب • القبول متاح للمندوب
+                </span>
+              </div>
+            )}
+
+            <div className="flex flex-col sm:flex-row items-center gap-2.5 pt-1">
+              <button
+                type="button"
+                onClick={() => setShowAcceptDialog(false)}
+                className="w-full sm:w-auto px-4 py-3 rounded-xl border border-slate-200 text-slate-700 font-bold text-xs sm:text-sm hover:bg-slate-50 active:scale-98 transition-all order-2 sm:order-1"
+              >
+                إغلاق
+              </button>
+
+              <button
+                type="button"
+                onClick={handleQuickAutoReply}
+                disabled={isAutoReplying}
+                className={`w-full sm:flex-1 min-h-[48px] flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-white font-black text-xs sm:text-sm shadow-md active:scale-98 transition-all cursor-pointer order-1 sm:order-2 ${
+                  isConfirmedPassenger
+                    ? 'bg-gradient-to-r from-red-600 to-rose-700 hover:from-red-500 hover:to-rose-600 shadow-rose-900/30'
+                    : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-emerald-600/20'
+                }`}
+              >
+                {isAutoReplying ? (
+                  <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                ) : isConfirmedPassenger ? (
+                  <AlertTriangle className="w-4 h-4 text-amber-300" />
+                ) : (
+                  <Zap className="w-4 h-4 fill-amber-300 text-amber-300" />
+                )}
+                <span>
+                  {isConfirmedPassenger
+                    ? 'قبول والرد في الخاص للمعلن ⚡ (تحذير: أشخاص ⚠️)'
+                    : isMyBroadcast
+                    ? 'نشر رد (تم) فوراً 🎯'
+                    : 'تأكيد القبول والرد في الخاص للمعلن 👤⚡'}
+                </span>
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* Suspicious Passenger Manual Review Dialog */}
+      {showReviewConfirmModal && (
+        <div 
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-200"
+          onClick={() => setShowReviewConfirmModal(false)}
+        >
+          <div 
+            className="w-full max-w-md bg-white rounded-t-3xl sm:rounded-3xl p-5 sm:p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[90vh] overflow-y-auto pb-safe"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Mobile Sheet Drag Handle */}
+            <div className="sm:hidden w-10 h-1.5 bg-slate-300 rounded-full mx-auto -mt-1 mb-2" />
+
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-6 h-6 text-amber-600" />
+              </div>
+              <div>
+                <h3 className="text-base sm:text-lg font-black text-slate-900">
+                  مراجعة يدوية: احتمال نقل ركاب
+                </h3>
+                <p className="text-xs text-slate-500">
+                  تحقق من نص الإعلان للتأكد من أنه توصيل بضائع وليس نقل أشخاص
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 space-y-2">
+              <span className="text-xs font-bold text-amber-900 block">
+                نص الإعلان الوارد من الواتساب:
+              </span>
+              <div className="p-3 rounded-xl bg-white border border-amber-200 text-xs text-slate-800 leading-relaxed font-mono whitespace-pre-wrap max-h-36 overflow-y-auto">
+                {order.rawText}
+              </div>
+              {passenger.matchedPhrases.length > 0 && (
+                <div className="text-[11px] text-amber-800 font-bold">
+                  السبب المرصود: {passenger.matchedPhrases.join('، ')}
+                </div>
+              )}
+            </div>
+
+            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800 leading-relaxed">
+              ⚠️ تنبيه: نقل الأشخاص والركاب ممنوع. لا تقبل الطلب إلا إذا تأكدت أنه بضاعة أو غرض شخصي أو وجبة وليس راكباً.
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setShowReviewConfirmModal(false)}
+                className="w-full sm:w-auto px-4 py-3 rounded-xl border border-slate-200 text-slate-700 font-bold text-xs sm:text-sm hover:bg-slate-50 active:scale-98 transition-all"
+              >
+                إلغاء (نقل أشخاص)
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowReviewConfirmModal(false);
+                  handleQuickAutoReply();
+                }}
+                className="w-full sm:flex-1 min-h-[46px] flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs sm:text-sm shadow-md shadow-emerald-600/20 active:scale-98 transition-all cursor-pointer"
+              >
+                <Check className="w-4 h-4 text-white" />
+                <span>تأكيد أنه بضاعة والقبول بالواتساب ⚡</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI Match Analysis Details Modal */}
+      {showAiModal && order.aiAnalysis && (
+        <AIMatchModal
+          order={order}
+          analysis={order.aiAnalysis}
+          onClose={() => setShowAiModal(false)}
+          onAccept={(acceptedOrder) => {
+            setShowAiModal(false);
+            onAccept(acceptedOrder);
+          }}
+        />
+      )}
+
+      {/* Advertiser Private Outreach & Identity Verification Modal */}
+      {showOutreachModal && (
+        <AdvertiserOutreachModal
+          isOpen={showOutreachModal}
+          order={order}
+          resolution={outreachResolution}
+          onClose={() => setShowOutreachModal(false)}
+          onConfirmAccept={(acceptedOrd, confirmedPhone) => {
+            onAccept({
+              ...acceptedOrd,
+              status: 'accepted',
+              outreachStatus: 'chat_opened_pending_send',
+              outreachDetails: {
+                status: 'chat_opened_pending_send',
+                phoneUsed: confirmedPhone,
+                advertiserName: acceptedOrd.senderName,
+                attemptedAt: new Date().toISOString(),
+                message: formatAdvertiserPrivateMessage(acceptedOrd),
+                deliveryMethod: 'direct_whatsapp_url',
+                verifiedAdvertiser: true,
+              },
+            });
+            setShowOutreachModal(false);
+          }}
+          onToast={(msg) => console.log(msg)}
+        />
+      )}
+    </>
+  );
+}          {/* Original WhatsApp Message Accordion */}
           <div className="rounded-xl bg-slate-50 border border-slate-200/70 p-3">
             <button 
               onClick={() => setShowFullText(!showFullText)}
