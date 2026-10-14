@@ -1058,13 +1058,18 @@ function OrderiApp() {
         const hasExplicitOrderIntent = /(?:اوردر|طلب توصيل|توصيل|توصيله|استلام|مندوب|delivery|pickup)/i.test(normalizedMessage);
         const looksLikeServiceAdvertisement = /(?:على انستغرام|على instagram|instagram|متوفرون|متوفرين|على اتم الاستعداد|خدماتنا|للحجز|للتواصل|مشاوير خاصة|مواصلات الاسطورة)/i.test(normalizedMessage);
         const hasUsefulOrderContext = /(?:من\s|الى\s|إلى\s|لل|لـ|د\.ب|دب|دينار|bd|bhd|عسكر|عراد|الرفاع|سار|المنامة|المحرق|مدينة عيسى|مدينة حمد|مطار|السيف|العدلية|سترة)/i.test(normalizedMessage);
-        const shouldShowIncompleteOrder = hasExplicitOrderIntent && !looksLikeServiceAdvertisement && (hasUsefulOrderContext || isPassengerRequest);
-        if (parsed.canCreateOrder || isPassengerRequest || shouldShowIncompleteOrder) {
+        // Radar must mirror every substantive WhatsApp notification captured by Orderi.
+        // Do not silently drop "توصيل شخص", incomplete ads, unfamiliar wording or service ads
+        // just because the parser cannot confidently classify them. Preserve the original
+        // message and label uncertain fields instead of inventing a route or price.
+        const isClosureOnlyReply = /^(?:تم|تم\s*الحمد\s*لله|حصلت|حصل|اخذت|أخذت|انحجز|انحجزت|خلص|خلاص|شكرا|شكرًا|مشكور|مشكوره|يعطيك\s*العافيه|sticker|ملصق|👍+|🙏+|✅+|👌+)\s*[.!؟👍🙏✅👌]*$/i.test(normalizedMessage.trim());
+        const shouldMirrorNotification = rawText.trim().length > 0 && !isClosureOnlyReply;
+        if (parsed.canCreateOrder || isPassengerRequest || shouldShowIncompleteOrder || shouldMirrorNotification) {
           if (!order.from) order.from = 'موقع الاستلام غير محدد 📍';
           if (!order.to) order.to = 'وجهة التوصيل غير محددة 📍';
           if (!parsed.canCreateOrder && !isPassengerRequest) {
-            order.notes = [order.notes, 'تم التقاط إعلان توصيل لكن المسار غير مكتمل؛ يلزم التحقق من النص الأصلي'].filter(Boolean).join(' • ');
-            order.confidence = Math.min(order.confidence || 50, 55);
+            order.notes = [order.notes, 'إشعار واتساب محفوظ في الرادار كما ورد؛ لم يتمكن المحلل من تأكيد نوع الطلب أو مساره، راجع النص الأصلي'].filter(Boolean).join(' • ');
+            order.confidence = Math.min(order.confidence || 50, 40);
           }
           handleProcessIncomingRawOrder(order, false);
         }
