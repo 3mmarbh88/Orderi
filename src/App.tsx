@@ -877,9 +877,9 @@ function OrderiApp() {
 
       // Group notifications often use the group name as title and encode the actual sender as "Name: message".
       // Parse the newest visible line so closure detection can identify the advertiser instead of mistaking the group for them.
-      const notificationLines = rawText.split(/\\r?\\n/).map((line) => line.trim()).filter(Boolean);
+      const notificationLines = rawText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
       const latestLine = notificationLines[notificationLines.length - 1] || '';
-      const parsedGroupReply = event.isGroup ? latestLine.match(/^([^:\\n]{1,60}):\\s*(.+)$/) : null;
+      const parsedGroupReply = event.isGroup ? latestLine.match(/^([^:\n]{1,60}):\s*(.+)$/) : null;
       const closureSenderName = parsedGroupReply?.[1]?.trim() || event.title || '';
       const closureMessageText = parsedGroupReply?.[2]?.trim() || rawText || event.title || '';
 
