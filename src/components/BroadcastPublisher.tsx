@@ -60,8 +60,10 @@ function readStoredBroadcastGroups(filterGroups: string[] = []): GroupItem[] {
   const add = (value: unknown, fallbackCategory: string) => {
     if (!Array.isArray(value)) return;
     value.forEach((entry, index) => {
-      const item = typeof entry === 'string' ? { name: entry } : entry as Record<string, unknown>;
-      const name = typeof item?.name === 'string'
+      const item: Record<string, unknown> = typeof entry === 'string'
+        ? { name: entry }
+        : entry && typeof entry === 'object' ? entry as Record<string, unknown> : {};
+      const name = typeof item.name === 'string'
         ? item.name.trim()
         : typeof item?.title === 'string' ? item.title.trim() : '';
       if (!name) return;
