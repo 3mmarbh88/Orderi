@@ -924,7 +924,7 @@ export function FilterSettings({
         </div>
 
         {/* Auto-Discovered Groups From Incoming Phone Notifications */}
-        {detectedIncomingGroups && detectedIncomingGroups.length > 0 && (
+        {detectedIncomingGroups && detectedIncomingGroups.length > 0 ? (
           <div className="p-3.5 sm:p-4 rounded-2xl bg-gradient-to-br from-blue-50/80 via-indigo-50/40 to-white border border-blue-200/90 space-y-2.5 shadow-2xs">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-1.5 text-xs font-black text-blue-950">
@@ -973,6 +973,51 @@ export function FilterSettings({
                   </button>
                 );
               })}
+            </div>
+          </div>
+        ) : (
+          <div className="p-3.5 sm:p-4 rounded-2xl bg-gradient-to-br from-slate-50 to-blue-50/30 border border-slate-200 space-y-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-xs font-black text-slate-800">
+                <Smartphone className="w-4 h-4 text-emerald-600" />
+                <span>رصد إشعارات قروبات واتساب:</span>
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                  مستعد وجاهز للرصد التلقائي 🟢
+                </span>
+              </div>
+            </div>
+            <p className="text-[11px] text-slate-600 leading-relaxed font-medium">
+              بمجرد وصول أي رسالة من أي قروب واتساب مرتبط على جهازك، سيلتقط رادار أوردي اسم القروب تلقائياً من الإشعار ويُدرجه هنا لربطه واعتماده بضغطة واحدة.
+            </p>
+            <div className="pt-1 space-y-1.5">
+              <div className="text-[10px] font-black text-slate-500">أو يمكنك إضافة أشهر قروبات التوصيل في البحرين بضغطة زر:</div>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  'قروب مندوبين البحرين 🇧🇭',
+                  'قروب توصيل المنامة والرفاع 📦',
+                  'قروب كباتن المحرق والحد 🚗',
+                  'قروب طلبات المحافظة الشمالية ⚡',
+                  'قروب توصيل مدينة حمد وعيسى 📍',
+                ].map((sugg) => {
+                  const isAdded = myGroups.includes(sugg);
+                  return (
+                    <button
+                      key={sugg}
+                      type="button"
+                      onClick={() => !isAdded && handleAddMyGroup(sugg)}
+                      className={`text-xs px-2.5 py-1 rounded-xl border flex items-center gap-1 transition-all ${
+                        isAdded
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200 font-bold'
+                          : 'bg-white hover:bg-emerald-50 text-slate-700 border-slate-200 hover:border-emerald-300 font-medium cursor-pointer shadow-2xs'
+                      }`}
+                    >
+                      <span>{sugg}</span>
+                      {isAdded ? <Check className="w-3 h-3 text-emerald-600" /> : <Plus className="w-3 h-3 text-emerald-600" />}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
         )}

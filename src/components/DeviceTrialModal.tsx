@@ -229,7 +229,7 @@ export function DeviceTrialModal({
           {trialStatus.isActivated && (
             <div className="bg-emerald-50 rounded-2xl p-4 border border-emerald-200 text-center space-y-2">
               <Sparkles className="w-8 h-8 text-emerald-600 mx-auto" />
-              <h4 className="font-black text-emerald-900 text-sm">تهانينا! حسابك مفعل بالكامل على هذا الهاتف</h4>
+              <h4 className="font-black text-emerald-900 text-sm">حسابك مفعل بالكامل على هذا الهاتف ✓</h4>
               <p className="text-xs text-emerald-700">
                 يمكنك استخدام كافة مزايا رادار الواتساب ومستشعر الـ GPS واقتناص الطلبات بحرية تامة.
               </p>

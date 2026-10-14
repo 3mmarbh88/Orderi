@@ -319,6 +319,19 @@ const handleIncomingWebhook = (req: express.Request, res: express.Response) => {
 
     const groupDisplayName = isDirectChat ? "محادثة خاصة / تاجر مباشر 👤" : group;
 
+    // Instantly broadcast discovered group name to all active client screens
+    if (!isDirectChat && groupDisplayName && groupDisplayName !== "محادثة خاصة / تاجر مباشر 👤") {
+      const groupEvent = `data: ${JSON.stringify({
+        type: "GROUP_DISCOVERED",
+        groupName: groupDisplayName,
+        senderName: sender,
+        capturedAt: new Date().toISOString(),
+      })}\n\n`;
+      sseClients.forEach((client) => {
+        try { client.write(groupEvent); } catch { sseClients.delete(client); }
+      });
+    }
+
     // 2. Smart Closed Order Detection (الكشف الذكي عن الطلبات المحجوزة أو المنتهية)
     const closureCheck = extractClosureKeywords(rawText);
     if (closureCheck.hasClosureIntent) {

@@ -60,22 +60,22 @@ export const OrderAwardedCelebrationModal: React.FC<OrderAwardedCelebrationModal
           <X className="w-4 h-4" />
         </button>
 
-        {/* Celebration Header */}
+        {/* Advertiser Reply Header */}
         <div className="text-center space-y-2 pt-2">
-          <div className="w-16 h-16 rounded-3xl bg-gradient-to-tr from-emerald-500 to-teal-400 text-white flex items-center justify-center mx-auto shadow-lg shadow-emerald-500/30 animate-bounce">
-            <PartyPopper className="w-8 h-8" />
+          <div className="w-16 h-16 rounded-3xl bg-gradient-to-tr from-emerald-600 to-teal-600 text-white flex items-center justify-center mx-auto shadow-lg shadow-emerald-600/25">
+            <CheckCircle2 className="w-8 h-8" />
           </div>
 
           <div className="space-y-1">
             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100 text-emerald-900 text-xs font-black">
-              <Sparkles className="w-3.5 h-3.5 text-emerald-600 fill-emerald-500" />
-              <span>مبروك! حصلت على الأوردر 🎯</span>
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
+              <span>رد المعلن: تم تأكيد الطلب 🎯</span>
             </div>
             <h2 className="text-lg sm:text-xl font-black text-slate-900">
-              المعلن وافق وعطاك الطلب! 🎉
+              المعلن رد في الخاص واعتمد الطلب لك
             </h2>
             <p className="text-xs text-slate-600 leading-relaxed font-medium">
-              قام المعلن بالرد عليك والموافقة، قم بالتواصل بالواتساب مع المعلن لتلقي التفاصيل والتنسيق.
+              قام صاحب الإعلان بالرد عليك وتأكيد تسليمك الطلب، تواصل معه عبر واتساب لتلقي التفاصيل والتنسيق.
             </p>
           </div>
         </div>

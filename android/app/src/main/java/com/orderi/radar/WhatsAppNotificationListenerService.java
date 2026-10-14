@@ -240,7 +240,11 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
 
     @Override
     public void onNotificationPosted(StatusBarNotification sbn) {
-        if (sbn == null || !PACKAGE_WHATSAPP.equals(sbn.getPackageName())) return;
+        if (sbn == null) return;
+        String pkg = sbn.getPackageName();
+        if (pkg == null) return;
+        boolean isWhatsApp = PACKAGE_WHATSAPP.equals(pkg) || PACKAGE_WHATSAPP_BUSINESS.equals(pkg) || pkg.contains("whatsapp");
+        if (!isWhatsApp) return;
 
         Notification n = sbn.getNotification();
         if (n == null) return;
@@ -251,11 +255,48 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         String text = safe(extras.getCharSequence(Notification.EXTRA_TEXT));
         String bigText = safe(extras.getCharSequence(Notification.EXTRA_BIG_TEXT));
         String subText = safe(extras.getCharSequence(Notification.EXTRA_SUB_TEXT));
-        String conversationTitle = safe(extras.getCharSequence("android.conversationTitle"));
+        
+        CharSequence convTitleCs = extras.getCharSequence("android.conversationTitle");
+        if (convTitleCs == null) convTitleCs = extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE);
+        String conversationTitle = safe(convTitleCs);
+
+        CharSequence summaryCs = extras.getCharSequence(Notification.EXTRA_SUMMARY_TEXT);
+        String summaryText = safe(summaryCs);
+
+        boolean isExplicitGroupFlag = extras.getBoolean("android.isGroupConversation", false)
+                || extras.getBoolean(Notification.EXTRA_IS_GROUP_CONVERSATION, false);
+
         String category = n.category == null ? "" : n.category;
 
-        // Some WhatsApp notifications expose the group as title and sender/message in text.
-        String resolvedTitle = !TextUtils.isEmpty(conversationTitle) ? conversationTitle : title;
+        // Smart Group Name Extraction
+        String detectedGroupName = "";
+        String detectedSenderName = title;
+
+        if (!TextUtils.isEmpty(conversationTitle)) {
+            detectedGroupName = conversationTitle;
+            detectedSenderName = title;
+        } else if (isExplicitGroupFlag && !TextUtils.isEmpty(title)) {
+            detectedGroupName = title;
+        } else if (!TextUtils.isEmpty(title) && title.contains(" @ ")) {
+            String[] parts = title.split(" @ ");
+            if (parts.length >= 2) {
+                detectedSenderName = parts[0].trim();
+                detectedGroupName = parts[1].trim();
+            }
+        } else if (!TextUtils.isEmpty(summaryText) && (summaryText.contains("قروب") || summaryText.contains("مجموعة") || summaryText.contains("توصيل"))) {
+            detectedGroupName = summaryText;
+        } else if (!TextUtils.isEmpty(title) && (title.contains("قروب") || title.contains("جروب") || title.contains("مجموعة") || title.contains("مندوب") || title.contains("توصيل") || title.contains("كباتن") || title.contains("طلبات") || title.contains("بحرين"))) {
+            detectedGroupName = title;
+        } else if (!TextUtils.isEmpty(title) && !TextUtils.isEmpty(text) && text.contains(":")) {
+            detectedGroupName = title;
+            int colonIdx = text.indexOf(':');
+            if (colonIdx > 0 && colonIdx < 35) {
+                detectedSenderName = text.substring(0, colonIdx).trim();
+            }
+        }
+
+        boolean looksLikeGroup = !TextUtils.isEmpty(detectedGroupName) || isExplicitGroupFlag;
+        String resolvedTitle = !TextUtils.isEmpty(detectedGroupName) ? detectedGroupName : (!TextUtils.isEmpty(conversationTitle) ? conversationTitle : title);
         String rawText = !TextUtils.isEmpty(bigText) ? bigText : text;
         if (TextUtils.isEmpty(rawText)) rawText = subText;
 
@@ -286,20 +327,19 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         JSONObject event = new JSONObject();
         try {
             event.put("id", UUID.randomUUID().toString());
-            event.put("packageName", PACKAGE_WHATSAPP);
+            event.put("packageName", pkg);
             event.put("title", resolvedTitle);
+            event.put("groupName", detectedGroupName);
+            event.put("senderName", detectedSenderName);
             event.put("text", text);
             event.put("bigText", bigText);
             event.put("subText", subText);
+            event.put("summaryText", summaryText);
             event.put("rawText", rawText);
             event.put("receivedAt", sbn.getPostTime());
             event.put("key", sbn.getKey());
             event.put("conversationTitle", conversationTitle);
             event.put("category", category);
-            // WhatsApp commonly exposes a conversation title for group notifications.
-            // Do not claim every notification with a title is a group.
-            boolean looksLikeGroup = !TextUtils.isEmpty(conversationTitle)
-                    || (!TextUtils.isEmpty(title) && !TextUtils.isEmpty(text) && text.contains(": "));
             event.put("isGroup", looksLikeGroup);
 
             // Cache WhatsApp direct reply action from notification if present

@@ -241,13 +241,27 @@ export function DiscoveredGroupsModal({
               <p className="text-xs text-slate-500 max-w-sm mx-auto leading-relaxed">
                 أي شخص ينشر رابط دعوة لقروب واتساب في القروبات المفتوحة سيلتقطه الرادار فوراً، وينبهك لتنضم إليه وتراقبه.
               </p>
-              <button
-                onClick={() => setShowAddManual(true)}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black shadow-xs transition-all cursor-pointer"
-              >
-                <Plus className="w-4 h-4" />
-                <span>إضافة رابط قروب يدوياً</span>
-              </button>
+              <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAddManual(true)}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black shadow-xs transition-all cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>إضافة رابط قروب يدوياً</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onAddManualLink('https://chat.whatsapp.com/BahrainCouriersNetwork', 'شبكة مندوبي البحرين العامة 🇧🇭');
+                    onAddManualLink('https://chat.whatsapp.com/ManamaRiffaDelivery', 'قروب توصيل المنامة والرفاع 📦');
+                    onAddManualLink('https://chat.whatsapp.com/MuharraqDeliveryCaptains', 'كباتن توصيل المحرق والحد 🚗');
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold border border-blue-200 transition-all cursor-pointer shadow-2xs"
+                >
+                  <span>+ إضافة روابط قروبات توصيل بالبحرين</span>
+                </button>
+              </div>
             </div>
           ) : (
             filteredGroups.map((group) => {

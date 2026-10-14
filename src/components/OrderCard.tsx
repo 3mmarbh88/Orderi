@@ -983,17 +983,17 @@ export function OrderCard({
             </div>
 
             {/* Secondary Touch Actions Row */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 sm:gap-2">
               {/* Direct WhatsApp chat with advertiser in Private */}
               {effectivePhone && (
                 <button
                   type="button"
                   onClick={handleQuickAutoReply}
                   title="فتح المحادثة الخاصة في واتساب مباشرة مع صاحب الإعلان"
-                  className="min-h-[44px] flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold border border-emerald-200 transition-all active:scale-95 cursor-pointer"
+                  className="min-h-[44px] flex-1 flex items-center justify-center gap-1 py-2 px-1.5 sm:px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[11px] sm:text-xs font-bold border border-emerald-200 transition-all active:scale-95 cursor-pointer whitespace-nowrap"
                 >
-                  <MessageCircle className="w-4 h-4 text-emerald-600" />
-                  <span>خاص واتساب 👤</span>
+                  <MessageCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-600 shrink-0" />
+                  <span>خاص واتساب</span>
                 </button>
               )}
 
@@ -1001,9 +1001,9 @@ export function OrderCard({
               <button
                 onClick={handleCopy}
                 title={isMyBroadcast ? 'نسخ صيغة رد (تم)' : 'نسخ صيغة الرد الخاص'}
-                className="min-h-[44px] flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold border border-slate-200 transition-all active:scale-95"
+                className="min-h-[44px] flex-1 flex items-center justify-center gap-1 py-2 px-1.5 sm:px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] sm:text-xs font-bold border border-slate-200 transition-all active:scale-95 whitespace-nowrap"
               >
-                {copied ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4 text-slate-500" />}
+                {copied ? <Check className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-600 shrink-0" /> : <Copy className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-500 shrink-0" />}
                 <span>{copied ? 'تم النسخ!' : 'نسخ الرد'}</span>
               </button>
 
@@ -1012,9 +1012,9 @@ export function OrderCard({
                 <a
                   href={`tel:+${effectivePhone}`}
                   title="اتصال هاتفي مباشر بالمعلن"
-                  className="min-h-[44px] flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold border border-blue-200 transition-all active:scale-95"
+                  className="min-h-[44px] flex-1 flex items-center justify-center gap-1 py-2 px-1.5 sm:px-3 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 text-[11px] sm:text-xs font-bold border border-blue-200 transition-all active:scale-95 whitespace-nowrap"
                 >
-                  <Phone className="w-4 h-4 text-blue-600" />
+                  <Phone className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-600 shrink-0" />
                   <span>اتصال</span>
                 </a>
               )}
@@ -1025,12 +1025,12 @@ export function OrderCard({
                 onClick={() => onIgnore(order.id)}
                 title="مسح الطلب من الرادار وتحديده كمقروء (تمت قراءتها ✓✓) في الواتساب"
                 aria-label="مسح الطلب وتحديده كمقروء في الواتساب"
-                className="min-h-[44px] px-3 flex items-center justify-center gap-1.5 rounded-xl bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 border border-slate-200 hover:border-rose-200 transition-all active:scale-95 cursor-pointer shrink-0"
+                className="min-h-[44px] px-2 sm:px-3 flex items-center justify-center gap-1 rounded-xl bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 border border-slate-200 hover:border-rose-200 transition-all active:scale-95 cursor-pointer shrink-0"
               >
-                <Trash2 className="w-4 h-4 text-slate-500" />
-                <span className="text-[11px] font-bold flex items-center gap-1">
+                <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-500 shrink-0" />
+                <span className="text-[10px] sm:text-[11px] font-bold flex items-center gap-0.5 whitespace-nowrap">
                   <span>مسح</span>
-                  <span className="text-emerald-600 font-black text-[10px]" title="تمت قراءتها في الواتساب">✓✓</span>
+                  <span className="text-emerald-600 font-black text-[9px] sm:text-[10px]" title="تمت قراءتها في الواتساب">✓✓</span>
                 </span>
               </button>
             </div>

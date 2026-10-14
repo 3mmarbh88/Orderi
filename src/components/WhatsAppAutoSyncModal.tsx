@@ -526,6 +526,30 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
                     <span className="text-[10px] font-black text-emerald-700 bg-emerald-50 px-2 py-1 rounded-full">{(savedConnection?.groups || internalMyGroups).length} قروب</span>
                   </div>
 
+                  {/* Manual group quick addition input */}
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newGroupInput}
+                      onChange={(e) => setNewGroupInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddDirectGroup(newGroupInput);
+                        }
+                      }}
+                      placeholder="أدخل اسم قروب لإضافته فوراً (مثال: قروب مندوبين البحرين)..."
+                      className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-800 placeholder-slate-400 focus:outline-emerald-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleAddDirectGroup(newGroupInput)}
+                      className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-black text-xs shrink-0 cursor-pointer shadow-xs"
+                    >
+                      + إضافة قروب
+                    </button>
+                  </div>
+
                   {/* Mark All as Read Action Card */}
                   <div className="p-3.5 rounded-2xl bg-gradient-to-r from-emerald-50 via-teal-50 to-blue-50 border border-emerald-300/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div className="space-y-1 min-w-0">
@@ -547,18 +571,63 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
                       <span>{isMarkingRead ? 'جاري التنفيذ...' : 'تنفيذ Mark as Read الآن 👁️'}</span>
                     </button>
                   </div>
+
+                  {/* Quick Link detected phone notification groups if not already linked */}
+                  {detectedIncomingGroups && detectedIncomingGroups.some(g => !internalMyGroups.includes(g)) && (
+                    <button
+                      type="button"
+                      onClick={handleLinkAllDetectedToWhatsApp}
+                      className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-blue-50 to-indigo-50 hover:from-blue-100 hover:to-indigo-100 border border-blue-200 text-blue-800 text-xs font-black flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                    >
+                      <span>⚡ ربط كافة القروبات المرصودة من إشعارات هاتفك مؤخراً ({detectedIncomingGroups.length})</span>
+                    </button>
+                  )}
+
                   {(savedConnection?.groups || internalMyGroups).length === 0 ? (
-                    <p className="text-[11px] text-slate-500">أرسل رسالة في قروب WhatsApp بعد تفعيل الخدمة، وسيظهر القروب هنا تلقائيًا.</p>
+                    <div className="space-y-2.5">
+                      <p className="text-[11px] text-slate-500">
+                        أرسل أو استلم أي رسالة في أي قروب WhatsApp على جهازك وسيظهر القروب هنا تلقائيًا فوراً من الإشعار.
+                      </p>
+                      <div className="space-y-1.5 pt-1">
+                        <div className="text-[10px] font-black text-slate-500">أو اختر من أشهر قروبات التوصيل الشائعة في البحرين لإضافتها فوراً:</div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {[
+                            'قروب مندوبين البحرين 🇧🇭',
+                            'قروب توصيل المنامة والرفاع 📦',
+                            'قروب كباتن المحرق والحد 🚗',
+                            'قروب طلبات المحافظة الشمالية ⚡',
+                          ].map((grp) => (
+                            <button
+                              key={grp}
+                              type="button"
+                              onClick={() => handleAddDirectGroup(grp)}
+                              className="px-2.5 py-1 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-[11px] font-bold text-emerald-800 cursor-pointer flex items-center gap-1 transition-all"
+                            >
+                              <span>{grp}</span>
+                              <Plus className="w-3 h-3 text-emerald-600" />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
                   ) : (
-                    <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
+                    <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto">
                       {(savedConnection?.groups || internalMyGroups).map((g) => (
-                        <span key={g} className="px-2.5 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-[11px] font-bold text-emerald-900">
-                          👥 {g}
+                        <span key={g} className="px-2.5 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-[11px] font-bold text-emerald-900 flex items-center gap-1.5 shadow-2xs">
+                          <span>👥 {g}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveDirectGroup(g)}
+                            className="text-emerald-500 hover:text-red-500 rounded-full p-0.5 hover:bg-red-50 cursor-pointer transition-colors"
+                            title="حذف القروب"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
                         </span>
                       ))}
                     </div>
                   )}
-                  <p className="text-[10px] text-slate-500">يتم اكتشاف القروب من إشعار WhatsApp الذي يرسله Android؛ لا يتم الدخول إلى قاعدة بيانات WhatsApp.</p>
+                  <p className="text-[10px] text-slate-500">يتم رصد القروب واكتشافه تلقائياً من إشعارات WhatsApp التي يستلمها هاتفك؛ بدون الحاجة للدخول لقاعدة بيانات WhatsApp.</p>
                 </div>
 
 

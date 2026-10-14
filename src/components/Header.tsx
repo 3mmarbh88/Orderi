@@ -161,7 +161,10 @@ export function Header({
 
   return (
     <>
-      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/80 shadow-xs w-full max-w-full overflow-hidden">
+      <header 
+        className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/80 shadow-xs w-full max-w-full overflow-hidden"
+        style={{ paddingTop: 'max(0px, env(safe-area-inset-top))' }}
+      >
         <div className="max-w-7xl mx-auto px-2 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-14 sm:h-20 gap-1 sm:gap-2 w-full max-w-full">
             
@@ -401,7 +404,7 @@ export function Header({
                     <CheckCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-teal-700 shrink-0" />
                   )}
                   <span className="text-[10px] sm:text-[11px] font-black shrink-0 whitespace-nowrap">
-                    {isMarkingInternal ? 'جاري القراءة...' : justMarked ? 'تمت القراءة ✓✓' : 'قراءة الكل'}
+                    {isMarkingInternal ? 'جاري...' : justMarked ? 'مقروءة ✓✓' : 'قراءة الكل'}
                   </span>
                 </button>
               )}

@@ -539,7 +539,7 @@ export function AuthModal({
           res.user
         ) {
           setSuccessMsg(
-            'مبروك! تم تفعيل اشتراك Orderi بنجاح.'
+            'تم تفعيل اشتراك Orderi بنجاح.'
           );
 
           setTimeout(() => {

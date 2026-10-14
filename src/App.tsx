@@ -669,22 +669,11 @@ function OrderiApp() {
 
     processedOrderIdsRef.current.add(raw.id);
 
-    // Block order processing if the program is not activated (supports license code and 7-day hardware trial)
-    const isAppActive = isActivatedRef.current || 
-      isProgramActivated(currentUserRef.current) || 
-      Boolean(deviceTrialStatus && (deviceTrialStatus.isActivated || (!deviceTrialStatus.isExpired && deviceTrialStatus.daysRemaining > 0)));
-
-    if (!isAppActive) {
-      return;
-    }
-
-    setWebhookOrdersCount((prev) => prev + 1);
-
-    // Save detected group name from incoming WhatsApp notification / message
+    // Always save detected group name immediately from incoming WhatsApp message/notification
     if (raw.groupName && raw.groupName !== 'محادثة خاصة 👤' && !raw.groupName.includes('محادثة خاصة')) {
       setPersistedDetectedGroups((prev) => {
         if (!prev.includes(raw.groupName)) {
-          const next = [...prev, raw.groupName];
+          const next = [raw.groupName, ...prev];
           try {
             localStorage.setItem('orderi_detected_incoming_groups', JSON.stringify(next));
           } catch {}
@@ -694,7 +683,7 @@ function OrderiApp() {
       });
     }
 
-    // Also sniff for any group links inside the raw message
+    // Always sniff for any group links inside the raw message immediately
     if (raw.rawText) {
       const embeddedLinks = extractGroupLinksFromText(raw.rawText, raw.senderName, raw.senderPhone, raw.groupName);
       if (embeddedLinks.length > 0) {
@@ -710,6 +699,17 @@ function OrderiApp() {
         });
       }
     }
+
+    // Block order processing if the program is not activated (supports license code and 7-day hardware trial)
+    const isAppActive = isActivatedRef.current || 
+      isProgramActivated(currentUserRef.current) || 
+      Boolean(deviceTrialStatus && (deviceTrialStatus.isActivated || (!deviceTrialStatus.isExpired && deviceTrialStatus.daysRemaining > 0)));
+
+    if (!isAppActive) {
+      return;
+    }
+
+    setWebhookOrdersCount((prev) => prev + 1);
 
     // Calculate matching with current driver location & active filter
     const match = evaluateOrderMatch(
@@ -896,15 +896,77 @@ function OrderiApp() {
     let listenerHandle: { remove: () => Promise<void> } | null = null;
 
     const convertNativeEvent = (event: WhatsAppNativeEvent) => {
-      const groupName = (event.conversationTitle || event.title || '').trim() || 'محادثة خاصة 👤';
-      const rawText = [event.bigText, event.text, event.subText]
+      const rawText = [event.bigText, event.text, event.subText, event.rawText]
         .filter(Boolean)
         .join('\n')
         .trim();
       if (!rawText && !event.title) return;
+
+      // Smart resolution of Group Name and whether it's a group
+      let detectedGroupName = '';
+      if (event.groupName && event.groupName.trim()) {
+        detectedGroupName = event.groupName.trim();
+      } else if (event.conversationTitle && event.conversationTitle.trim()) {
+        detectedGroupName = event.conversationTitle.trim();
+      } else if (event.isGroup && event.title) {
+        if (event.title.includes(' @ ')) {
+          const parts = event.title.split(' @ ');
+          detectedGroupName = parts[1]?.trim() || event.title.trim();
+        } else {
+          detectedGroupName = event.title.trim();
+        }
+      } else if (event.title && (
+        event.title.includes('قروب') ||
+        event.title.includes('جروب') ||
+        event.title.includes('مجموعة') ||
+        event.title.includes('مناديب') ||
+        event.title.includes('توصيل') ||
+        event.title.includes('كباتن') ||
+        event.title.includes('بحرين') ||
+        event.title.includes('طلبات')
+      )) {
+        detectedGroupName = event.title.trim();
+      }
+
+      const isGroup = Boolean(event.isGroup || (detectedGroupName && detectedGroupName.length > 0));
+      const groupName = detectedGroupName || (isGroup ? event.title || 'قروب واتساب' : 'محادثة خاصة 👤');
+
       // A real WhatsApp notification verifies that the native listener is seeing WhatsApp on this device.
-      markWhatsAppVerified(event.isGroup ? groupName : undefined);
+      markWhatsAppVerified(isGroup ? groupName : undefined);
       setIsWhatsAppConnected(true);
+
+      // IMMEDIATE GROUP REGISTRATION: Always record the group as soon as any notification from it arrives!
+      if (isGroup && groupName && groupName !== 'محادثة خاصة 👤' && !groupName.includes('محادثة خاصة')) {
+        setPersistedDetectedGroups((prev) => {
+          if (!prev.includes(groupName)) {
+            const next = [groupName, ...prev];
+            try {
+              localStorage.setItem('orderi_detected_incoming_groups', JSON.stringify(next));
+            } catch {}
+            showToast(`👥 تم رصد واكتشاف قروب واتساب جديد من الإشعارات: "${groupName}"`);
+            return next;
+          }
+          return prev;
+        });
+      }
+
+      // IMMEDIATE GROUP LINK INTERCEPTOR: Detect any WhatsApp invite links from ANY message
+      if (rawText) {
+        const embeddedLinks = extractGroupLinksFromText(rawText, event.senderName || event.title || 'معلن واتساب', '', groupName);
+        if (embeddedLinks.length > 0) {
+          embeddedLinks.forEach((link) => {
+            setDiscoveredGroupLinks((prev) => {
+              const exists = prev.some((l) => l.inviteCode === link.inviteCode);
+              if (exists) return prev;
+              const next = [link, ...prev];
+              saveDiscoveredGroupLinks(next);
+              setActiveGroupLinkPrompt(link);
+              showToast(`🔗 تم التقاط رابط قروب جديد: "${link.title}"`);
+              return next;
+            });
+          });
+        }
+      }
 
       // Check if incoming notification is a private reply from an advertiser («تم / لك / عندك» vs «أخذوه / تكنسل»)
       if (!event.isGroup && rawText) {
@@ -916,7 +978,7 @@ function OrderiApp() {
             advertiserPhone: '',
             replyText: rawText.trim(),
           });
-          showToast(`🎉 مبروك! المعلن رد عليك بالخاص وعطاك الطلب («${rawText.trim()}»)`);
+          showToast(`✅ المعلن رد عليك بالخاص وأكّد الطلب لك («${rawText.trim()}»)`);
           if (filterRef.current.soundEnabled) {
             playAlertTone('cash_register', 90);
           }
@@ -1157,9 +1219,24 @@ function OrderiApp() {
                 to: data.to || matchedOrder?.to,
                 price: data.price ?? matchedOrder?.price,
               });
-              showToast(`🎉 مبروك! المعلن رد عليك بالخاص وعطاك الطلب («${data.replyText || 'تم'}»)`);
+              showToast(`✅ المعلن رد عليك بالخاص وأكّد الطلب لك («${data.replyText || 'تم'}»)`);
               if (filterRef.current.soundEnabled) {
                 playAlertTone('cash_register', 90);
+              }
+            } else if (data.type === 'GROUP_DISCOVERED' && data.groupName) {
+              const gName = data.groupName;
+              if (gName && gName !== 'محادثة خاصة 👤' && !gName.includes('محادثة خاصة')) {
+                setPersistedDetectedGroups((prev) => {
+                  if (!prev.includes(gName)) {
+                    const next = [gName, ...prev];
+                    try {
+                      localStorage.setItem('orderi_detected_incoming_groups', JSON.stringify(next));
+                    } catch {}
+                    showToast(`👥 تم رصد قروب واتساب جديد: "${gName}"`);
+                    return next;
+                  }
+                  return prev;
+                });
               }
             } else if (data.type === 'GROUP_LINK_DETECTED' && data.groupLink) {
               setDiscoveredGroupLinks((prev) => {
