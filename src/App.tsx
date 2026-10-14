@@ -757,13 +757,14 @@ function OrderiApp() {
           prev.map((o) => {
             if (o.id === existingMatch.id) {
               const currentGroups = o.crossPostedGroups || [o.groupName];
-              const updatedGroups = currentGroups.includes(raw.groupName)
-                ? currentGroups
-                : [...currentGroups, raw.groupName];
+              const updatedGroups = raw.groupName && !currentGroups.includes(raw.groupName)
+                ? [...currentGroups, raw.groupName]
+                : currentGroups;
               return {
                 ...o,
                 crossPostedGroups: updatedGroups,
-                duplicateCount: (o.duplicateCount || 1) + 1,
+                // Count distinct source groups, not repeated notifications from one group.
+                duplicateCount: Math.max(1, updatedGroups.length),
               };
             }
             return o;
@@ -1653,48 +1654,25 @@ function OrderiApp() {
     }
   };
 
-  // Feature: Evaluate WhatsApp Advertiser's message against captain's conditions with Gemini AI
+  // Privacy-first evaluation: analyze the order on-device; do not send WhatsApp text to a server.
   const handleEvaluateAiOrder = async (order: ParsedOrder) => {
     setOrders((prev) =>
       prev.map((o) => (o.id === order.id ? { ...o, isAnalyzingAi: true } : o))
     );
     try {
-      const res = await fetch('/api/ai/evaluate-match', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          rawText: order.rawText,
-          senderName: order.senderName,
-          senderPhone: order.senderPhone,
-          groupName: order.groupName,
-          from: order.from,
-          to: order.to,
-          price: order.price,
-          driverLocation,
-          filter,
-        }),
-      });
-      const json = await res.json();
-      if (json && json.success && json.data) {
-        setOrders((prev) =>
-          prev.map((o) =>
-            o.id === order.id ? { ...o, aiAnalysis: json.data, isAnalyzingAi: false } : o
-          )
-        );
-        showToast(`✨ فحص الـ AI: تطابق ${json.data.score}% (${json.data.verdictLabel})`);
-        return;
-      }
-      throw new Error(json?.error || 'فشل الاتصال بالذكاء الاصطناعي');
-    } catch (err: any) {
-      console.warn('AI match server request fell back to client AI analyzer:', err?.message);
-      // Resilient client-side evaluator ensuring 100% availability
-      const fallbackAnalysis = computeClientAiEvaluation(order, filter, driverLocation);
+      const localAnalysis = computeClientAiEvaluation(order, filterRef.current, driverLocationRef.current);
       setOrders((prev) =>
         prev.map((o) =>
-          o.id === order.id ? { ...o, aiAnalysis: fallbackAnalysis, isAnalyzingAi: false } : o
+          o.id === order.id ? { ...o, aiAnalysis: localAnalysis, isAnalyzingAi: false } : o
         )
       );
-      showToast(`✨ فحص الـ AI: تطابق ${fallbackAnalysis.score}% (${fallbackAnalysis.verdictLabel})`);
+      showToast(`✨ فحص محلي: تطابق ${localAnalysis.score}% (${localAnalysis.verdictLabel}) — لم تُرسل الرسالة للخادم`);
+    } catch (err) {
+      console.warn('[Orderi] Local AI evaluation failed:', err);
+      setOrders((prev) =>
+        prev.map((o) => o.id === order.id ? { ...o, isAnalyzingAi: false } : o)
+      );
+      showToast('تعذر تحليل الطلب محلياً؛ لم تُرسل الرسالة لأي خدمة خارجية');
     }
   };
 
@@ -1788,11 +1766,9 @@ function OrderiApp() {
 
     setOrders((prev) =>
       prev.map((ord) => {
-        const isTarget = 
-          ord.id === orderId || 
-          (ord.crossPostedGroups && ord.crossPostedGroups.some((g) => evidence.groupName.includes(g)));
-        
-        if (!isTarget) return ord;
+        // The detector already matched one canonical order. Do not close every order
+        // from the same WhatsApp group; that could hide unrelated active deliveries.
+        if (ord.id !== orderId) return ord;
 
         if (verdict === 'confirmed_closed') {
           return {
