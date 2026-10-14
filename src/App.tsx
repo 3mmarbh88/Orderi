@@ -358,6 +358,7 @@ function OrderiApp() {
               handleProcessIncomingRawOrder({
                 id: `android-wa-${event.id}`,
                 from: parsed.from, to: parsed.to, price: parsed.price,
+                orderCount: parsed.orderCount,
                 isPriceUnspecified: parsed.isPriceUnspecified,
                 rawText: rawText || event.title || '', groupName,
                 senderName: event.title || 'WhatsApp', senderPhone: parsed.phone,
@@ -1028,6 +1029,7 @@ function OrderiApp() {
           from: parsed.from,
           to: parsed.to,
           price: parsed.price,
+          orderCount: parsed.orderCount,
           isPriceUnspecified: parsed.isPriceUnspecified,
           rawText: rawText || event.title || '',
           groupName,
