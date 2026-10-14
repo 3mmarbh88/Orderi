@@ -178,7 +178,7 @@ export function addOrUpdateLearnedExpression(newExpr: Omit<LearnedClosureExpress
   saveLearnedExpressions(current);
 
   // Local-first sync. Never upload sourceContext because it may contain private WhatsApp text.
-  const captainPhone = (getCurrentUser()?.phone || '').replace(/\\D/g, '');
+  const captainPhone = (getCurrentUser()?.phone || '').replace(/\D/g, '');
   if (captainPhone) {
     fetch(`${ORDERI_SERVER_URL}/api/closure-expressions`, {
       method: 'POST',
@@ -207,7 +207,7 @@ export function deleteLearnedExpression(id: string): LearnedClosureExpression[] 
   const filtered = current.filter(item => item.id !== id);
   saveLearnedExpressions(filtered);
 
-  const captainPhone = (getCurrentUser()?.phone || '').replace(/\\D/g, '');
+  const captainPhone = (getCurrentUser()?.phone || '').replace(/\D/g, '');
   if (captainPhone && deleted) {
     fetch(`${ORDERI_SERVER_URL}/api/closure-expressions?captainPhone=${encodeURIComponent(captainPhone)}&phrase=${encodeURIComponent(deleted.phrase)}`, {
       method: 'DELETE',
@@ -223,7 +223,7 @@ export function deleteLearnedExpression(id: string): LearnedClosureExpression[] 
  */
 export async function syncLearnedExpressions(): Promise<LearnedClosureExpression[]> {
   const local = getStoredLearnedExpressions();
-  const captainPhone = (getCurrentUser()?.phone || '').replace(/\\D/g, '');
+  const captainPhone = (getCurrentUser()?.phone || '').replace(/\D/g, '');
   if (!captainPhone) return local;
 
   try {
