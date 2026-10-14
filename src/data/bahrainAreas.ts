@@ -128,7 +128,7 @@ const BAHRAIN_AREA_ALIASES: Record<string, string> = {
 };
 
 function compactPlaceText(value: string): string {
-  return normalizeArabicText(value).replace(/[\\s.,،؛:()\\-_/]/g, '');
+  return normalizeArabicText(value).replace(/[\s.,،؛:()\-_/]/g, '');
 }
 
 export function findAreaByName(name: string): AreaLocation | undefined {
@@ -136,19 +136,21 @@ export function findAreaByName(name: string): AreaLocation | undefined {
   const normalized = normalizeArabicText(name);
   const compact = compactPlaceText(name);
 
-  // 0. Resolve common local abbreviations before fuzzy area matching.
+  // 0. Resolve local abbreviations even when embedded in a pickup/drop-off sentence.
+  // Matching is still area-level: this does not claim an exact street or roundabout pin.
   for (const [alias, areaId] of Object.entries(BAHRAIN_AREA_ALIASES)) {
-    if (compactPlaceText(alias) === compact) {
+    const aliasCompact = compactPlaceText(alias);
+    if (compact === aliasCompact || compact.includes(aliasCompact)) {
       const aliasedArea = BAHRAIN_AREAS.find((area) => area.id === areaId);
       if (aliasedArea) return aliasedArea;
     }
   }
 
-  // A numbered roundabout in a message that explicitly mentions Hamad Town
-  // identifies the town, but not a verified exact roundabout pin.
-  const mentionsHamadTown = /مدينة\\s*حمد|مدينه\\s*حمد|م\\.?\\s*حمد|hamad\\s*town/i.test(name);
-  const mentionsNumberedRoundabout = /(?:دوار|دوار رقم|roundabout)\\s*[0-9٠-٩]+/i.test(name);
-  if (mentionsHamadTown && mentionsNumberedRoundabout) {
+  // In local WhatsApp shorthand, numbered roundabouts refer to Hamad Town.
+  // Return only the town's general location until each roundabout has verified coordinates.
+  const mentionsHamadTown = /مدينة\s*حمد|مدينه\s*حمد|م\.?\s*حمد|hamad\s*town/i.test(name);
+  const mentionsNumberedRoundabout = /(?:دوار(?:\s*رقم)?|roundabout)\s*[0-9٠-٩]+/i.test(name);
+  if (mentionsNumberedRoundabout && (mentionsHamadTown || /(?:^|[\s،,])(?:دوار(?:\s*رقم)?|roundabout)\s*[0-9٠-٩]+(?:$|[\s،,])/i.test(name))) {
     return BAHRAIN_AREAS.find((area) => area.id === 'hamad_town');
   }
 
