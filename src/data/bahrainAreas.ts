@@ -286,6 +286,16 @@ export function normalizeArabicText(text: string): string {
     .replace(/[\u064B-\u065F]/g, ''); // Remove tashkeel/diacritics
 }
 
+/** Replace only uniquely matched location tokens with their canonical area names. */
+export function correctBahrainAreaTyposInText(text: string): string {
+  if (!text) return text;
+  return text.replace(/[\\p{L}\\p{N}]+/gu, (token) => {
+    if (token.length < 4) return token;
+    const corrected = findUniqueTypoCorrection(token);
+    return corrected ? corrected.name : token;
+  });
+}
+
 export function findNearestArea(lat: number, lon: number): { area: AreaLocation; distanceKm: number } {
   let nearest = BAHRAIN_AREAS[0];
   let minDistance = calculateDistanceKm(lat, lon, nearest.latitude, nearest.longitude);
