@@ -153,7 +153,7 @@ export function checkIncomingMessageForClosure(
   }
 
   // Android may expose a WhatsApp sticker only as «ملصق/Sticker». It must be tied to the advertiser/order.
-  const isPureSticker = /^(?:sticker|ملصق|🖼️\s*ملصق|🖼️\s*sticker|صورة)$/i.test(rawText.trim());
+  const isPureSticker = /^(?:sticker|ملصق|🖼️\s*ملصق|🖼️\s*sticker)$/i.test(rawText.trim());
 
   const { matchedWords, matchedEmojis, matchedGratitudeWords, hasClosureIntent } = extractClosureKeywords(rawText);
   const hasEmojiSignal = matchedEmojis.length > 0;
@@ -170,7 +170,8 @@ export function checkIncomingMessageForClosure(
       (msgGroup && order.groupName && (order.groupName.includes(msgGroup) || msgGroup.includes(order.groupName))) ||
       (order.crossPostedGroups && order.crossPostedGroups.some((g) => g.includes(msgGroup) || msgGroup.includes(g)));
 
-    if (!inSameGroup && msgGroup) return false;
+    // Never infer a group closure from a private/unknown conversation.
+    if (!msgGroup || !inSameGroup) return false;
 
     // نافذة زمنية واقعية: خلال 3 ساعات من نشر الإعلان
     const orderTime = new Date(order.receivedAt).getTime();
@@ -231,13 +232,25 @@ export function checkIncomingMessageForClosure(
   }
 
   // =========================================================================
-  // المستوى الثاني: مرسل الرسالة هو نفس صاحب الإعلان الصادر عنه الطلب
-  // (الأولوية للطلب الأقرب زمنياً الصادر عن المعلن نفسه)
+  // المستوى الثاني: ردّ المعلن نفسه. إذا كانت له عدة طلبات نشطة في المجموعة،
+  // لا نختار واحداً بالتخمين؛ يلزم اقتباس أو ذكر مسار/سعر واضح.
   // =========================================================================
+  const advertiserMatchedOrders = sortedCandidates.filter((candidate) =>
+    isAdvertiserSenderMatch(msgSender, msgPhone, candidate.senderName, candidate.senderPhone)
+  );
   for (const order of sortedCandidates) {
     const isAdvertiser = isAdvertiserSenderMatch(msgSender, msgPhone, order.senderName, order.senderPhone);
+    const cleanMsgForOrder = cleanDialectText(rawText);
+    const explicitlyMentionsOrder =
+      (order.from && cleanMsgForOrder.includes(cleanDialectText(order.from))) ||
+      (order.to && cleanMsgForOrder.includes(cleanDialectText(order.to))) ||
+      (order.price && order.price > 0 && cleanMsgForOrder.includes(order.price.toString()));
 
-    if (isAdvertiser && (hasClosureIntent || isPureSticker || (emojiCanSupportClosure && matchedGratitudeWords.length === 0))) {
+    if (
+      isAdvertiser &&
+      (hasClosureIntent || isPureSticker || (emojiCanSupportClosure && matchedGratitudeWords.length === 0)) &&
+      (advertiserMatchedOrders.length === 1 || explicitlyMentionsOrder)
+    ) {
       // The advertiser's explicit closure text, sticker-only reply, or non-gratitude emoji can be evidence.
       processedMessageHashes.add(dedupeKey);
       markOrderPermanentlyClosed(order.id);
