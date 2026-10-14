@@ -262,8 +262,10 @@ public class OrderiAccessibilityService extends AccessibilityService {
                 finishArchivedReadPass("Unread marker had no clickable chat row");
                 return;
             }
-            String signature = describeNode(unreadMarker);
-            if (TextUtils.isEmpty(signature)) signature = describeNode(chatRow);
+            // A badge often says only "unread messages" for every chat. Build the
+            // de-duplication key from all accessible text inside the chat row instead.
+            String signature = nodeSignature(chatRow);
+            if (TextUtils.isEmpty(signature)) signature = describeNode(unreadMarker);
             if (TextUtils.isEmpty(signature)) signature = "unread-" + archivedChatsVisited;
 
             if (archivedUnreadChatsVisited.contains(signature)) {
@@ -334,6 +336,22 @@ public class OrderiAccessibilityService extends AccessibilityService {
             current = current.getParent();
         }
         return null;
+    }
+
+    private String nodeSignature(AccessibilityNodeInfo node) {
+        if (node == null) return "";
+        StringBuilder value = new StringBuilder();
+        appendNodeText(node, value, 0);
+        return value.toString().toLowerCase(java.util.Locale.ROOT).replaceAll("\\s+", " ").trim();
+    }
+
+    private void appendNodeText(AccessibilityNodeInfo node, StringBuilder out, int depth) {
+        if (node == null || depth > 8) return;
+        String own = describeNode(node);
+        if (!TextUtils.isEmpty(own)) out.append(own).append(' ');
+        for (int i = 0; i < node.getChildCount(); i++) {
+            appendNodeText(node.getChild(i), out, depth + 1);
+        }
     }
 
     private String describeNode(AccessibilityNodeInfo node) {
