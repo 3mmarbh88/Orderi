@@ -25,6 +25,11 @@ assert.equal(buKowarahOrder.to, 'مدينة حمد');
 assert.equal(buKowarahOrder.price, 0, 'Parser must not invent a price when none is stated');
 assert.equal(buKowarahOrder.isPriceUnspecified, true);
 
+
+const roundaboutOrder = parseWhatsAppOrderText('أوردر من دوار 1 إلى مدينة عيسى');
+assert.equal(roundaboutOrder.from, 'مدينة حمد', 'Numbered roundabouts are resolved to town-level only');
+assert.equal(roundaboutOrder.to, 'مدينة عيسى');
+
 const passengerOrder = parseWhatsAppOrderText('توصيل شخص من أبو قوة إلى مدينة عيسى');
 assert.equal(passengerOrder.passengerDetection.level, 'confirmed_passenger');
 
