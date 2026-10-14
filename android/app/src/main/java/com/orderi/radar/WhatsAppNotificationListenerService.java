@@ -76,6 +76,31 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         super.onListenerDisconnected();
     }
 
+    /**
+     * Marks only the exact WhatsApp group that produced a confirmed parsed order.
+     * Does not cancel notifications or execute actions for any other conversation.
+     */
+    public static int markWhatsAppGroupAsRead(String targetGroup) {
+        if (TextUtils.isEmpty(targetGroup)) return 0;
+        String normalizedTarget = targetGroup.trim().toLowerCase(java.util.Locale.ROOT);
+        java.util.HashSet<PendingIntent> sentIntents = new java.util.HashSet<>();
+        int count = 0;
+        for (MarkAsReadHolder holder : MARK_AS_READ_ACTIONS.values()) {
+            if (holder == null || holder.pendingIntent == null || TextUtils.isEmpty(holder.title)) continue;
+            String normalizedTitle = holder.title.trim().toLowerCase(java.util.Locale.ROOT);
+            if (!normalizedTitle.equals(normalizedTarget)) continue;
+            if (sentIntents.contains(holder.pendingIntent)) continue;
+            try {
+                holder.pendingIntent.send();
+                sentIntents.add(holder.pendingIntent);
+                count++;
+            } catch (Exception e) {
+                android.util.Log.w("WhatsAppNotificationListenerService", "Could not mark source group as read", e);
+            }
+        }
+        return count;
+    }
+
     public static int markAllWhatsAppAsRead(android.content.Context context) {
         return markAllWhatsAppAsRead(context, null);
     }
