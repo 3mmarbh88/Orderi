@@ -19,7 +19,6 @@ import {
   Star,
   ShieldAlert,
   Zap,
-  Lightbulb,
   AlertTriangle,
   Layers,
   RefreshCw,
@@ -555,15 +554,6 @@ export function OrderCard({
                     <span>خاص دايركت 👤</span>
                   </span>
                 )}
-                {order.crossPostedGroups && order.crossPostedGroups.length > 1 && (
-                  <span 
-                    className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-purple-100 text-purple-900 border border-purple-300 shadow-2xs"
-                    title={`تم نشر هذا الطلب في ${order.crossPostedGroups.length} قروبات وتم دمجه لمنع التكرار`}
-                  >
-                    <Layers className="w-3 h-3 text-purple-700" />
-                    <span>مكرر في {order.crossPostedGroups.length} قروبات (تم دمجه ✓)</span>
-                  </span>
-                )}
                 {order.outreachStatus === 'chat_opened_pending_send' && (
                   <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-blue-100 text-blue-900 border border-blue-300 shadow-2xs">
                     <MessageCircle className="w-3 h-3 text-blue-700" />
@@ -715,70 +705,26 @@ export function OrderCard({
             </div>
           </div>
 
-          {/* AI Match with Captain's Conditions (Gemini AI Feature) */}
-          <div className="pt-0.5">
-            {order.aiAnalysis ? (
-              <div 
-                onClick={() => setShowAiModal(true)}
-                className="w-full p-3 rounded-2xl bg-gradient-to-l from-indigo-50/90 via-blue-50/80 to-emerald-50/80 border border-blue-200/80 hover:border-blue-300 shadow-2xs hover:shadow-xs transition-all cursor-pointer group"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <div className="w-7 h-7 rounded-xl bg-gradient-to-tr from-blue-700 to-indigo-600 text-white flex items-center justify-center shrink-0 shadow-xs">
-                      <Sparkles className="w-3.5 h-3.5 fill-white" />
-                    </div>
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-xs font-black text-slate-900">مطابقة شروطي بالـ AI:</span>
-                      <span className="px-2 py-0.5 rounded-lg bg-white text-blue-800 text-[11px] font-black border border-blue-200 shadow-2xs">
-                        {order.aiAnalysis.score}% {order.aiAnalysis.verdictLabel}
-                      </span>
-                    </div>
-                  </div>
-                  <span className="text-[11px] font-black text-blue-700 group-hover:underline shrink-0 flex items-center gap-1">
-                    <span>تفاصيل التحليل</span>
-                    <ArrowLeft className="w-3 h-3" />
-                  </span>
-                </div>
-
-                {order.aiAnalysis.captainAdvice && (
-                  <div className="mt-2 text-[11px] font-bold text-slate-700 bg-white/80 p-2 rounded-xl border border-blue-100 flex items-start gap-1.5">
-                    <Lightbulb className="w-3.5 h-3.5 text-amber-500 fill-amber-400 shrink-0 mt-0.5" />
-                    <span className="line-clamp-2">{order.aiAnalysis.captainAdvice}</span>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
+          {/* Compact AI match control: keeps the feature without the large explanation panel */}
+          <div className="flex justify-end -mt-1">
+            <button
+              type="button"
+              title={order.aiAnalysis ? 'عرض تحليل مطابقة الطلب' : 'فحص مطابقة الطلب بالذكاء الاصطناعي'}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (order.aiAnalysis) {
+                  setShowAiModal(true);
+                } else {
                   onEvaluateAi?.(order);
-                }}
-                disabled={order.isAnalyzingAi}
-                className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-blue-50/90 via-indigo-50/90 to-purple-50/90 hover:from-blue-100 hover:to-indigo-100 border border-blue-200/90 text-blue-950 text-xs font-black flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-60 shadow-2xs hover:shadow-xs active:scale-[0.99]"
-              >
-                <Sparkles className={`w-3.5 h-3.5 text-blue-600 ${order.isAnalyzingAi ? 'animate-spin' : 'fill-blue-500'}`} />
-                <span>
-                  {order.isAnalyzingAi ? 'جاري فحص رسالة المعلن ومطابقتها مع شروطك...' : '✨ فحص مطابقة الإعلان لشروطي بالذكاء الاصطناعي'}
-                </span>
-              </button>
-            )}
+                }
+              }}
+              disabled={order.isAnalyzingAi}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 text-[10px] font-bold disabled:opacity-60"
+            >
+              <Sparkles className={`w-3 h-3 ${order.isAnalyzingAi ? 'animate-spin' : ''}`} />
+              {order.isAnalyzingAi ? '...' : order.aiAnalysis ? `${order.aiAnalysis.score}%` : 'AI'}
+            </button>
           </div>
-
-          {/* Multi-group deduplication notice banner */}
-          {order.crossPostedGroups && order.crossPostedGroups.length > 1 && (
-            <div className="p-2.5 rounded-xl bg-purple-50 border border-purple-200/90 text-purple-950 flex items-start gap-2 text-xs">
-              <Layers className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
-              <div className="min-w-0 space-y-0.5">
-                <span className="font-black text-purple-900 block text-[11px]">
-                  🛡️ تم منع التكرار: نُشر هذا الإعلان في {order.crossPostedGroups.length} قروبات واتساب وتم دمجه
-                </span>
-                <p className="text-[10px] text-purple-800 truncate">
-                  القروبات: {order.crossPostedGroups.join(' • ')}
-                </p>
-              </div>
-            </div>
-          )}
 
           {/* Original WhatsApp Message Accordion */}
           <div className="rounded-xl bg-slate-50 border border-slate-200/70 p-3">
@@ -1243,6 +1189,19 @@ export function OrderCard({
             </div>
           </div>
         </div>
+      )}
+
+      {/* AI Match Analysis Details Modal */}
+      {showAiModal && order.aiAnalysis && (
+        <AIMatchModal
+          order={order}
+          analysis={order.aiAnalysis}
+          onClose={() => setShowAiModal(false)}
+          onAccept={(acceptedOrder) => {
+            setShowAiModal(false);
+            onAccept(acceptedOrder);
+          }}
+        />
       )}
 
       {/* AI Match Analysis Details Modal */}
