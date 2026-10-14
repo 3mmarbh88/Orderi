@@ -1,6 +1,7 @@
 import { BAHRAIN_AREAS, normalizeArabicText } from '../data/bahrainAreas';
 import { BAHRAIN_LANDMARKS } from '../data/bahrainLandmarks';
 import { detectPassengerDelivery } from './passengerClassifier';
+import { detectAdvertisementMessage } from './advertisementClassifier';
 import { PassengerDetection } from '../types';
 
 export interface RawParsedResult {
@@ -18,6 +19,9 @@ export interface RawParsedResult {
   notes: string;
   confidence: number;
   canCreateOrder: boolean;
+  /** True when this message promotes a service/business instead of requesting a delivery. */
+  isAdvertisement?: boolean;
+  advertisementReason?: string;
   passengerDetection: PassengerDetection;
 }
 
@@ -88,6 +92,7 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
 
   const convertedText = convertArabicNumerals(rawText);
   const normalized = normalizeArabicText(convertedText);
+  const advertisementDetection = detectAdvertisementMessage(rawText);
 
   // Explicit order quantity: "اوردرين", "2 اوردرات", "ثلاثة طلبات".
   // A trailing number without the word order is not treated as an order count.
@@ -501,8 +506,10 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
   if (toArea) confidence += 40;
   if (price > 0) confidence += 10;
   if (phone) confidence += 10;
+  if (advertisementDetection.isAdvertisement) confidence = 0;
 
-  const canCreateOrder = !!fromArea && !!toArea;
+  // Service promotions must never become radar orders just because they mention routes, items or prices.
+  const canCreateOrder = !advertisementDetection.isAdvertisement && !!fromArea && !!toArea;
   const isPriceUnspecified = !price || price <= 0;
 
   return {
@@ -519,6 +526,8 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
     notes,
     confidence,
     canCreateOrder,
+    isAdvertisement: advertisementDetection.isAdvertisement,
+    advertisementReason: advertisementDetection.reason,
     passengerDetection,
   };
 }
