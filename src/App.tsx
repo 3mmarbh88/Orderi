@@ -81,7 +81,7 @@ import {
 } from './utils/groupLinkDetector';
 import { getWhatsAppConnection, markWhatsAppVerified } from './utils/whatsappConnection';
 import { isNativeAndroid, OrderiNotificationListener, WhatsAppNativeEvent } from './native/orderiNotificationListener';
-import { getWhatsAppListenerStatus, markAllWhatsAppAsRead } from './native/whatsappListener';
+import { getWhatsAppListenerStatus, markAllWhatsAppAsRead, dismissNativeOrderNotification } from './native/whatsappListener';
 import { isDuplicateOrder, findDuplicateOrderMatch, rememberOrderFingerprint } from './utils/orderDedup';
 import { computeClientAiEvaluation } from './utils/aiEvaluator';
 import { detectPassengerDelivery } from './utils/passengerClassifier';
@@ -1778,6 +1778,8 @@ function OrderiApp() {
 
       // 2. Dismiss and cancel background OS notification instantly (حذف الإشعار من شريط الإشعارات)
       dismissBackgroundOrderNotification(orderId);
+      const closedOrder = closureMatch.matchedOrder;
+      if (closedOrder?.rawText) void dismissNativeOrderNotification(closedOrder.rawText);
 
       // 3. If focused in modal or details card, dismiss it immediately
       if (focusedOrder?.id === orderId) {
