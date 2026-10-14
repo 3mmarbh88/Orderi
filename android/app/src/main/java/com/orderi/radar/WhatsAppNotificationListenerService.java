@@ -715,6 +715,40 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         }
     }
 
+    /**
+     * Dismiss matching Orderi alerts. Android does not expose individual WhatsApp message
+     * deletion events via NotificationListenerService; this only clears our own Orderi alert.
+     */
+    public static int dismissOrderNotificationsMatching(Context context, String rawOrderText) {
+        if (context == null || TextUtils.isEmpty(rawOrderText)) return 0;
+        String needle = rawOrderText.trim();
+        if (needle.length() > 70) needle = needle.substring(0, 70);
+        String normalizedNeedle = needle.toLowerCase()
+                .replace('إ', 'ا').replace('أ', 'ا').replace('آ', 'ا')
+                .replaceAll("\\s+", " ").trim();
+        if (normalizedNeedle.length() < 8) return 0;
+        int cancelled = 0;
+        try {
+            NotificationManager manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+            if (manager == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return 0;
+            for (android.service.notification.StatusBarNotification active : manager.getActiveNotifications()) {
+                Notification notification = active.getNotification();
+                if (notification == null || notification.extras == null) continue;
+                String title = safe(String.valueOf(notification.extras.getCharSequence(Notification.EXTRA_TITLE)));
+                String text = safe(String.valueOf(notification.extras.getCharSequence(Notification.EXTRA_TEXT)));
+                String bigText = safe(String.valueOf(notification.extras.getCharSequence(Notification.EXTRA_BIG_TEXT)));
+                String combined = (title + " " + text + " " + bigText).toLowerCase()
+                        .replace('إ', 'ا').replace('أ', 'ا').replace('آ', 'ا')
+                        .replaceAll("\\s+", " ").trim();
+                if (combined.contains(normalizedNeedle) || normalizedNeedle.contains(combined)) {
+                    manager.cancel(active.getId());
+                    cancelled++;
+                }
+            }
+        } catch (Exception ignored) {}
+        return cancelled;
+    }
+
     private void createOrderChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
         NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
