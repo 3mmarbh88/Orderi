@@ -235,8 +235,8 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
     // Matches: "من الرفاع", "استلام من سار", "بالرفاع", "في الرفاع", "عند مجمع السيف"
     if (!fromArea) {
       const fromPattern = startsWithAl
-        ? new RegExp(`(?:(?:من|استلام من|استلام|بيك اب من|بيك اب|موقع|تحميل من|فرع|عند)\\s*(?:مجمع|مول|سوق|منطقة|قرية)?\\s*${kw}\\b|(?:^|[\\s،,.])بال(?:مجمع|مول|سوق|منطقة|قرية)?${core}\\b|(?:^|[\\s،,.])في\\s+(?:مجمع|مول|سوق|منطقة|قرية)?${kw}\\b)`, 'i')
-        : new RegExp(`(?:(?:من|استلام من|استلام|بيك اب من|بيك اب|موقع|تحميل من|فرع|عند)\\s*(?:مجمع|مول|سوق|منطقة|قرية)?\\s*${kw}\\b|(?:^|[\\s،,.])بـ?${kw}\\b|(?:^|[\\s،,.])في\\s+(?:مجمع|مول|سوق|منطقة|قرية)?${kw}\\b)`, 'i');
+        ? new RegExp(`(?:(?:من|استلام من|استلام|بيك اب من|بيك اب|موقع|تحميل من|فرع|عند)\s*(?:مجمع|مول|سوق|منطقة|قرية)?\s*${kw}\\b|(?:^|[\s،,.])بال(?:مجمع|مول|سوق|منطقة|قرية)?${core}\\b|(?:^|[\s،,.])في\s+(?:مجمع|مول|سوق|منطقة|قرية)?${kw}\\b)`, 'i')
+        : new RegExp(`(?:(?:من|استلام من|استلام|بيك اب من|بيك اب|موقع|تحميل من|فرع|عند)\s*(?:مجمع|مول|سوق|منطقة|قرية)?\s*${kw}\\b|(?:^|[\s،,.])بـ?${kw}\\b|(?:^|[\s،,.])في\s+(?:مجمع|مول|سوق|منطقة|قرية)?${kw}\\b)`, 'i');
 
       if (fromPattern.test(normalized)) {
         fromArea = item.placeName;
@@ -247,8 +247,8 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
     // Matches: "الى الرفاع", "للمنامة", "للمطار", "للسلمانية", "للجسر", "لسار", "لـمدينة حمد", "توصيل للرفاع", "مشوار للمطار"
     if (!toArea) {
       const toPattern = startsWithAl
-        ? new RegExp(`(?:(?:الى|إلى|لي|تسليم الى|تسليم ل|تسليم|توصيل الى|توصيل ل|مشوار الى|مشوار ل|توصيلة الى|توصيلة ل|وجهة|مكان|يوصل)\\s*(?:مجمع|مول|سوق|منطقة|قرية)?\\s*${kw}\\b|(?:^|[\\s،,.]|(?:مشوار|توصيل|توصيلة|نقل|روحة|طالع)\\s+)لل(?:مجمع|مول|سوق|منطقة|قرية)?${core}\\b|(?:^|[\\s،,.])لـ?${kw}\\b)`, 'i')
-        : new RegExp(`(?:(?:الى|إلى|لي|تسليم الى|تسليم ل|تسليم|توصيل الى|توصيل ل|مشوار الى|مشوار ل|توصيلة الى|توصيلة ل|وجهة|مكان|يوصل)\\s*(?:مجمع|مول|سوق|منطقة|قرية)?\\s*${kw}\\b|(?:^|[\\s،,.]|(?:مشوار|توصيل|توصيلة|نقل|روحة|طالع)\\s+)لـ?${kw}\\b)`, 'i');
+        ? new RegExp(`(?:(?:الى|إلى|لي|تسليم الى|تسليم ل|تسليم|توصيل الى|توصيل ل|مشوار الى|مشوار ل|توصيلة الى|توصيلة ل|وجهة|مكان|يوصل)\s*(?:مجمع|مول|سوق|منطقة|قرية)?\s*${kw}\\b|(?:^|[\s،,.]|(?:مشوار|توصيل|توصيلة|نقل|روحة|طالع)\s+)لل(?:مجمع|مول|سوق|منطقة|قرية)?${core}\\b|(?:^|[\s،,.])لـ?${kw}\\b)`, 'i')
+        : new RegExp(`(?:(?:الى|إلى|لي|تسليم الى|تسليم ل|تسليم|توصيل الى|توصيل ل|مشوار الى|مشوار ل|توصيلة الى|توصيلة ل|وجهة|مكان|يوصل)\s*(?:مجمع|مول|سوق|منطقة|قرية)?\s*${kw}\\b|(?:^|[\s،,.]|(?:مشوار|توصيل|توصيلة|نقل|روحة|طالع)\s+)لـ?${kw}\\b)`, 'i');
 
       if (toPattern.test(normalized) && (!fromArea || item.placeName !== fromArea || /(?:من|استلام).*?(?:الى|إلى|لل|لـ|تسليم)/i.test(normalized))) {
         toArea = item.placeName;
@@ -321,8 +321,8 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
       const seenFuzzy = new Set<string>();
       for (const item of allKeywordItems) {
         const keyword = item.normalizedKeyword.trim();
-        const keywordWords = keyword.split(/\\s+/).filter(Boolean);
-        const limit = getPlaceTypoLimit(keyword.replace(/\\s/g, ''));
+        const keywordWords = keyword.split(/\s+/).filter(Boolean);
+        const limit = getPlaceTypoLimit(keyword.replace(/\s/g, ''));
         if (!limit || keywordWords.length === 0) continue;
 
         // Compare equal-sized word windows so multi-word names stay aligned.
@@ -331,8 +331,8 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
           if (window.length !== keywordWords.length) continue;
           const candidate = window.map((token) => token.value).join(' ');
           if (candidate === keyword) continue;
-          const compactCandidate = candidate.replace(/\\s/g, '');
-          const compactKeyword = keyword.replace(/\\s/g, '');
+          const compactCandidate = candidate.replace(/\s/g, '');
+          const compactKeyword = keyword.replace(/\s/g, '');
           const distance = boundedEditDistance(compactCandidate, compactKeyword, limit);
           if (distance < 1 || distance > limit || distance / Math.max(compactCandidate.length, compactKeyword.length) > 0.22) continue;
 
@@ -343,8 +343,8 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
 
           const before = normalized.slice(Math.max(0, matchIndex - 22), matchIndex);
           let intentType: 'from' | 'to' | undefined;
-          if (/(?:من|استلام|بيك\\s*اب|عند|في|بال)\\s*$/.test(before)) intentType = 'from';
-          else if (/(?:الى|إلى|ل|لل|توصيل|مشوار|تسليم|وجهة)\\s*$/.test(before)) intentType = 'to';
+          if (/(?:من|استلام|بيك\s*اب|عند|في|بال)\s*$/.test(before)) intentType = 'from';
+          else if (/(?:الى|إلى|ل|لل|توصيل|مشوار|تسليم|وجهة)\s*$/.test(before)) intentType = 'to';
 
           const alreadySub = foundPlaces.some((found) => Math.abs(found.index - matchIndex) < 4);
           if (!alreadySub) foundPlaces.push({ name: item.placeName, index: matchIndex, intentType });
@@ -449,7 +449,7 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
     'وجبة', 'مستندات', 'أوراق', 'عباية', 'ملابس', 'شحنة', 'أمانات', 'كرتون'
   ];
   for (const kw of noteKeywords) {
-    const kwRegex = new RegExp(`(?:^|[\\s،,.])${kw}(?:$|[\\s،,.])`, 'i');
+    const kwRegex = new RegExp(`(?:^|[\s،,.])${kw}(?:$|[\s،,.])`, 'i');
     if (kwRegex.test(normalized)) {
       notes = kw;
       break;
