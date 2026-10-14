@@ -200,7 +200,7 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
     // Standard Geographic Areas
     ...BAHRAIN_AREAS.map((a) => ({
       name: a.name,
-      keywords: [a.name, a.nameEn],
+      keywords: [a.name, a.nameEn, ...(normalizeArabicText(a.name).startsWith('ال') ? [a.name.replace(/^ال/, '')] : []), ...(a.id === 'manama' ? ['منامه', 'المنامه'] : [])],
       isLandmark: false,
     })),
   ];

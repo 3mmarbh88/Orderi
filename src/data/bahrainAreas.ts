@@ -176,6 +176,15 @@ export function findAreaByName(name: string): AreaLocation | undefined {
   }
 
 
+  // Match familiar WhatsApp shorthand without the definite article (e.g. رفاع، عدلية، محرق).
+  // Only remove the article from a known canonical area name; never strip it from arbitrary words.
+  const articlelessArea = BAHRAIN_AREAS.find((area) => {
+    const canonical = normalizeArabicText(area.name);
+    const withoutArticle = canonical.startsWith('ال') ? canonical.slice(2) : canonical;
+    return normalized === withoutArticle;
+  });
+  if (articlelessArea) return articlelessArea;
+
   // 1. Direct match with standard Bahrain areas
   const directArea = BAHRAIN_AREAS.find((area) => {
     const areaNorm = normalizeArabicText(area.name);
