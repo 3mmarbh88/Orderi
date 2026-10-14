@@ -85,6 +85,27 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
   const passengerDetection = detectPassengerDelivery(rawText);
   const passengerCount = passengerDetection.passengerCount;
 
+  // Suppress personal travel announcements (not delivery requests), even when they
+  // include a phone number or travel day. Explicit order/delivery language takes priority.
+  const hasExplicitOrderLanguage = /(?:اوردر|أوردر|طلب توصيل|طلب|توصيل|مندوب|بيك\s*اب|pickup|delivery|استلام|تسليم|شحن|طرود|بضاعة|كرتون|وجبة|مشوار للعميل|مطلوب\s*(?:مندوب|توصيل))/i.test(rawText);
+  const hasTravelAnnouncementVerb = /(?:^|[\\s،,.])(?:طالع|طالعة|رايح|رايحه|رايحة|مسافر|مسافره|مسافرة|متجه|متجهة|بطلع|بروح|بسافر|متوجه|متوجهة)(?=$|[\\s،,.])/i.test(normalized);
+  const mentionsTravelDestination = /(?:الامارات|امارات|الإمارات|دبي|ابوظبي|أبوظبي|الشارقه|الشارقة|عجمان|السعوديه|السعودية|الرياض|جده|جدة|الدمام|الخبر|مكه|مكة|المدينه|المدينة|الكويت|قطر|الدوحه|الدوحة|عمان|مسقط|الاردن|الأردن)/i.test(normalized);
+  if (hasTravelAnnouncementVerb && mentionsTravelDestination && !hasExplicitOrderLanguage) {
+    return {
+      from: '',
+      to: '',
+      price: 0,
+      orderCategory: undefined,
+      isPriceUnspecified: true,
+      passengerCount: passengerDetection.passengerCount,
+      phone: '',
+      notes: 'إعلان سفر شخصي — مستبعد من الرادار',
+      confidence: 0,
+      canCreateOrder: false,
+      passengerDetection,
+    };
+  }
+
   // 2. Detect Phone Number (Bahrain format: 8 digits starting with 3, 6, 17 or prefixed with 973)
   let phone = '';
   const phoneRegex = /(?:\+?973|00973)?[\s-]*(3\d{7}|6\d{7}|17\d{6}|[36]\d{3}[\s-]?\d{4})/g;
