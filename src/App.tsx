@@ -1540,8 +1540,9 @@ function OrderiApp() {
       const res = await markAllWhatsAppAsRead(linkedGroups);
       const count = res.markedCount || 0;
 
-      // Keep Orderi's local read state in sync; archived chats are handled separately
-      // by the native Accessibility pass when that service is enabled.
+      // Update Orderi's local radar state without launching WhatsApp.
+      // Android notification actions can mark only chats/messages exposed by notifications;
+      // archived chats without a notification cannot be marked read through this API.
       setOrders((prev) =>
         prev.map((ord) => ({
           ...ord,
@@ -1553,18 +1554,10 @@ function OrderiApp() {
       if (filter.soundEnabled) {
         playAlertTone('cash_register', 70);
       }
-      if (res.archivedAutomationStarted) {
-        showToast(count > 0
-          ? `تمت معالجة ${count} إشعارًا متاحًا، وبدأ فحص القروبات المرتبطة غير المقروءة في المؤرشفة. سيفتح واتساب مؤقتًا ثم يعود البرنامج.`
-          : 'بدأ فحص القروبات المرتبطة غير المقروءة في المؤرشفة. سيفتح واتساب مؤقتًا ثم يعود البرنامج.');
-      } else if (res.accessibilityRequired) {
-        showToast(count > 0
-          ? `تمت قراءة ${count} إشعارًا متاحًا. لتضمين القروبات المؤرشفة، فعّل خدمة إمكانية الوصول الخاصة بـ Orderi.`
-          : 'لتضمين القروبات المؤرشفة، فعّل خدمة إمكانية الوصول الخاصة بـ Orderi من إعدادات إمكانية الوصول.');
-      } else if (count > 0) {
-        showToast(`تم تنفيذ القراءة في الخلفية لـ ${count} إشعار واتساب متاح. لم تبدأ قراءة المؤرشفة.`);
+      if (count > 0) {
+        showToast(`تم تحديث الرادار، وتعليم ${count} إشعارًا متاحًا كمقروء دون فتح واتساب. الرسائل المؤرشفة التي لا تملك إشعارات لا يمكن تعليمها كمقروءة بهذه الطريقة.`);
       } else {
-        showToast('لم توجد إجراءات قراءة متاحة، ولم تبدأ قراءة المؤرشفة. تأكد من ربط القروبات وتفعيل خدمة إمكانية الوصول في Orderi.');
+        showToast('تم تحديث حالة القراءة في رادار Orderi دون فتح واتساب. لا توجد إجراءات إشعارات متاحة لتعليم رسائل واتساب نفسها كمقروءة؛ الرسائل المؤرشفة الصامتة تبقى غير مؤكدة.');
       }
     } catch (e) {
       console.warn('[Orderi] Mark-all-read failed:', e);
