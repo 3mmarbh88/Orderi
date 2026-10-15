@@ -76,7 +76,7 @@ export function hasExplicitOrderIntent(rawText: string): boolean {
   if (serviceOffer && !explicitRequest) return false;
 
   const directIntent =
-    /(?:اوردر|توصيل|مندوب|بيك\\s*اب|بيكاب|pickup|delivery|courier|driver|كابتن|دليفري)/i;
+    /(?:اوردر|توصيل|مندوب|بيك\s*اب|بيكاب|pickup|delivery|courier|driver|كابتن|دليفري)/i;
 
   const combinedRequest =
     /(?:طلب|مطلوب|ابي|ابغي|احتاج|نحتاج)\s*(?:توصيل|مندوب|سائق|كابتن|بيك\s*اب|اوردر|delivery|pickup)/i;
