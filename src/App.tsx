@@ -82,6 +82,7 @@ import {
 import { getWhatsAppConnection, markWhatsAppVerified } from './utils/whatsappConnection';
 import { isNativeAndroid, OrderiNotificationListener, WhatsAppNativeEvent } from './native/orderiNotificationListener';
 import { getWhatsAppListenerStatus, markAllWhatsAppAsRead } from './native/whatsappListener';
+import { executePrivateAdvertiserOutreach } from './utils/whatsappPrivateOutreach';
 import { isDuplicateOrder, findDuplicateOrderMatch, rememberOrderFingerprint } from './utils/orderDedup';
 import { computeClientAiEvaluation } from './utils/aiEvaluator';
 import { detectPassengerDelivery } from './utils/passengerClassifier';
@@ -1961,9 +1962,8 @@ function OrderiApp() {
     showToast('✓ تم إلغاء الاشتباه وتثبيت الطلب كمتاح في الرادار');
   };
 
-  // Accept Order with Monthly Commitment Conflict Protection (حماية من التعارض مع التوصيل الشهري)
-  const handleAcceptOrder = (order: ParsedOrder, forceAccept = false) => {
-    // Check if accepting this order conflicts with an upcoming monthly commitment today!
+  // Accept only after the Android accessibility service confirms the private send-button action.
+  const handleAcceptOrder = async (order: ParsedOrder, forceAccept = false) => {
     if (!forceAccept) {
       const conflict = checkOrderConflictWithCommitments(commitments, 40);
       if (conflict.hasConflict && conflict.commitment) {
@@ -1972,20 +1972,45 @@ function OrderiApp() {
           conflictWarning: conflict.warningMessage || 'لديك موعد توصيل شهري متزامن مع وقت هذا الطلب',
           commitmentTitle: conflict.commitment.title,
         });
-        if (filterRef.current.soundEnabled) {
-          playAlertTone('urgent_siren', 80);
-        }
+        if (filterRef.current.soundEnabled) playAlertTone('urgent_siren', 80);
         return;
       }
     }
 
-    const updated = { ...order, status: 'accepted' as const };
-    setOrders((prev) => prev.filter((o) => o.id !== order.id));
-    setAcceptedOrders((prev) => [updated, ...prev]);
-    const priceText = (!order.price || order.price <= 0 || order.isPriceUnspecified)
-      ? '(بالاتفاق مع العميل 🤝)'
-      : `(+${order.price.toFixed(1)} د.ب)`;
-    showToast(`⚡ تم قبول الطلب والرد التلقائي في الخاص مع صاحب الإعلان 👤 (وليس بالقروب) ${priceText}`);
+    if (!isNativeAndroid()) {
+      showToast('يلزم استخدام تطبيق Orderi على أندرويد لإرسال رسالة واتساب تلقائياً والتحقق من التنفيذ');
+      return;
+    }
+
+    showToast('جاري تحديد المعلن وإرسال رسالة القبول إلى الخاص...');
+    try {
+      const outreach = await executePrivateAdvertiserOutreach(
+        order,
+        undefined,
+        filterRef.current.customResponseTemplate,
+        driverLocation?.areaName || 'المنامة'
+      );
+
+      if (outreach.status !== 'sent_confirmed') {
+        showToast(outreach.status === 'verification_required'
+          ? 'لم أرسل الرسالة: تعذر التأكد من رقم صاحب الإعلان. راجع الرقم قبل الإرسال.'
+          : outreach.status === 'failed'
+            ? 'فشل إرسال رسالة القبول في الخاص. لم يتم تسجيل الطلب كمقبول.'
+            : 'لم يتم تأكيد الإرسال من واتساب؛ لم يتم تسجيل الطلب كمقبول.');
+        return;
+      }
+
+      const updated = { ...order, status: 'accepted' as const, outreachStatus: 'sent_confirmed' as const };
+      setOrders((prev) => prev.filter((o) => o.id !== order.id));
+      setAcceptedOrders((prev) => [updated, ...prev]);
+      const priceText = (!order.price || order.price <= 0 || order.isPriceUnspecified)
+        ? '(بالاتفاق مع العميل 🤝)'
+        : `(+${order.price.toFixed(1)} د.ب)`;
+      showToast(`✓ تم تنفيذ إرسال رسالة القبول في الخاص ${priceText}`);
+    } catch (error) {
+      console.error('[Orderi] Private WhatsApp outreach failed:', error);
+      showToast('تعذر إرسال رسالة القبول. لم يتم تسجيل الطلب كمقبول.');
+    }
   };
 
   // Ignore / Dismiss Order - مسح الطلب من البرنامج وعمل علامة مقروء (تمت قراءتها ✓✓) في الواتساب
