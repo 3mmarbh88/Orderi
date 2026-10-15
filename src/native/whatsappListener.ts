@@ -103,3 +103,20 @@ export async function markAllWhatsAppAsRead(groupNames?: string[]): Promise<{ su
 }
 
 
+
+
+/** Wait for the native accessibility service to report the actual send-button action. */
+export async function getNativePrivateOutreachStatus(timeoutMs = 30000): Promise<{ status: string; statusLabel?: string }> {
+  if (!isNativeAndroid()) return { status: 'failed', statusLabel: 'يلزم أندرويد' };
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    try {
+      const result = await OrderiNotificationListener.getPrivateOutreachStatus();
+      if (result.status === 'sent_confirmed' || result.status === 'failed' || result.status === 'verification_required') {
+        return result;
+      }
+    } catch {}
+    await new Promise((resolve) => setTimeout(resolve, 350));
+  }
+  return { status: 'failed', statusLabel: 'انتهت مهلة انتظار تأكيد الإرسال' };
+}
