@@ -154,9 +154,8 @@ public class NotificationListenerPlugin extends Plugin {
                 ? new android.app.Notification.Builder(context, "orderi_radar_orders")
                 : new android.app.Notification.Builder(context);
             builder.setSmallIcon(com.orderi.radar.R.drawable.orderi_notification_icon)
-                .setContentTitle("طلب في الرادار: " + from + " ← " + to)
-                .setContentText(from + " ← " + to)
-                .setStyle(new android.app.Notification.BigTextStyle().bigText(body))
+                .setContentTitle("طلب جديد: " + from + " ← " + to)
+                .setContentText("")
                 .setAutoCancel(true).setDeleteIntent(deleteIntent)
                 .setCategory(android.app.Notification.CATEGORY_MESSAGE)
                 .setPriority(android.app.Notification.PRIORITY_HIGH)
