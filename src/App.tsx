@@ -104,8 +104,8 @@ const DISMISSED_NATIVE_TEXT_KEY = 'orderi_dismissed_native_texts_v1';
 
 function normalizeNativeMessageFingerprint(value: unknown): string {
   return normalizeArabicText(String(value || ''))
-    .replace(/[^\\p{L}\\p{N}]+/gu, ' ')
-    .replace(/\\s+/g, ' ')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
     .trim();
 }
 
