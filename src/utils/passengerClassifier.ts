@@ -1,5 +1,6 @@
 import { PassengerDetection, PassengerRiskLevel } from '../types';
 import { normalizeArabicText } from '../data/bahrainAreas';
+import { normalizeArabicMessageForMatching } from './arabicMessageNormalizer';
 
 /**
  * Passenger Transport Classifier for Orderi (كاشف إعلانات نقل الركاب والأشخاص)
@@ -87,7 +88,7 @@ const SUSPICIOUS_PATTERNS: PatternDefinition[] = [
 export function detectPassengerCount(rawText: string): number | undefined {
   if (!rawText || typeof rawText !== 'string') return undefined;
 
-  const normalized = normalizeArabicText(rawText);
+  const normalized = normalizeArabicText(normalizeArabicMessageForMatching(rawText));
 
   // 1. Direct digits followed by passenger nouns (e.g. "5 أشخاص", "3 ركاب", "4 أفراد", "2 عمال")
   const digitMatch = /(?:^|[\s،,.])([1-9]|10)\s*(?:أشخاص|اشخاص|ركاب|أفراد|افراد|ناس|بنات|أطفال|اطفال|عمال|موظفين|طلاب|طالبات)/i.exec(rawText);

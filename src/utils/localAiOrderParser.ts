@@ -107,7 +107,8 @@ export async function parseWhatsAppOrderWithLocalAi(
   const startTime = performance.now();
   const hybridMode = options.hybridMode !== false;
   const minConfidence = options.minConfidence ?? 85;
-  const useCloudFallback = options.useCloudFallback !== false;
+  // Privacy-first: WhatsApp content stays on-device unless a caller explicitly opts in.
+  const useCloudFallback = options.useCloudFallback === true;
 
   // Reject promotional/service-provider ads before any AI tier can reinterpret them as orders.
   // This also prevents message content from being sent to the optional cloud fallback for known ads.
@@ -386,7 +387,7 @@ export async function runLocalAiDiagnosticTest(
   // Step 3: Run the local hybrid parser
   const parsed = await parseWhatsAppOrderWithLocalAi(text, {
     forceAi: true,
-    useCloudFallback: options.forceCloudFallback !== false,
+    useCloudFallback: options.forceCloudFallback === true,
   });
 
   const elapsed = Math.max(12, Math.round(performance.now() - start));

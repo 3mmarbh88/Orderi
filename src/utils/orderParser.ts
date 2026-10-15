@@ -3,6 +3,7 @@ import { BAHRAIN_LANDMARKS } from '../data/bahrainLandmarks';
 import { detectPassengerDelivery } from './passengerClassifier';
 import { detectAdvertisementMessage } from './advertisementClassifier';
 import { PassengerDetection } from '../types';
+import { normalizeArabicMessageForMatching } from './arabicMessageNormalizer';
 
 export interface RawParsedResult {
   from: string;
@@ -93,7 +94,7 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
   }
 
   const convertedText = convertArabicNumerals(rawText);
-  const normalized = normalizeArabicText(convertedText);
+  const normalized = normalizeArabicText(normalizeArabicMessageForMatching(convertedText));
   const advertisementDetection = detectAdvertisementMessage(rawText);
 
   // Explicit order quantity: "اوردرين", "2 اوردرات", "ثلاثة طلبات".
@@ -189,6 +190,18 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
     parentArea?: string;
   }
 
+  const areaAliasesById: Record<string, string[]> = {
+    isa_town: ['م عيسى', 'م. عيسى', 'مدينه عيسى', 'مدينة عيسى'],
+    hamad_town: [
+      'م حمد', 'م. حمد', 'مدينه حمد', 'مدينة حمد',
+      ...Array.from({ length: 30 }, (_, index) => `دوار ${index + 1}`),
+      ...Array.from({ length: 30 }, (_, index) => `دوار رقم ${index + 1}`),
+      ...Array.from({ length: 30 }, (_, index) => `roundabout ${index + 1}`),
+    ],
+    manama: ['منامه', 'المنامه'],
+    muharraq: ['محرق', 'المحرق'],
+  };
+
   const searchablePlaces: SearchablePlace[] = [
     // Malls & Landmarks (Moda Mall, Seef Mall, City Centre, Avenues, etc.)
     ...BAHRAIN_LANDMARKS.map((lm) => ({
@@ -197,10 +210,15 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
       isLandmark: true,
       parentArea: lm.parentAreaName,
     })),
-    // Standard Geographic Areas
+    // Standard geographic areas plus local WhatsApp shorthand and common aliases.
     ...BAHRAIN_AREAS.map((a) => ({
       name: a.name,
-      keywords: [a.name, a.nameEn, ...(normalizeArabicText(a.name).startsWith('ال') ? [a.name.replace(/^ال/, '')] : []), ...(a.id === 'manama' ? ['منامه', 'المنامه'] : [])],
+      keywords: [
+        a.name,
+        a.nameEn,
+        ...(normalizeArabicText(a.name).startsWith('ال') ? [a.name.replace(/^ال/, '')] : []),
+        ...(areaAliasesById[a.id] || []),
+      ],
       isLandmark: false,
     })),
   ];
@@ -477,7 +495,10 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
   }
 
   // Comprehensive Intent Detection (Goods deliveries + Passenger rides)
-  const hasOrderIntent = /(?:اوردر|طلب|توصيل|توصيل[ةه]|توصيلني|يوصلني|مشوار|مشاوير|مندوب|بيك اب|pickup|delivery|شخص|اشخاص|راكب|ركاب|بنت|بنات|طفل|اطفال|طالب|طالب[ةه]|طلاب|طالبات|موظف|موظف[ةه]|موظفين|عمال|سيار[ةه]|دريول|سائق|دوام|مدرس[ةه]|جامع[ةه])/i.test(normalized) || /(?:اوردر|أوردر|طلب|توصيل|توصيلة|توصيله|مشوار|مشاوير|شخص|أشخاص|اشخاص|راكب|ركاب|بنت|طفل|أطفال|طالب|طالبة|موظف|موظفة|سيارة|دريول|سائق|دوام|مدرسة|جامعة)/i.test(rawText);
+  const hasOrderIntent =
+    /(?:اوردر|طلب|توصيل|توصيل[ةه]|توصيلني|يوصلني|مشوار|مشاوير|مندوب|بيك\s*اب|pickup|delivery|شخص|اشخاص|راكب|ركاب|بنت|بنات|طفل|اطفال|طالب|طالب[ةه]|طلاب|طالبات|موظف|موظف[ةه]|موظفين|عمال|سيار[ةه]|دريول|سائق|دوام|مدرس[ةه]|جامع[ةه])/i.test(normalized) ||
+    /(?:ابي|ابا|ابغي|ابغى|اريد|عايز|عاوزه|محتاج|محتاجه|احتاج|نبي|نبغي|مطلوب|لو\s*سمحت|please)/i.test(normalized) ||
+    /(?:اوردر|أوردر|طلب|توصيل|توصيلة|توصيله|مشوار|مشاوير|شخص|أشخاص|اشخاص|راكب|ركاب|بنت|طفل|أطفال|طالب|طالبة|موظف|موظفة|سيارة|دريول|سائق|دوام|مدرسة|جامعة)/i.test(rawText);
 
   // If destination is missing but origin is known
   if (!toArea && fromArea && hasOrderIntent) {
