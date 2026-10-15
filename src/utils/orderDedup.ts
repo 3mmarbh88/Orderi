@@ -174,7 +174,6 @@ export function isDuplicateOrder(order: Partial<ParsedOrder>, now = Date.now()):
         routeKey,
         advRouteKey: advertiserRouteKey,
         cleanText,
-        cleanText,
         senderPhone: normPhone,
         group: order.groupName,
         at: now,
