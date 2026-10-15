@@ -985,7 +985,18 @@ function OrderiApp() {
     let removed = false;
     let listenerHandle: { remove: () => Promise<void> } | null = null;
 
+    // A notification can be delivered both by the live native broadcast and by
+    // getPending() during startup. Deduplicate by native event ID, not message text.
+    const seenNativeEventIds = new Set<string>();
     const convertNativeEvent = (event: WhatsAppNativeEvent) => {
+      if (event?.id) {
+        if (seenNativeEventIds.has(event.id)) return;
+        seenNativeEventIds.add(event.id);
+        if (seenNativeEventIds.size > 500) {
+          const oldest = seenNativeEventIds.values().next().value;
+          if (oldest) seenNativeEventIds.delete(oldest);
+        }
+      }
       const rawText = [event.bigText, event.text, event.subText, event.rawText]
         .filter(Boolean)
         .join('\n')
@@ -1160,16 +1171,21 @@ function OrderiApp() {
 
           handleProcessIncomingRawOrder(order, false);
         }
-      }).catch(() => {});
+      }).catch((error) => {
+        console.warn('[Orderi Native] Could not parse incoming WhatsApp notification:', error);
+      });
     };
 
     let openOrderListenerHandle: { remove: () => Promise<void> } | null = null;
 
     const setup = async () => {
       try {
+        // Subscribe before draining the persisted native queue. The old order
+        // left a startup race where a notification arriving between the two calls
+        // was neither queued for later processing nor delivered to the JS listener.
+        listenerHandle = await OrderiNotificationListener.addListener('whatsappNotification', convertNativeEvent);
         const pending = await OrderiNotificationListener.getPending();
         if (!removed) pending.events.forEach(convertNativeEvent);
-        listenerHandle = await OrderiNotificationListener.addListener('whatsappNotification', convertNativeEvent);
 
         // Listen for openOrderDetail emitted when tapping Android phone notification
         openOrderListenerHandle = await OrderiNotificationListener.addListener('openOrderDetail', (data: any) => {
