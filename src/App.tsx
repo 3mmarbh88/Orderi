@@ -361,8 +361,10 @@ function OrderiApp() {
           const { parseWhatsAppOrderWithLocalAi } = await import('./utils/localAiOrderParser');
           for (const event of pending.events.slice(-30)) {
             const groupName = (event.conversationTitle || event.title || '').trim() || 'محادثة خاصة 👤';
+            // Android often exposes the same WhatsApp message in bigText, text and rawText.
+            // Select the best available representation once instead of concatenating duplicates.
             const rawText = [event.bigText, event.text, event.subText, event.rawText]
-              .filter(Boolean).join('\n').trim();
+              .find((value) => typeof value === 'string' && value.trim())?.trim() || '';
             const parsed = await parseWhatsAppOrderWithLocalAi(rawText || event.title || '', {
               hybridMode: filterRef.current.localAiConfig?.hybridMode !== false,
               useCloudFallback: filterRef.current.useCloudAiFallback !== false,
@@ -1006,10 +1008,10 @@ function OrderiApp() {
           if (oldest) seenNativeEventIds.delete(oldest);
         }
       }
+      // Android often exposes the same WhatsApp message in bigText, text and rawText.
+      // Select the best available representation once instead of concatenating duplicates.
       const rawText = [event.bigText, event.text, event.subText, event.rawText]
-        .filter(Boolean)
-        .join('\n')
-        .trim();
+        .find((value) => typeof value === 'string' && value.trim())?.trim() || '';
       if (!rawText && !event.title) return;
 
       // Smart resolution of Group Name and whether it's a group
@@ -1538,8 +1540,9 @@ function OrderiApp() {
       const res = await markAllWhatsAppAsRead(linkedGroups);
       const count = res.markedCount || 0;
 
-      // This changes Orderi's local read state only; it does not claim that
-      // archived WhatsApp conversations without notification actions were read.
+      // Update Orderi's local radar state without launching WhatsApp.
+      // Android notification actions can mark only chats/messages exposed by notifications;
+      // archived chats without a notification cannot be marked read through this API.
       setOrders((prev) =>
         prev.map((ord) => ({
           ...ord,
@@ -1552,9 +1555,9 @@ function OrderiApp() {
         playAlertTone('cash_register', 70);
       }
       if (count > 0) {
-        showToast(`تم تنفيذ القراءة في الخلفية لـ ${count} إشعار واتساب متاح. لم يتم فتح واتساب.`);
+        showToast(`تم تحديث الرادار، وتعليم ${count} إشعارًا متاحًا كمقروء دون فتح واتساب. الرسائل المؤرشفة التي لا تملك إشعارات لا يمكن تعليمها كمقروءة بهذه الطريقة.`);
       } else {
-        showToast('لم توجد إجراءات قراءة متاحة في إشعارات واتساب. القروبات المؤرشفة التي لا تملك إشعارًا نشطًا لا يمكن تمييزها كمقروءة دون فتح واتساب.');
+        showToast('تم تحديث حالة القراءة في رادار Orderi دون فتح واتساب. لا توجد إجراءات إشعارات متاحة لتعليم رسائل واتساب نفسها كمقروءة؛ الرسائل المؤرشفة الصامتة تبقى غير مؤكدة.');
       }
     } catch (e) {
       console.warn('[Orderi] Mark-all-read failed:', e);

@@ -154,9 +154,8 @@ public class NotificationListenerPlugin extends Plugin {
                 ? new android.app.Notification.Builder(context, "orderi_radar_orders")
                 : new android.app.Notification.Builder(context);
             builder.setSmallIcon(com.orderi.radar.R.drawable.orderi_notification_icon)
-                .setContentTitle("طلب في الرادار: " + from + " ← " + to)
-                .setContentText(from + " ← " + to)
-                .setStyle(new android.app.Notification.BigTextStyle().bigText(body))
+                .setContentTitle(from + " ← " + to + (price.isEmpty() ? "" : " " + price))
+                .setContentText("")
                 .setAutoCancel(true).setDeleteIntent(deleteIntent)
                 .setCategory(android.app.Notification.CATEGORY_MESSAGE)
                 .setPriority(android.app.Notification.PRIORITY_HIGH)
@@ -502,9 +501,10 @@ public class NotificationListenerPlugin extends Plugin {
                 }
             }
 
-            // Execute only Android notification actions. Do not launch WhatsApp or
-            // navigate into Archived: conversations without an active notification
-            // expose no supported background "mark as read" action.
+            // Background-only mode: use notification actions that are already exposed by
+            // WhatsApp. Do not launch WhatsApp or use Accessibility to navigate archived chats.
+            // Android does not provide a general API to mark every archived chat read when
+            // those chats have no actionable notification.
             int count = WhatsAppNotificationListenerService.markAllWhatsAppAsRead(getContext(), targetGroups);
 
             JSObject ret = new JSObject();
@@ -513,6 +513,7 @@ public class NotificationListenerPlugin extends Plugin {
             ret.put("archivedAutomationStarted", false);
             ret.put("accessibilityRequired", false);
             ret.put("whatsAppOpened", false);
+            ret.put("archivedChatsWithoutNotificationsSupported", false);
             call.resolve(ret);
         } catch (Exception e) {
             call.reject("Failed to mark WhatsApp groups as read", e);

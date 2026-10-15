@@ -80,10 +80,14 @@ export async function reachNativeAdvertiserPrivateChat(options: {
  */
 export async function markAllWhatsAppAsRead(groupNames?: string[]): Promise<{ success: boolean; markedCount: number; archivedAutomationStarted?: boolean; accessibilityRequired?: boolean }> {
   let markedCount = 0;
+  let archivedAutomationStarted = false;
+  let accessibilityRequired = false;
   if (isNativeAndroid()) {
     try {
       const res = await OrderiNotificationListener.markAllAsRead({ groupNames: groupNames || [] });
       markedCount = res.markedCount || 0;
+      archivedAutomationStarted = !!res.archivedAutomationStarted;
+      accessibilityRequired = !!res.accessibilityRequired;
     } catch (err) {
       console.warn('Native markAllAsRead error:', err);
     }
@@ -99,7 +103,7 @@ export async function markAllWhatsAppAsRead(groupNames?: string[]): Promise<{ su
     });
   } catch {}
 
-  return { success: true, markedCount, archivedAutomationStarted: false, accessibilityRequired: false };
+  return { success: true, markedCount, archivedAutomationStarted, accessibilityRequired };
 }
 
 

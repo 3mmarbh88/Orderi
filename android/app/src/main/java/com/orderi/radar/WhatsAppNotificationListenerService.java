@@ -697,11 +697,15 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         // 3. Identify Price
         String priceDisplay = "غير محدد (بالاتفاق 🤝)";
         float priceVal = 0.0f;
+        String priceTitle = "";
         java.util.regex.Matcher priceMatcher = java.util.regex.Pattern.compile("(\\d+(?:\\.\\d+)?)\\s*(?:د\\.ب|دب|دينار|bd|bhd)").matcher(normalized);
         if (priceMatcher.find()) {
             try {
                 priceVal = Float.parseFloat(priceMatcher.group(1));
-                if (priceVal > 0) priceDisplay = priceVal + " د.ب";
+                if (priceVal > 0) {
+                    priceDisplay = priceMatcher.group(1) + " د.ب";
+                    priceTitle = priceMatcher.group(1) + " دينار";
+                }
             } catch (Exception ignored) {}
         }
 
@@ -733,7 +737,7 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
 
         String notifTitle = isPassenger 
             ? "🚨 نقل ركاب " + (passengerCount > 0 ? "(" + passengerCount + " ركاب) " : "") + "• تحذير 🚫"
-            : "🚗 طلب جديد: " + fromArea + " ← " + toArea;
+            : fromArea + " ← " + toArea + (priceTitle.isEmpty() ? "" : " " + priceTitle);
 
         String notifBody = "📍 الاستلام: " + fromArea + "\n🏁 الوجهة: " + toArea + "\n💰 السعر: " + priceDisplay;
         if (passengerCount > 0) {

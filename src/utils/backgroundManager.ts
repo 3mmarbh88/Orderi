@@ -83,17 +83,17 @@ export function sendBackgroundOrderNotification(order: ParsedOrder, filter?: Ord
     const isVip = order.contactStatus === 'vip';
     const isPassenger = order.passengerDetection?.level === 'confirmed_passenger';
     const count = order.passengerCount || order.passengerDetection?.passengerCount;
-    
+
     // Title format: highlights route or passenger warning
     let title = '';
     if (isPassenger) {
       if (filter.blockPassengerDeliveries !== false) {
-        title = `🚨 نقل ركاب ${count ? `(${count} ركاب)` : ''} • تحذير: توصيل أشخاص ممنوع 🚫`;
+        title = `🚨 نقل ركاب: ${order.from} ← ${order.to} ${count ? `(${count} ركاب)` : ''} • تحذير: توصيل أشخاص ممنوع 🚫`;
       } else {
-        title = `👥 طلب توصيل راكب: ${order.from} ← ${order.to}${count ? ` (${count} ركاب)` : ''}`;
+        title = `${order.from} ← ${order.to}`;
       }
     } else {
-      title = `🚗 طلب جديد: ${order.from} ← ${order.to}`;
+      title = `${order.from} ← ${order.to}`;
     }
 
     // Message snippet formatted as WhatsApp chat message
@@ -106,18 +106,8 @@ export function sendBackgroundOrderNotification(order: ParsedOrder, filter?: Ord
       ? 'غير محدد (بالاتفاق 🤝)'
       : `${order.price.toFixed(1)} د.ب`;
 
-    // Order summary body with pickup, destination, price and original snippet
-    const bodyLines = [
-      `📍 الاستلام: ${order.from}`,
-      `🏁 الوجهة: ${order.to}`,
-      `💰 السعر: ${priceText}`,
-    ];
-    if (count && count > 0) {
-      bodyLines.push(`👥 عدد الركاب: ${count} ${count === 1 ? 'شخص' : count === 2 ? 'شخصين' : 'أشخاص'}`);
-    }
-    bodyLines.push(`💬 "${preview}"`);
-
-    const body = bodyLines.join('\n');
+    // Keep the phone notification compact: route only in the title.
+    const body = '';
 
     const options: any = {
       body,

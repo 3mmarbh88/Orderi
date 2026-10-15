@@ -37,16 +37,6 @@ public class OrderiAccessibilityService extends AccessibilityService {
     private static volatile long pendingMessageTimestamp = 0L;
     private static final AtomicBoolean isSendingInProgress = new AtomicBoolean(false);
 
-    // Accessibility-driven fallback for archived WhatsApp chats. It only opens chats
-    // when WhatsApp exposes an explicit unread indicator; it never sends messages.
-    private static volatile boolean markArchivedChatsRequested = false;
-    private boolean archivedSectionOpened = false;
-    private boolean waitingForChatToClose = false;
-    private int archivedReadEventRetries = 0;
-    private int archivedChatsVisited = 0;
-    private final java.util.HashSet<String> archivedUnreadChatsVisited = new java.util.HashSet<>();
-    private static final int MAX_ARCHIVED_CHATS_TO_VISIT = 100;
-
     @Override
     public void onServiceConnected() {
         super.onServiceConnected();
@@ -123,54 +113,12 @@ public class OrderiAccessibilityService extends AccessibilityService {
         return false;
     }
 
-    /**
-     * Starts a bounded Accessibility pass over WhatsApp's Archived section.
-     * Returns true only when the service is connected and WhatsApp can be launched.
-     */
-    public static boolean requestMarkArchivedChatsRead(Context context) {
-        if (context == null || !isAccessibilityEnabled(context) || instance == null) {
-            return false;
-        }
-
-        Intent launchIntent = context.getPackageManager().getLaunchIntentForPackage(PACKAGE_WHATSAPP);
-        if (launchIntent == null) {
-            return false;
-        }
-
-        OrderiAccessibilityService service = instance;
-        service.archivedSectionOpened = false;
-        service.waitingForChatToClose = false;
-        service.archivedReadEventRetries = 0;
-        service.archivedChatsVisited = 0;
-        service.archivedUnreadChatsVisited.clear();
-        markArchivedChatsRequested = true;
-
-        try {
-            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            context.startActivity(launchIntent);
-            Log.i(TAG, "Started archived-chat read pass");
-            return true;
-        } catch (Exception e) {
-            markArchivedChatsRequested = false;
-            Log.w(TAG, "Could not launch WhatsApp for archived-chat read pass", e);
-            return false;
-        }
-    }
-
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
         if (event == null) return;
 
         CharSequence pkg = event.getPackageName();
         if (pkg == null || !PACKAGE_WHATSAPP.contentEquals(pkg)) return;
-
-        // Archived-chat processing is independent of the private-message workflow.
-        // The previous guard returned early whenever no message was queued, so this
-        // automation could never run even though the helper methods existed.
-        if (markArchivedChatsRequested) {
-            handleArchivedChatsReadEvent();
-            return;
-        }
 
         if (!isSendingInProgress.get() || pendingMessageToSend == null) return;
 
@@ -255,96 +203,6 @@ public class OrderiAccessibilityService extends AccessibilityService {
         }
     }
 
-    private void handleArchivedChatsReadEvent() {
-        AccessibilityNodeInfo root = getRootInActiveWindow();
-        if (root == null) return;
-        try {
-            if (waitingForChatToClose) {
-                // Do not immediately navigate back on the first list animation event.
-                // Confirm WhatsApp opened an actual chat by locating its message composer.
-                if (findInputField(root) != null) {
-                    waitingForChatToClose = false;
-                    performGlobalAction(GLOBAL_ACTION_BACK);
-                    archivedReadEventRetries = 0;
-                } else if (++archivedReadEventRetries > 8) {
-                    finishArchivedReadPass("Could not confirm an archived chat opened");
-                }
-                return;
-            }
-
-            if (!archivedSectionOpened) {
-                AccessibilityNodeInfo archived = findTextNode(root, new String[]{
-                        "Archived", "Archived chats", "المؤرشفة", "مؤرشفة", "المحادثات المؤرشفة"
-                });
-                if (archived != null) {
-                    AccessibilityNodeInfo clickable = clickableAncestor(archived, 4);
-                    if (clickable != null && clickable.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-                        archivedSectionOpened = true;
-                        archivedReadEventRetries = 0;
-                        Log.i(TAG, "Opened WhatsApp Archived section for read-all");
-                        return;
-                    }
-                }
-                if (++archivedReadEventRetries > 8) {
-                    finishArchivedReadPass("Archived section entry was not found");
-                }
-                return;
-            }
-
-            // Wait until WhatsApp's Archived screen is actually visible; do not inspect
-            // the main chat list while the navigation transition is in progress.
-            if (!containsText(root, new String[]{
-                    "Archived", "Archived chats", "المؤرشفة", "مؤرشفة", "المحادثات المؤرشفة"
-            })) {
-                if (++archivedReadEventRetries > 8) {
-                    finishArchivedReadPass("Could not confirm Archived screen");
-                }
-                return;
-            }
-            archivedReadEventRetries = 0;
-
-            AccessibilityNodeInfo unreadMarker = findUnreadMarker(root);
-            if (unreadMarker == null) {
-                finishArchivedReadPass("No accessible unread markers found in Archived");
-                return;
-            }
-
-            AccessibilityNodeInfo chatRow = clickableAncestor(unreadMarker, 6);
-            if (chatRow == null) {
-                finishArchivedReadPass("Unread marker had no clickable chat row");
-                return;
-            }
-            // A badge often says only "unread messages" for every chat. Build the
-            // de-duplication key from all accessible text inside the chat row instead.
-            String signature = nodeSignature(chatRow);
-            if (TextUtils.isEmpty(signature)) signature = describeNode(unreadMarker);
-            if (TextUtils.isEmpty(signature)) signature = "unread-" + archivedChatsVisited;
-
-            if (archivedUnreadChatsVisited.contains(signature)) {
-                finishArchivedReadPass("Unread marker repeated; stopping to avoid opening the same chat");
-                return;
-            }
-            if (archivedChatsVisited >= MAX_ARCHIVED_CHATS_TO_VISIT) {
-                finishArchivedReadPass("Safety limit reached");
-                return;
-            }
-
-            archivedUnreadChatsVisited.add(signature);
-            if (chatRow.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-                archivedChatsVisited++;
-                waitingForChatToClose = true;
-                Log.i(TAG, "Opened unread archived chat " + archivedChatsVisited + " to mark it read");
-            } else {
-                finishArchivedReadPass("Could not open unread archived chat");
-            }
-        } catch (Exception e) {
-            Log.w(TAG, "Archived chat read pass stopped safely", e);
-            finishArchivedReadPass("Accessibility error");
-        } finally {
-            root.recycle();
-        }
-    }
-
     private AccessibilityNodeInfo findUnreadMarker(AccessibilityNodeInfo node) {
         if (node == null) return null;
         String value = describeNode(node).toLowerCase(java.util.Locale.ROOT);
@@ -413,14 +271,6 @@ public class OrderiAccessibilityService extends AccessibilityService {
         String a = text == null ? "" : text.toString().trim();
         String b = desc == null ? "" : desc.toString().trim();
         return (a + " " + b).trim();
-    }
-
-    private void finishArchivedReadPass(String reason) {
-        Log.i(TAG, "Archived read pass finished: " + reason + "; chats opened=" + archivedChatsVisited);
-        markArchivedChatsRequested = false;
-        archivedSectionOpened = false;
-        waitingForChatToClose = false;
-        archivedReadEventRetries = 0;
     }
 
     private void returnToOrderi() {
