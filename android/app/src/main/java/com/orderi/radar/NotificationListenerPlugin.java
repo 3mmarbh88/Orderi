@@ -333,6 +333,16 @@ public class NotificationListenerPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void getPrivateOutreachStatus(PluginCall call) {
+        android.content.SharedPreferences prefs = getContext().getSharedPreferences("orderi_private_outreach", Context.MODE_PRIVATE);
+        JSObject ret = new JSObject();
+        ret.put("status", prefs.getString("status", "not_started"));
+        ret.put("statusLabel", prefs.getString("status_label", ""));
+        ret.put("updatedAt", prefs.getLong("updated_at", 0L));
+        call.resolve(ret);
+    }
+
+    @PluginMethod
     public void reachAdvertiserPrivateChat(PluginCall call) {
         try {
             String phone = call.getString("phone", "");
@@ -345,6 +355,18 @@ public class NotificationListenerPlugin extends Plugin {
                 call.reject("Message is empty");
                 return;
             }
+
+            // Automated sending requires the explicitly enabled Orderi Accessibility service.
+            if (!OrderiAccessibilityService.isAccessibilityEnabled(getContext())) {
+                call.reject("Orderi Accessibility permission is required for private message sending");
+                return;
+            }
+            getContext().getSharedPreferences("orderi_private_outreach", Context.MODE_PRIVATE)
+                    .edit()
+                    .putString("status", "sending")
+                    .putString("status_label", "جاري الوصول إلى محادثة المعلن الخاصة")
+                    .putLong("updated_at", System.currentTimeMillis())
+                    .apply();
 
             // Case A: Confirmed phone number exists -> Open WhatsApp private chat directly via native intent
             if (!android.text.TextUtils.isEmpty(phone)) {
