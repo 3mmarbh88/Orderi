@@ -187,6 +187,27 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         }
     }
 
+    /**
+     * Conservative native guard for explicit person-transport ads.
+     * Intentionally excludes generic phrases like "أغراض شخصية" and "طلب شخصي".
+     */
+    static boolean isExplicitPassengerAnnouncement(String normalized) {
+        if (normalized == null || normalized.isEmpty()) return false;
+        String text = normalized
+                .replace('أ', 'ا').replace('إ', 'ا').replace('آ', 'ا')
+                .replace('ى', 'ي');
+        boolean goodsContext = java.util.regex.Pattern.compile(
+                "(اغراض|اوراق|ملابس|شنطه|شحنه|كرتون|طرد)\\s*(شخصيه|شخصيه)")
+                .matcher(text).find();
+        if (goodsContext) return false;
+        return java.util.regex.Pattern.compile(
+                "(توصيل|نقل)\\s*(اشخاص|افراد|ركاب|ناس|بنت|بنات|طفل|اطفال|شاب|شباب|عائله|عوائل|موظف|موظفه|طالب|طالبه)" +
+                "|مشوار\\s*خاص|توصيله?\\s*خاصه?\\s*(ركاب|اشخاص)?|" +
+                "محتاج\\s*(مشوار|توصيله|سياره\\s*توصلني)|" +
+                "(شخص|راكب|طفل|بنت)\\s+من\\s+.+\\s+(الى|لـ?)")
+                .matcher(text).find();
+    }
+
     private void maybeShowOrderNotification(String title, String rawText, long postTime, boolean isGroup) {
         String normalized = safe(rawText).toLowerCase()
                 .replace('إ', 'ا').replace('أ', 'ا').replace('آ', 'ا')
@@ -202,8 +223,24 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
 
         if (!looksLikeOrder) return;
 
-        // Check if ignore_non_matching is active in native SharedPreferences
+        // Native heads-up alerts must obey the same passenger safety setting as the Radar.
+        // Keep this conservative: only explicit passenger wording is blocked, not "personal items".
         SharedPreferences filterPrefs = getSharedPreferences("orderi_filter_settings", MODE_PRIVATE);
+        boolean blockPassengerDeliveries = filterPrefs.getBoolean("block_passenger_deliveries", true);
+        if (blockPassengerDeliveries && isExplicitPassengerAnnouncement(normalized)) return;
+
+        // Provider/service advertisements are not delivery requests. Do not let the native
+        // keyword heuristic bypass the app parser and create a misleading heads-up alert.
+        boolean explicitRequest = java.util.regex.Pattern.compile(
+                "(مطلوب|ابي|ابغي|احتاج|نحتاج|طلب|استلام|اوردر|اوردرات|بيك\\s*اب|pickup|delivery request)")
+                .matcher(normalized).find();
+        boolean serviceOffer = java.util.regex.Pattern.compile(
+                "(متوفر.{0,18}(توصيل|دليفري|مندوب)|نوفر.{0,18}(توصيل|دليفري|مندوب)|" +
+                "خدمات?\\s*(التوصيل|توصيل|دليفري)|نقدم.{0,18}(توصيل|دليفري|مندوب)|" +
+                "مندوبين?\\s*متوفرين|سيارات?\\s*توصيل)")
+                .matcher(normalized).find();
+        if (serviceOffer && !explicitRequest) return;
+
         boolean ignoreNonMatching = filterPrefs.getBoolean("ignore_non_matching", false);
         float minPrice = filterPrefs.getFloat("min_price", 0.0f);
 
