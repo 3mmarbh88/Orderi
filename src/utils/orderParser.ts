@@ -120,6 +120,17 @@ function expandBahrainAreaAliases(text: string): string {
     ['قضيبية', 'القضيبية'],
     ['قضيبيه', 'القضيبية'],
     ['رفاع', 'الرفاع'],
+    ['منامه', 'المنامة'],
+    ['منامة', 'المنامة'],
+    ['محرق', 'المحرق'],
+    ['قلالى', 'قلالي'],
+    ['قلالي', 'قلالي'],
+    ['ستره', 'سترة'],
+    ['سترة', 'سترة'],
+    ['الرفاع الشرقي', 'الرفاع الشرقي'],
+    ['الرفاع الغربي', 'الرفاع الغربي'],
+    ['الحد', 'الحد'],
+    ['حمد', 'مدينة حمد'],
   ];
 
   let expanded = text.replace(/\s+/g, ' ').trim();
@@ -631,11 +642,23 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
 
   // الطلب يحتاج إلى نية توصيل واضحة، وموقع استلام، ووجهة محددة.
   // لا تُستخدم وجهة افتراضية لإجبار الرسالة على أن تصبح طلبًا.
+  // Repeated same-area forms are common in Bahrain WhatsApp groups:
+  // «محرق محرق»، «منامة منامة»، «قلالي قلالي» mean a local/same-area delivery.
+  // Accept this only when the same known area appears twice close together and
+  // the message independently has explicit delivery intent.
+  const occurrences = findPlaceOccurrences(normalized);
+  const repeatedSameArea =
+    hasIntent &&
+    occurrences.length >= 2 &&
+    normalizeArabicText(occurrences[0].name) === normalizeArabicText(occurrences[1].name) &&
+    occurrences[1].start - occurrences[0].end <= 8 &&
+    /^[\\s،,./-]*$/.test(normalized.slice(occurrences[0].end, occurrences[1].start));
+
   const canCreateOrder =
     hasIntent &&
     !!fromArea &&
     !!toArea &&
-    normalizeArabicText(fromArea) !== normalizeArabicText(toArea) &&
+    (normalizeArabicText(fromArea) !== normalizeArabicText(toArea) || repeatedSameArea) &&
     !passengerDetection.isForbidden;
 
   let confidence = 0;
