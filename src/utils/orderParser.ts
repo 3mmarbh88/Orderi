@@ -62,15 +62,28 @@ export function convertArabicNumerals(str: string): string {
 export function hasExplicitOrderIntent(rawText: string): boolean {
   if (!rawText || typeof rawText !== 'string') return false;
 
-  const text = normalizeArabicText(convertArabicNumerals(rawText));
+  // Normalize exaggerated repeated letters common in WhatsApp ads:
+  // "مباششششر" -> "مباشر". The original notification text is never modified.
+  const text = normalizeArabicText(convertArabicNumerals(rawText))
+    .replace(/(.)\\1{2,}/gu, '$1');
 
   const directIntent =
-    /(?:اوردر|توصيل|مندوب|بيك\s*اب|بيكاب|pickup|delivery|courier|driver|كابتن|دليفري)/i;
+    /(?:اوردر|توصيل|مندوب|بيك\\s*اب|بيكاب|pickup|delivery|courier|driver|كابتن|دليفري)/i;
 
   const combinedRequest =
-    /(?:طلب|مطلوب|ابي|ابغي|احتاج|نحتاج)\s*(?:توصيل|مندوب|سائق|كابتن|بيك\s*اب|اوردر|delivery|pickup)/i;
+    /(?:طلب|مطلوب|ابي|ابغي|احتاج|نحتاج)\\s*(?:توصيل|مندوب|سائق|كابتن|بيك\\s*اب|اوردر|delivery|pickup)/i;
 
-  return directIntent.test(text) || combinedRequest.test(text);
+  // In Bahrain WhatsApp groups, some genuine jobs are expressed as a route
+  // plus an explicit fare and "مباشر" / "اذكر منطقتك", without saying "توصيل".
+  // Require all signals to avoid promoting ordinary travel announcements.
+  const routeAndFare =
+    /(?:من|الى)\\s*.+(?:الى|إلى)\\s*.+/i.test(text) &&
+    /(?:\\d+(?:\\.\\d+)?\\s*(?:دينار|دنانير|د\\.?\\s*ب|دب|bhd|bd)|(?:دينار|دنانير)\\s*\\d+)/i.test(text);
+  const directOrRequestWording =
+    /مباشر|اذكر\\s+(?:منطقتك|المنطقه)|لو\\s+سمحت/i.test(text);
+
+  return directIntent.test(text) || combinedRequest.test(text) ||
+    (routeAndFare && directOrRequestWording);
 }
 
 function cleanText(value: string): string {
@@ -266,7 +279,15 @@ function buildSearchablePlaces(): SearchablePlace[] {
     })),
     ...BAHRAIN_AREAS.map((area) => ({
       name: area.name,
-      keywords: [area.name, area.nameEn].filter(
+      // "وزارة التربية" is used as a destination landmark in Isa Town.
+      // Resolve it to the known area rather than inventing an address.
+      keywords: [
+        area.name,
+        area.nameEn,
+        ...(area.id === 'isa_town'
+          ? ['وزارة التربية', 'وزارة التربيه', 'وزاره التربيه', 'وزاره التربيه مدينة عيسى']
+          : []),
+      ].filter(
         (value): value is string => typeof value === 'string' && !!value.trim(),
       ),
     })),
