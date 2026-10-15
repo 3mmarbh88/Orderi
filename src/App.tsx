@@ -841,6 +841,40 @@ function OrderiApp() {
     if (!isNativeAndroid()) return;
     let removed = false;
     let listenerHandle: { remove: () => Promise<void> } | null = null;
+    let openOrderListenerHandle: { remove: () => Promise<void> } | null = null;
+    let dismissOrderListenerHandle: { remove: () => Promise<void> } | null = null;
+
+    const normalizeNotificationText = (value: unknown) =>
+      normalizeArabicText(String(value || ''))
+        .replace(/[^\\p{L}\\p{N}]+/gu, ' ')
+        .replace(/\\s+/g, ' ')
+        .trim();
+
+    const findOrderForNativeNotification = (data: any) => {
+      if (!data) return undefined;
+      const byId = ordersRef.current.find((o) => o.id === data.orderId);
+      if (byId) return byId;
+      const incomingText = normalizeNotificationText(data.rawText);
+      if (incomingText.length < 12) return undefined;
+      const incomingFrom = normalizeArabicText(String(data.from || ''));
+      const incomingTo = normalizeArabicText(String(data.to || ''));
+      const matches = ordersRef.current.filter((o) =>
+        normalizeNotificationText(o.rawText).length >= 12 &&
+        normalizeNotificationText(o.rawText) === incomingText &&
+        (!incomingFrom || normalizeArabicText(o.from) === incomingFrom) &&
+        (!incomingTo || normalizeArabicText(o.to) === incomingTo)
+      );
+      // Never remove/open an arbitrary order when the source message is ambiguous.
+      return matches.length === 1 ? matches[0] : undefined;
+    };
+
+    const handleNativeDismissal = (data: any) => {
+      const matched = findOrderForNativeNotification(data);
+      if (!matched) return;
+      setOrders((prev) => prev.filter((o) => o.id !== matched.id));
+      setAcceptedOrders((prev) => prev.filter((o) => o.id !== matched.id));
+      setFocusedOrder((prev) => prev?.id === matched.id ? null : prev);
+    };
 
     const convertNativeEvent = (event: WhatsAppNativeEvent) => {
       const groupName = (event.conversationTitle || event.title || '').trim() || 'محادثة خاصة 👤';
@@ -938,7 +972,7 @@ function OrderiApp() {
         openOrderListenerHandle = await OrderiNotificationListener.addListener('openOrderDetail', (data: any) => {
           if (!data) return;
           const orderId = data.orderId;
-          const existing = ordersRef.current.find((o) => o.id === orderId);
+          const existing = findOrderForNativeNotification(data);
           if (existing) {
             setFocusedOrder(existing);
           } else if (data.rawText || data.from) {
@@ -968,6 +1002,17 @@ function OrderiApp() {
             });
           }
         });
+
+        dismissOrderListenerHandle = await OrderiNotificationListener.addListener(
+          'dismissOrderNotification',
+          handleNativeDismissal
+        );
+
+        // Drain dismissals captured while the app process was stopped.
+        if (OrderiNotificationListener.getPendingDismissals) {
+          const dismissed = await OrderiNotificationListener.getPendingDismissals();
+          if (!removed) (dismissed?.events || []).forEach(handleNativeDismissal);
+        }
 
         // Also check if app was opened via notification intent
         if (OrderiNotificationListener.getClickedOrder) {
@@ -1014,6 +1059,7 @@ function OrderiApp() {
       removed = true;
       if (listenerHandle) listenerHandle.remove().catch(() => {});
       if (openOrderListenerHandle) openOrderListenerHandle.remove().catch(() => {});
+      if (dismissOrderListenerHandle) dismissOrderListenerHandle.remove().catch(() => {});
     };
   }, []);
 
