@@ -1159,13 +1159,13 @@ function OrderiApp() {
         const isPassengerRequest = parsed.passengerDetection?.level === 'confirmed_passenger' || parsed.passengerDetection?.level === 'suspicious_passenger';
         const normalizedMessage = (rawText || event.title || '')
           .replace(/[إأآ]/g, 'ا')
-          .replace(/[\\u064B-\\u065F\\u0640]/g, '')
+          .replace(/[\u064B-\u065F\u0640]/g, '')
           .toLowerCase()
           .trim();
         // Keep substantive captured notifications visible even when the parser
         // cannot confidently identify a route. Do not turn short acknowledgments
         // and stickers into new radar entries.
-        const isClosureOnlyReply = /^(?:تم|تم\\s*الحمد\\s*لله|حصلت|حصل|اخذت|أخذت|انحجز|انحجزت|خلص|خلاص|شكرا|شكرًا|مشكور|مشكوره|يعطيك\\s*العافيه|sticker|ملصق|👍+|🙏+|✅+|👌+)\\s*[.!؟👍🙏✅👌]*$/i.test(normalizedMessage);
+        const isClosureOnlyReply = /^(?:تم|تم\s*الحمد\s*لله|حصلت|حصل|اخذت|أخذت|انحجز|انحجزت|خلص|خلاص|شكرا|شكرًا|مشكور|مشكوره|يعطيك\s*العافيه|sticker|ملصق|👍+|🙏+|✅+|👌+)\s*[.!؟👍🙏✅👌]*$/i.test(normalizedMessage);
         const shouldMirrorNotification = normalizedMessage.length > 0 && !isClosureOnlyReply;
         if (parsed.canCreateOrder || isPassengerRequest || shouldMirrorNotification) {
           if (!order.from) order.from = 'موقع الاستلام غير محدد 📍';
