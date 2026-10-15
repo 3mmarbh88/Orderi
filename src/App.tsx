@@ -81,6 +81,28 @@ import {
 } from './utils/groupLinkDetector';
 import { getWhatsAppConnection, markWhatsAppVerified } from './utils/whatsappConnection';
 import { isNativeAndroid, OrderiNotificationListener, WhatsAppNativeEvent } from './native/orderiNotificationListener';
+
+/**
+ * WhatsApp may expose one message in EXTRA_BIG_TEXT, EXTRA_TEXT, and rawText.
+ * Merge distinct fields once, comparing whitespace-normalized copies while
+ * preserving the original formatting of the chosen text. Sender-authored
+ * repeated phrases/lines are never removed.
+ */
+function getNotificationMessageText(event: WhatsAppNativeEvent): string {
+  const candidates = [event.bigText, event.text, event.subText, event.rawText]
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
+  const seen = new Set<string>();
+  const unique: string[] = [];
+
+  for (const candidate of candidates) {
+    const comparisonKey = candidate.replace(/\\s+/g, ' ').trim();
+    if (!comparisonKey || seen.has(comparisonKey)) continue;
+    seen.add(comparisonKey);
+    unique.push(candidate.trim());
+  }
+
+  return unique.join('\\n').trim();
+}
 import { getWhatsAppListenerStatus, markAllWhatsAppAsRead } from './native/whatsappListener';
 import { executePrivateAdvertiserOutreach } from './utils/whatsappPrivateOutreach';
 import { isDuplicateOrder, findDuplicateOrderMatch, rememberOrderFingerprint } from './utils/orderDedup';
@@ -359,8 +381,7 @@ function OrderiApp() {
           const { parseWhatsAppOrderWithLocalAi } = await import('./utils/localAiOrderParser');
           for (const event of pending.events.slice(-30)) {
             const groupName = (event.conversationTitle || event.title || '').trim() || 'محادثة خاصة 👤';
-            const rawText = [event.bigText, event.text, event.subText, event.rawText]
-              .filter(Boolean).join('\n').trim();
+            const rawText = getNotificationMessageText(event);
             const parsed = await parseWhatsAppOrderWithLocalAi(rawText || event.title || '', {
               hybridMode: filterRef.current.localAiConfig?.hybridMode !== false,
               useCloudFallback: filterRef.current.useCloudAiFallback === true,
@@ -986,10 +1007,7 @@ function OrderiApp() {
     let listenerHandle: { remove: () => Promise<void> } | null = null;
 
     const convertNativeEvent = (event: WhatsAppNativeEvent) => {
-      const rawText = [event.bigText, event.text, event.subText, event.rawText]
-        .filter(Boolean)
-        .join('\n')
-        .trim();
+      const rawText = getNotificationMessageText(event);
       if (!rawText && !event.title) return;
 
       // Smart resolution of Group Name and whether it's a group
