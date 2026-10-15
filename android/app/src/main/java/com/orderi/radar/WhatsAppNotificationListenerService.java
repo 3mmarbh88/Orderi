@@ -402,6 +402,21 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
 
         if (pendingIntent != null) builder.setContentIntent(pendingIntent);
 
+        // Persist a dismiss event when the user swipes this native notification away.
+        Intent deleteIntent = new Intent(this, OrderiNotificationDismissReceiver.class);
+        deleteIntent.setAction(OrderiNotificationDismissReceiver.ACTION_DISMISS);
+        deleteIntent.putExtra("order_id", orderId);
+        deleteIntent.putExtra("from_area", fromArea);
+        deleteIntent.putExtra("to_area", toArea);
+        deleteIntent.putExtra("raw_text", rawText);
+        deleteIntent.putExtra("sender_name", title);
+        PendingIntent deletePendingIntent = PendingIntent.getBroadcast(
+                this, Math.abs((fingerprint + ":dismiss").hashCode()), deleteIntent,
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
+                        ? PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+                        : PendingIntent.FLAG_UPDATE_CURRENT);
+        builder.setDeleteIntent(deletePendingIntent);
+
         NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         if (manager != null) {
             int id = Math.abs(fingerprint.hashCode());
