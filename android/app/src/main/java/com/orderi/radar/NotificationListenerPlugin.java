@@ -333,6 +333,16 @@ public class NotificationListenerPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void getPrivateOutreachStatus(PluginCall call) {
+        android.content.SharedPreferences prefs = getContext().getSharedPreferences("orderi_private_outreach", Context.MODE_PRIVATE);
+        JSObject ret = new JSObject();
+        ret.put("status", prefs.getString("status", "not_started"));
+        ret.put("statusLabel", prefs.getString("status_label", ""));
+        ret.put("updatedAt", prefs.getLong("updated_at", 0L));
+        call.resolve(ret);
+    }
+
+    @PluginMethod
     public void reachAdvertiserPrivateChat(PluginCall call) {
         try {
             String phone = call.getString("phone", "");
