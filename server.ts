@@ -1513,7 +1513,7 @@ app.post("/api/ai/cloud-parse-order", async (req, res) => {
     });
 
     const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("Cloud AI parsing timeout")), 4000)
+      setTimeout(() => reject(new Error("Cloud AI parsing timeout")), 10000)
     );
 
     const response = await Promise.race([aiPromise, timeoutPromise]);
@@ -1539,7 +1539,9 @@ app.post("/api/ai/cloud-parse-order", async (req, res) => {
     // Return standard heuristic fallback if Cloud AI is unavailable
     const fallback = parseWhatsAppOrderText(req.body?.rawText || "");
     return res.json({
-      success: true,
+      success: false,
+      fallback: true,
+      error: "Cloud parsing failed; continue with the local parser.",
       data: {
         from: fallback.from,
         to: fallback.to,
