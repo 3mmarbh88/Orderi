@@ -81,7 +81,7 @@ export function sendBackgroundOrderNotification(order: ParsedOrder, filter?: Ord
 
   try {
     // Minimal notification: route only, with no heading or extra order details.
-    const title = `${order.from} → ${order.to}`;
+    const title = `${order.from} ← ${order.to}`;
     const body = '';
 
     const options: any = {
