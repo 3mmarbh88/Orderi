@@ -6,9 +6,9 @@ const MAX_FEEDBACK = 250;
 
 function normalizeFeedbackText(value: unknown): string {
   return normalizeArabicText(String(value || ''))
-    .replace(/(.)\\1{2,}/gu, '$1')
-    .replace(/[^\\p{L}\\p{N}]+/gu, ' ')
-    .replace(/\\s+/g, ' ')
+    .replace(/(.)\1{2,}/gu, '$1')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
     .trim();
 }
 
