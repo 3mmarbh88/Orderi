@@ -80,35 +80,26 @@ export async function reachNativeAdvertiserPrivateChat(options: {
  */
 export async function markAllWhatsAppAsRead(groupNames?: string[]): Promise<{ success: boolean; markedCount: number; archivedAutomationStarted?: boolean; accessibilityRequired?: boolean }> {
   let markedCount = 0;
-  let archivedAutomationStarted = false;
-  let accessibilityRequired = false;
   if (isNativeAndroid()) {
     try {
       const res = await OrderiNotificationListener.markAllAsRead({ groupNames: groupNames || [] });
       markedCount = res.markedCount || 0;
-      archivedAutomationStarted = !!res.archivedAutomationStarted;
-      accessibilityRequired = !!res.accessibilityRequired;
     } catch (err) {
       console.warn('Native markAllAsRead error:', err);
     }
   }
 
-  // Also sync to backend server for webhook/session groups
+  // Keep server-side group bookkeeping in sync, but do not count server-cleared
+  // records as WhatsApp chats actually marked read on the device.
   try {
-    const resp = await fetch('/api/whatsapp/mark-all-groups-read', {
+    await fetch('/api/whatsapp/mark-all-groups-read', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ groupNames: groupNames || [] }),
     });
-    if (resp.ok) {
-      const data = await resp.json();
-      if (!markedCount && data.clearedCount) {
-        markedCount = data.clearedCount;
-      }
-    }
   } catch {}
 
-  return { success: true, markedCount: markedCount || groupNames?.length || 0, archivedAutomationStarted, accessibilityRequired };
+  return { success: true, markedCount, archivedAutomationStarted: false, accessibilityRequired: false };
 }
 
 
