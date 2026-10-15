@@ -848,8 +848,8 @@ function OrderiApp() {
 
     const normalizeNotificationText = (value: unknown) =>
       normalizeArabicText(String(value || ''))
-        .replace(/[^\\p{L}\\p{N}]+/gu, ' ')
-        .replace(/\\s+/g, ' ')
+        .replace(/[^\p{L}\p{N}]+/gu, ' ')
+        .replace(/\s+/g, ' ')
         .trim();
 
     const findOrderForNativeNotification = (data: any) => {
