@@ -1,5 +1,5 @@
 import { ParsedOrder, OutreachDeliveryStatus, OutreachAttemptDetails } from '../types';
-import { reachNativeAdvertiserPrivateChat } from '../native/whatsappListener';
+import { reachNativeAdvertiserPrivateChat, getNativePrivateOutreachStatus } from '../native/whatsappListener';
 import { isNativeAndroid } from '../native/orderiNotificationListener';
 
 /**
@@ -416,7 +416,9 @@ export function openRegularWhatsAppPrivateChat(phone: string, message: string): 
  */
 export async function executePrivateAdvertiserOutreach(
   order: ParsedOrder,
-  confirmedPhone?: string
+  confirmedPhone?: string,
+  customTemplate?: string,
+  areaName?: string
 ): Promise<{
   success: boolean;
   status: OutreachDeliveryStatus;
@@ -428,7 +430,15 @@ export async function executePrivateAdvertiserOutreach(
 }> {
   const resolution = resolveAdvertiserContact(order);
   const targetPhone = confirmedPhone ? normalizeBahrainPhone(confirmedPhone) : resolution.phone;
-  const messageText = formatAdvertiserPrivateMessage(order);
+  const defaultMessage = formatAdvertiserPrivateMessage(order);
+  const template = (customTemplate || '').trim();
+  const messageText = template
+    ? template.replace(/\\{area\\}/g, areaName || order.from || 'المنامة')
+        .replace(/\\{from\\}/g, order.from || 'الموقع المحدد')
+        .replace(/\\{to\\}/g, order.to || 'الموقع المحدد')
+        .replace(/\\{price\\}/g, order.price > 0 && !order.isPriceUnspecified ? String(order.price) : 'بالاتفاق')
+        .replace(/\\{name\\}/g, order.senderName || 'صاحب الإعلان')
+    : defaultMessage;
   const advertiserName = resolution.name || order.senderName || 'صاحب الإعلان';
 
   // 1. Copy tailored message to clipboard as an instant backup for the driver
@@ -460,8 +470,19 @@ export async function executePrivateAdvertiserOutreach(
   // 3. Android Native Direct Outreach (Zero popups, zero browser tabs, directly inside WhatsApp)
   if (isNativeAndroid()) {
     try {
+      // Never message a guessed customer/recipient number or choose among multiple numbers silently.
+      const safePhone = resolution.confidence === 'multiple_candidates' ||
+        resolution.confidence === 'name_only_needs_verification'
+        ? null : targetPhone;
+      if (resolution.confidence === 'multiple_candidates' && !confirmedPhone) {
+        return {
+          success: false, status: 'verification_required', needsVerification: true,
+          resolution, message: messageText, phoneUsed: null,
+          statusLabel: 'يلزم التأكد من رقم المعلن قبل الإرسال',
+        };
+      }
       const nativeResult = await reachNativeAdvertiserPrivateChat({
-        phone: targetPhone || undefined,
+        phone: safePhone || undefined,
         memberName: advertiserName,
         groupName: order.groupName,
         message: messageText,
@@ -469,19 +490,20 @@ export async function executePrivateAdvertiserOutreach(
       });
 
       if (nativeResult.success) {
-        const isNameOnly = !targetPhone;
-        const statusLabel = isNameOnly
-          ? `⚡ تم تفعيل المحادثة الخاصة مع «${advertiserName}» بالواتساب وتجهيز رسالة القبول`
-          : `📱 تم فتح المحادثة الخاصة مع «${advertiserName}» وتجهيز رسالة القبول`;
-
+        const finalResult = await getNativePrivateOutreachStatus(30000);
+        if (finalResult.status === 'sent_confirmed') {
+          return {
+            success: true, status: 'sent_confirmed', needsVerification: false,
+            resolution, message: messageText, phoneUsed: safePhone || null,
+            statusLabel: `تم تأكيد تنفيذ إرسال الرسالة الخاصة إلى ${advertiserName}`,
+          };
+        }
         return {
-          success: true,
-          status: 'chat_opened_pending_send',
-          needsVerification: false,
-          resolution,
-          message: messageText,
-          phoneUsed: targetPhone || null,
-          statusLabel,
+          success: false,
+          status: finalResult.status === 'verification_required' ? 'verification_required' : 'failed',
+          needsVerification: finalResult.status === 'verification_required',
+          resolution, message: messageText, phoneUsed: safePhone || null,
+          statusLabel: finalResult.statusLabel || 'لم يؤكد واتساب تنفيذ الإرسال',
         };
       }
     } catch (e) {
@@ -504,8 +526,8 @@ export async function executePrivateAdvertiserOutreach(
   }
 
   return {
-    success: true,
-    status: 'chat_opened_pending_send',
+    success: false,
+    status: 'failed',
     needsVerification: false,
     resolution,
     message: messageText,
