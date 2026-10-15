@@ -58,16 +58,22 @@ public class NotificationListenerPlugin extends Plugin {
         receiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
-                if (!WhatsAppNotificationListenerService.ACTION_EVENT.equals(intent.getAction())) return;
+                if (intent == null) return;
+                String action = intent.getAction();
                 String json = intent.getStringExtra("event");
                 if (json == null) return;
                 try {
                     JSObject ret = new JSObject(json);
-                    notifyListeners("whatsappNotification", ret);
+                    if (WhatsAppNotificationListenerService.ACTION_EVENT.equals(action)) {
+                        notifyListeners("whatsappNotification", ret);
+                    } else if (OrderiNotificationDismissReceiver.ACTION_DISMISS.equals(action)) {
+                        notifyListeners("dismissOrderNotification", ret);
+                    }
                 } catch (Exception ignored) {}
             }
         };
         IntentFilter filter = new IntentFilter(WhatsAppNotificationListenerService.ACTION_EVENT);
+        filter.addAction(OrderiNotificationDismissReceiver.ACTION_DISMISS);
         ContextCompat.registerReceiver(getContext(), receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED);
 
         if (pendingOrderClick != null) {
@@ -143,6 +149,24 @@ public class NotificationListenerPlugin extends Plugin {
                 arr.put(new JSObject(events.getJSONObject(i).toString()));
             }
             prefs.edit().remove(WhatsAppNotificationListenerService.KEY_EVENTS).apply();
+        } catch (Exception ignored) {}
+        ret.put("events", arr);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void getPendingDismissals(PluginCall call) {
+        JSObject ret = new JSObject();
+        JSArray arr = new JSArray();
+        try {
+            android.content.SharedPreferences prefs = getContext().getSharedPreferences(
+                    OrderiNotificationDismissReceiver.PREFS, Context.MODE_PRIVATE);
+            JSONArray events = new JSONArray(prefs.getString(
+                    OrderiNotificationDismissReceiver.KEY_PENDING, "[]"));
+            for (int i = 0; i < events.length(); i++) {
+                arr.put(new JSObject(events.getJSONObject(i).toString()));
+            }
+            prefs.edit().remove(OrderiNotificationDismissReceiver.KEY_PENDING).apply();
         } catch (Exception ignored) {}
         ret.put("events", arr);
         call.resolve(ret);
