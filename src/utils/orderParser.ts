@@ -200,7 +200,6 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
     ],
     manama: ['منامه', 'المنامه'],
     muharraq: ['محرق', 'المحرق'],
-    galali: ['قلالي', 'قلالي'],
   };
 
   const searchablePlaces: SearchablePlace[] = [
