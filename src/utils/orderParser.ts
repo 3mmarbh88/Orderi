@@ -70,6 +70,25 @@ function getPlaceTypoLimit(keyword: string): number {
   return keyword.length <= 5 ? 1 : 2;
 }
 
+/**
+ * Conservative Arabic cleanup for matching only. The original WhatsApp text is kept
+ * untouched on the order so users can verify every extracted field.
+ */
+function normalizeArabicForIntentMatching(text: string): string {
+  return text
+    .normalize('NFKC')
+    .replace(/[\\u064B-\\u065F\\u0670\\u0640]/g, '')
+    .replace(/[\\u200E-\\u200F\\u202A-\\u202E\\u2066-\\u2069]/g, '')
+    .replace(/[إأآٱ]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .replace(/ة/g, 'ه')
+    // WhatsApp typos often repeat letters: "توصيييل", "مندوبب".
+    .replace(/([ء-ي])\\1{2,}/g, '$1$1')
+    .replace(/[،؛,]+/g, ' ')
+    .replace(/\\s+/g, ' ')
+    .trim();
+}
+
 export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
   if (!rawText || typeof rawText !== 'string') {
     return {
@@ -93,7 +112,7 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
   }
 
   const convertedText = convertArabicNumerals(rawText);
-  const normalized = normalizeArabicText(convertedText);
+  const normalized = normalizeArabicText(normalizeArabicForIntentMatching(convertedText));
   const advertisementDetection = detectAdvertisementMessage(rawText);
 
   // Explicit order quantity: "اوردرين", "2 اوردرات", "ثلاثة طلبات".
@@ -477,7 +496,10 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
   }
 
   // Comprehensive Intent Detection (Goods deliveries + Passenger rides)
-  const hasOrderIntent = /(?:اوردر|طلب|توصيل|توصيل[ةه]|توصيلني|يوصلني|مشوار|مشاوير|مندوب|بيك اب|pickup|delivery|شخص|اشخاص|راكب|ركاب|بنت|بنات|طفل|اطفال|طالب|طالب[ةه]|طلاب|طالبات|موظف|موظف[ةه]|موظفين|عمال|سيار[ةه]|دريول|سائق|دوام|مدرس[ةه]|جامع[ةه])/i.test(normalized) || /(?:اوردر|أوردر|طلب|توصيل|توصيلة|توصيله|مشوار|مشاوير|شخص|أشخاص|اشخاص|راكب|ركاب|بنت|طفل|أطفال|طالب|طالبة|موظف|موظفة|سيارة|دريول|سائق|دوام|مدرسة|جامعة)/i.test(rawText);
+  const hasOrderIntent =
+    /(?:اوردر|طلب|توصيل|توصيل[ةه]|توصيلني|يوصلني|مشوار|مشاوير|مندوب|بيك\s*اب|pickup|delivery|شخص|اشخاص|راكب|ركاب|بنت|بنات|طفل|اطفال|طالب|طالب[ةه]|طلاب|طالبات|موظف|موظف[ةه]|موظفين|عمال|سيار[ةه]|دريول|سائق|دوام|مدرس[ةه]|جامع[ةه])/i.test(normalized) ||
+    /(?:ابي|ابا|ابغي|ابغى|اريد|عايز|عاوزه|محتاج|محتاجه|احتاج|نبي|نبغي|مطلوب|لو\s*سمحت|please)/i.test(normalized) ||
+    /(?:اوردر|أوردر|طلب|توصيل|توصيلة|توصيله|مشوار|مشاوير|شخص|أشخاص|اشخاص|راكب|ركاب|بنت|طفل|أطفال|طالب|طالبة|موظف|موظفة|سيارة|دريول|سائق|دوام|مدرسة|جامعة)/i.test(rawText);
 
   // If destination is missing but origin is known
   if (!toArea && fromArea && hasOrderIntent) {
