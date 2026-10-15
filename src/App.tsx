@@ -361,8 +361,10 @@ function OrderiApp() {
           const { parseWhatsAppOrderWithLocalAi } = await import('./utils/localAiOrderParser');
           for (const event of pending.events.slice(-30)) {
             const groupName = (event.conversationTitle || event.title || '').trim() || 'محادثة خاصة 👤';
+            // Android often exposes the same WhatsApp message in bigText, text and rawText.
+            // Select the best available representation once instead of concatenating duplicates.
             const rawText = [event.bigText, event.text, event.subText, event.rawText]
-              .filter(Boolean).join('\n').trim();
+              .find((value) => typeof value === 'string' && value.trim())?.trim() || '';
             const parsed = await parseWhatsAppOrderWithLocalAi(rawText || event.title || '', {
               hybridMode: filterRef.current.localAiConfig?.hybridMode !== false,
               useCloudFallback: filterRef.current.useCloudAiFallback !== false,
@@ -1006,10 +1008,10 @@ function OrderiApp() {
           if (oldest) seenNativeEventIds.delete(oldest);
         }
       }
+      // Android often exposes the same WhatsApp message in bigText, text and rawText.
+      // Select the best available representation once instead of concatenating duplicates.
       const rawText = [event.bigText, event.text, event.subText, event.rawText]
-        .filter(Boolean)
-        .join('\n')
-        .trim();
+        .find((value) => typeof value === 'string' && value.trim())?.trim() || '';
       if (!rawText && !event.title) return;
 
       // Smart resolution of Group Name and whether it's a group
