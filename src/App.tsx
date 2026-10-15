@@ -858,13 +858,11 @@ function OrderiApp() {
       if (byId) return byId;
       const incomingText = normalizeNotificationText(data.rawText);
       if (incomingText.length < 12) return undefined;
-      const incomingFrom = normalizeArabicText(String(data.from || ''));
-      const incomingTo = normalizeArabicText(String(data.to || ''));
+      // The source message is the strongest identity signal; native area heuristics
+      // can be incomplete, so do not require their guessed route to match.
       const matches = ordersRef.current.filter((o) =>
         normalizeNotificationText(o.rawText).length >= 12 &&
-        normalizeNotificationText(o.rawText) === incomingText &&
-        (!incomingFrom || normalizeArabicText(o.from) === incomingFrom) &&
-        (!incomingTo || normalizeArabicText(o.to) === incomingTo)
+        normalizeNotificationText(o.rawText) === incomingText
       );
       // Never remove/open an arbitrary order when the source message is ambiguous.
       return matches.length === 1 ? matches[0] : undefined;
@@ -880,10 +878,9 @@ function OrderiApp() {
 
     const convertNativeEvent = (event: WhatsAppNativeEvent) => {
       const groupName = (event.conversationTitle || event.title || '').trim() || 'محادثة خاصة 👤';
-      const rawText = [event.bigText, event.text, event.subText, event.rawText]
-        .filter(Boolean)
-        .join('\n')
-        .trim();
+      // Keep the same canonical source text used by the native notification
+      // so tap/dismiss events can resolve the exact radar order safely.
+      const rawText = String(event.rawText || event.bigText || event.text || event.subText || '').trim();
       if (!rawText && !event.title) return;
       // A real WhatsApp notification verifies that the native listener is seeing WhatsApp on this device.
       markWhatsAppVerified(event.isGroup ? groupName : undefined);
