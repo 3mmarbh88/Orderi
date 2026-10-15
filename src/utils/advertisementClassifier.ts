@@ -1,4 +1,5 @@
 import { normalizeArabicText } from '../data/bahrainAreas';
+import { normalizeArabicMessageForMatching } from './arabicMessageNormalizer';
 
 export interface AdvertisementDetection {
   isAdvertisement: boolean;
@@ -13,7 +14,7 @@ export interface AdvertisementDetection {
 export function detectAdvertisementMessage(rawText: string): AdvertisementDetection {
   if (!rawText || typeof rawText !== 'string') return { isAdvertisement: false };
 
-  const text = normalizeArabicText(rawText)
+  const text = normalizeArabicText(normalizeArabicMessageForMatching(rawText))
     .replace(/[ـ_*~`]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
