@@ -433,11 +433,11 @@ export async function executePrivateAdvertiserOutreach(
   const defaultMessage = formatAdvertiserPrivateMessage(order);
   const template = (customTemplate || '').trim();
   const messageText = template
-    ? template.replace(/\\{area\\}/g, areaName || order.from || 'المنامة')
-        .replace(/\\{from\\}/g, order.from || 'الموقع المحدد')
-        .replace(/\\{to\\}/g, order.to || 'الموقع المحدد')
-        .replace(/\\{price\\}/g, order.price > 0 && !order.isPriceUnspecified ? String(order.price) : 'بالاتفاق')
-        .replace(/\\{name\\}/g, order.senderName || 'صاحب الإعلان')
+    ? template.replace(/\{area\}/g, areaName || order.from || 'المنامة')
+        .replace(/\{from\}/g, order.from || 'الموقع المحدد')
+        .replace(/\{to\}/g, order.to || 'الموقع المحدد')
+        .replace(/\{price\}/g, order.price > 0 && !order.isPriceUnspecified ? String(order.price) : 'بالاتفاق')
+        .replace(/\{name\}/g, order.senderName || 'صاحب الإعلان')
     : defaultMessage;
   const advertiserName = resolution.name || order.senderName || 'صاحب الإعلان';
 
