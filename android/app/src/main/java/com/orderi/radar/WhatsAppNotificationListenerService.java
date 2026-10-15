@@ -339,6 +339,27 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         else if (normalized.contains("الى عيسى") || normalized.contains("إلى مدينة عيسى")) toArea = "مدينة عيسى";
         else if (normalized.contains("الى عدلية") || normalized.contains("إلى العدلية")) toArea = "العدلية";
 
+        // Repeated-area Bahrain phrasing such as «محرق محرق» means a local route.
+        // Match adjacent repeated names only; do not rewrite explicit «from ... to ...» routes.
+        String[][] repeatedAreas = new String[][] {
+                {"المنامة", "المنامة"}, {"منامه", "المنامة"},
+                {"المحرق", "المحرق"}, {"محرق", "المحرق"},
+                {"الرفاع", "الرفاع"}, {"رفاع", "الرفاع"},
+                {"قلالي", "قلالي"}, {"سترة", "سترة"}, {"ستره", "سترة"},
+                {"مدينة عيسى", "مدينة عيسى"}, {"مدينة حمد", "مدينة حمد"},
+                {"السيف", "السيف"}, {"سيف", "السيف"}, {"العدلية", "العدلية"}
+        };
+        for (String[] area : repeatedAreas) {
+            String escaped = java.util.regex.Pattern.quote(area[0]);
+            java.util.regex.Pattern repeated = java.util.regex.Pattern.compile(
+                    "(?:^|[^\\p{L}\\p{N}])" + escaped + "\\s+" + escaped + "(?:$|[^\\p{L}\\p{N}])");
+            if (repeated.matcher(normalized).find()) {
+                fromArea = area[1];
+                toArea = area[1];
+                break;
+            }
+        }
+
         // 2. Identify Passenger Status & Count
         boolean isPassenger = normalized.contains("أشخاص") || normalized.contains("اشخاص") || 
                               normalized.contains("ركاب") || normalized.contains("مشوار خاص") || 
