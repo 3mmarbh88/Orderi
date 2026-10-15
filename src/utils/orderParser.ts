@@ -77,15 +77,15 @@ function getPlaceTypoLimit(keyword: string): number {
 function normalizeArabicForIntentMatching(text: string): string {
   return text
     .normalize('NFKC')
-    .replace(/[\\u064B-\\u065F\\u0670\\u0640]/g, '')
-    .replace(/[\\u200E-\\u200F\\u202A-\\u202E\\u2066-\\u2069]/g, '')
+    .replace(/[\u064B-\u065F\u0670\u0640]/g, '')
+    .replace(/[\u200E-\u200F\u202A-\u202E\u2066-\u2069]/g, '')
     .replace(/[إأآٱ]/g, 'ا')
     .replace(/ى/g, 'ي')
     .replace(/ة/g, 'ه')
     // WhatsApp typos often repeat letters: "توصيييل", "مندوبب".
-    .replace(/([ء-ي])\\1{2,}/g, '$1$1')
+    .replace(/([ء-ي])\1{2,}/g, '$1$1')
     .replace(/[،؛,]+/g, ' ')
-    .replace(/\\s+/g, ' ')
+    .replace(/\s+/g, ' ')
     .trim();
 }
 
