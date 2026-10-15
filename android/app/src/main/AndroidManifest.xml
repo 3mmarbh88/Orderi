@@ -34,6 +34,8 @@
             </intent-filter>
         </service>
 
+        <receiver android:name=".OrderiOrderNotificationDismissReceiver" android:exported="false" />
+
         <service
             android:name=".OrderiAccessibilityService"
             android:label="Orderi - WhatsApp Auto-Accept"
