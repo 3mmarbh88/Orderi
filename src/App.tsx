@@ -1540,8 +1540,8 @@ function OrderiApp() {
       const res = await markAllWhatsAppAsRead(linkedGroups);
       const count = res.markedCount || 0;
 
-      // This changes Orderi's local read state only; it does not claim that
-      // archived WhatsApp conversations without notification actions were read.
+      // Keep Orderi's local read state in sync; archived chats are handled separately
+      // by the native Accessibility pass when that service is enabled.
       setOrders((prev) =>
         prev.map((ord) => ({
           ...ord,
@@ -1553,10 +1553,18 @@ function OrderiApp() {
       if (filter.soundEnabled) {
         playAlertTone('cash_register', 70);
       }
-      if (count > 0) {
-        showToast(`تم تنفيذ القراءة في الخلفية لـ ${count} إشعار واتساب متاح. لم يتم فتح واتساب.`);
+      if (res.archivedAutomationStarted) {
+        showToast(count > 0
+          ? `تمت معالجة ${count} إشعارًا متاحًا، وبدأ فحص القروبات المرتبطة غير المقروءة في المؤرشفة. سيفتح واتساب مؤقتًا ثم يعود البرنامج.`
+          : 'بدأ فحص القروبات المرتبطة غير المقروءة في المؤرشفة. سيفتح واتساب مؤقتًا ثم يعود البرنامج.');
+      } else if (res.accessibilityRequired) {
+        showToast(count > 0
+          ? `تمت قراءة ${count} إشعارًا متاحًا. لتضمين القروبات المؤرشفة، فعّل خدمة إمكانية الوصول الخاصة بـ Orderi.`
+          : 'لتضمين القروبات المؤرشفة، فعّل خدمة إمكانية الوصول الخاصة بـ Orderi من إعدادات إمكانية الوصول.');
+      } else if (count > 0) {
+        showToast(`تم تنفيذ القراءة في الخلفية لـ ${count} إشعار واتساب متاح. لم تبدأ قراءة المؤرشفة.`);
       } else {
-        showToast('لم توجد إجراءات قراءة متاحة في إشعارات واتساب. القروبات المؤرشفة التي لا تملك إشعارًا نشطًا لا يمكن تمييزها كمقروءة دون فتح واتساب.');
+        showToast('لم توجد إجراءات قراءة متاحة، ولم تبدأ قراءة المؤرشفة. تأكد من ربط القروبات وتفعيل خدمة إمكانية الوصول في Orderi.');
       }
     } catch (e) {
       console.warn('[Orderi] Mark-all-read failed:', e);
