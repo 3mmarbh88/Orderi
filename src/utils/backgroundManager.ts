@@ -80,44 +80,9 @@ export function sendBackgroundOrderNotification(order: ParsedOrder, filter?: Ord
   }
 
   try {
-    const isVip = order.contactStatus === 'vip';
-    const isPassenger = order.passengerDetection?.level === 'confirmed_passenger';
-    const count = order.passengerCount || order.passengerDetection?.passengerCount;
-    
-    // Title format: highlights route or passenger warning
-    let title = '';
-    if (isPassenger) {
-      if (filter.blockPassengerDeliveries !== false) {
-        title = `🚨 نقل ركاب ${count ? `(${count} ركاب)` : ''} • تحذير: توصيل أشخاص ممنوع 🚫`;
-      } else {
-        title = `👥 طلب توصيل راكب: ${order.from} ← ${order.to}${count ? ` (${count} ركاب)` : ''}`;
-      }
-    } else {
-      title = `🚗 طلب جديد: ${order.from} ← ${order.to}`;
-    }
-
-    // Message snippet formatted as WhatsApp chat message
-    const cleanText = order.rawText
-      ? order.rawText.trim().replace(/\s+/g, ' ')
-      : `مطلوب توصيل من ${order.from} إلى ${order.to}`;
-    const preview = cleanText.length > 70 ? cleanText.substring(0, 70) + '...' : cleanText;
-
-    const priceText = (!order.price || order.price <= 0 || order.isPriceUnspecified)
-      ? 'غير محدد (بالاتفاق 🤝)'
-      : `${order.price.toFixed(1)} د.ب`;
-
-    // Order summary body with pickup, destination, price and original snippet
-    const bodyLines = [
-      `📍 الاستلام: ${order.from}`,
-      `🏁 الوجهة: ${order.to}`,
-      `💰 السعر: ${priceText}`,
-    ];
-    if (count && count > 0) {
-      bodyLines.push(`👥 عدد الركاب: ${count} ${count === 1 ? 'شخص' : count === 2 ? 'شخصين' : 'أشخاص'}`);
-    }
-    bodyLines.push(`💬 "${preview}"`);
-
-    const body = bodyLines.join('\n');
+    // Minimal notification: route only, with no heading or extra order details.
+    const title = `${order.from} → ${order.to}`;
+    const body = '';
 
     const options: any = {
       body,
@@ -139,15 +104,8 @@ export function sendBackgroundOrderNotification(order: ParsedOrder, filter?: Ord
       },
     };
 
-    // If Service Worker registration is available, use showNotification for better mobile background persistence
-    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-      navigator.serviceWorker.ready.then((reg) => {
-        reg.showNotification(title, options);
-      }).catch(() => {
-        createWindowNotification(title, options, order);
-      });
-    } else {
-      createWindowNotification(title, options, order);
+    // Use the Notification instance so click and dismiss events stay linked to this order.
+    createWindowNotification(title, options, order);
     }
   } catch (e) {
     console.warn('Could not send system notification:', e);
@@ -156,21 +114,23 @@ export function sendBackgroundOrderNotification(order: ParsedOrder, filter?: Ord
 
 function createWindowNotification(title: string, options: any, order?: ParsedOrder) {
   const notif = new Notification(title, options);
+  let openedByTap = false;
   notif.onclick = () => {
-    try {
-      window.focus();
-    } catch {}
-
-    // Dispatch event to open this specific order's details inside Orderi
+    openedByTap = true;
+    try { window.focus(); } catch {}
     if (order && typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('orderi:open_order_detail', {
-        detail: {
-          orderId: order.id,
-          order,
-        },
+        detail: { orderId: order.id, order },
       }));
     }
     notif.close();
+  };
+  notif.onclose = () => {
+    if (!openedByTap && order && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('orderi:dismiss_order_notification', {
+        detail: { orderId: order.id },
+      }));
+    }
   };
 }
 
