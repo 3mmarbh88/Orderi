@@ -32,6 +32,7 @@ interface OrderiNotificationListenerPlugin {
   markAllWhatsAppRead(): Promise<{ started: boolean; message: string }>;
   updateFilterSettings?(options: {
     ignoreNonMatching: boolean;
+    blockPassengerDeliveries: boolean;
     minPrice: number;
     coverageKm: number;
     driverLat?: number;
