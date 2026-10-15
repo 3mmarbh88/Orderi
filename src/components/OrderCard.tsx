@@ -54,6 +54,7 @@ interface OrderCardProps {
   onRestoreOrder?: (orderId: string) => void;
   onConfirmClosure?: (orderId: string) => void;
   onDismissClosureSuspicion?: (orderId: string) => void;
+  onClassificationFeedback?: (label: 'order' | 'advertisement') => void;
 }
 
 export function OrderCard({
@@ -67,6 +68,7 @@ export function OrderCard({
   onRestoreOrder,
   onConfirmClosure,
   onDismissClosureSuspicion,
+  onClassificationFeedback,
 }: OrderCardProps) {
   const [showFullText, setShowFullText] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -993,6 +995,25 @@ export function OrderCard({
                 </span>
               </button>
             </div>
+            {onClassificationFeedback && !isMyBroadcast && (
+              <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
+                <span className="text-[10px] text-slate-500 font-bold">تصحيح التصنيف لتحسين التعلم المحلي:</span>
+                <button
+                  type="button"
+                  onClick={() => onClassificationFeedback('order')}
+                  className="min-h-[36px] px-3 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-800 text-[11px] font-bold hover:bg-emerald-100"
+                >
+                  ✓ هذا أوردر
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onClassificationFeedback('advertisement')}
+                  className="min-h-[36px] px-3 rounded-lg border border-amber-200 bg-amber-50 text-amber-800 text-[11px] font-bold hover:bg-amber-100"
+                >
+                  هذا إعلان وليس أوردر
+                </button>
+              </div>
+            )}
           </div>
 
         </div>
