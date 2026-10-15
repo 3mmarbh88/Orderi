@@ -448,24 +448,7 @@ export async function executePrivateAdvertiserOutreach(
     } catch {}
   }
 
-  // 2. Register outreach attempt on the backend for response classification (تم/لك/اخذوه)
-  try {
-    fetch('/api/whatsapp/quick-accept-reply', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        orderId: order.id,
-        phone: targetPhone || null,
-        targetType: 'private_direct', // Private 1-on-1 chat only
-        groupName: order.groupName,
-        senderName: advertiserName,
-        replyText: messageText,
-        price: order.price,
-        from: order.from,
-        to: order.to,
-      }),
-    }).catch(() => {});
-  } catch {}
+
 
   // 3. Android Native Direct Outreach (Zero popups, zero browser tabs, directly inside WhatsApp)
   if (isNativeAndroid()) {
@@ -492,6 +475,24 @@ export async function executePrivateAdvertiserOutreach(
       if (nativeResult.success) {
         const finalResult = await getNativePrivateOutreachStatus(30000);
         if (finalResult.status === 'sent_confirmed') {
+          // Register the outreach only after Android performed the send-button action.
+          try {
+            fetch('/api/whatsapp/quick-accept-reply', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                orderId: order.id,
+                phone: safePhone || null,
+                targetType: 'private_direct',
+                groupName: order.groupName,
+                senderName: advertiserName,
+                replyText: messageText,
+                price: order.price,
+                from: order.from,
+                to: order.to,
+              }),
+            }).catch(() => {});
+          } catch {}
           return {
             success: true, status: 'sent_confirmed', needsVerification: false,
             resolution, message: messageText, phoneUsed: safePhone || null,
