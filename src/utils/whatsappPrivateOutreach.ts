@@ -455,7 +455,8 @@ export async function executePrivateAdvertiserOutreach(
     try {
       // Never message a guessed customer/recipient number or choose among multiple numbers silently.
       const safePhone = resolution.confidence === 'multiple_candidates' ||
-        resolution.confidence === 'name_only_needs_verification'
+        resolution.confidence === 'name_only_needs_verification' ||
+        (resolution.confidence === 'extracted_from_text' && !confirmedPhone)
         ? null : targetPhone;
       if (resolution.confidence === 'multiple_candidates' && !confirmedPhone) {
         return {
