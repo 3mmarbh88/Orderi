@@ -45,6 +45,7 @@ public class OrderiAccessibilityService extends AccessibilityService {
     private int archivedReadEventRetries = 0;
     private int archivedChatsVisited = 0;
     private final java.util.HashSet<String> archivedUnreadChatsVisited = new java.util.HashSet<>();
+    private static volatile java.util.List<String> archivedTargetGroups = new java.util.ArrayList<>();
     private static final int MAX_ARCHIVED_CHATS_TO_VISIT = 100;
 
     @Override
@@ -127,8 +128,9 @@ public class OrderiAccessibilityService extends AccessibilityService {
      * Starts a bounded Accessibility pass over WhatsApp's Archived section.
      * Returns true only when the service is connected and WhatsApp can be launched.
      */
-    public static boolean requestMarkArchivedChatsRead(Context context) {
-        if (context == null || !isAccessibilityEnabled(context) || instance == null) {
+    public static boolean requestMarkArchivedChatsRead(Context context, java.util.List<String> targetGroups) {
+        if (context == null || targetGroups == null || targetGroups.isEmpty()
+                || !isAccessibilityEnabled(context) || instance == null) {
             return false;
         }
 
@@ -143,6 +145,14 @@ public class OrderiAccessibilityService extends AccessibilityService {
         service.archivedReadEventRetries = 0;
         service.archivedChatsVisited = 0;
         service.archivedUnreadChatsVisited.clear();
+        java.util.ArrayList<String> normalizedGroups = new java.util.ArrayList<>();
+        for (String group : targetGroups) {
+            if (group != null && !group.trim().isEmpty()) {
+                normalizedGroups.add(group.trim().toLowerCase(java.util.Locale.ROOT));
+            }
+        }
+        if (normalizedGroups.isEmpty()) return false;
+        archivedTargetGroups = normalizedGroups;
         markArchivedChatsRequested = true;
 
         try {
@@ -321,7 +331,19 @@ public class OrderiAccessibilityService extends AccessibilityService {
             if (TextUtils.isEmpty(signature)) signature = "unread-" + archivedChatsVisited;
 
             if (archivedUnreadChatsVisited.contains(signature)) {
-                finishArchivedReadPass("Unread marker repeated; stopping to avoid opening the same chat");
+                if (!scrollArchivedList(root)) finishArchivedReadPass("No more archived chats could be scanned");
+                return;
+            }
+            boolean linkedGroup = false;
+            for (String group : archivedTargetGroups) {
+                if (!group.isEmpty() && signature.contains(group)) {
+                    linkedGroup = true;
+                    break;
+                }
+            }
+            if (!linkedGroup) {
+                archivedUnreadChatsVisited.add(signature);
+                if (!scrollArchivedList(root)) finishArchivedReadPass("No more archived chats could be scanned");
                 return;
             }
             if (archivedChatsVisited >= MAX_ARCHIVED_CHATS_TO_VISIT) {
@@ -343,6 +365,16 @@ public class OrderiAccessibilityService extends AccessibilityService {
         } finally {
             root.recycle();
         }
+    }
+
+    private boolean scrollArchivedList(AccessibilityNodeInfo node) {
+        if (node == null) return false;
+        if (node.isScrollable() && node.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)) return true;
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            if (scrollArchivedList(child)) return true;
+        }
+        return false;
     }
 
     private AccessibilityNodeInfo findUnreadMarker(AccessibilityNodeInfo node) {
@@ -421,6 +453,8 @@ public class OrderiAccessibilityService extends AccessibilityService {
         archivedSectionOpened = false;
         waitingForChatToClose = false;
         archivedReadEventRetries = 0;
+        archivedTargetGroups = new java.util.ArrayList<>();
+        returnToOrderi();
     }
 
     private void returnToOrderi() {
