@@ -214,11 +214,16 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                 .replaceAll("\\s+", " ").trim();
 
         // Avoid turning every WhatsApp chat message into an Orderi alert.
+        // Repeated local-area phrasing («محرق محرق») is a valid route even without «من/إلى».
+        boolean repeatedAreaRoute = java.util.regex.Pattern.compile(
+                "(?:محرق|المحرق|منامه|المنامة|قلالي|ستره|سترة|رفاع|الرفاع)\\s+"
+                        + "(?:محرق|المحرق|منامه|المنامة|قلالي|ستره|سترة|رفاع|الرفاع)")
+                .matcher(normalized).find();
         boolean looksLikeOrder =
                 (normalized.contains("توصيل") || normalized.contains("طلب") ||
                  normalized.contains("استلام") || normalized.contains("بيك اب") ||
                  normalized.contains("pickup") || normalized.contains("delivery"))
-                && (normalized.contains("من ") || normalized.contains("الى") ||
+                && (repeatedAreaRoute || normalized.contains("من ") || normalized.contains("الى") ||
                     normalized.contains("إلى") || normalized.matches(".*\\d+(?:\\.\\d+)?\\s*(?:د\\.ب|دب|دينار|bd|bhd).*"));
 
         if (!looksLikeOrder) return;
