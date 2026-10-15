@@ -65,22 +65,21 @@ export function hasExplicitOrderIntent(rawText: string): boolean {
   // Normalize exaggerated repeated letters common in WhatsApp ads:
   // "مباششششر" -> "مباشر". The original notification text is never modified.
   const text = normalizeArabicText(convertArabicNumerals(rawText))
-    .replace(/(.)\\1{2,}/gu, '$1');
+    .replace(/(.)\1{2,}/gu, '$1');
 
   const directIntent =
-    /(?:اوردر|توصيل|مندوب|بيك\\s*اب|بيكاب|pickup|delivery|courier|driver|كابتن|دليفري)/i;
+    /(?:اوردر|توصيل|مندوب|بيك\s*اب|بيكاب|pickup|delivery|courier|driver|كابتن|دليفري)/i;
 
   const combinedRequest =
-    /(?:طلب|مطلوب|ابي|ابغي|احتاج|نحتاج)\\s*(?:توصيل|مندوب|سائق|كابتن|بيك\\s*اب|اوردر|delivery|pickup)/i;
+    /(?:طلب|مطلوب|ابي|ابغي|احتاج|نحتاج)\s*(?:توصيل|مندوب|سائق|كابتن|بيك\s*اب|اوردر|delivery|pickup)/i;
 
-  // In Bahrain WhatsApp groups, some genuine jobs are expressed as a route
-  // plus an explicit fare and "مباشر" / "اذكر منطقتك", without saying "توصيل".
-  // Require all signals to avoid promoting ordinary travel announcements.
+  // Bahrain group ads may express a job as a route + fare + direct/request wording.
   const routeAndFare =
-    /(?:من|الى)\\s*.+(?:الى|إلى)\\s*.+/i.test(text) &&
-    /(?:\\d+(?:\\.\\d+)?\\s*(?:دينار|دنانير|د\\.?\\s*ب|دب|bhd|bd)|(?:دينار|دنانير)\\s*\\d+)/i.test(text);
+    /.+(?:الى|إلى)\s*.+/i.test(text) &&
+    (/\d+(?:\.\d+)?\s*(?:دينار|دنانير|د\.?\s*ب|دب|bhd|bd)/i.test(text) ||
+      /دينارين|(?:ثلاثه|ثلاثة|ثلاث)\s+دنانير|(?:اربعه|أربعة|اربع)\s+دنانير|(?:خمسه|خمسة|خمس)\s+دنانير/i.test(text));
   const directOrRequestWording =
-    /مباشر|اذكر\\s+(?:منطقتك|المنطقه)|لو\\s+سمحت/i.test(text);
+    /مباشر|اذكر\s+(?:منطقتك|المنطقه)|لو\s+سمحت/i.test(text);
 
   return directIntent.test(text) || combinedRequest.test(text) ||
     (routeAndFare && directOrRequestWording);
@@ -230,17 +229,17 @@ function extractPrice(text: string): SelectedPrice | null {
   // Common written fare amounts used in local WhatsApp groups.
   // Only map unambiguous number words; do not guess from a bare "دنانير".
   const writtenPrices: Array<[RegExp, number]> = [
-    [/نص\\s+دينار|نصف\\s+دينار/i, 0.5],
-    [/دينار\\s+واحد|دينار\\s+واحده/i, 1],
+    [/نص\s+دينار|نصف\s+دينار/i, 0.5],
+    [/دينار\s+واحد|دينار\s+واحده/i, 1],
     [/دينارين/i, 2],
-    [/(?:ثلاثه|ثلاثة|ثلاث)\\s+دنانير/i, 3],
-    [/(?:اربعه|أربعة|اربع)\\s+دنانير/i, 4],
-    [/(?:خمسه|خمسة|خمس)\\s+دنانير/i, 5],
-    [/(?:سته|ستة|ست)\\s+دنانير/i, 6],
-    [/(?:سبعه|سبعة|سبع)\\s+دنانير/i, 7],
-    [/(?:ثمانيه|ثمانية|ثمان)\\s+دنانير/i, 8],
-    [/(?:تسعه|تسعة|تسع)\\s+دنانير/i, 9],
-    [/(?:عشره|عشرة|عشر)\\s+دنانير/i, 10],
+    [/(?:ثلاثه|ثلاثة|ثلاث)\s+دنانير/i, 3],
+    [/(?:اربعه|أربعة|اربع)\s+دنانير/i, 4],
+    [/(?:خمسه|خمسة|خمس)\s+دنانير/i, 5],
+    [/(?:سته|ستة|ست)\s+دنانير/i, 6],
+    [/(?:سبعه|سبعة|سبع)\s+دنانير/i, 7],
+    [/(?:ثمانيه|ثمانية|ثمان)\s+دنانير/i, 8],
+    [/(?:تسعه|تسعة|تسع)\s+دنانير/i, 9],
+    [/(?:عشره|عشرة|عشر)\s+دنانير/i, 10],
   ];
 
   for (const [pattern, value] of writtenPrices) {
