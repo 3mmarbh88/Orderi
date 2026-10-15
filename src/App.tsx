@@ -123,13 +123,13 @@ function getNotificationMessageText(event: WhatsAppNativeEvent): string {
   const unique: string[] = [];
 
   for (const candidate of candidates) {
-    const comparisonKey = candidate.replace(/\\s+/g, ' ').trim();
+    const comparisonKey = candidate.replace(/\s+/g, ' ').trim();
     if (!comparisonKey || seen.has(comparisonKey)) continue;
     seen.add(comparisonKey);
     unique.push(candidate.trim());
   }
 
-  return unique.join('\\n').trim();
+  return unique.join('\n').trim();
 }
 
 const DEFAULT_FILTER: OrderFilter = {
