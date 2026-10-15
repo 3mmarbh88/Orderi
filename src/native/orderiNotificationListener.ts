@@ -24,6 +24,7 @@ interface OrderiNotificationListenerPlugin {
   openSettings(): Promise<void>;
   isAccessibilityEnabled(): Promise<{ enabled: boolean }>;
   openAccessibilitySettings(): Promise<void>;
+  getPrivateOutreachStatus(): Promise<{ status: string; statusLabel?: string; updatedAt?: number }>;
   reachAdvertiserPrivateChat(options: {
     phone?: string;
     memberName?: string;
