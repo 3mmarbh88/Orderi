@@ -82,27 +82,6 @@ import {
 import { getWhatsAppConnection, markWhatsAppVerified } from './utils/whatsappConnection';
 import { isNativeAndroid, OrderiNotificationListener, WhatsAppNativeEvent } from './native/orderiNotificationListener';
 
-/**
- * WhatsApp may expose one message in EXTRA_BIG_TEXT, EXTRA_TEXT, and rawText.
- * Merge distinct fields once, comparing whitespace-normalized copies while
- * preserving the original formatting of the chosen text. Sender-authored
- * repeated phrases/lines are never removed.
- */
-function getNotificationMessageText(event: WhatsAppNativeEvent): string {
-  const candidates = [event.bigText, event.text, event.subText, event.rawText]
-    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
-  const seen = new Set<string>();
-  const unique: string[] = [];
-
-  for (const candidate of candidates) {
-    const comparisonKey = candidate.replace(/\\s+/g, ' ').trim();
-    if (!comparisonKey || seen.has(comparisonKey)) continue;
-    seen.add(comparisonKey);
-    unique.push(candidate.trim());
-  }
-
-  return unique.join('\\n').trim();
-}
 import { getWhatsAppListenerStatus, markAllWhatsAppAsRead } from './native/whatsappListener';
 import { executePrivateAdvertiserOutreach } from './utils/whatsappPrivateOutreach';
 import { isDuplicateOrder, findDuplicateOrderMatch, rememberOrderFingerprint } from './utils/orderDedup';
@@ -130,6 +109,28 @@ import {
   isInIframe,
   isNotificationSupported
 } from './utils/backgroundManager';
+
+/**
+ * WhatsApp may expose one message in EXTRA_BIG_TEXT, EXTRA_TEXT, and rawText.
+ * Merge distinct fields once, comparing whitespace-normalized copies while
+ * preserving the original formatting of the chosen text. Sender-authored
+ * repeated phrases/lines are never removed.
+ */
+function getNotificationMessageText(event: WhatsAppNativeEvent): string {
+  const candidates = [event.bigText, event.text, event.subText, event.rawText]
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
+  const seen = new Set<string>();
+  const unique: string[] = [];
+
+  for (const candidate of candidates) {
+    const comparisonKey = candidate.replace(/\\s+/g, ' ').trim();
+    if (!comparisonKey || seen.has(comparisonKey)) continue;
+    seen.add(comparisonKey);
+    unique.push(candidate.trim());
+  }
+
+  return unique.join('\\n').trim();
+}
 
 const DEFAULT_FILTER: OrderFilter = {
   coverageKm: 10,
