@@ -610,6 +610,12 @@ export function OrderCard({
                   <span>اسحب للمسح</span>
                 </span>
               </div>
+              {order.scheduledTime && (
+                <div className="inline-flex items-center gap-1.5 mt-2 px-2.5 py-1 rounded-lg bg-sky-50 border border-sky-200 text-sky-800 text-xs font-bold">
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>{order.scheduledTime}</span>
+                </div>
+              )}
             </div>
           </div>
 

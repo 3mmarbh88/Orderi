@@ -505,40 +505,49 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
     }
   }
 
-  // 4b. Smart Scheduled Delivery Time Extraction (الساعة 8 مساءً / الساعة 6 صباحاً / مطلوب مندوب الساعة...)
-  let scheduledTime: string | undefined = undefined;
-  let scheduledTimeMinutes: number | undefined = undefined;
-  let isFutureSchedule: boolean = false;
-
-  // Pattern: (الساعة|ساعة|على الساعة|في حدود الساعة|توقيت)\s*(\d{1,2}(?::\d{2})?)\s*(صباحا|صباحاً|ص|مساء|مساءً|م|العصر|الظهر|المغرب|بالليل|في الليل|الصبح)?
-  const scheduleRegex = /(?:الساعة|ساعة|على الساعة|في حدود الساعة|توقيت|موعد|وقت)\s*(\d{1,2})(?::(\d{2}))?\s*(صباحا|صباحاً|ص|مساء|مساءً|م|العصر|الظهر|المغرب|بالليل|في الليل|الصبح)?/i;
-  const scheduleMatch = scheduleRegex.exec(convertedText);
-
-  if (scheduleMatch) {
-    const rawHour = parseInt(scheduleMatch[1], 10);
-    const rawMin = scheduleMatch[2] ? parseInt(scheduleMatch[2], 10) : 0;
-    const period = (scheduleMatch[3] || '').trim();
-
-    if (rawHour >= 1 && rawHour <= 24) {
-      let isPm = false;
-      if (/مساء|مساءً|م|العصر|المغرب|بالليل|في الليل/i.test(period)) {
-        isPm = true;
-      } else if (/صباحا|صباحاً|ص|الصبح/i.test(period)) {
-        isPm = false;
-      } else if (rawHour >= 1 && rawHour <= 6) {
-        // In Gulf business contexts, e.g. "الساعة 4" or "الساعة 5" usually refers to afternoon/evening
-        isPm = true;
-      }
-
-      let hour24 = rawHour;
-      if (isPm && hour24 < 12) hour24 += 12;
-      if (!isPm && hour24 === 12) hour24 = 0;
-
+  // 4b. Extract explicit pickup/delivery times, including RTL-reversed WhatsApp clocks.
+  let scheduledTime: string | undefined;
+  let scheduledTimeMinutes: number | undefined;
+  let isFutureSchedule = false;
+  const timeContext = /استلام|تسليم|توصيل|موعد|وقت|الساعة|ساعة|توقيت|على الساعة|في حدود الساعة/i.test(convertedText);
+  const periodRegex = /(صباحا|صباحاً|الصبح|الصباح|مساء|مساءً|المساء|العصر|الظهر|المغرب|بالليل|في الليل|ليلًا|ليلا|(?:^|\\s)ص(?=\\s|$)|(?:^|\\s)م(?=\\s|$))/i;
+  const periodMatch = periodRegex.exec(convertedText);
+  const period = (periodMatch?.[1] || '').trim();
+  const hasAm = /صباح|الصبح|الصباح|(?:^|\\s)ص(?:\\s|$)/i.test(period);
+  const hasPm = /مساء|المساء|(?:^|\\s)م(?:\\s|$)|العصر|الظهر|المغرب|بالليل|في الليل|ليل/i.test(period);
+  // Standard clocks (7:30) and RTL-rendered clocks (30 : 7 / 00 : 8).
+  const clockRegex = /(?:^|[^\d])(\d{1,2})\s*:\s*(\d{1,2})(?!\d)/;
+  const clockMatch = clockRegex.exec(convertedText);
+  let rawHour: number | undefined;
+  let rawMin = 0;
+  if (clockMatch && timeContext) {
+    const left = Number(clockMatch[1]);
+    const right = Number(clockMatch[2]);
+    if ([0, 15, 30, 45].includes(left) && right >= 1 && right <= 12) {
+      // Arabic right-to-left text can expose "7:30" as "30 : 7".
+      rawHour = right;
+      rawMin = left;
+    } else if (left >= 0 && left <= 23 && right >= 0 && right <= 59) {
+      rawHour = left;
+      rawMin = right;
+    }
+  }
+  if (rawHour === undefined) {
+    const scheduleRegex = /(?:الساعة|ساعة|على الساعة|في حدود الساعة|توقيت|موعد|وقت|استلام|تسليم|توصيل)\s*(\d{1,2})(?!\s*[:：])\s*(صباحا|صباحاً|الصبح|الصباح|ص|مساء|مساءً|المساء|م|العصر|الظهر|المغرب|بالليل|في الليل|ليلًا|ليلا)?/i;
+    const match = scheduleRegex.exec(convertedText);
+    if (match) rawHour = Number(match[1]);
+  }
+  if (rawHour !== undefined && rawHour >= 0 && rawHour <= 24 && rawMin <= 59) {
+    let hour24 = rawHour;
+    if (hasPm && hour24 < 12) hour24 += 12;
+    if (hasAm && hour24 === 12) hour24 = 0;
+    if (hour24 === 24 && rawMin === 0) hour24 = 0;
+    if (hour24 <= 23) {
       scheduledTimeMinutes = hour24 * 60 + rawMin;
-      const displayPeriod = isPm ? 'مساءً' : 'صباحاً';
-      const displayHour = rawHour > 12 ? rawHour - 12 : rawHour;
-      const displayMin = rawMin > 0 ? `:${rawMin < 10 ? '0' + rawMin : rawMin}` : '';
-      scheduledTime = `الساعة ${displayHour}${displayMin} ${displayPeriod}`;
+      const displayHour = rawHour > 12 ? rawHour - 12 : (rawHour === 0 ? 12 : rawHour);
+      const displayMin = String(rawMin).padStart(2, '0');
+      const displayPeriod = hasAm ? ' صباحاً' : hasPm ? ' مساءً' : '';
+      scheduledTime = 'وقت الاستلام/التوصيل: ' + displayHour + ':' + displayMin + displayPeriod;
       isFutureSchedule = true;
     }
   }
