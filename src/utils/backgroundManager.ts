@@ -88,12 +88,12 @@ export function sendBackgroundOrderNotification(order: ParsedOrder, filter?: Ord
     let title = '';
     if (isPassenger) {
       if (filter.blockPassengerDeliveries !== false) {
-        title = `🚨 نقل ركاب ${count ? `(${count} ركاب)` : ''} • تحذير: توصيل أشخاص ممنوع 🚫`;
+        title = `🚨 نقل ركاب: ${order.from} → ${order.to} ${count ? `(${count} ركاب)` : ''} • تحذير: توصيل أشخاص ممنوع 🚫`;
       } else {
-        title = `👥 طلب توصيل راكب: ${order.from} ← ${order.to}${count ? ` (${count} ركاب)` : ''}`;
+        title = `👥 طلب توصيل راكب: ${order.from} → ${order.to}${count ? ` (${count} ركاب)` : ''}`;
       }
     } else {
-      title = `🚗 طلب جديد: ${order.from} ← ${order.to}`;
+      title = `🚗 طلب جديد: ${order.from} → ${order.to}`;
     }
 
     // Message snippet formatted as WhatsApp chat message
@@ -108,8 +108,8 @@ export function sendBackgroundOrderNotification(order: ParsedOrder, filter?: Ord
 
     // Order summary body with pickup, destination, price and original snippet
     const bodyLines = [
-      `📍 الاستلام: ${order.from}`,
-      `🏁 الوجهة: ${order.to}`,
+      `📍 ${order.from} → ${order.to}`,
+
       `💰 السعر: ${priceText}`,
     ];
     if (count && count > 0) {
