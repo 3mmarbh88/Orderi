@@ -67,8 +67,16 @@ export function hasExplicitOrderIntent(rawText: string): boolean {
   const text = normalizeArabicText(convertArabicNumerals(rawText))
     .replace(/(.)\1{2,}/gu, '$1');
 
+  // A service provider advertising availability is not a customer order.
+  // An explicit request term takes precedence (e.g. "مطلوب مندوب متوفر").
+  const serviceOffer =
+    /(?:متوفر|متوفرين|نوفر|نقدم|خدمة|خدمات|لدينا|عندنا).{0,18}(?:توصيل|دليفري|مندوب|نقل)|مندوبين?\\s*متوفرين|سيارات?\\s*توصيل/i.test(text);
+  const explicitRequest =
+    /(?:مطلوب|ابي|ابغي|احتاج|نحتاج|طلب|استلام|اوردر|بيك\\s*اب|pickup|delivery request)/i.test(text);
+  if (serviceOffer && !explicitRequest) return false;
+
   const directIntent =
-    /(?:اوردر|توصيل|مندوب|بيك\s*اب|بيكاب|pickup|delivery|courier|driver|كابتن|دليفري)/i;
+    /(?:اوردر|توصيل|مندوب|بيك\\s*اب|بيكاب|pickup|delivery|courier|driver|كابتن|دليفري)/i;
 
   const combinedRequest =
     /(?:طلب|مطلوب|ابي|ابغي|احتاج|نحتاج)\s*(?:توصيل|مندوب|سائق|كابتن|بيك\s*اب|اوردر|delivery|pickup)/i;
