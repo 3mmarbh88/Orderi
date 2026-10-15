@@ -1134,9 +1134,19 @@ function OrderiApp() {
       }
     };
 
+    const handleDismissOrderNotification = (e: any) => {
+      const orderId = e?.detail?.orderId;
+      if (!orderId) return;
+      setOrders((prev) => prev.filter((o) => o.id !== orderId));
+      setAcceptedOrders((prev) => prev.filter((o) => o.id !== orderId));
+      setFocusedOrder((prev) => prev?.id === orderId ? null : prev);
+    };
+
     window.addEventListener('orderi:open_order_detail', handleOpenOrderDetailEvent);
+    window.addEventListener('orderi:dismiss_order_notification', handleDismissOrderNotification);
     return () => {
       window.removeEventListener('orderi:open_order_detail', handleOpenOrderDetailEvent);
+      window.removeEventListener('orderi:dismiss_order_notification', handleDismissOrderNotification);
     };
   }, []);
 
