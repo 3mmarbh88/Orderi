@@ -3,6 +3,7 @@ import { BAHRAIN_LANDMARKS } from '../data/bahrainLandmarks';
 import { detectPassengerDelivery } from './passengerClassifier';
 import { detectAdvertisementMessage } from './advertisementClassifier';
 import { PassengerDetection } from '../types';
+import { normalizeArabicMessageForMatching } from './arabicMessageNormalizer';
 
 export interface RawParsedResult {
   from: string;
@@ -70,25 +71,6 @@ function getPlaceTypoLimit(keyword: string): number {
   return keyword.length <= 5 ? 1 : 2;
 }
 
-/**
- * Conservative Arabic cleanup for matching only. The original WhatsApp text is kept
- * untouched on the order so users can verify every extracted field.
- */
-function normalizeArabicForIntentMatching(text: string): string {
-  return text
-    .normalize('NFKC')
-    .replace(/[\u064B-\u065F\u0670\u0640]/g, '')
-    .replace(/[\u200E-\u200F\u202A-\u202E\u2066-\u2069]/g, '')
-    .replace(/[إأآٱ]/g, 'ا')
-    .replace(/ى/g, 'ي')
-    .replace(/ة/g, 'ه')
-    // WhatsApp typos often repeat letters: "توصيييل", "مندوبب".
-    .replace(/([ء-ي])\1{2,}/g, '$1$1')
-    .replace(/[،؛,]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
 export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
   if (!rawText || typeof rawText !== 'string') {
     return {
@@ -112,7 +94,7 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
   }
 
   const convertedText = convertArabicNumerals(rawText);
-  const normalized = normalizeArabicText(normalizeArabicForIntentMatching(convertedText));
+  const normalized = normalizeArabicText(normalizeArabicMessageForMatching(convertedText));
   const advertisementDetection = detectAdvertisementMessage(rawText);
 
   // Explicit order quantity: "اوردرين", "2 اوردرات", "ثلاثة طلبات".
