@@ -248,6 +248,7 @@ public class OrderiAccessibilityService extends AccessibilityService {
                                 && sendButton.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
                             writeOutreachStatus("sent_confirmed", "تم تنفيذ الضغط على زر الإرسال في واتساب");
                             Log.i(TAG, "WhatsApp send-button action performed");
+                            returnToOrderi();
                         } else {
                             writeOutreachStatus("failed", "لم يظهر زر إرسال قابل للتنفيذ في المحادثة");
                         }
@@ -430,6 +431,20 @@ public class OrderiAccessibilityService extends AccessibilityService {
         archivedSectionOpened = false;
         waitingForChatToClose = false;
         archivedReadEventRetries = 0;
+    }
+
+    private void returnToOrderi() {
+        try {
+            Intent launchIntent = getPackageManager().getLaunchIntentForPackage(getPackageName());
+            if (launchIntent != null) {
+                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                        | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                        | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                startActivity(launchIntent);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Could not bring Orderi back to foreground", e);
+        }
     }
 
     private static void writeOutreachStatus(String status, String label) {
