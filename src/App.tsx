@@ -29,7 +29,7 @@ import {
   Target
 } from 'lucide-react';
 import { OrderFilter, ParsedOrder, AreaLocation, StoreContact, OrderBroadcast } from './types';
-import { BAHRAIN_AREAS, findNearestArea } from './data/bahrainAreas';
+import { BAHRAIN_AREAS, findNearestArea, normalizeArabicText } from './data/bahrainAreas';
 import { MatcherLocation, evaluateOrderMatch } from './utils/matcher';
 import { getDetailedCurrentPosition, globalVehicleTracker } from './utils/gpsTracker';
 import { 
