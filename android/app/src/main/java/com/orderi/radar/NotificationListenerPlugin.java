@@ -131,7 +131,7 @@ public class NotificationListenerPlugin extends Plugin {
                 launch.putExtra("order_id", orderId);
                 launch.putExtra("from_area", call.getString("from", ""));
                 launch.putExtra("to_area", call.getString("to", ""));
-                launch.putExtra("price", (float) call.getDouble("price", 0.0));
+                launch.putExtra("price", call.getDouble("price", 0.0).doubleValue());
                 launch.putExtra("raw_text", call.getString("rawText", ""));
                 launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
                 contentIntent = android.app.PendingIntent.getActivity(context, notificationId, launch,
