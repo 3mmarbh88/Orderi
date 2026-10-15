@@ -100,6 +100,47 @@ import {
   isNotificationSupported
 } from './utils/backgroundManager';
 
+const DISMISSED_NATIVE_TEXT_KEY = 'orderi_dismissed_native_texts_v1';
+
+function normalizeNativeMessageFingerprint(value: unknown): string {
+  return normalizeArabicText(String(value || ''))
+    .replace(/[^\\p{L}\\p{N}]+/gu, ' ')
+    .replace(/\\s+/g, ' ')
+    .trim();
+}
+
+function rememberDismissedNativeText(rawText: unknown): void {
+  const text = normalizeNativeMessageFingerprint(rawText);
+  if (text.length < 12) return;
+  try {
+    const now = Date.now();
+    const saved = JSON.parse(localStorage.getItem(DISMISSED_NATIVE_TEXT_KEY) || '[]');
+    const recent = Array.isArray(saved)
+      ? saved.filter((x: any) => x && typeof x.text === 'string' && now - Number(x.at || 0) < 24 * 60 * 60 * 1000)
+      : [];
+    const next = recent.filter((x: any) => x.text !== text);
+    next.push({ text, at: now });
+    localStorage.setItem(DISMISSED_NATIVE_TEXT_KEY, JSON.stringify(next.slice(-100)));
+  } catch {}
+}
+
+function consumeDismissedNativeText(rawText: unknown): boolean {
+  const text = normalizeNativeMessageFingerprint(rawText);
+  if (text.length < 12) return false;
+  try {
+    const now = Date.now();
+    const saved = JSON.parse(localStorage.getItem(DISMISSED_NATIVE_TEXT_KEY) || '[]');
+    const recent = Array.isArray(saved)
+      ? saved.filter((x: any) => x && typeof x.text === 'string' && now - Number(x.at || 0) < 24 * 60 * 60 * 1000)
+      : [];
+    const found = recent.some((x: any) => x.text === text);
+    localStorage.setItem(DISMISSED_NATIVE_TEXT_KEY, JSON.stringify(found ? recent.filter((x: any) => x.text !== text) : recent));
+    return found;
+  } catch {
+    return false;
+  }
+}
+
 const DEFAULT_FILTER: OrderFilter = {
   coverageKm: 10,
   minimumPrice: 2.5,
@@ -619,6 +660,9 @@ function OrderiApp() {
   const handleProcessIncomingRawOrder = (raw: any, isInitialBatch = false) => {
     if (!raw || !raw.id) return;
     if (getOrderClassificationFeedback(raw.rawText) === 'advertisement') return;
+    // If a native notification was dismissed while parsing was still pending,
+    // suppress that exact message once instead of resurrecting it in the radar.
+    if (consumeDismissedNativeText(raw.rawText)) return;
     if (processedOrderIdsRef.current.has(raw.id)) return;
 
     processedOrderIdsRef.current.add(raw.id);
@@ -870,7 +914,10 @@ function OrderiApp() {
 
     const handleNativeDismissal = (data: any) => {
       const matched = findOrderForNativeNotification(data);
-      if (!matched) return;
+      if (!matched) {
+        rememberDismissedNativeText(data?.rawText);
+        return;
+      }
       setOrders((prev) => prev.filter((o) => o.id !== matched.id));
       setAcceptedOrders((prev) => prev.filter((o) => o.id !== matched.id));
       setFocusedOrder((prev) => prev?.id === matched.id ? null : prev);
