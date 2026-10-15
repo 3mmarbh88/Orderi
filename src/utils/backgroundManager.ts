@@ -90,10 +90,10 @@ export function sendBackgroundOrderNotification(order: ParsedOrder, filter?: Ord
       if (filter.blockPassengerDeliveries !== false) {
         title = `🚨 نقل ركاب: ${order.from} ← ${order.to} ${count ? `(${count} ركاب)` : ''} • تحذير: توصيل أشخاص ممنوع 🚫`;
       } else {
-        title = `طلب جديد: ${order.from} ← ${order.to}`;
+        title = `${order.from} ← ${order.to}`;
       }
     } else {
-      title = `طلب جديد: ${order.from} ← ${order.to}`;
+      title = `${order.from} ← ${order.to}`;
     }
 
     // Message snippet formatted as WhatsApp chat message
