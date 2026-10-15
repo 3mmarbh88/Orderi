@@ -24,6 +24,10 @@
 
         </activity>
 
+        <receiver
+            android:name=".OrderiNotificationDismissReceiver"
+            android:exported="false" />
+
         <service
             android:name=".WhatsAppNotificationListenerService"
             android:label="Orderi - WhatsApp Reader"
