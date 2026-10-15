@@ -52,6 +52,27 @@ public class NotificationListenerPlugin extends Plugin {
         }
     }
 
+    private static void acknowledgeDismissal(Context context, String orderId) {
+        if (context == null || orderId == null || orderId.trim().isEmpty()) return;
+        try {
+            android.content.SharedPreferences prefs = context.getSharedPreferences(
+                    OrderiNotificationDismissReceiver.PREFS, Context.MODE_PRIVATE);
+            JSONArray events = new JSONArray(prefs.getString(
+                    OrderiNotificationDismissReceiver.KEY_PENDING, "[]"));
+            JSONArray remaining = new JSONArray();
+            for (int i = 0; i < events.length(); i++) {
+                org.json.JSONObject event = events.optJSONObject(i);
+                if (event == null || !orderId.equals(event.optString("orderId"))) {
+                    if (event != null) remaining.put(event);
+                }
+            }
+            android.content.SharedPreferences.Editor editor = prefs.edit();
+            if (remaining.length() == 0) editor.remove(OrderiNotificationDismissReceiver.KEY_PENDING);
+            else editor.putString(OrderiNotificationDismissReceiver.KEY_PENDING, remaining.toString());
+            editor.apply();
+        } catch (Exception ignored) {}
+    }
+
     @Override
     public void load() {
         instance = this;
@@ -67,6 +88,7 @@ public class NotificationListenerPlugin extends Plugin {
                     if (WhatsAppNotificationListenerService.ACTION_EVENT.equals(action)) {
                         notifyListeners("whatsappNotification", ret);
                     } else if (OrderiNotificationDismissReceiver.ACTION_DISMISS.equals(action)) {
+                        acknowledgeDismissal(context, ret.getString("orderId"));
                         notifyListeners("dismissOrderNotification", ret);
                     }
                 } catch (Exception ignored) {}
