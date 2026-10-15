@@ -227,6 +227,33 @@ function isPassengerCountContext(
 
 /** استخراج السعر فقط عند وجود عملة أو وصف صريح للسعر. */
 function extractPrice(text: string): SelectedPrice | null {
+  // Common written fare amounts used in local WhatsApp groups.
+  // Only map unambiguous number words; do not guess from a bare "دنانير".
+  const writtenPrices: Array<[RegExp, number]> = [
+    [/نص\\s+دينار|نصف\\s+دينار/i, 0.5],
+    [/دينار\\s+واحد|دينار\\s+واحده/i, 1],
+    [/دينارين/i, 2],
+    [/(?:ثلاثه|ثلاثة|ثلاث)\\s+دنانير/i, 3],
+    [/(?:اربعه|أربعة|اربع)\\s+دنانير/i, 4],
+    [/(?:خمسه|خمسة|خمس)\\s+دنانير/i, 5],
+    [/(?:سته|ستة|ست)\\s+دنانير/i, 6],
+    [/(?:سبعه|سبعة|سبع)\\s+دنانير/i, 7],
+    [/(?:ثمانيه|ثمانية|ثمان)\\s+دنانير/i, 8],
+    [/(?:تسعه|تسعة|تسع)\\s+دنانير/i, 9],
+    [/(?:عشره|عشرة|عشر)\\s+دنانير/i, 10],
+  ];
+
+  for (const [pattern, value] of writtenPrices) {
+    const match = pattern.exec(text);
+    if (match && match.index !== undefined) {
+      return {
+        value,
+        start: match.index,
+        end: match.index + match[0].length,
+      };
+    }
+  }
+
   const patterns = [
     // 3.5 د.ب، 5 دنانير، 2 BHD
     /(\d{1,3}(?:\.\d{1,2})?)\s*(?:دينار\s*بحريني|دنانير|دينار|د\.?\s*ب|دب|BHD|BD)(?![a-z])/i,
