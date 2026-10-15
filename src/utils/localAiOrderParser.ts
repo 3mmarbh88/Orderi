@@ -387,7 +387,7 @@ export async function runLocalAiDiagnosticTest(
   // Step 3: Run the local hybrid parser
   const parsed = await parseWhatsAppOrderWithLocalAi(text, {
     forceAi: true,
-    useCloudFallback: options.forceCloudFallback !== false,
+    useCloudFallback: options.forceCloudFallback === true,
   });
 
   const elapsed = Math.max(12, Math.round(performance.now() - start));
