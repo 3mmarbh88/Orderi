@@ -14,18 +14,32 @@ export function normalizeArabicText(value: unknown): string {
     .replace(/ى/g, 'ي')
     .replace(/[\u064B-\u065F\u0670]/g, '')
     .replace(/[\u200E\u200F]/g, '')
+    // Ignore exaggerated repeated letters such as "مباششششر" in fingerprints.
+    .replace(/(.)\1{2,}/gu, '$1')
     .replace(/[^\p{L}\p{N}\s]/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
 
 export function cleanAnnouncementText(order: Partial<ParsedOrder>): string {
-  return normalizeArabicText(order.rawText || '')
+  const normalized = normalizeArabicText(order.rawText || '')
     .replace(/(?:\+?973|00973)?\s*[36]\d{7}/g, '')
     .replace(/\b(?:الساعه|الساعة|الوقت|توقيت|فوري|عاجل|الان|الآن)\b/g, '')
     .replace(/\b\d{1,2}[:.]\d{2}\b/g, '')
     .replace(/\s+/g, ' ')
     .trim();
+
+  // Android notification payloads sometimes concatenate the same message twice.
+  // Collapse only an exact two-half duplicate; do not remove merely similar text.
+  const words = normalized.split(' ');
+  if (words.length >= 6 && words.length % 2 === 0) {
+    const midpoint = words.length / 2;
+    const firstHalf = words.slice(0, midpoint).join(' ');
+    const secondHalf = words.slice(midpoint).join(' ');
+    if (firstHalf === secondHalf) return firstHalf;
+  }
+
+  return normalized;
 }
 
 /**
