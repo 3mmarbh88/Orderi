@@ -188,7 +188,7 @@ export async function parseWhatsAppOrderWithLocalAi(
 
   // Step 3: Cloud AI Fallback (Gemini API) if text is still ambiguous or incomplete (e.g. missing from/to or suspicious)
   const isMissingKeyInfo = !fastResult.from || !fastResult.to;
-  if (useCloudFallback && (options.forceAi || isMissingKeyInfo || fastResult.passengerDetection?.level === 'suspicious_passenger')) {
+  if (useCloudFallback && (options.forceAi || isMissingKeyInfo || fastResult.confidence < minConfidence || fastResult.passengerDetection?.level === 'suspicious_passenger')) {
     try {
       const cloudRes = await fetch('/api/ai/cloud-parse-order', {
         method: 'POST',
