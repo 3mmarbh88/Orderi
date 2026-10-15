@@ -106,7 +106,8 @@ export function findDuplicateOrderMatch(
     const exCleanText = cleanAnnouncementText(existing);
     const exPrice = Number(existing.price || 0);
 
-    // Rule 1: Same advertiser posted the same route (from -> to) across groups
+    // A matching route alone is not enough: one advertiser can publish
+    // multiple legitimate jobs on the same route. Require text evidence too.
     const sameAdv = isSameAdvertiser(
       newOrder.senderPhone,
       newOrder.senderName,
@@ -116,7 +117,9 @@ export function findDuplicateOrderMatch(
 
     const sameRoute = fromNorm && exFromNorm && fromNorm === exFromNorm && toNorm && exToNorm && toNorm === exToNorm;
 
-    if (sameAdv && sameRoute) {
+    // Rule 1: Same advertiser, same route, and substantially matching message.
+    if (sameAdv && sameRoute && cleanText.length >= 10 && exCleanText.length >= 10 &&
+        (cleanText === exCleanText || cleanText.includes(exCleanText) || exCleanText.includes(cleanText))) {
       return existing;
     }
 
@@ -127,11 +130,6 @@ export function findDuplicateOrderMatch(
 
     // Rule 3: Exact same announcement text posted across different groups
     if (cleanText.length >= 10 && exCleanText.length >= 10 && cleanText === exCleanText) {
-      return existing;
-    }
-
-    // Rule 4: Rapid identical route + price repost within 3 minutes (e.g. from different forwarders)
-    if (sameRoute && Math.abs(price - exPrice) < 0.1 && timeDiff < RAPID_ROUTE_TTL_MS) {
       return existing;
     }
   }
@@ -162,10 +160,10 @@ export function isDuplicateOrder(order: Partial<ParsedOrder>, now = Date.now()):
     const isDup = recent.some((x: any) => {
       // Same exact message
       if (x.exactKey === exactKey) return true;
-      // Same advertiser + same route within 20 mins
-      if (advertiserRouteKey && x.advRouteKey === advertiserRouteKey) return true;
-      // Same route + price within 3 minutes
-      if (x.routeKey === routeKey && (now - Number(x.at || 0)) < RAPID_ROUTE_TTL_MS) return true;
+      // Same advertiser + same route is a duplicate only when the message
+      // itself also matches. Similar routes and prices alone can be separate jobs.
+      if (advertiserRouteKey && x.advRouteKey === advertiserRouteKey &&
+          cleanText.length >= 10 && x.cleanText === cleanText) return true;
       return false;
     });
 
@@ -175,6 +173,8 @@ export function isDuplicateOrder(order: Partial<ParsedOrder>, now = Date.now()):
         exactKey,
         routeKey,
         advRouteKey: advertiserRouteKey,
+        cleanText,
+        cleanText,
         senderPhone: normPhone,
         group: order.groupName,
         at: now,
