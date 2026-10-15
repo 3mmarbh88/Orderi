@@ -208,6 +208,19 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
     parentArea?: string;
   }
 
+  const areaAliasesById: Record<string, string[]> = {
+    isa_town: ['م عيسى', 'م. عيسى', 'مدينه عيسى', 'مدينة عيسى'],
+    hamad_town: [
+      'م حمد', 'م. حمد', 'مدينه حمد', 'مدينة حمد',
+      ...Array.from({ length: 30 }, (_, index) => `دوار ${index + 1}`),
+      ...Array.from({ length: 30 }, (_, index) => `دوار رقم ${index + 1}`),
+      ...Array.from({ length: 30 }, (_, index) => `roundabout ${index + 1}`),
+    ],
+    manama: ['منامه', 'المنامه'],
+    muharraq: ['محرق', 'المحرق'],
+    galali: ['قلالي', 'قلالي'],
+  };
+
   const searchablePlaces: SearchablePlace[] = [
     // Malls & Landmarks (Moda Mall, Seef Mall, City Centre, Avenues, etc.)
     ...BAHRAIN_LANDMARKS.map((lm) => ({
@@ -216,10 +229,15 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
       isLandmark: true,
       parentArea: lm.parentAreaName,
     })),
-    // Standard Geographic Areas
+    // Standard geographic areas plus local WhatsApp shorthand and common aliases.
     ...BAHRAIN_AREAS.map((a) => ({
       name: a.name,
-      keywords: [a.name, a.nameEn, ...(normalizeArabicText(a.name).startsWith('ال') ? [a.name.replace(/^ال/, '')] : []), ...(a.id === 'manama' ? ['منامه', 'المنامه'] : [])],
+      keywords: [
+        a.name,
+        a.nameEn,
+        ...(normalizeArabicText(a.name).startsWith('ال') ? [a.name.replace(/^ال/, '')] : []),
+        ...(areaAliasesById[a.id] || []),
+      ],
       isLandmark: false,
     })),
   ];
