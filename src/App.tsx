@@ -86,6 +86,7 @@ import {
   getPermanentlyClosedOrderIds 
 } from './utils/orderClosureDetector';
 import { classifyAdvertiserPrivateReply } from './utils/advertiserReplyClassifier';
+import { getOrderClassificationFeedback, saveOrderClassificationFeedback } from './utils/orderClassificationFeedback';
 import { 
   checkOrderDestinationHunt, 
   saveHuntedDestinationLog 
@@ -617,6 +618,7 @@ function OrderiApp() {
   // Unified processor for incoming WhatsApp orders from SSE, Pairing, or Polling
   const handleProcessIncomingRawOrder = (raw: any, isInitialBatch = false) => {
     if (!raw || !raw.id) return;
+    if (getOrderClassificationFeedback(raw.rawText) === 'advertisement') return;
     if (processedOrderIdsRef.current.has(raw.id)) return;
 
     processedOrderIdsRef.current.add(raw.id);
@@ -956,7 +958,15 @@ function OrderiApp() {
           isDirectPrivate: !event.isGroup,
           passengerDetection: parsed.passengerDetection,
         };
-        if (parsed.canCreateOrder) handleProcessIncomingRawOrder(order, false);
+        const feedback = getOrderClassificationFeedback(rawText || event.title || '');
+        const correctedOrderIsSafe =
+          feedback === 'order' &&
+          !!parsed.from &&
+          !!parsed.to &&
+          !parsed.passengerDetection.isForbidden;
+        if (parsed.canCreateOrder || correctedOrderIsSafe) {
+          handleProcessIncomingRawOrder(order, false);
+        }
       }).catch(() => {});
     };
 
@@ -2307,6 +2317,15 @@ function OrderiApp() {
                     onRestoreOrder={handleRestoreOrder}
                     onConfirmClosure={handleConfirmClosure}
                     onDismissClosureSuspicion={handleDismissClosureSuspicion}
+                    onClassificationFeedback={(feedback) => {
+                      saveOrderClassificationFeedback(order.rawText || '', feedback);
+                      if (feedback === 'advertisement') {
+                        handleIgnoreOrder(order.id);
+                        showToast('تم حفظ التصحيح: هذه الرسالة إعلان وليست أوردر، وسيُتجنب تكرارها');
+                      } else {
+                        showToast('تم حفظ التصحيح محلياً: هذه الرسالة أوردر');
+                      }
+                    }}
                   />
                 ))}
               </div>
