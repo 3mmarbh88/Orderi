@@ -1315,6 +1315,7 @@ function OrderiApp() {
     if (isNativeAndroid() && OrderiNotificationListener.updateFilterSettings) {
       OrderiNotificationListener.updateFilterSettings({
         ignoreNonMatching: f.ignoreNonMatching,
+        blockPassengerDeliveries: f.blockPassengerDeliveries !== false,
         minPrice: f.minimumPrice,
         coverageKm: f.coverageKm,
         driverLat: loc?.latitude || 0,
