@@ -384,17 +384,9 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                             : PendingIntent.FLAG_UPDATE_CURRENT);
         }
 
-        String clean = rawText.length() > 90 ? rawText.substring(0, 90) + "..." : rawText;
-
-        String notifTitle = isPassenger 
-            ? "🚨 نقل ركاب " + (passengerCount > 0 ? "(" + passengerCount + " ركاب) " : "") + "• تحذير 🚫"
-            : "🚗 طلب جديد: " + fromArea + " ← " + toArea;
-
-        String notifBody = "📍 الاستلام: " + fromArea + "\n🏁 الوجهة: " + toArea + "\n💰 السعر: " + priceDisplay;
-        if (passengerCount > 0) {
-            notifBody += "\n👥 عدد الركاب: " + passengerCount;
-        }
-        notifBody += "\n💬 " + clean;
+        // Minimal native notification: route only, with the arrow pointing left
+        // as requested. Do not expose order labels, price, or the WhatsApp message.
+        String notifTitle = fromArea + " ← " + toArea;
 
         Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                 ? new Notification.Builder(this, CHANNEL_ID)
@@ -402,8 +394,6 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
 
         builder.setSmallIcon(com.orderi.radar.R.drawable.orderi_notification_icon)
                 .setContentTitle(notifTitle)
-                .setContentText("📍 " + fromArea + " ← " + toArea + " • " + priceDisplay)
-                .setStyle(new Notification.BigTextStyle().bigText(notifBody))
                 .setAutoCancel(true)
                 .setCategory(Notification.CATEGORY_MESSAGE)
                 .setPriority(Notification.PRIORITY_HIGH)
