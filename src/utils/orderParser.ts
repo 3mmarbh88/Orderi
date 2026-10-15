@@ -130,7 +130,6 @@ function expandBahrainAreaAliases(text: string): string {
     ['الرفاع الشرقي', 'الرفاع الشرقي'],
     ['الرفاع الغربي', 'الرفاع الغربي'],
     ['الحد', 'الحد'],
-    ['حمد', 'مدينة حمد'],
   ];
 
   let expanded = text.replace(/\s+/g, ' ').trim();
@@ -631,10 +630,9 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
   const priceMatch = extractPrice(convertedText);
   const price = priceMatch?.value ?? 0;
 
-  const { from: fromArea, to: toArea } = extractAreas(
-    normalized,
-    convertedText,
-  );
+  const extractedAreas = extractAreas(normalized, convertedText);
+  let fromArea = extractedAreas.from;
+  let toArea = extractedAreas.to;
 
   const notes = extractNotes(normalized);
   const schedule = extractScheduledTime(convertedText);
@@ -653,6 +651,11 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
     normalizeArabicText(occurrences[0].name) === normalizeArabicText(occurrences[1].name) &&
     occurrences[1].start - occurrences[0].end <= 8 &&
     /^[\\s،,./-]*$/.test(normalized.slice(occurrences[0].end, occurrences[1].start));
+
+  if (repeatedSameArea) {
+    fromArea = occurrences[0].name;
+    toArea = occurrences[0].name;
+  }
 
   const canCreateOrder =
     hasIntent &&
