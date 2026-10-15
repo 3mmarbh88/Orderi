@@ -521,7 +521,7 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
             // Android-native Heads-Up notification. This runs inside the
             // NotificationListenerService, so it can fire while Orderi's
             // WebView is backgrounded or suspended.
-            maybeShowOrderNotification(resolvedTitle, rawText, sbn.getPostTime(), looksLikeGroup);
+            // Raw WhatsApp text must not generate Orderi alerts before Radar validation.
 
             appendEvent(event);
 
