@@ -513,6 +513,19 @@ export async function executePrivateAdvertiserOutreach(
     }
   }
 
+  // On Android, do not fall back to merely opening WhatsApp after a native send failure.
+  if (isNativeAndroid()) {
+    return {
+      success: false,
+      status: 'failed',
+      needsVerification: false,
+      resolution,
+      message: messageText,
+      phoneUsed: targetPhone || null,
+      statusLabel: 'تعذر تنفيذ الإرسال عبر خدمة Android؛ لم يتم إرسال الرسالة',
+    };
+  }
+
   // 4. Web / Desktop fallback (No modal, direct WhatsApp protocol without opening blank windows)
   let opened = false;
   if (targetPhone) {
