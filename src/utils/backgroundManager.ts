@@ -106,7 +106,6 @@ export function sendBackgroundOrderNotification(order: ParsedOrder, filter?: Ord
 
     // Use the Notification instance so click and dismiss events stay linked to this order.
     createWindowNotification(title, options, order);
-    }
   } catch (e) {
     console.warn('Could not send system notification:', e);
   }
