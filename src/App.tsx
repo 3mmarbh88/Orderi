@@ -337,8 +337,13 @@ function OrderiApp() {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
+          let dismissedIds: string[] = [];
+          try {
+            const savedDismissed = JSON.parse(localStorage.getItem('orderi_notification_dismissed_order_ids') || '[]');
+            if (Array.isArray(savedDismissed)) dismissedIds = savedDismissed;
+          } catch {}
           setOrders(parsed
-            .filter((o: any) => o.source !== 'simulation')
+            .filter((o: any) => o.source !== 'simulation' && !dismissedIds.includes(o.id))
             .map((o: any) => ({ ...o, receivedAt: new Date(o.receivedAt) }))
             .slice(0, 40));
         }
@@ -680,6 +685,10 @@ function OrderiApp() {
   // Unified processor for incoming WhatsApp orders from SSE, Pairing, or Polling
   const handleProcessIncomingRawOrder = (raw: any, isInitialBatch = false) => {
     if (!raw || !raw.id) return;
+    try {
+      const dismissed = JSON.parse(localStorage.getItem('orderi_notification_dismissed_order_ids') || '[]');
+      if (Array.isArray(dismissed) && dismissed.includes(raw.id)) return;
+    } catch {}
     if (processedOrderIdsRef.current.has(raw.id)) return;
 
     processedOrderIdsRef.current.add(raw.id);
@@ -914,7 +923,57 @@ function OrderiApp() {
     }
 
     setOrders((prev) => [newOrder, ...prev.filter(o => o.id !== newOrder.id).slice(0, 39)]);
+
+    // Phone alerts are created only after the order has passed parsing, filters,
+    // and deduplication and is being inserted into Radar.
+    if (!isInitialBatch && isNativeAndroid() && filterRef.current.notificationsEnabled !== false &&
+        (filterRef.current.backgroundNotificationsEnabled ?? true)) {
+      void OrderiNotificationListener.showOrderNotification({
+        orderId: newOrder.id,
+        from: newOrder.from || 'غير محدد',
+        to: newOrder.to || 'غير محدد',
+        price: newOrder.price || 0,
+        priceDisplay: newOrder.isPriceUnspecified ? 'غير محدد' : String(newOrder.price || 0) + ' د.ب',
+        rawText: newOrder.rawText || '',
+      }).catch((error) => console.warn('[Orderi] Could not show accepted Radar order notification:', error));
+    }
   };
+
+  // Keep phone notifications aligned with the exact order IDs currently in Radar.
+  useEffect(() => {
+    if (!isNativeAndroid()) return;
+    const orderIds = orders.map((order) => order.id).filter(Boolean);
+    void OrderiNotificationListener.syncOrderNotifications({ orderIds })
+      .catch((error) => console.warn('[Orderi] Could not sync Radar notifications:', error));
+  }, [orders]);
+
+  // Dismissing a phone notification removes its order and stores a tombstone so
+  // refreshes and queued WhatsApp events cannot immediately recreate that order.
+  useEffect(() => {
+    if (!isNativeAndroid()) return;
+    let active = true;
+    const persistDismissed = (orderIds: string[]) => {
+      if (!orderIds.length) return;
+      let saved: string[] = [];
+      try {
+        const parsed = JSON.parse(localStorage.getItem('orderi_notification_dismissed_order_ids') || '[]');
+        if (Array.isArray(parsed)) saved = parsed;
+      } catch {}
+      const next = Array.from(new Set([...saved, ...orderIds])).slice(-500);
+      try { localStorage.setItem('orderi_notification_dismissed_order_ids', JSON.stringify(next)); } catch {}
+      setOrders((prev) => prev.filter((order) => !orderIds.includes(order.id)));
+    };
+    const listener = OrderiNotificationListener.addListener('orderNotificationDismissed', (event) => {
+      if (active && event?.orderId) persistDismissed([event.orderId]);
+    });
+    void OrderiNotificationListener.getDismissedOrderIds().then((result) => {
+      if (active) persistDismissed(result?.orderIds || []);
+    }).catch(() => {});
+    return () => {
+      active = false;
+      void listener.then((handle) => handle.remove()).catch(() => {});
+    };
+  }, []);
 
   // Native Android WhatsApp listener: receives com.whatsapp notifications even while Orderi is backgrounded.
   useEffect(() => {

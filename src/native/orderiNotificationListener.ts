@@ -38,6 +38,10 @@ interface OrderiNotificationListenerPlugin {
   }): Promise<{ success: boolean; method: string }>;
   getPending(): Promise<{ events: WhatsAppNativeEvent[] }>;
   getClickedOrder?(): Promise<{ order?: any }>;
+  showOrderNotification(options: { orderId: string; from: string; to: string; price?: number; priceDisplay?: string; rawText?: string }): Promise<void>;
+  cancelOrderNotification(options: { orderId: string }): Promise<void>;
+  syncOrderNotifications(options: { orderIds: string[] }): Promise<void>;
+  getDismissedOrderIds(): Promise<{ orderIds: string[] }>;
   moveToBackground(): Promise<void>;
   updateFilterSettings?(options: {
     ignoreNonMatching: boolean;
@@ -57,6 +61,10 @@ interface OrderiNotificationListenerPlugin {
   addListener(
     eventName: 'openOrderDetail',
     listenerFunc: (event: any) => void,
+  ): Promise<{ remove: () => Promise<void> }>;
+  addListener(
+    eventName: 'orderNotificationDismissed',
+    listenerFunc: (event: { orderId: string }) => void,
   ): Promise<{ remove: () => Promise<void> }>;
 }
 

@@ -23,6 +23,7 @@ public class NotificationListenerPlugin extends Plugin {
     private static NotificationListenerPlugin instance;
     private static JSObject pendingOrderClick = null;
     private BroadcastReceiver receiver;
+    private BroadcastReceiver orderDismissReceiver;
 
     public static void handleOrderIntent(Intent intent) {
         if (intent == null) return;
@@ -69,6 +70,19 @@ public class NotificationListenerPlugin extends Plugin {
         };
         IntentFilter filter = new IntentFilter(WhatsAppNotificationListenerService.ACTION_EVENT);
         ContextCompat.registerReceiver(getContext(), receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED);
+        orderDismissReceiver = new BroadcastReceiver() {
+            @Override public void onReceive(Context context, Intent intent) {
+                if (!OrderiOrderNotificationDismissReceiver.ACTION_DISMISSED.equals(intent.getAction())) return;
+                String orderId = intent.getStringExtra("order_id");
+                if (orderId == null || orderId.trim().isEmpty()) return;
+                JSObject payload = new JSObject();
+                payload.put("orderId", orderId);
+                notifyListeners("orderNotificationDismissed", payload);
+            }
+        };
+        ContextCompat.registerReceiver(getContext(), orderDismissReceiver,
+                new IntentFilter(OrderiOrderNotificationDismissReceiver.ACTION_DISMISSED),
+                ContextCompat.RECEIVER_NOT_EXPORTED);
 
         if (pendingOrderClick != null) {
             JSObject pending = pendingOrderClick;
@@ -84,7 +98,138 @@ public class NotificationListenerPlugin extends Plugin {
             try { getContext().unregisterReceiver(receiver); } catch (Exception ignored) {}
             receiver = null;
         }
+        if (orderDismissReceiver != null) {
+            try { getContext().unregisterReceiver(orderDismissReceiver); } catch (Exception ignored) {}
+            orderDismissReceiver = null;
+        }
         super.handleOnDestroy();
+    }
+
+
+    @PluginMethod
+    public void showOrderNotification(PluginCall call) {
+        try {
+            String orderId = call.getString("orderId", "").trim();
+            if (orderId.isEmpty()) { call.reject("Missing orderId"); return; }
+            Context context = getContext();
+            android.app.NotificationManager manager = (android.app.NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+            if (manager == null) { call.reject("Notification manager unavailable"); return; }
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                android.app.NotificationChannel channel = new android.app.NotificationChannel(
+                    "orderi_radar_orders", "Orderi Radar Orders", android.app.NotificationManager.IMPORTANCE_HIGH);
+                channel.setDescription("Only orders accepted into Orderi Radar");
+                channel.enableVibration(true);
+                manager.createNotificationChannel(channel);
+            }
+            int notificationId = orderId.hashCode() & 0x7fffffff;
+            if (notificationId == 0) notificationId = 1;
+            Intent launch = context.getPackageManager().getLaunchIntentForPackage(context.getPackageName());
+            android.app.PendingIntent contentIntent = null;
+            if (launch != null) {
+                launch.setAction(Intent.ACTION_VIEW);
+                launch.setData(android.net.Uri.parse("orderi://order/" + android.net.Uri.encode(orderId)));
+                launch.putExtra("order_id", orderId);
+                launch.putExtra("from_area", call.getString("from", ""));
+                launch.putExtra("to_area", call.getString("to", ""));
+                launch.putExtra("price", call.getDouble("price", 0.0).doubleValue());
+                launch.putExtra("raw_text", call.getString("rawText", ""));
+                launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                contentIntent = android.app.PendingIntent.getActivity(context, notificationId, launch,
+                    android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M
+                        ? android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE
+                        : android.app.PendingIntent.FLAG_UPDATE_CURRENT);
+            }
+            Intent delete = new Intent(context, OrderiOrderNotificationDismissReceiver.class);
+            delete.setAction(OrderiOrderNotificationDismissReceiver.ACTION_DISMISSED);
+            delete.putExtra("order_id", orderId);
+            android.app.PendingIntent deleteIntent = android.app.PendingIntent.getBroadcast(context, notificationId, delete,
+                android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M
+                    ? android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE
+                    : android.app.PendingIntent.FLAG_UPDATE_CURRENT);
+            String from = call.getString("from", "غير محدد");
+            String to = call.getString("to", "غير محدد");
+            String price = call.getString("priceDisplay", "");
+            String body = "الاستلام: " + from + "\\nالوجهة: " + to + (price.isEmpty() ? "" : "\\nالسعر: " + price);
+            android.app.Notification.Builder builder = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O
+                ? new android.app.Notification.Builder(context, "orderi_radar_orders")
+                : new android.app.Notification.Builder(context);
+            builder.setSmallIcon(com.orderi.radar.R.drawable.orderi_notification_icon)
+                .setContentTitle("طلب في الرادار: " + from + " ← " + to)
+                .setContentText(from + " ← " + to)
+                .setStyle(new android.app.Notification.BigTextStyle().bigText(body))
+                .setAutoCancel(true).setDeleteIntent(deleteIntent)
+                .setCategory(android.app.Notification.CATEGORY_MESSAGE)
+                .setPriority(android.app.Notification.PRIORITY_HIGH)
+                .setDefaults(android.app.Notification.DEFAULT_ALL);
+            if (contentIntent != null) builder.setContentIntent(contentIntent);
+            manager.notify(notificationId, builder.build());
+            android.content.SharedPreferences prefs = context.getSharedPreferences("orderi_radar_notification_ids", Context.MODE_PRIVATE);
+            JSONArray ids = new JSONArray(prefs.getString("ids", "[]"));
+            boolean found = false;
+            for (int i = 0; i < ids.length(); i++) if (orderId.equals(ids.optString(i))) found = true;
+            if (!found) ids.put(orderId);
+            prefs.edit().putString("ids", ids.toString()).apply();
+            call.resolve();
+        } catch (Exception e) { call.reject("Could not show Radar order notification", e); }
+    }
+
+    @PluginMethod
+    public void cancelOrderNotification(PluginCall call) {
+        String orderId = call.getString("orderId", "").trim();
+        if (!orderId.isEmpty()) {
+            android.app.NotificationManager manager = (android.app.NotificationManager) getContext().getSystemService(Context.NOTIFICATION_SERVICE);
+            if (manager != null) manager.cancel(orderId.hashCode() & 0x7fffffff);
+            removeTrackedNotificationId(orderId);
+        }
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void syncOrderNotifications(PluginCall call) {
+        try {
+            java.util.HashSet<String> activeIds = new java.util.HashSet<>();
+            JSArray ids = call.getArray("orderIds");
+            if (ids != null) for (int i = 0; i < ids.length(); i++) {
+                try { String id = ids.getString(i); if (id != null && !id.isEmpty()) activeIds.add(id); } catch (Exception ignored) {}
+            }
+            android.content.SharedPreferences prefs = getContext().getSharedPreferences("orderi_radar_notification_ids", Context.MODE_PRIVATE);
+            JSONArray tracked = new JSONArray(prefs.getString("ids", "[]"));
+            android.app.NotificationManager manager = (android.app.NotificationManager) getContext().getSystemService(Context.NOTIFICATION_SERVICE);
+            JSONArray kept = new JSONArray();
+            for (int i = 0; i < tracked.length(); i++) {
+                String id = tracked.optString(i, "");
+                if (id.isEmpty()) continue;
+                if (activeIds.contains(id)) kept.put(id);
+                else if (manager != null) manager.cancel(id.hashCode() & 0x7fffffff);
+            }
+            prefs.edit().putString("ids", kept.toString()).apply();
+            call.resolve();
+        } catch (Exception e) { call.reject("Could not sync Radar notifications", e); }
+    }
+
+    @PluginMethod
+    public void getDismissedOrderIds(PluginCall call) {
+        JSArray ids = new JSArray();
+        try {
+            android.content.SharedPreferences prefs = getContext().getSharedPreferences(
+                OrderiOrderNotificationDismissReceiver.PREFS, Context.MODE_PRIVATE);
+            JSONArray saved = new JSONArray(prefs.getString(OrderiOrderNotificationDismissReceiver.KEY_DISMISSED, "[]"));
+            for (int i = 0; i < saved.length(); i++) ids.put(saved.optString(i));
+            prefs.edit().remove(OrderiOrderNotificationDismissReceiver.KEY_DISMISSED).apply();
+        } catch (Exception ignored) {}
+        JSObject ret = new JSObject();
+        ret.put("orderIds", ids);
+        call.resolve(ret);
+    }
+
+    private void removeTrackedNotificationId(String orderId) {
+        try {
+            android.content.SharedPreferences prefs = getContext().getSharedPreferences("orderi_radar_notification_ids", Context.MODE_PRIVATE);
+            JSONArray saved = new JSONArray(prefs.getString("ids", "[]"));
+            JSONArray next = new JSONArray();
+            for (int i = 0; i < saved.length(); i++) if (!orderId.equals(saved.optString(i))) next.put(saved.get(i));
+            prefs.edit().putString("ids", next.toString()).apply();
+        } catch (Exception ignored) {}
     }
 
     @PluginMethod
