@@ -70,9 +70,9 @@ export function hasExplicitOrderIntent(rawText: string): boolean {
   // A service provider advertising availability is not a customer order.
   // An explicit request term takes precedence (e.g. "مطلوب مندوب متوفر").
   const serviceOffer =
-    /(?:متوفر|متوفرين|نوفر|نقدم|خدمة|خدمات|لدينا|عندنا).{0,18}(?:توصيل|دليفري|مندوب|نقل)|مندوبين?\\s*متوفرين|سيارات?\\s*توصيل/i.test(text);
+    /(?:متوفر|متوفرين|نوفر|نقدم|خدمة|خدمات|لدينا|عندنا).{0,18}(?:توصيل|دليفري|مندوب|نقل)|مندوبين?\s*متوفرين|سيارات?\s*توصيل/i.test(text);
   const explicitRequest =
-    /(?:مطلوب|ابي|ابغي|احتاج|نحتاج|طلب|استلام|اوردر|بيك\\s*اب|pickup|delivery request)/i.test(text);
+    /(?:مطلوب|ابي|ابغي|احتاج|نحتاج|طلب|استلام|اوردر|بيك\s*اب|pickup|delivery request)/i.test(text);
   if (serviceOffer && !explicitRequest) return false;
 
   const directIntent =
