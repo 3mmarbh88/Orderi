@@ -960,8 +960,6 @@ function OrderiApp() {
       }).catch(() => {});
     };
 
-    let openOrderListenerHandle: { remove: () => Promise<void> } | null = null;
-
     const setup = async () => {
       try {
         const pending = await OrderiNotificationListener.getPending();
