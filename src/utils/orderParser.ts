@@ -510,11 +510,11 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
   let scheduledTimeMinutes: number | undefined;
   let isFutureSchedule = false;
   const timeContext = /استلام|تسليم|توصيل|موعد|وقت|الساعة|ساعة|توقيت|على الساعة|في حدود الساعة/i.test(convertedText);
-  const periodRegex = /(صباحا|صباحاً|الصبح|الصباح|ص|مساء|مساءً|المساء|م|العصر|الظهر|المغرب|بالليل|في الليل|ليلًا|ليلا)/i;
+  const periodRegex = /(صباحا|صباحاً|الصبح|الصباح|مساء|مساءً|المساء|العصر|الظهر|المغرب|بالليل|في الليل|ليلًا|ليلا|(?:^|\\s)ص(?=\\s|$)|(?:^|\\s)م(?=\\s|$))/i;
   const periodMatch = periodRegex.exec(convertedText);
   const period = (periodMatch?.[1] || '').trim();
-  const hasAm = /صباح|الصبح|الصباح|^ص$/i.test(period);
-  const hasPm = /مساء|المساء|^م$|العصر|الظهر|المغرب|بالليل|في الليل|ليل/i.test(period);
+  const hasAm = /صباح|الصبح|الصباح|(?:^|\\s)ص(?:\\s|$)/i.test(period);
+  const hasPm = /مساء|المساء|(?:^|\\s)م(?:\\s|$)|العصر|الظهر|المغرب|بالليل|في الليل|ليل/i.test(period);
   // Standard clocks (7:30) and RTL-rendered clocks (30 : 7 / 00 : 8).
   const clockRegex = /(?:^|[^\d])(\d{1,2})\s*:\s*(\d{1,2})(?!\d)/;
   const clockMatch = clockRegex.exec(convertedText);
