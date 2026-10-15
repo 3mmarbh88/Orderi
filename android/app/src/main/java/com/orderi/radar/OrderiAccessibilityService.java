@@ -71,6 +71,7 @@ public class OrderiAccessibilityService extends AccessibilityService {
         pendingMessageTimestamp = System.currentTimeMillis();
         currentStage = STAGE_ENTER_PRIVATE_MESSAGE;
         isSendingInProgress.set(true);
+        writeOutreachStatus("sending", "بانتظار تنفيذ الإرسال في المحادثة الخاصة");
         Log.i(TAG, "Queued direct private message to send. autoSend=" + autoSend);
     }
 
@@ -85,6 +86,7 @@ public class OrderiAccessibilityService extends AccessibilityService {
         pendingMessageTimestamp = System.currentTimeMillis();
         currentStage = STAGE_CLICK_MEMBER_NAME;
         isSendingInProgress.set(true);
+        writeOutreachStatus("sending", "جاري الوصول إلى محادثة المعلن الخاصة");
         Log.i(TAG, "Queued outreach to group member: " + pendingTargetMemberName + " autoSend=" + autoSend);
     }
 
@@ -174,6 +176,7 @@ public class OrderiAccessibilityService extends AccessibilityService {
 
         // Expire pending operation after 30 seconds
         if (System.currentTimeMillis() - pendingMessageTimestamp > 30000L) {
+            writeOutreachStatus("failed", "انتهت مهلة الوصول إلى محادثة المعلن أو الإرسال");
             resetOperation();
             return;
         }
@@ -231,18 +234,26 @@ public class OrderiAccessibilityService extends AccessibilityService {
                 if (inputField != null) {
                     Bundle arguments = new Bundle();
                     arguments.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, pendingMessageToSend);
-                    inputField.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments);
-                    Log.i(TAG, "Pasted acceptance message in private chat successfully");
+                    boolean textSet = inputField.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments);
+                    if (!textSet) {
+                        writeOutreachStatus("failed", "تعذر إدخال رسالة القبول في المحادثة");
+                        resetOperation();
+                        return;
+                    }
+                    Log.i(TAG, "Acceptance message entered in target chat");
 
                     if (pendingAutoSend) {
-                        // Attempt to click send button after a slight delay/check
                         AccessibilityNodeInfo sendButton = findSendButton(rootNode);
-                        if (sendButton != null && sendButton.isEnabled()) {
-                            sendButton.performAction(AccessibilityNodeInfo.ACTION_CLICK);
-                            Log.i(TAG, "Triggered send button in private chat successfully!");
+                        if (sendButton != null && sendButton.isEnabled()
+                                && sendButton.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                            writeOutreachStatus("sent_confirmed", "تم تنفيذ الضغط على زر الإرسال في واتساب");
+                            Log.i(TAG, "WhatsApp send-button action performed");
+                        } else {
+                            writeOutreachStatus("failed", "لم يظهر زر إرسال قابل للتنفيذ في المحادثة");
                         }
+                    } else {
+                        writeOutreachStatus("failed", "الإرسال التلقائي غير مفعل");
                     }
-
                     resetOperation();
                 }
             }
@@ -419,6 +430,17 @@ public class OrderiAccessibilityService extends AccessibilityService {
         archivedSectionOpened = false;
         waitingForChatToClose = false;
         archivedReadEventRetries = 0;
+    }
+
+    private static void writeOutreachStatus(String status, String label) {
+        OrderiAccessibilityService service = instance;
+        if (service == null) return;
+        service.getSharedPreferences("orderi_private_outreach", Context.MODE_PRIVATE)
+                .edit()
+                .putString("status", status)
+                .putString("status_label", label)
+                .putLong("updated_at", System.currentTimeMillis())
+                .apply();
     }
 
     private void resetOperation() {
