@@ -737,6 +737,12 @@ function OrderiApp() {
       return;
     }
 
+    // Native WhatsApp notifications must remain visible in the radar even when
+    // route matching, group allow-lists, blacklist rules, or passenger filters
+    // would otherwise silently discard them. Those rules can annotate/filter
+    // actionable orders, but must not erase the captured source notification.
+    const isNativeNotification = raw.source === 'android_notification' || raw.type === 'whatsapp_notification';
+
     setWebhookOrdersCount((prev) => prev + 1);
 
     // Calculate matching with current driver location & active filter
@@ -756,12 +762,12 @@ function OrderiApp() {
     );
 
     // Auto-block if blacklisted
-    if (filterRef.current.autoBlockBlacklist && contactCheck.status === 'blacklist') {
+    if (!isNativeNotification && filterRef.current.autoBlockBlacklist && contactCheck.status === 'blacklist') {
       return;
     }
 
     // Check if WhatsApp group is allowed by driver's group filter
-    if (!isOrderGroupAllowedRef(raw.groupName)) {
+    if (!isNativeNotification && !isOrderGroupAllowedRef(raw.groupName)) {
       return;
     }
 
@@ -776,6 +782,7 @@ function OrderiApp() {
     // The "ignore non-matching" setting applies to passenger ads too, including VIP senders.
     // Keep the existing VIP exception only for ordinary goods orders.
     if (
+      !isNativeNotification &&
       filterRef.current.ignoreNonMatching &&
       match.score < 80 &&
       (isPassengerOrder || contactCheck.status !== 'vip')
@@ -1150,9 +1157,23 @@ function OrderiApp() {
         };
 
         const isPassengerRequest = parsed.passengerDetection?.level === 'confirmed_passenger' || parsed.passengerDetection?.level === 'suspicious_passenger';
-        if (parsed.canCreateOrder || isPassengerRequest) {
-          if (!order.from) order.from = 'موقع العميل / غير محدد 📍';
-          if (!order.to) order.to = 'حسب طلب الراكب 📍';
+        const normalizedMessage = (rawText || event.title || '')
+          .replace(/[إأآ]/g, 'ا')
+          .replace(/[\\u064B-\\u065F\\u0640]/g, '')
+          .toLowerCase()
+          .trim();
+        // Keep substantive captured notifications visible even when the parser
+        // cannot confidently identify a route. Do not turn short acknowledgments
+        // and stickers into new radar entries.
+        const isClosureOnlyReply = /^(?:تم|تم\\s*الحمد\\s*لله|حصلت|حصل|اخذت|أخذت|انحجز|انحجزت|خلص|خلاص|شكرا|شكرًا|مشكور|مشكوره|يعطيك\\s*العافيه|sticker|ملصق|👍+|🙏+|✅+|👌+)\\s*[.!؟👍🙏✅👌]*$/i.test(normalizedMessage);
+        const shouldMirrorNotification = normalizedMessage.length > 0 && !isClosureOnlyReply;
+        if (parsed.canCreateOrder || isPassengerRequest || shouldMirrorNotification) {
+          if (!order.from) order.from = 'موقع الاستلام غير محدد 📍';
+          if (!order.to) order.to = 'وجهة التوصيل غير محددة 📍';
+          if (!parsed.canCreateOrder && !isPassengerRequest) {
+            order.notes = [order.notes, 'إشعار واتساب محفوظ في الرادار كما ورد؛ لم يتمكن المحلل من تأكيد نوع الطلب أو مساره، راجع النص الأصلي'].filter(Boolean).join(' • ');
+            order.confidence = Math.min(order.confidence || 50, 40);
+          }
 
           // Once local AI confirms an order from a group, ask Android to use
           // that group's own explicit WhatsApp "Mark as read" notification action.
