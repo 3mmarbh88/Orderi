@@ -650,7 +650,7 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
     occurrences.length >= 2 &&
     normalizeArabicText(occurrences[0].name) === normalizeArabicText(occurrences[1].name) &&
     occurrences[1].start - occurrences[0].end <= 8 &&
-    /^[\\s،,./-]*$/.test(normalized.slice(occurrences[0].end, occurrences[1].start));
+    /^[\s،,./-]*$/.test(normalized.slice(occurrences[0].end, occurrences[1].start));
 
   if (repeatedSameArea) {
     fromArea = occurrences[0].name;
