@@ -202,6 +202,7 @@ public class NotificationListenerPlugin extends Plugin {
     public void updateFilterSettings(PluginCall call) {
         try {
             boolean ignoreNonMatching = call.getBoolean("ignoreNonMatching", false);
+            boolean blockPassengerDeliveries = call.getBoolean("blockPassengerDeliveries", true);
             double minPrice = call.getDouble("minPrice", 0.0);
             double coverageKm = call.getDouble("coverageKm", 10.0);
             double driverLat = call.getDouble("driverLat", 0.0);
@@ -209,6 +210,7 @@ public class NotificationListenerPlugin extends Plugin {
             android.content.SharedPreferences.Editor editor = getContext()
                     .getSharedPreferences("orderi_filter_settings", Context.MODE_PRIVATE).edit();
             editor.putBoolean("ignore_non_matching", ignoreNonMatching);
+            editor.putBoolean("block_passenger_deliveries", blockPassengerDeliveries);
             editor.putFloat("min_price", (float) minPrice);
             editor.putFloat("coverage_km", (float) coverageKm);
             editor.putFloat("driver_lat", (float) driverLat);
