@@ -99,6 +99,28 @@ import {
   isNotificationSupported
 } from './utils/backgroundManager';
 
+/** Build a single copy of the visible WhatsApp notification text.
+ * Android often exposes the same message in EXTRA_BIG_TEXT, EXTRA_TEXT and
+ * MessagingStyle/rawText. Keep unique lines in their original order.
+ */
+function combineUniqueWhatsAppNotificationText(parts: Array<string | undefined | null>): string {
+  const seenSources = new Set<string>();
+  const lines: string[] = [];
+  const seenLines = new Set<string>();
+  for (const part of parts) {
+    const source = (part || '').trim();
+    if (!source || seenSources.has(source)) continue;
+    seenSources.add(source);
+    for (const line of source.split(/\\r?\\n/)) {
+      const clean = line.trim();
+      if (!clean || seenLines.has(clean)) continue;
+      seenLines.add(clean);
+      lines.push(clean);
+    }
+  }
+  return lines.join('\\n').trim();
+}
+
 const DEFAULT_FILTER: OrderFilter = {
   coverageKm: 10,
   minimumPrice: 2.5,
@@ -334,8 +356,7 @@ function OrderiApp() {
           const { parseWhatsAppOrderTextWithLocalAI } = await import('./utils/localAiOrderParser');
           pending.events.slice(-30).forEach(async (event: WhatsAppNativeEvent) => {
             const groupName = (event.conversationTitle || event.title || '').trim() || 'محادثة خاصة 👤';
-            const rawText = [event.bigText, event.text, event.subText, event.rawText]
-              .filter(Boolean).join('\n').trim();
+            const rawText = combineUniqueWhatsAppNotificationText([event.bigText, event.text, event.subText, event.rawText]);
             const parsed = await parseWhatsAppOrderTextWithLocalAI(rawText || event.title || '');
             if (parsed.canCreateOrder) {
               handleProcessIncomingRawOrder({
@@ -844,10 +865,7 @@ function OrderiApp() {
 
     const convertNativeEvent = (event: WhatsAppNativeEvent) => {
       const groupName = (event.conversationTitle || event.title || '').trim() || 'محادثة خاصة 👤';
-      const rawText = [event.bigText, event.text, event.subText, event.rawText]
-        .filter(Boolean)
-        .join('\n')
-        .trim();
+      const rawText = combineUniqueWhatsAppNotificationText([event.bigText, event.text, event.subText, event.rawText]);
       if (!rawText && !event.title) return;
       // A real WhatsApp notification verifies that the native listener is seeing WhatsApp on this device.
       markWhatsAppVerified(event.isGroup ? groupName : undefined);
