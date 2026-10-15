@@ -185,22 +185,13 @@ public class OrderiAccessibilityService extends AccessibilityService {
         if (rootNode == null) return;
 
         try {
-            // STEP 1: Find and click member name in group chat
+            // STEP 1: Always select the advertiser's name first. Never treat an existing
+            // group composer or unrelated "Message" text as proof of a private chat.
             if (currentStage == STAGE_CLICK_MEMBER_NAME) {
-                // If the message popup is ALREADY visible (e.g. from previous click), skip to clicking message action
-                AccessibilityNodeInfo messageAction = findPrivateMessageAction(rootNode);
-                if (messageAction != null) {
-                    messageAction.performAction(AccessibilityNodeInfo.ACTION_CLICK);
-                    Log.i(TAG, "Clicked private Message action for member: " + pendingTargetMemberName);
-                    currentStage = STAGE_ENTER_PRIVATE_MESSAGE;
-                    return;
-                }
-
                 if (!TextUtils.isEmpty(pendingTargetMemberName)) {
                     AccessibilityNodeInfo memberNode = findMemberNameNode(rootNode, pendingTargetMemberName);
-                    if (memberNode != null) {
-                        memberNode.performAction(AccessibilityNodeInfo.ACTION_CLICK);
-                        Log.i(TAG, "Clicked member name node: " + pendingTargetMemberName);
+                    if (memberNode != null && memberNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                        Log.i(TAG, "Clicked advertiser name node: " + pendingTargetMemberName);
                         currentStage = STAGE_CLICK_MESSAGE_ACTION;
                         return;
                     }
@@ -211,8 +202,7 @@ public class OrderiAccessibilityService extends AccessibilityService {
             // STEP 2: When member popup appears, click "Message {name}" / "مراسلة"
             if (currentStage == STAGE_CLICK_MESSAGE_ACTION) {
                 AccessibilityNodeInfo messageAction = findPrivateMessageAction(rootNode);
-                if (messageAction != null) {
-                    messageAction.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+                if (messageAction != null && messageAction.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
                     Log.i(TAG, "Clicked private Message action for member in dialog");
                     currentStage = STAGE_ENTER_PRIVATE_MESSAGE;
                     return;
