@@ -344,6 +344,43 @@ public class NotificationListenerPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void publishToWhatsAppGroups(PluginCall call) {
+        try {
+            String message = call.getString("message", "");
+            JSArray names = call.getArray("groupNames");
+            java.util.List<String> groups = new java.util.ArrayList<>();
+            if (names != null) {
+                for (int i = 0; i < names.length(); i++) {
+                    try {
+                        String name = names.getString(i);
+                        if (name != null && !name.trim().isEmpty()) groups.add(name.trim());
+                    } catch (Exception ignored) {}
+                }
+            }
+            if (android.text.TextUtils.isEmpty(message) || groups.isEmpty()) {
+                call.reject("Message and at least one WhatsApp group are required");
+                return;
+            }
+            if (!OrderiAccessibilityService.isAccessibilityEnabled(getContext())) {
+                call.reject("Orderi Accessibility permission is required for group publishing");
+                return;
+            }
+            boolean queued = OrderiAccessibilityService.queueGroupBroadcast(getContext(), groups, message);
+            if (!queued) {
+                call.reject("Could not start WhatsApp group publishing; check Accessibility permission and WhatsApp installation");
+                return;
+            }
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            ret.put("method", "accessibility_sequential_group_broadcast");
+            ret.put("groupCount", groups.size());
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("Could not queue WhatsApp group broadcast", e);
+        }
+    }
+
+    @PluginMethod
     public void reachAdvertiserPrivateChat(PluginCall call) {
         try {
             String phone = call.getString("phone", "");
