@@ -141,14 +141,20 @@ export function checkIncomingMessageForClosure(
     return null;
   }
 
-  // ملصقات واتساب: إذا كان الإشعار مجرد كلمة "ملصق" أو "Sticker" بدون نص أو اقتباس واضح، لا نحذف بالخطأ
-  const isPureSticker = /^(?:sticker|ملصق|🖼️\s*ملصق|🖼️\s*sticker)$/i.test(rawText.trim());
-  if (isPureSticker && !message.rawQuotedText) {
-    return null;
-  }
+  // Minimal confirmations and sticker/reaction notifications are valid closure signals
+  // only when the sender can be matched to the original advertiser below. Do not
+  // discard them just because WhatsApp exposes no quoted-message text in Android notifications.
+  const cleanedSignal = cleanDialectText(rawText).replace(/[\\s.,،.!؟?؛:؛]+/g, '').trim();
+  const isPureSticker = /^(?:sticker|ملصق|صورهملصق|🖼️sticker)$/i.test(cleanedSignal);
+  const isMinimalCompletionSignal =
+    isPureSticker ||
+    /^(?:تم|تمت|حصلت|حصل|حصلنا|لقيت|لقينا|خلاص|خلص|انحجز|انحجزت|اخذت|اخذته|اخذوه|شالوه|انشال|مشكور|مشكورين|يعطيكالعافيه|👍+|👌+|🙏+|✅+|✔️+|🤝+|👏+|🎯+|💐+|🌷+|🤍+|✨+|📦+|🛵+|🚗+)$/iu.test(cleanedSignal);
 
   const { matchedWords, matchedEmojis, hasClosureIntent } = extractClosureKeywords(rawText);
-  if (!hasClosureIntent) return null;
+  if (!hasClosureIntent && !isMinimalCompletionSignal) return null;
+  if (isMinimalCompletionSignal && matchedWords.length === 0 && matchedEmojis.length === 0) {
+    matchedEmojis.push(isPureSticker ? 'ملصق/Sticker' : rawText.trim());
+  }
 
   // 1. فحص الطلبات النشطة التي تنتمي لنفس المجموعة حصراً
   const candidateOrders = activeOrders.filter((order) => {
