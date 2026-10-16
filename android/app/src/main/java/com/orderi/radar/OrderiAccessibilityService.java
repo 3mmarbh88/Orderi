@@ -165,9 +165,19 @@ public class OrderiAccessibilityService extends AccessibilityService {
             String groupName = pendingBroadcastGroups.get(pendingBroadcastIndex);
             boolean acted = false;
             if (broadcastStage == BROADCAST_FIND_SEARCH) {
-                AccessibilityNodeInfo search = findWhatsAppSearchButton(root);
-                if (search != null) acted = search.performAction(AccessibilityNodeInfo.ACTION_CLICK);
-                if (acted) broadcastStage = BROADCAST_ENTER_SEARCH;
+                // After backing out of a chat, WhatsApp may keep its search screen open.
+                // Reuse that search box when present; otherwise open search from the chat list.
+                AccessibilityNodeInfo existingSearch = findInputField(root);
+                if (existingSearch != null && findChatComposer(root) == null) {
+                    Bundle args = new Bundle();
+                    args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, groupName);
+                    acted = existingSearch.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args);
+                    if (acted) broadcastStage = BROADCAST_OPEN_GROUP;
+                } else {
+                    AccessibilityNodeInfo search = findWhatsAppSearchButton(root);
+                    if (search != null) acted = search.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+                    if (acted) broadcastStage = BROADCAST_ENTER_SEARCH;
+                }
             } else if (broadcastStage == BROADCAST_ENTER_SEARCH) {
                 AccessibilityNodeInfo input = findInputField(root);
                 if (input != null) {
