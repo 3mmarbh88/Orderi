@@ -269,6 +269,31 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         return false;
     }
 
+    /**
+     * Try to reply to a specifically identified private-chat notification without
+     * bringing WhatsApp to the foreground. Never falls back to an unrelated chat.
+     */
+    public static boolean sendPrivateNotificationReply(android.content.Context context, String target, String replyText) {
+        if (TextUtils.isEmpty(target) || TextUtils.isEmpty(replyText)) return false;
+        String wanted = target.toLowerCase(java.util.Locale.ROOT).replaceAll("\\D", "");
+        String wantedText = target.toLowerCase(java.util.Locale.ROOT).trim();
+        long now = System.currentTimeMillis();
+        for (java.util.Map.Entry<String, ReplyActionHolder> entry : REPLY_ACTIONS.entrySet()) {
+            ReplyActionHolder holder = entry.getValue();
+            if (holder == null || holder.isGroup || holder.pendingIntent == null
+                    || holder.remoteInputs == null || now - holder.timestamp > 900_000L) continue;
+            String key = entry.getKey() == null ? "" : entry.getKey().toLowerCase(java.util.Locale.ROOT).trim();
+            String keyDigits = key.replaceAll("\\D", "");
+            boolean exactName = !wantedText.isEmpty() && (key.equals(wantedText)
+                    || (wantedText.length() >= 4 && key.length() >= 4
+                    && (key.contains(wantedText) || wantedText.contains(key))));
+            boolean exactPhone = wanted.length() >= 8 && keyDigits.length() >= 8
+                    && (keyDigits.equals(wanted) || keyDigits.endsWith(wanted) || wanted.endsWith(keyDigits));
+            if ((exactName || exactPhone) && executeReply(context, holder, replyText)) return true;
+        }
+        return false;
+    }
+
     private static boolean executeReply(android.content.Context context, ReplyActionHolder holder, String replyText) {
         if (holder == null || holder.pendingIntent == null || holder.remoteInputs == null) return false;
         try {
