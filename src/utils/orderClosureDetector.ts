@@ -203,7 +203,13 @@ export function checkIncomingMessageForClosure(
       rawText.includes(`> ${orderSnippet}`) ||
       ((fromMention || toMention || priceMention) && (matchedWords.length > 0 || matchedEmojis.length > 0));
 
-    if (isQuoted) {
+    // A quote helps identify which post is being answered, but it must still
+    // come from the original advertiser; a different group member's "تم"/sticker
+    // must not close someone else's order.
+    const quoteSenderIsAdvertiser = isAdvertiserSenderMatch(
+      msgSender, msgPhone, order.senderName, order.senderPhone
+    );
+    if (isQuoted && quoteSenderIsAdvertiser) {
       processedMessageHashes.add(dedupeKey);
       markOrderPermanentlyClosed(order.id);
       return {

@@ -362,8 +362,11 @@ function OrderiApp() {
           const { parseWhatsAppOrderWithLocalAi } = await import('./utils/localAiOrderParser');
           for (const event of pending.events.slice(-30)) {
             const groupName = (event.conversationTitle || event.title || '').trim() || 'محادثة خاصة 👤';
-            const rawText = [event.bigText, event.text, event.subText, event.rawText]
-              .filter(Boolean).join('\n').trim();
+            const rawText = (event.rawText || event.bigText || event.text || event.subText || '').trim();
+            if (detectAdvertisementMessage(rawText || event.title || '').isAdvertisement) {
+              console.info('[Orderi] Suppressed pending service advertisement');
+              continue;
+            }
             const parsed = await parseWhatsAppOrderWithLocalAi(rawText || event.title || '', {
               hybridMode: filterRef.current.localAiConfig?.hybridMode !== false,
               useCloudFallback: filterRef.current.useCloudAiFallback !== false,
@@ -957,7 +960,9 @@ function OrderiApp() {
         from: newOrder.from || 'غير محدد',
         to: newOrder.to || 'غير محدد',
         price: newOrder.price || 0,
-        priceDisplay: newOrder.isPriceUnspecified ? 'غير محدد' : String(newOrder.price || 0) + ' د.ب',
+        priceDisplay: (!newOrder.price || newOrder.price <= 0 || newOrder.isPriceUnspecified)
+          ? ''
+          : `${Number.isInteger(newOrder.price) ? newOrder.price : Number(newOrder.price.toFixed(1))} دينار`,
         rawText: newOrder.rawText || '',
       }).catch((error) => console.warn('[Orderi] Could not show accepted Radar order notification:', error));
     }
@@ -1017,10 +1022,7 @@ function OrderiApp() {
           if (oldest) seenNativeEventIds.delete(oldest);
         }
       }
-      const rawText = [event.bigText, event.text, event.subText, event.rawText]
-        .filter(Boolean)
-        .join('\n')
-        .trim();
+      const rawText = (event.rawText || event.bigText || event.text || event.subText || '').trim();
       if (!rawText && !event.title) return;
 
       // Smart resolution of Group Name and whether it's a group
@@ -1051,6 +1053,14 @@ function OrderiApp() {
 
       const isGroup = Boolean(event.isGroup || (detectedGroupName && detectedGroupName.length > 0));
       const groupName = detectedGroupName || (isGroup ? event.title || 'قروب واتساب' : 'محادثة خاصة 👤');
+      
+      // Suppress provider/travel/commercial adverts before closure matching, radar insertion,
+      // sounds, toasts and phone notifications.
+      const advertisementCheck = detectAdvertisementMessage(rawText || event.title || '');
+      if (advertisementCheck.isAdvertisement) {
+        console.info('[Orderi] Suppressed service/commercial advertisement:', advertisementCheck.reason || 'advertisement');
+        return;
+      }
 
       // A real WhatsApp notification verifies that the native listener is seeing WhatsApp on this device.
       markWhatsAppVerified(isGroup ? groupName : undefined);

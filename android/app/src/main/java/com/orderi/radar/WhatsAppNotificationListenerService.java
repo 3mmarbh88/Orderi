@@ -269,6 +269,31 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         return false;
     }
 
+    /**
+     * Try to reply to a specifically identified private-chat notification without
+     * bringing WhatsApp to the foreground. Never falls back to an unrelated chat.
+     */
+    public static boolean sendPrivateNotificationReply(android.content.Context context, String target, String replyText) {
+        if (TextUtils.isEmpty(target) || TextUtils.isEmpty(replyText)) return false;
+        String wanted = target.toLowerCase(java.util.Locale.ROOT).replaceAll("\\D", "");
+        String wantedText = target.toLowerCase(java.util.Locale.ROOT).trim();
+        long now = System.currentTimeMillis();
+        for (java.util.Map.Entry<String, ReplyActionHolder> entry : REPLY_ACTIONS.entrySet()) {
+            ReplyActionHolder holder = entry.getValue();
+            if (holder == null || holder.isGroup || holder.pendingIntent == null
+                    || holder.remoteInputs == null || now - holder.timestamp > 900_000L) continue;
+            String key = entry.getKey() == null ? "" : entry.getKey().toLowerCase(java.util.Locale.ROOT).trim();
+            String keyDigits = key.replaceAll("\\D", "");
+            boolean exactName = !wantedText.isEmpty() && (key.equals(wantedText)
+                    || (wantedText.length() >= 4 && key.length() >= 4
+                    && (key.contains(wantedText) || wantedText.contains(key))));
+            boolean exactPhone = wanted.length() >= 8 && keyDigits.length() >= 8
+                    && (keyDigits.equals(wanted) || keyDigits.endsWith(wanted) || wanted.endsWith(keyDigits));
+            if ((exactName || exactPhone) && executeReply(context, holder, replyText)) return true;
+        }
+        return false;
+    }
+
     private static boolean executeReply(android.content.Context context, ReplyActionHolder holder, String replyText) {
         if (holder == null || holder.pendingIntent == null || holder.remoteInputs == null) return false;
         try {
@@ -706,13 +731,13 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         }
 
         // 3. Identify Price
-        String priceDisplay = "غير محدد (بالاتفاق 🤝)";
+        String priceDisplay = "";
         float priceVal = 0.0f;
         java.util.regex.Matcher priceMatcher = java.util.regex.Pattern.compile("(\\d+(?:\\.\\d+)?)\\s*(?:د\\.ب|دب|دينار|bd|bhd)").matcher(normalized);
         if (priceMatcher.find()) {
             try {
                 priceVal = Float.parseFloat(priceMatcher.group(1));
-                if (priceVal > 0) priceDisplay = priceVal + " د.ب";
+                if (priceVal > 0) priceDisplay = (priceVal == Math.floor(priceVal) ? String.valueOf((int) priceVal) : String.valueOf(priceVal)) + " دينار";
             } catch (Exception ignored) {}
         }
 
@@ -746,11 +771,8 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
             ? "🚨 نقل ركاب " + (passengerCount > 0 ? "(" + passengerCount + " ركاب) " : "") + "• تحذير 🚫"
             : "🚗 طلب جديد: " + fromArea + " ← " + toArea;
 
-        String notifBody = "📍 الاستلام: " + fromArea + "\n🏁 الوجهة: " + toArea + "\n💰 السعر: " + priceDisplay;
-        if (passengerCount > 0) {
-            notifBody += "\n👥 عدد الركاب: " + passengerCount;
-        }
-        notifBody += "\n💬 " + clean;
+        String routeText = fromArea + " ← " + toArea + (priceDisplay.isEmpty() ? "" : " " + priceDisplay);
+        String notifBody = routeText;
 
         Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                 ? new Notification.Builder(this, CHANNEL_ID)
@@ -758,7 +780,7 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
 
         builder.setSmallIcon(com.orderi.radar.R.drawable.orderi_notification_icon)
                 .setContentTitle(notifTitle)
-                .setContentText("📍 " + fromArea + " ← " + toArea + " • " + priceDisplay)
+                .setContentText(routeText)
                 .setStyle(new Notification.BigTextStyle().bigText(notifBody))
                 .setAutoCancel(true)
                 .setCategory(Notification.CATEGORY_MESSAGE)

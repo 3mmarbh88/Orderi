@@ -33,6 +33,7 @@ import {
 import { BAHRAIN_AREAS, POPULAR_WHATSAPP_GROUPS } from '../data/bahrainAreas';
 import { MatcherLocation, evaluateOrderMatch } from '../utils/matcher';
 import { OrderBroadcast, OrderFilter, ParsedOrder } from '../types';
+import { isNativeAndroid, publishToWhatsAppGroups, OrderiNotificationListener } from '../native/orderiNotificationListener';
 
 interface BroadcastPublisherProps {
   driverLocation: MatcherLocation | null;
@@ -398,20 +399,45 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
   };
 
   // Publish to WhatsApp Action
-  const handlePublishToWhatsApp = () => {
+  const waitForNativeBroadcastCompletion = async (): Promise<'sent' | 'failed' | 'timeout'> => {
+    // Native accessibility workflow reports completion/failure through the same status channel.
+    for (let attempt = 0; attempt < 120; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      try {
+        const status = await OrderiNotificationListener.getPrivateOutreachStatus();
+        if (status.status === 'sent_confirmed') return 'sent';
+        if (status.status === 'failed') return 'failed';
+      } catch {}
+    }
+    return 'timeout';
+  };
+
+  const handlePublishToWhatsApp = async () => {
     if (!broadcastText.trim()) {
       onToast('يرجى كتابة نص الإعلان أولاً');
       return;
     }
+    if (selectedGroupNames.length === 0) {
+      onToast('حدد قروب واتساب واحداً على الأقل قبل النشر');
+      return;
+    }
 
-    // 1. Copy text to clipboard automatically for hassle-free pasting in multiple groups
-    navigator.clipboard.writeText(broadcastText);
+    if (isNativeAndroid()) {
+      const queued = await publishToWhatsAppGroups(selectedGroupNames, broadcastText);
+      if (!queued.success) {
+        onToast(queued.method === 'not_native'
+          ? 'هذه العملية متاحة داخل تطبيق Orderi على أندرويد'
+          : 'تعذر بدء النشر الآلي. تأكد من تفعيل خدمة إمكانية الوصول في إعدادات أندرويد.');
+        return;
+      }
+      onToast(`بدأ النشر بالتتابع في ${selectedGroupNames.length} قروب. قد يظهر واتساب مؤقتاً أثناء الإرسال.`);
+    } else {
+      try { await navigator.clipboard.writeText(broadcastText); } catch {}
+      const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(broadcastText)}`;
+      window.open(waUrl, '_blank');
+      onToast('تم فتح مشاركة واتساب؛ النشر التلقائي المتتابع يتطلب تطبيق أندرويد وخدمة إمكانية الوصول.');
+    }
 
-    // 2. Open WhatsApp Web/Mobile sharing intent with encoded message
-    const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(broadcastText)}`;
-    window.open(waUrl, '_blank');
-
-    // 3. Save to broadcast history
     const newBroadcast: OrderBroadcast = {
       id: 'bcast-' + Date.now(),
       text: broadcastText,
@@ -423,14 +449,20 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
       phone,
       isCompleted: false,
     };
-
     const updatedHistory = [newBroadcast, ...broadcastHistory.slice(0, 19)];
     setBroadcastHistory(updatedHistory);
-    try {
-      localStorage.setItem('orderi_broadcast_history', JSON.stringify(updatedHistory));
-    } catch {}
+    try { localStorage.setItem('orderi_broadcast_history', JSON.stringify(updatedHistory)); } catch {}
 
-    onToast('🚀 تم نسخ النص وفتح واتساب للنشر في القروبات المختارة!');
+    if (isNativeAndroid()) {
+      const completion = await waitForNativeBroadcastCompletion();
+      if (completion === 'sent') {
+        onToast('اكتمل إرسال الإعلان إلى القروبات المحددة');
+      } else if (completion === 'failed') {
+        onToast('توقف النشر الآلي قبل إكمال كل القروبات؛ راجع واتساب وتأكد من القروب الذي وصل إليه.');
+      } else {
+        onToast('ما زال النشر قيد التنفيذ أو لم يصل تأكيد نهائي؛ تحقق من حالة واتساب قبل إعادة الإرسال.');
+      }
+    }
   };
 
   // Build formatted replay message
@@ -490,36 +522,46 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
   // Publish Replay (تم) to ALL target WhatsApp groups
   const handlePublishReplayToAllWhatsApp = async () => {
     if (!replayItem || !replayText.trim()) return;
+    const allGroups = replayTargetGroups.length > 0 ? replayTargetGroups : selectedGroupNames;
+    if (allGroups.length === 0) {
+      onToast('حدد القروبات التي تريد إرسال رد «تم» إليها');
+      return;
+    }
 
-    // 1. Copy replay text to clipboard for instant pasting anywhere
-    navigator.clipboard.writeText(replayText);
+    if (!isNativeAndroid()) {
+      try { await navigator.clipboard.writeText(replayText); } catch {}
+      window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(replayText)}`, '_blank');
+      onToast('تم فتح مشاركة واتساب؛ النشر المتتابع تلقائياً يتطلب تطبيق أندرويد.');
+      return;
+    }
 
-    // 2. Open WhatsApp share link with encoded message
-    const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(replayText)}`;
-    window.open(waUrl, '_blank');
+    const queued = await publishToWhatsAppGroups(allGroups, replayText);
+    if (!queued.success) {
+      onToast('تعذر بدء نشر رد «تم». تأكد من تفعيل خدمة إمكانية الوصول.');
+      return;
+    }
+    onToast(`بدأ إرسال رد «تم» بالتتابع إلى ${allGroups.length} قروب. قد يظهر واتساب مؤقتاً أثناء الإرسال.`);
+    const completion = await waitForNativeBroadcastCompletion();
+    if (completion !== 'sent') {
+      onToast(completion === 'failed'
+        ? 'توقف نشر رد «تم» قبل إكمال جميع القروبات؛ لم أضع علامة الاكتمال.'
+        : 'لم يصل تأكيد نهائي من واتساب؛ لم أضع علامة الاكتمال.');
+      return;
+    }
 
-    // 3. Mark all target groups as replied & completed
-    const allGroups = replayTargetGroups.length > 0 ? replayTargetGroups : ['قروبات الواتساب'];
-    const updatedHistory = broadcastHistory.map((item) => {
-      if (item.id === replayItem.id) {
-        return {
+    const updatedHistory = broadcastHistory.map((item) => item.id === replayItem.id
+      ? {
           ...item,
           isCompleted: true,
           completedAt: new Date().toLocaleTimeString('ar-BH', { hour: '2-digit', minute: '2-digit' }),
           repliedGroups: allGroups,
           replyTextSent: replayText,
-        };
-      }
-      return item;
-    });
-
+        }
+      : item
+    );
     setBroadcastHistory(updatedHistory);
     setRepliedGroups(allGroups);
-    try {
-      localStorage.setItem('orderi_broadcast_history', JSON.stringify(updatedHistory));
-    } catch {}
-
-    // 4. Also notify server via webhook/SSE
+    try { localStorage.setItem('orderi_broadcast_history', JSON.stringify(updatedHistory)); } catch {}
     fetch('/api/whatsapp/broadcast-reply', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -530,45 +572,103 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
         originalText: replayItem.text,
       }),
     }).catch(() => {});
+    onToast(`اكتمل نشر رد «تم» في ${allGroups.length} قروب`);
+  };
 
-    onToast(`🚀 تم نسخ رد (تم) وفتح واتساب للنشر في كافة القروبات (${allGroups.length})!`);
+  // One-tap "got a driver": send the configured completion reply to all groups
+  // where this ad was published, then mark it complete only after Android confirms.
+  const handleQuickCompleteBroadcast = async (item: OrderBroadcast) => {
+    const groups = item.targetGroups?.length ? item.targetGroups : selectedGroupNames;
+    const reply = item.replyTextSent || buildReplayMessage(
+      item,
+      filter.broadcastReplayTemplate ? 'saved_template' : 'full_quote',
+      filter.broadcastDefaultDoneText || '(تم) ✅',
+      filter.broadcastIncludeQuote ?? true
+    );
+    if (!reply.trim() || groups.length === 0) {
+      onToast('لا توجد قروبات محفوظة لهذا الإعلان. افتح إعداد الرد وحدد القروبات أولاً.');
+      return;
+    }
+    if (!isNativeAndroid()) {
+      try { await navigator.clipboard.writeText(reply); } catch {}
+      window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(reply)}`, '_blank');
+      onToast('تم تجهيز رد «تم»؛ الإرسال المتتابع التلقائي يتطلب تطبيق أندرويد.');
+      return;
+    }
+
+    const queued = await publishToWhatsAppGroups(groups, reply);
+    if (!queued.success) {
+      onToast('تعذر بدء رد «تم». تأكد من تفعيل خدمة إمكانية الوصول.');
+      return;
+    }
+    onToast(`جاري إرسال رد «تم» إلى ${groups.length} قروب بالتتابع...`);
+    const completion = await waitForNativeBroadcastCompletion();
+    if (completion !== 'sent') {
+      onToast(completion === 'failed'
+        ? 'توقف إرسال رد «تم» قبل اكتمال جميع القروبات؛ لم يُسجل الإعلان كمكتمل.'
+        : 'لم يصل تأكيد نهائي من واتساب؛ لم يُسجل الإعلان كمكتمل.');
+      return;
+    }
+
+    const now = new Date().toLocaleTimeString('ar-BH', { hour: '2-digit', minute: '2-digit' });
+    const updatedHistory = broadcastHistory.map((entry) => entry.id === item.id
+      ? { ...entry, isCompleted: true, completedAt: now, repliedGroups: groups, replyTextSent: reply }
+      : entry
+    );
+    setBroadcastHistory(updatedHistory);
+    setReplayItem(item);
+    setReplayText(reply);
+    setReplayTargetGroups(groups);
+    setRepliedGroups(groups);
+    try { localStorage.setItem('orderi_broadcast_history', JSON.stringify(updatedHistory)); } catch {}
+    fetch('/api/whatsapp/broadcast-reply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ broadcastId: item.id, replyText: reply, targetGroups: groups, originalText: item.text }),
+    }).catch(() => {});
+    onToast(`اكتمل إرسال رد «تم» إلى ${groups.length} قروب`);
   };
 
   // Send Replay to a single specific group
-  const handleSendReplayToSingleGroup = (groupName: string) => {
+  const handleSendReplayToSingleGroup = async (groupName: string) => {
     if (!replayItem || !replayText.trim()) return;
+    if (!isNativeAndroid()) {
+      try { await navigator.clipboard.writeText(replayText); } catch {}
+      window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(replayText)}`, '_blank');
+      onToast('تم فتح مشاركة واتساب؛ الإرسال المباشر لقروب محدد يتطلب تطبيق أندرويد.');
+      return;
+    }
 
-    // Copy to clipboard
-    navigator.clipboard.writeText(replayText);
-
-    // Open WhatsApp
-    const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(replayText)}`;
-    window.open(waUrl, '_blank');
+    const queued = await publishToWhatsAppGroups([groupName], replayText);
+    if (!queued.success) {
+      onToast('تعذر بدء نشر الرد في القروب المحدد. تأكد من تفعيل خدمة إمكانية الوصول.');
+      return;
+    }
+    onToast(`بدأ إرسال الرد إلى «${groupName}». قد يظهر واتساب مؤقتاً أثناء الإرسال.`);
+    const completion = await waitForNativeBroadcastCompletion();
+    if (completion !== 'sent') {
+      onToast(completion === 'failed'
+        ? `توقف النشر في «${groupName}» ولم يتم تسجيله كمكتمل.`
+        : 'لم يصل تأكيد نهائي من واتساب؛ لم يتم تسجيل الرد كمكتمل.');
+      return;
+    }
 
     const updatedReplied = Array.from(new Set([...repliedGroups, groupName]));
     setRepliedGroups(updatedReplied);
-
-    const isAllDone = replayTargetGroups.every((g) => updatedReplied.includes(g));
-
-    const updatedHistory = broadcastHistory.map((item) => {
-      if (item.id === replayItem.id) {
-        return {
+    const isAllDone = replayTargetGroups.length > 0 && replayTargetGroups.every((g) => updatedReplied.includes(g));
+    const updatedHistory = broadcastHistory.map((item) => item.id === replayItem.id
+      ? {
           ...item,
           isCompleted: isAllDone ? true : item.isCompleted,
           completedAt: isAllDone ? new Date().toLocaleTimeString('ar-BH', { hour: '2-digit', minute: '2-digit' }) : item.completedAt,
           repliedGroups: updatedReplied,
           replyTextSent: replayText,
-        };
-      }
-      return item;
-    });
-
+        }
+      : item
+    );
     setBroadcastHistory(updatedHistory);
-    try {
-      localStorage.setItem('orderi_broadcast_history', JSON.stringify(updatedHistory));
-    } catch {}
-
-    onToast(`تم نسخ الرد وفتح واتساب لإرساله إلى: "${groupName}"`);
+    try { localStorage.setItem('orderi_broadcast_history', JSON.stringify(updatedHistory)); } catch {}
+    onToast(`تم إرسال الرد إلى «${groupName}»`);
   };
 
   // Save current replay text as permanent default in settings
@@ -748,7 +848,7 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
                 <div className="pt-2 border-t border-slate-100 flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => handleOpenReplayModal(item)}
+                    onClick={() => handleQuickCompleteBroadcast(item)}
                     className="flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black shadow-sm transition-all hover:scale-[1.01] active:scale-[0.99]"
                   >
                     <Reply className="w-4 h-4" />
@@ -1283,7 +1383,7 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
                     <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100">
                       <button
                         type="button"
-                        onClick={() => handleOpenReplayModal(item)}
+                        onClick={() => handleQuickCompleteBroadcast(item)}
                         className={`text-[11px] font-black px-2.5 py-1 rounded-lg flex items-center gap-1.5 transition-all shadow-2xs ${
                           item.isCompleted 
                             ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' 

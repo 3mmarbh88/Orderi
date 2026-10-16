@@ -149,13 +149,14 @@ public class NotificationListenerPlugin extends Plugin {
             String from = call.getString("from", "غير محدد");
             String to = call.getString("to", "غير محدد");
             String price = call.getString("priceDisplay", "");
-            String body = "الاستلام: " + from + "\\nالوجهة: " + to + (price.isEmpty() ? "" : "\\nالسعر: " + price);
+            String routeText = from + " ← " + to + (price.isEmpty() ? "" : " " + price.replace(" د.ب", " دينار"));
+            String body = routeText;
             android.app.Notification.Builder builder = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O
                 ? new android.app.Notification.Builder(context, "orderi_radar_orders")
                 : new android.app.Notification.Builder(context);
             builder.setSmallIcon(com.orderi.radar.R.drawable.orderi_notification_icon)
-                .setContentTitle("طلب في الرادار: " + from + " ← " + to)
-                .setContentText(from + " ← " + to)
+                .setContentTitle(routeText)
+                .setContentText(routeText)
                 .setStyle(new android.app.Notification.BigTextStyle().bigText(body))
                 .setAutoCancel(true).setDeleteIntent(deleteIntent)
                 .setCategory(android.app.Notification.CATEGORY_MESSAGE)
@@ -339,6 +340,62 @@ public class NotificationListenerPlugin extends Plugin {
         ret.put("status", prefs.getString("status", "not_started"));
         ret.put("statusLabel", prefs.getString("status_label", ""));
         ret.put("updatedAt", prefs.getLong("updated_at", 0L));
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void publishToWhatsAppGroups(PluginCall call) {
+        try {
+            String message = call.getString("message", "");
+            JSArray names = call.getArray("groupNames");
+            java.util.List<String> groups = new java.util.ArrayList<>();
+            if (names != null) {
+                for (int i = 0; i < names.length(); i++) {
+                    try {
+                        String name = names.getString(i);
+                        if (name != null && !name.trim().isEmpty()) groups.add(name.trim());
+                    } catch (Exception ignored) {}
+                }
+            }
+            if (android.text.TextUtils.isEmpty(message) || groups.isEmpty()) {
+                call.reject("Message and at least one WhatsApp group are required");
+                return;
+            }
+            if (!OrderiAccessibilityService.isAccessibilityEnabled(getContext())) {
+                call.reject("Orderi Accessibility permission is required for group publishing");
+                return;
+            }
+            boolean queued = OrderiAccessibilityService.queueGroupBroadcast(getContext(), groups, message);
+            if (!queued) {
+                call.reject("Could not start WhatsApp group publishing; check Accessibility permission and WhatsApp installation");
+                return;
+            }
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            ret.put("method", "accessibility_sequential_group_broadcast");
+            ret.put("groupCount", groups.size());
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("Could not queue WhatsApp group broadcast", e);
+        }
+    }
+
+    @PluginMethod
+    public void sendPrivateNotificationReply(PluginCall call) {
+        String target = call.getString("target", "").trim();
+        String message = call.getString("message", "");
+        JSObject ret = new JSObject();
+        boolean sent = WhatsAppNotificationListenerService.sendPrivateNotificationReply(getContext(), target, message);
+        ret.put("success", sent);
+        ret.put("method", sent ? "private_notification_remote_input" : "no_exact_private_reply_action");
+        if (sent) {
+            getContext().getSharedPreferences("orderi_private_outreach", Context.MODE_PRIVATE)
+                .edit()
+                .putString("status", "sent_confirmed")
+                .putString("status_label", "تم تنفيذ الرد من إشعار المحادثة الخاصة دون فتح واتساب")
+                .putLong("updated_at", System.currentTimeMillis())
+                .apply();
+        }
         call.resolve(ret);
     }
 
