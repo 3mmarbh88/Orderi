@@ -29,11 +29,15 @@ public class OrderiAccessibilityService extends AccessibilityService {
     private static final int STAGE_CLICK_MEMBER_NAME = 1;
     private static final int STAGE_CLICK_MESSAGE_ACTION = 2;
     private static final int STAGE_ENTER_PRIVATE_MESSAGE = 3;
+    private static final int STAGE_CLICK_SEND = 4;
 
     private static volatile int currentStage = STAGE_IDLE;
     private static volatile String pendingMessageToSend = null;
     private static volatile String pendingTargetMemberName = null;
+    private static volatile String pendingOriginGroupName = null;
     private static volatile boolean pendingAutoSend = false;
+    private static volatile boolean pendingAwaitingWindowTransition = false;
+    private static volatile boolean pendingSawWindowTransition = false;
     private static volatile long pendingMessageTimestamp = 0L;
     private static final AtomicBoolean isSendingInProgress = new AtomicBoolean(false);
 
@@ -65,14 +69,21 @@ public class OrderiAccessibilityService extends AccessibilityService {
     }
 
     public static void queueMessageToSend(String message, boolean autoSend) {
+        queueMessageToSend(message, autoSend, null);
+    }
+
+    public static void queueMessageToSend(String message, boolean autoSend, String originGroupName) {
         pendingMessageToSend = message;
         pendingTargetMemberName = null;
+        pendingOriginGroupName = cleanMemberName(originGroupName);
         pendingAutoSend = autoSend;
+        pendingAwaitingWindowTransition = true;
+        pendingSawWindowTransition = false;
         pendingMessageTimestamp = System.currentTimeMillis();
         currentStage = STAGE_ENTER_PRIVATE_MESSAGE;
         isSendingInProgress.set(true);
-        writeOutreachStatus("sending", "بانتظار تنفيذ الإرسال في المحادثة الخاصة");
-        Log.i(TAG, "Queued direct private message to send. autoSend=" + autoSend);
+        writeOutreachStatus("sending", "بانتظار فتح المحادثة الخاصة الصحيحة قبل الإرسال");
+        Log.i(TAG, "Queued direct private message; waiting for target-chat transition. autoSend=" + autoSend);
     }
 
     public static void queueMessageToSend(String message) {
@@ -81,8 +92,11 @@ public class OrderiAccessibilityService extends AccessibilityService {
 
     public static void queueOutreachToMember(String memberName, String message, boolean autoSend) {
         pendingTargetMemberName = cleanMemberName(memberName);
+        pendingOriginGroupName = null;
         pendingMessageToSend = message;
         pendingAutoSend = autoSend;
+        pendingAwaitingWindowTransition = false;
+        pendingSawWindowTransition = false;
         pendingMessageTimestamp = System.currentTimeMillis();
         currentStage = STAGE_CLICK_MEMBER_NAME;
         isSendingInProgress.set(true);
@@ -185,6 +199,26 @@ public class OrderiAccessibilityService extends AccessibilityService {
         if (rootNode == null) return;
 
         try {
+            // Phone-based intents must cause a fresh WhatsApp window transition before
+            // processing any composer. This prevents the previously visible group chat
+            // from accidentally receiving the acceptance message.
+            if (pendingAwaitingWindowTransition) {
+                if (event.getEventType() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+                    pendingSawWindowTransition = true;
+                }
+                if (!pendingSawWindowTransition || !isPrivateChatScreen(rootNode)) {
+                    return;
+                }
+                pendingAwaitingWindowTransition = false;
+                Log.i(TAG, "Verified a private WhatsApp chat after target transition");
+            }
+
+            // Never type or send unless a private one-to-one composer is visible.
+            if ((currentStage == STAGE_ENTER_PRIVATE_MESSAGE || currentStage == STAGE_CLICK_SEND)
+                    && !isPrivateChatScreen(rootNode)) {
+                return;
+            }
+
             // STEP 1: Always select the advertiser's name first. Never treat an existing
             // group composer or unrelated "Message" text as proof of a private chat.
             if (currentStage == STAGE_CLICK_MEMBER_NAME) {
@@ -230,23 +264,33 @@ public class OrderiAccessibilityService extends AccessibilityService {
                         resetOperation();
                         return;
                     }
-                    Log.i(TAG, "Acceptance message entered in target chat");
+                    Log.i(TAG, "Acceptance message entered in target private chat");
 
                     if (pendingAutoSend) {
-                        AccessibilityNodeInfo sendButton = findSendButton(rootNode);
-                        if (sendButton != null && sendButton.isEnabled()
-                                && sendButton.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-                            writeOutreachStatus("sent_confirmed", "تم تنفيذ الضغط على زر الإرسال في واتساب");
-                            Log.i(TAG, "WhatsApp send-button action performed");
-                            returnToOrderi();
-                        } else {
-                            writeOutreachStatus("failed", "لم يظهر زر إرسال قابل للتنفيذ في المحادثة");
-                        }
+                        // Let WhatsApp update its composer from the microphone icon to
+                        // the send button, then click it on a subsequent accessibility event.
+                        currentStage = STAGE_CLICK_SEND;
+                        return;
                     } else {
                         writeOutreachStatus("failed", "الإرسال التلقائي غير مفعل");
+                        resetOperation();
                     }
-                    resetOperation();
                 }
+                return;
+            }
+
+            // STEP 4: Click Send only after the private-chat guard passed again.
+            if (currentStage == STAGE_CLICK_SEND) {
+                AccessibilityNodeInfo sendButton = findSendButton(rootNode);
+                if (sendButton != null && sendButton.isEnabled()
+                        && sendButton.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                    writeOutreachStatus("sent_confirmed", "تم الضغط على زر الإرسال في المحادثة الخاصة");
+                    Log.i(TAG, "WhatsApp private send-button action performed");
+                    resetOperation();
+                    returnToOrderi();
+                }
+                // Keep waiting for WhatsApp to render the send button. The operation
+                // timeout reports failure instead of claiming success prematurely.
             }
         } catch (Exception e) {
             Log.e(TAG, "Error in accessibility event processing", e);
@@ -451,9 +495,50 @@ public class OrderiAccessibilityService extends AccessibilityService {
     private void resetOperation() {
         pendingMessageToSend = null;
         pendingTargetMemberName = null;
+        pendingOriginGroupName = null;
         pendingAutoSend = false;
+        pendingAwaitingWindowTransition = false;
+        pendingSawWindowTransition = false;
         currentStage = STAGE_IDLE;
         isSendingInProgress.set(false);
+    }
+
+    private boolean isPrivateChatScreen(AccessibilityNodeInfo root) {
+        if (root == null || findInputField(root) == null) return false;
+
+        String header = "";
+        List<AccessibilityNodeInfo> headers =
+                root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/conversation_contact_name");
+        if (headers != null) {
+            for (AccessibilityNodeInfo node : headers) {
+                CharSequence text = node.getText();
+                CharSequence description = node.getContentDescription();
+                header = text != null ? text.toString().trim()
+                        : (description != null ? description.toString().trim() : "");
+                if (!TextUtils.isEmpty(header)) break;
+            }
+        }
+        if (TextUtils.isEmpty(header)) return false;
+
+        // Refuse to send if WhatsApp still shows the originating group as the chat title.
+        if (!TextUtils.isEmpty(pendingOriginGroupName)
+                && header.equalsIgnoreCase(pendingOriginGroupName.trim())) {
+            return false;
+        }
+
+        // Group-only header controls vary by WhatsApp version; if any are exposed,
+        // treat the screen as a group and fail closed.
+        String[] groupHeaderIds = new String[]{
+                "com.whatsapp:id/group_chat_info",
+                "com.whatsapp:id/group_chat_info_container",
+                "com.whatsapp:id/group_subject",
+                "com.whatsapp:id/group_chat_header"
+        };
+        for (String id : groupHeaderIds) {
+            List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByViewId(id);
+            if (nodes != null && !nodes.isEmpty()) return false;
+        }
+        return true;
     }
 
     private AccessibilityNodeInfo findMemberNameNode(AccessibilityNodeInfo root, String name) {
@@ -548,22 +633,11 @@ public class OrderiAccessibilityService extends AccessibilityService {
 
     private AccessibilityNodeInfo findInputField(AccessibilityNodeInfo node) {
         if (node == null) return null;
-
-        List<AccessibilityNodeInfo> list = node.findAccessibilityNodeInfosByViewId("com.whatsapp:id/entry");
-        if (list != null && !list.isEmpty()) {
-            return list.get(0);
-        }
-
-        if ("android.widget.EditText".contentEquals(node.getClassName())) {
-            return node;
-        }
-
-        for (int i = 0; i < node.getChildCount(); i++) {
-            AccessibilityNodeInfo child = node.getChild(i);
-            AccessibilityNodeInfo result = findInputField(child);
-            if (result != null) return result;
-        }
-        return null;
+        // Use WhatsApp's message-composer ID only. A generic EditText fallback can
+        // accidentally select the chat-list search field or another unrelated input.
+        List<AccessibilityNodeInfo> list =
+                node.findAccessibilityNodeInfosByViewId("com.whatsapp:id/entry");
+        return list != null && !list.isEmpty() ? list.get(0) : null;
     }
 
     private AccessibilityNodeInfo findSendButton(AccessibilityNodeInfo root) {
