@@ -144,7 +144,7 @@ export function checkIncomingMessageForClosure(
   // Minimal confirmations and sticker/reaction notifications are valid closure signals
   // only when the sender can be matched to the original advertiser below. Do not
   // discard them just because WhatsApp exposes no quoted-message text in Android notifications.
-  const cleanedSignal = cleanDialectText(rawText).replace(/[\\s.,،.!؟?؛:؛]+/g, '').trim();
+  const cleanedSignal = cleanDialectText(rawText).replace(/[\s.,،.!؟?؛:؛]+/g, '').trim();
   const isPureSticker = /^(?:sticker|ملصق|صورهملصق|🖼️sticker)$/i.test(cleanedSignal);
   const isMinimalCompletionSignal =
     isPureSticker ||
@@ -165,7 +165,8 @@ export function checkIncomingMessageForClosure(
       (msgGroup && order.groupName && (order.groupName.includes(msgGroup) || msgGroup.includes(order.groupName))) ||
       (order.crossPostedGroups && order.crossPostedGroups.some((g) => g.includes(msgGroup) || msgGroup.includes(g)));
 
-    if (!inSameGroup && msgGroup) return false;
+    // Never let a short confirmation or sticker close an order from an unknown/different group.
+    if (!msgGroup || !inSameGroup) return false;
 
     // نافذة زمنية واقعية: خلال 3 ساعات من نشر الإعلان
     const orderTime = new Date(order.receivedAt).getTime();
