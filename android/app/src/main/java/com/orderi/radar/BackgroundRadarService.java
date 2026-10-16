@@ -40,6 +40,10 @@ public class BackgroundRadarService extends Service {
         Log.i(TAG, "Orderi task removed from Recents; disabling background radar");
         getSharedPreferences(PREFS, MODE_PRIVATE)
                 .edit().putBoolean(KEY_ENABLED, false).commit();
+        // Discard events accumulated before the task was dismissed so reopening
+        // Orderi does not replay stale WhatsApp notifications as fresh orders.
+        getSharedPreferences(WhatsAppNotificationListenerService.PREFS, MODE_PRIVATE)
+                .edit().remove(WhatsAppNotificationListenerService.KEY_EVENTS).commit();
 
         // These are Orderi-owned notifications only; do not touch WhatsApp notifications.
         NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
