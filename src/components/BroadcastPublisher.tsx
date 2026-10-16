@@ -575,6 +575,60 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
     onToast(`اكتمل نشر رد «تم» في ${allGroups.length} قروب`);
   };
 
+  // One-tap "got a driver": send the configured completion reply to all groups
+  // where this ad was published, then mark it complete only after Android confirms.
+  const handleQuickCompleteBroadcast = async (item: OrderBroadcast) => {
+    const groups = item.targetGroups?.length ? item.targetGroups : selectedGroupNames;
+    const reply = item.replyTextSent || buildReplayMessage(
+      item,
+      filter.broadcastReplayTemplate ? 'saved_template' : 'full_quote',
+      filter.broadcastDefaultDoneText || '(تم) ✅',
+      filter.broadcastIncludeQuote ?? true
+    );
+    if (!reply.trim() || groups.length === 0) {
+      onToast('لا توجد قروبات محفوظة لهذا الإعلان. افتح إعداد الرد وحدد القروبات أولاً.');
+      return;
+    }
+    if (!isNativeAndroid()) {
+      try { await navigator.clipboard.writeText(reply); } catch {}
+      window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(reply)}`, '_blank');
+      onToast('تم تجهيز رد «تم»؛ الإرسال المتتابع التلقائي يتطلب تطبيق أندرويد.');
+      return;
+    }
+
+    const queued = await publishToWhatsAppGroups(groups, reply);
+    if (!queued.success) {
+      onToast('تعذر بدء رد «تم». تأكد من تفعيل خدمة إمكانية الوصول.');
+      return;
+    }
+    onToast(`جاري إرسال رد «تم» إلى ${groups.length} قروب بالتتابع...`);
+    const completion = await waitForNativeBroadcastCompletion();
+    if (completion !== 'sent') {
+      onToast(completion === 'failed'
+        ? 'توقف إرسال رد «تم» قبل اكتمال جميع القروبات؛ لم يُسجل الإعلان كمكتمل.'
+        : 'لم يصل تأكيد نهائي من واتساب؛ لم يُسجل الإعلان كمكتمل.');
+      return;
+    }
+
+    const now = new Date().toLocaleTimeString('ar-BH', { hour: '2-digit', minute: '2-digit' });
+    const updatedHistory = broadcastHistory.map((entry) => entry.id === item.id
+      ? { ...entry, isCompleted: true, completedAt: now, repliedGroups: groups, replyTextSent: reply }
+      : entry
+    );
+    setBroadcastHistory(updatedHistory);
+    setReplayItem(item);
+    setReplayText(reply);
+    setReplayTargetGroups(groups);
+    setRepliedGroups(groups);
+    try { localStorage.setItem('orderi_broadcast_history', JSON.stringify(updatedHistory)); } catch {}
+    fetch('/api/whatsapp/broadcast-reply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ broadcastId: item.id, replyText: reply, targetGroups: groups, originalText: item.text }),
+    }).catch(() => {});
+    onToast(`اكتمل إرسال رد «تم» إلى ${groups.length} قروب`);
+  };
+
   // Send Replay to a single specific group
   const handleSendReplayToSingleGroup = async (groupName: string) => {
     if (!replayItem || !replayText.trim()) return;
@@ -794,7 +848,7 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
                 <div className="pt-2 border-t border-slate-100 flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => handleOpenReplayModal(item)}
+                    onClick={() => handleQuickCompleteBroadcast(item)}
                     className="flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black shadow-sm transition-all hover:scale-[1.01] active:scale-[0.99]"
                   >
                     <Reply className="w-4 h-4" />
@@ -1329,7 +1383,7 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
                     <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100">
                       <button
                         type="button"
-                        onClick={() => handleOpenReplayModal(item)}
+                        onClick={() => handleQuickCompleteBroadcast(item)}
                         className={`text-[11px] font-black px-2.5 py-1 rounded-lg flex items-center gap-1.5 transition-all shadow-2xs ${
                           item.isCompleted 
                             ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' 
