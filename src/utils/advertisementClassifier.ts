@@ -7,9 +7,9 @@ export interface AdvertisementDetection {
 }
 
 /**
- * Detects service-provider promotions and unrelated commercial/group ads.
- * This is a local, rule-based guard: no message content leaves the device.
- * A phone number or a route alone is not enough to label a message as an ad.
+ * Local, rule-based filter for provider promotions and general service adverts.
+ * Called before Radar insertion and before Orderi sounds/notifications.
+ * A phone number, city, route, or service word alone is never sufficient.
  */
 export function detectAdvertisementMessage(rawText: string): AdvertisementDetection {
   if (!rawText || typeof rawText !== 'string') return { isAdvertisement: false };
@@ -18,36 +18,43 @@ export function detectAdvertisementMessage(rawText: string): AdvertisementDetect
     .replace(/[ـ_*~`]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+  if (!text) return { isAdvertisement: false };
 
   const contactCallToAction =
-    /(?:للتواصل|للتواصل والواتساب|للتواصل واتساب|واتساب|كلمني خاص|يكلمني خاص|عالخاص|على الخاص|تواصل مع|راسلني|للحجز|انضمامك|طلب انضمام|instagram|انستقرام|انستا|خاص\s*[:：])/i.test(text);
+    /(?:للتواصل|للتواصل والواتساب|للتواصل واتساب|واتساب|كلمني خاص|يكلمني خاص|على الخاص|عالخاص|تواصل مع|راسلني|للحجز|للاستفسار|للتنسيق|instagram|انستقرام|انستا|خاص\s*[:：])/i.test(text);
 
   const providerOrTravelOffer =
-    /(?:طالع|طالعه|متوجه|متوجهه|متوجهة|متواجد|متواجده|متواجدة|موجود|موجوده|رحلاتنا|رحله اسبوعيه|رحلة أسبوعية|على اتم الاستعداد|على استعداد|خدماتنا|سعيدين في خدمتكم|في خدمتكم|كل طلب حاضر|اي طلب حاضر|جاهزين للتوصيل|مواصلات الاسطوره|توصيل داخل وخارج البحرين|مشاويرنا)/i.test(text);
+    /(?:طالع|طالعه|طالع(?:ه)?\s+(?:باذن الله|ان شاء الله)|رايح|رايحه|راجع|راجعه|متوجه|متوجهه|متوجهة|متواجد|متواجده|متواجدة|موجود|موجوده|رحلاتنا|رحلات مستمره|رحلات مستمرة|رحله|رحلة|مواصلات|مشاويرنا|على اتم الاستعداد|على استعداد|خدماتنا|في خدمتكم|حاضرين له|كل طلب حاضر|اي طلب حاضر|اللي يبي حاجه|اللي يبي شي|اي شخص يريد|اي شخص محتاج|من البحرين الى|من البحرين الي)/i.test(text);
 
   const serviceItems = [
-    /توصيل\s*(?:ركاب|اشخاص|طلبات|اغراض)/i,
-    /(?:تسوق|قطع غيار|شركات شحن|ادويه|هدايا|اغراض|اوردرات|اوردر|طلبات)/i,
-    /(?:مطار|محطه قطار|محطة قطار|تأمين سيارات|تأمين سفر)/i,
-    /(?:شراء|استلام|ترجيع|مشاوير خاصه|مشاوير خاصة)/i,
+    /(?:توصيل\s*(?:ركاب|اشخاص|طلبات|اغراض|امانات)|توصيل امانات)/i,
+    /(?:تسوق|قطع غيار|شركات شحن|ادويه|هدايا|اغراض|اوردرات|اوردر|طلبات|رسايل|رسائل)/i,
+    /(?:مطار|محطه قطار|تأمين سيارات|تأمين سفر|شراء|استلام|ترجيع|مشاوير خاصه|مشاوير خاصة)/i,
   ];
   const serviceItemCount = serviceItems.reduce((count, pattern) => count + (pattern.test(text) ? 1 : 0), 0);
+  const hasPhoneOrSocial =
+    /(?:\+?973\s*\d{8}|\b[36]\d{7}\b|instagram|انستقرام|wa\.me)/i.test(text);
+  const invitationToCustomers =
+    /(?:اللي يبي|اللي يبي حاجه|اللي يبي شي|اي شخص يريد|أي شخص يريد|اي شخص محتاج|اللي محتاج|محتاج شي|كلمني خاص|يكلمني خاص|حاضرين له|حياكم على الخاص|متوفر من|متوفره من|متوفرة من)/i.test(text);
 
-  // Travel-provider advert: first-person trip announcement + offered services/contact.
-  if (providerOrTravelOffer && serviceItemCount >= 1 && (contactCallToAction || /(?:\+?973|\b3\d{7}\b|\b6\d{7}\b|\b33735402\b)/.test(text))) {
-    return { isAdvertisement: true, reason: 'إعلان مقدم خدمة أو رحلة يعرض خدماته للتواصل، وليس طلب توصيل لعميل' };
+  // Strong trip/service advert: the author announces their own travel or service,
+  // then invites people to contact them or offers a list of services.
+  if (providerOrTravelOffer && (contactCallToAction || invitationToCustomers || hasPhoneOrSocial) &&
+      (serviceItemCount >= 1 || invitationToCustomers || /(?:راجع|رحلاتنا|رحلات مستمره|رحلات مستمرة|طالع|رايح)/i.test(text))) {
+    return { isAdvertisement: true, reason: 'إعلان رحلة أو مقدم خدمة يعرض خدماته، وليس طلب عميل' };
   }
 
-  // Commercial promotions unrelated to a customer asking for a delivery.
+  // General commercial adverts, including insurance and service promotions.
   const explicitPromotion =
-    /(?:راحتك تهمنا|تأمين سيارات|تأمين سفر|سعر مناسب لك|اسعار جدا مناسبه|اسعار مناسبه|انجاز سريع|خدمة نحرص فيها عليك|قروب افلام|قروب افلام امريكيه|عرض فيلم كامل|اسعار شدات|شدات ببجي|للبيع|متوفر لدينا|على اتم الاستعداد)/i.test(text);
-  if (explicitPromotion && (contactCallToAction || serviceItemCount >= 2 || /(?:\+?973|\b3\d{7}\b|\b6\d{7}\b|instagram|انستقرام)/i.test(text))) {
-    return { isAdvertisement: true, reason: 'إعلان تجاري أو ترويجي، وليس طلب عميل' };
+    /(?:راحتك تهمنا|تأمين سيارات|تأمين سفر|سعر مناسب لك|اسعار جدا مناسبه|اسعار مناسبه|انجاز سريع|خدمة نحرص فيها عليك|قروب افلام|عرض فيلم كامل|اسعار شدات|للبيع|متوفر لدينا|تواصل مع ابو سند|تواصل مع أبو سند)/i.test(text);
+  if (explicitPromotion && (contactCallToAction || hasPhoneOrSocial || serviceItemCount >= 2)) {
+    return { isAdvertisement: true, reason: 'إعلان تجاري أو ترويجي، وليس طلب توصيل' };
   }
 
-  // A long, structured list of services with an explicit invitation/contact line.
+  // Structured service menu with contact details is an advert even if the author
+  // omitted an explicit "I am travelling" phrase.
   const hasListFormatting = /(?:^|\n)\s*(?:[•●▪🛍️🛒✈️🚗💵⚙️🏃👬📍-])/.test(rawText);
-  if (hasListFormatting && serviceItemCount >= 3 && contactCallToAction && providerOrTravelOffer) {
+  if (hasListFormatting && serviceItemCount >= 3 && (contactCallToAction || hasPhoneOrSocial)) {
     return { isAdvertisement: true, reason: 'قائمة خدمات معلن عنها مع دعوة للتواصل' };
   }
 
