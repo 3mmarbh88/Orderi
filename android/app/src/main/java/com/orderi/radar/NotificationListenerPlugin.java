@@ -381,6 +381,25 @@ public class NotificationListenerPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void sendPrivateNotificationReply(PluginCall call) {
+        String target = call.getString("target", "").trim();
+        String message = call.getString("message", "");
+        JSObject ret = new JSObject();
+        boolean sent = WhatsAppNotificationListenerService.sendPrivateNotificationReply(getContext(), target, message);
+        ret.put("success", sent);
+        ret.put("method", sent ? "private_notification_remote_input" : "no_exact_private_reply_action");
+        if (sent) {
+            getContext().getSharedPreferences("orderi_private_outreach", Context.MODE_PRIVATE)
+                .edit()
+                .putString("status", "sent_confirmed")
+                .putString("status_label", "تم تنفيذ الرد من إشعار المحادثة الخاصة دون فتح واتساب")
+                .putLong("updated_at", System.currentTimeMillis())
+                .apply();
+        }
+        call.resolve(ret);
+    }
+
+    @PluginMethod
     public void reachAdvertiserPrivateChat(PluginCall call) {
         try {
             String phone = call.getString("phone", "");
