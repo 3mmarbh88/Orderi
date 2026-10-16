@@ -91,8 +91,12 @@ public class OrderiAccessibilityService extends AccessibilityService {
     }
 
     public static void queueOutreachToMember(String memberName, String message, boolean autoSend) {
+        queueOutreachToMember(memberName, message, autoSend, null);
+    }
+
+    public static void queueOutreachToMember(String memberName, String message, boolean autoSend, String originGroupName) {
         pendingTargetMemberName = cleanMemberName(memberName);
-        pendingOriginGroupName = null;
+        pendingOriginGroupName = cleanMemberName(originGroupName);
         pendingMessageToSend = message;
         pendingAutoSend = autoSend;
         pendingAwaitingWindowTransition = false;
@@ -100,12 +104,13 @@ public class OrderiAccessibilityService extends AccessibilityService {
         pendingMessageTimestamp = System.currentTimeMillis();
         currentStage = STAGE_CLICK_MEMBER_NAME;
         isSendingInProgress.set(true);
-        writeOutreachStatus("sending", "جاري الوصول إلى محادثة المعلن الخاصة");
-        Log.i(TAG, "Queued outreach to group member: " + pendingTargetMemberName + " autoSend=" + autoSend);
+        writeOutreachStatus("sending", "جاري فتح القروب والضغط على اسم المعلن للوصول إلى الخاص");
+        Log.i(TAG, "Queued name-based outreach: member=" + pendingTargetMemberName
+                + ", sourceGroup=" + pendingOriginGroupName + ", autoSend=" + autoSend);
     }
 
     public static void queueOutreachToMember(String memberName, String message) {
-        queueOutreachToMember(memberName, message, false);
+        queueOutreachToMember(memberName, message, false, null);
     }
 
     private static String cleanMemberName(String raw) {
