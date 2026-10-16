@@ -333,6 +333,48 @@ public class NotificationListenerPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void publishWhatsAppBroadcast(PluginCall call) {
+        try {
+            String message = call.getString("message", "");
+            JSArray inputGroups = call.getArray("groupNames");
+            java.util.ArrayList<String> groups = new java.util.ArrayList<>();
+            if (inputGroups != null) {
+                for (int i = 0; i < inputGroups.length(); i++) {
+                    try {
+                        String group = inputGroups.getString(i);
+                        if (group != null && !group.trim().isEmpty()) groups.add(group.trim());
+                    } catch (Exception ignored) {}
+                }
+            }
+            if (android.text.TextUtils.isEmpty(message.trim())) {
+                call.reject("Broadcast message is empty");
+                return;
+            }
+            if (groups.isEmpty()) {
+                call.reject("Select at least one WhatsApp group");
+                return;
+            }
+            if (!OrderiAccessibilityService.isAccessibilityEnabled(getContext())
+                    || !OrderiAccessibilityService.isServiceRunning()) {
+                call.reject("Enable Orderi Accessibility to automate WhatsApp group publishing");
+                return;
+            }
+            boolean queued = OrderiAccessibilityService.queueBroadcastToGroups(groups, message);
+            if (!queued) {
+                call.reject("Could not start group publishing. Another automation may be running or the first group has no available notification shortcut.");
+                return;
+            }
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            ret.put("method", "sequential_accessibility_group_broadcast");
+            ret.put("queuedGroups", groups.size());
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("Failed to start WhatsApp group broadcast", e);
+        }
+    }
+
+    @PluginMethod
     public void getPrivateOutreachStatus(PluginCall call) {
         android.content.SharedPreferences prefs = getContext().getSharedPreferences("orderi_private_outreach", Context.MODE_PRIVATE);
         JSObject ret = new JSObject();
