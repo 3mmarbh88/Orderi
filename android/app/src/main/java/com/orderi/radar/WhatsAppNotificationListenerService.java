@@ -706,13 +706,13 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         }
 
         // 3. Identify Price
-        String priceDisplay = "غير محدد (بالاتفاق 🤝)";
+        String priceDisplay = "";
         float priceVal = 0.0f;
         java.util.regex.Matcher priceMatcher = java.util.regex.Pattern.compile("(\\d+(?:\\.\\d+)?)\\s*(?:د\\.ب|دب|دينار|bd|bhd)").matcher(normalized);
         if (priceMatcher.find()) {
             try {
                 priceVal = Float.parseFloat(priceMatcher.group(1));
-                if (priceVal > 0) priceDisplay = priceVal + " د.ب";
+                if (priceVal > 0) priceDisplay = (priceVal == Math.floor(priceVal) ? String.valueOf((int) priceVal) : String.valueOf(priceVal)) + " دينار";
             } catch (Exception ignored) {}
         }
 
@@ -746,11 +746,8 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
             ? "🚨 نقل ركاب " + (passengerCount > 0 ? "(" + passengerCount + " ركاب) " : "") + "• تحذير 🚫"
             : "🚗 طلب جديد: " + fromArea + " ← " + toArea;
 
-        String notifBody = "📍 الاستلام: " + fromArea + "\n🏁 الوجهة: " + toArea + "\n💰 السعر: " + priceDisplay;
-        if (passengerCount > 0) {
-            notifBody += "\n👥 عدد الركاب: " + passengerCount;
-        }
-        notifBody += "\n💬 " + clean;
+        String routeText = fromArea + " ← " + toArea + (priceDisplay.isEmpty() ? "" : " " + priceDisplay);
+        String notifBody = routeText;
 
         Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                 ? new Notification.Builder(this, CHANNEL_ID)
@@ -758,7 +755,7 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
 
         builder.setSmallIcon(com.orderi.radar.R.drawable.orderi_notification_icon)
                 .setContentTitle(notifTitle)
-                .setContentText("📍 " + fromArea + " ← " + toArea + " • " + priceDisplay)
+                .setContentText(routeText)
                 .setStyle(new Notification.BigTextStyle().bigText(notifBody))
                 .setAutoCancel(true)
                 .setCategory(Notification.CATEGORY_MESSAGE)
