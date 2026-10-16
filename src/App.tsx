@@ -95,6 +95,7 @@ import {
   getPermanentlyClosedOrderIds 
 } from './utils/orderClosureDetector';
 import { classifyAdvertiserPrivateReply } from './utils/advertiserReplyClassifier';
+import { detectAdvertisementMessage } from './utils/advertisementClassifier';
 import { 
   checkOrderDestinationHunt, 
   saveHuntedDestinationLog 
@@ -736,6 +737,16 @@ function OrderiApp() {
       Boolean(deviceTrialStatus && (deviceTrialStatus.isActivated || (!deviceTrialStatus.isExpired && deviceTrialStatus.daysRemaining > 0)));
 
     if (!isAppActive) {
+      return;
+    }
+
+    // Filter service-provider adverts before radar insertion, sounds, toasts, or phone notifications.
+    // Use the full original WhatsApp text; words like "توصيل" or "أغراض" alone never determine this.
+    const advertisementCheck = detectAdvertisementMessage(
+      raw.rawText || `${raw.from || ''} ${raw.to || ''}`
+    );
+    if (advertisementCheck.isAdvertisement) {
+      console.info('[Orderi] Suppressed service/commercial advertisement:', advertisementCheck.reason || 'advertisement');
       return;
     }
 
