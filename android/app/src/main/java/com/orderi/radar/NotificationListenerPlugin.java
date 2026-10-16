@@ -400,10 +400,11 @@ public class NotificationListenerPlugin extends Plugin {
                 }
             }
 
-            // Case B: No phone number in ad text, but advertiser name is known
-            // User requirement: Click advertiser name -> show private chat option -> send acceptance message in private
+            // Case B: No phone number in ad text, but advertiser name is known.
+            // Open the source group and let Accessibility click the advertiser name, choose Message,
+            // verify that the destination is a private chat, then send the configured reply.
             if (!android.text.TextUtils.isEmpty(memberName)) {
-                OrderiAccessibilityService.queueOutreachToMember(memberName, message, autoSend);
+                OrderiAccessibilityService.queueOutreachToMember(memberName, message, autoSend, groupName);
 
                 // Try to launch directly to the specific conversation from cached notification
                 boolean launched = false;
