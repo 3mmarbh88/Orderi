@@ -32,13 +32,8 @@ import { ParsedOrder } from '../types';
 import { MatcherLocation } from '../utils/matcher';
 import { AIMatchModal } from './AIMatchModal';
 import { findLandmarkByName } from '../data/bahrainLandmarks';
-import { sendNativeQuickReply } from '../native/whatsappListener';
 import { detectPassengerDelivery } from '../utils/passengerClassifier';
-import { 
-  executePrivateAdvertiserOutreach, 
-  AdvertiserContactResolution, 
-  formatAdvertiserPrivateMessage 
-} from '../utils/whatsappPrivateOutreach';
+import { AdvertiserContactResolution, formatAdvertiserPrivateMessage } from '../utils/whatsappPrivateOutreach';
 import { AdvertiserOutreachModal } from './AdvertiserOutreachModal';
 
 interface OrderCardProps {
@@ -46,7 +41,7 @@ interface OrderCardProps {
   order: ParsedOrder;
   driverLocation: MatcherLocation | null;
   customTemplate: string;
-  onAccept: (order: ParsedOrder) => void;
+  onAccept: (order: ParsedOrder) => void | Promise<void>;
   onIgnore: (orderId: string) => void;
   onToggleContact?: (order: ParsedOrder, type: 'vip' | 'blacklist') => void;
   onEvaluateAi?: (order: ParsedOrder) => void;
@@ -264,36 +259,15 @@ export function OrderCard({
     if (isAutoReplying) return;
 
     setIsAutoReplying(true);
-
     try {
-      if (isMyBroadcast) {
-        // Replay (تم) for captain's own broadcast
-        onAccept(order);
-        setShowAcceptDialog(false);
-        return;
-      }
-
-      // Execute private outreach engine (WhatsApp regular, direct private chat, strictly no group!)
-      const outreachResult = await executePrivateAdvertiserOutreach(order);
-
-      // Accepted and message pre-filled in private WhatsApp chat without opening intrusive popups
-      onAccept({
-        ...order,
-        status: 'accepted',
-        outreachStatus: outreachResult.status,
-        outreachDetails: {
-          status: outreachResult.status,
-          phoneUsed: outreachResult.phoneUsed,
-          advertiserName: outreachResult.resolution.name,
-          attemptedAt: new Date().toISOString(),
-          message: outreachResult.message,
-          deliveryMethod: 'direct_whatsapp_url',
-          verifiedAdvertiser: true,
-        },
-      });
+      // Keep one single source of truth for acceptance and sending.
+      // App.tsx applies the user's configured response template and waits for
+      // the Android Accessibility service result. Calling outreach here too
+      // caused duplicate sends and bypassed the configured quick-reply template.
+      await onAccept(order);
       setShowAcceptDialog(false);
     } catch (err) {
-      console.warn('[Orderi] Quick auto-reply error:', err);
+      console.warn('[Orderi] Quick auto-reply request failed:', err);
     } finally {
       setIsAutoReplying(false);
     }
