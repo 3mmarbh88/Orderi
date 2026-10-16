@@ -25,6 +25,7 @@ interface OrderiNotificationListenerPlugin {
   isAccessibilityEnabled(): Promise<{ enabled: boolean }>;
   openAccessibilitySettings(): Promise<void>;
   getPrivateOutreachStatus(): Promise<{ status: string; statusLabel?: string; updatedAt?: number }>;
+  publishWhatsAppBroadcast(options: { groupNames: string[]; message: string }): Promise<{ success: boolean; method: string; queuedGroups?: number }>;
   reachAdvertiserPrivateChat(options: {
     phone?: string;
     memberName?: string;
