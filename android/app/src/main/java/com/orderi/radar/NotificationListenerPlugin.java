@@ -149,13 +149,14 @@ public class NotificationListenerPlugin extends Plugin {
             String from = call.getString("from", "غير محدد");
             String to = call.getString("to", "غير محدد");
             String price = call.getString("priceDisplay", "");
-            String body = "الاستلام: " + from + "\\nالوجهة: " + to + (price.isEmpty() ? "" : "\\nالسعر: " + price);
+            String routeText = from + " ← " + to + (price.isEmpty() ? "" : " " + price.replace(" د.ب", " دينار"));
+            String body = routeText;
             android.app.Notification.Builder builder = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O
                 ? new android.app.Notification.Builder(context, "orderi_radar_orders")
                 : new android.app.Notification.Builder(context);
             builder.setSmallIcon(com.orderi.radar.R.drawable.orderi_notification_icon)
-                .setContentTitle("طلب في الرادار: " + from + " ← " + to)
-                .setContentText(from + " ← " + to)
+                .setContentTitle(routeText)
+                .setContentText(routeText)
                 .setStyle(new android.app.Notification.BigTextStyle().bigText(body))
                 .setAutoCancel(true).setDeleteIntent(deleteIntent)
                 .setCategory(android.app.Notification.CATEGORY_MESSAGE)
