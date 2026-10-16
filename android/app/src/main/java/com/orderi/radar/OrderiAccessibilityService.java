@@ -12,6 +12,9 @@ import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 
 import java.util.List;
+import java.util.ArrayList;
+import android.os.Handler;
+import android.os.Looper;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -29,6 +32,22 @@ public class OrderiAccessibilityService extends AccessibilityService {
     private static final int STAGE_CLICK_MEMBER_NAME = 1;
     private static final int STAGE_CLICK_MESSAGE_ACTION = 2;
     private static final int STAGE_ENTER_PRIVATE_MESSAGE = 3;
+
+    // Sequential multi-group broadcast workflow. WhatsApp must be visible while
+    // Accessibility interacts with its UI; after the last group, Orderi is restored.
+    private static volatile boolean broadcastInProgress = false;
+    private static volatile String pendingBroadcastMessage = null;
+    private static volatile ArrayList<String> pendingBroadcastGroups = new ArrayList<>();
+    private static volatile int pendingBroadcastIndex = 0;
+    private int broadcastStage = 0;
+    private int broadcastRetries = 0;
+    private long lastBroadcastActionAt = 0L;
+    private static final int BROADCAST_FIND_SEARCH = 1;
+    private static final int BROADCAST_ENTER_SEARCH = 2;
+    private static final int BROADCAST_OPEN_GROUP = 3;
+    private static final int BROADCAST_ENTER_MESSAGE = 4;
+    private static final int BROADCAST_SEND_MESSAGE = 5;
+    private static final int BROADCAST_NEXT_GROUP = 6;
 
     private static volatile int currentStage = STAGE_IDLE;
     private static volatile String pendingMessageToSend = null;
@@ -77,6 +96,169 @@ public class OrderiAccessibilityService extends AccessibilityService {
 
     public static void queueMessageToSend(String message) {
         queueMessageToSend(message, false);
+    }
+
+    public static boolean queueGroupBroadcast(Context context, List<String> groupNames, String message) {
+        if (context == null || instance == null || !isAccessibilityEnabled(context)
+                || groupNames == null || groupNames.isEmpty() || TextUtils.isEmpty(message)) {
+            return false;
+        }
+        ArrayList<String> cleanGroups = new ArrayList<>();
+        for (String group : groupNames) {
+            if (group == null) continue;
+            String clean = group.trim();
+            if (!TextUtils.isEmpty(clean) && !cleanGroups.contains(clean)) cleanGroups.add(clean);
+        }
+        if (cleanGroups.isEmpty()) return false;
+
+        OrderiAccessibilityService service = instance;
+        pendingBroadcastGroups = cleanGroups;
+        pendingBroadcastMessage = message;
+        pendingBroadcastIndex = 0;
+        broadcastInProgress = true;
+        service.broadcastStage = BROADCAST_FIND_SEARCH;
+        service.broadcastRetries = 0;
+        service.lastBroadcastActionAt = 0L;
+        writeOutreachStatus("broadcasting", "جاري النشر بالتتابع في " + cleanGroups.size() + " قروب واتساب");
+
+        Intent launch = context.getPackageManager().getLaunchIntentForPackage(PACKAGE_WHATSAPP);
+        if (launch == null) {
+            finishGroupBroadcast("failed", "تعذر العثور على تطبيق واتساب");
+            return false;
+        }
+        try {
+            launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            context.startActivity(launch);
+            return true;
+        } catch (Exception e) {
+            Log.w(TAG, "Could not launch WhatsApp for group broadcast", e);
+            finishGroupBroadcast("failed", "تعذر فتح واتساب لبدء النشر");
+            return false;
+        }
+    }
+
+    private static void finishGroupBroadcast(String status, String label) {
+        broadcastInProgress = false;
+        pendingBroadcastMessage = null;
+        pendingBroadcastGroups = new ArrayList<>();
+        pendingBroadcastIndex = 0;
+        OrderiAccessibilityService service = instance;
+        if (service != null) {
+            service.broadcastStage = 0;
+            service.broadcastRetries = 0;
+            service.writeOutreachStatus(status, label);
+            service.returnToOrderi();
+        }
+    }
+
+    private void handleGroupBroadcastEvent() {
+        if (!broadcastInProgress || pendingBroadcastMessage == null) return;
+        long now = System.currentTimeMillis();
+        if (now - lastBroadcastActionAt < 350L) return;
+        if (pendingBroadcastIndex >= pendingBroadcastGroups.size()) {
+            finishGroupBroadcast("sent_confirmed", "اكتمل النشر في جميع القروبات المحددة");
+            return;
+        }
+        AccessibilityNodeInfo root = getRootInActiveWindow();
+        if (root == null) return;
+        try {
+            String groupName = pendingBroadcastGroups.get(pendingBroadcastIndex);
+            boolean acted = false;
+            if (broadcastStage == BROADCAST_FIND_SEARCH) {
+                AccessibilityNodeInfo search = findWhatsAppSearchButton(root);
+                if (search != null) acted = search.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+                if (acted) broadcastStage = BROADCAST_ENTER_SEARCH;
+            } else if (broadcastStage == BROADCAST_ENTER_SEARCH) {
+                AccessibilityNodeInfo input = findInputField(root);
+                if (input != null) {
+                    Bundle args = new Bundle();
+                    args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, groupName);
+                    acted = input.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args);
+                    if (acted) broadcastStage = BROADCAST_OPEN_GROUP;
+                }
+            } else if (broadcastStage == BROADCAST_OPEN_GROUP) {
+                AccessibilityNodeInfo result = findGroupSearchResult(root, groupName);
+                if (result != null) acted = result.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+                if (acted) broadcastStage = BROADCAST_ENTER_MESSAGE;
+            } else if (broadcastStage == BROADCAST_ENTER_MESSAGE) {
+                AccessibilityNodeInfo composer = findChatComposer(root);
+                if (composer != null) {
+                    Bundle args = new Bundle();
+                    args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, pendingBroadcastMessage);
+                    acted = composer.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args);
+                    if (acted) broadcastStage = BROADCAST_SEND_MESSAGE;
+                }
+            } else if (broadcastStage == BROADCAST_SEND_MESSAGE) {
+                AccessibilityNodeInfo send = findSendButton(root);
+                if (send != null && send.isEnabled()) acted = send.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+                if (acted) {
+                    broadcastStage = BROADCAST_NEXT_GROUP;
+                    writeOutreachStatus("broadcasting", "تم إرسال الرسالة إلى " + groupName + " (" + (pendingBroadcastIndex + 1) + "/" + pendingBroadcastGroups.size() + ")");
+                    new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                        if (!broadcastInProgress) return;
+                        performGlobalAction(GLOBAL_ACTION_BACK);
+                        pendingBroadcastIndex++;
+                        broadcastRetries = 0;
+                        broadcastStage = pendingBroadcastIndex >= pendingBroadcastGroups.size()
+                                ? 0 : BROADCAST_FIND_SEARCH;
+                        lastBroadcastActionAt = System.currentTimeMillis();
+                        if (pendingBroadcastIndex >= pendingBroadcastGroups.size()) {
+                            finishGroupBroadcast("sent_confirmed", "اكتمل النشر في جميع القروبات المحددة");
+                        }
+                    }, 800L);
+                }
+            } else if (broadcastStage == BROADCAST_NEXT_GROUP) {
+                return;
+            }
+
+            if (acted) {
+                lastBroadcastActionAt = now;
+                broadcastRetries = 0;
+            } else if (++broadcastRetries > 12) {
+                finishGroupBroadcast("failed", "توقف النشر عند قروب «" + groupName + "»؛ لم يتم العثور على عنصر واتساب المتوقع");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Group broadcast automation failed", e);
+            finishGroupBroadcast("failed", "تعذر إكمال النشر الآلي في واتساب");
+        } finally {
+            root.recycle();
+        }
+    }
+
+    private AccessibilityNodeInfo findWhatsAppSearchButton(AccessibilityNodeInfo root) {
+        if (root == null) return null;
+        List<AccessibilityNodeInfo> ids = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/menuitem_search");
+        if (ids != null && !ids.isEmpty()) return ids.get(0);
+        String[] labels = new String[]{"Search", "Search chats", "بحث", "بحث في المحادثات"};
+        for (String label : labels) {
+            List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByText(label);
+            if (nodes != null) for (AccessibilityNodeInfo node : nodes) {
+                String desc = describeNode(node).toLowerCase(java.util.Locale.ROOT);
+                if (desc.contains(label.toLowerCase(java.util.Locale.ROOT))) {
+                    AccessibilityNodeInfo clickable = clickableAncestor(node, 4);
+                    if (clickable != null) return clickable;
+                }
+            }
+        }
+        return null;
+    }
+
+    private AccessibilityNodeInfo findGroupSearchResult(AccessibilityNodeInfo root, String groupName) {
+        if (root == null || TextUtils.isEmpty(groupName)) return null;
+        List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByText(groupName);
+        if (nodes == null) return null;
+        for (AccessibilityNodeInfo node : nodes) {
+            if ("android.widget.EditText".contentEquals(node.getClassName())) continue;
+            AccessibilityNodeInfo clickable = clickableAncestor(node, 6);
+            if (clickable != null && !containsText(clickable, new String[]{"Search", "بحث"})) return clickable;
+        }
+        return null;
+    }
+
+    private AccessibilityNodeInfo findChatComposer(AccessibilityNodeInfo root) {
+        if (root == null) return null;
+        List<AccessibilityNodeInfo> list = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/entry");
+        return list == null || list.isEmpty() ? null : list.get(0);
     }
 
     public static void queueOutreachToMember(String memberName, String message, boolean autoSend) {
@@ -169,6 +351,11 @@ public class OrderiAccessibilityService extends AccessibilityService {
         // automation could never run even though the helper methods existed.
         if (markArchivedChatsRequested) {
             handleArchivedChatsReadEvent();
+            return;
+        }
+
+        if (broadcastInProgress) {
+            handleGroupBroadcastEvent();
             return;
         }
 
