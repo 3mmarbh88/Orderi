@@ -37,6 +37,19 @@ export function detectAdvertisementMessage(rawText: string): AdvertisementDetect
   const invitationToCustomers =
     /(?:اللي يبي|اللي يبي حاجه|اللي يبي شي|اي شخص يريد|أي شخص يريد|اي شخص محتاج|اللي محتاج|محتاج شي|كلمني خاص|يكلمني خاص|حاضرين له|حياكم على الخاص|متوفر من|متوفره من|متوفرة من)/i.test(text);
 
+  // Catch common Bahrain/Gulf provider adverts, including trip announcements,
+  // shopping/errand offers and commercial posts mixed with prayers/emojis.
+  const explicitProviderOffer =
+    /(?:طالع|طالعه|رايح|رايحه|راجع|راجعه|متجه|متوجه|متواجد|متواجده|موجود في الامارات|رحلاتنا مستمره|رحلات مستمره|رحلات يوميه|رحلات يومية|متوفر من|متوفره من|متوفرة من|حاضرين له|حاضرين لكم|اللي يبي|الي يبي|اللي محتاج|الي محتاج|اي شخص يريد|اي شخص محتاج|محتاج شي|محتاج شيء|اغراض فقط|أغراض فقط)/i.test(text);
+  const customerInvitation =
+    /(?:اللي يبي|الي يبي|اللي محتاج|الي محتاج|اي شخص يريد|أي شخص يريد|اي شخص محتاج|محتاج شي|محتاج شيء|حاضرين له|حياكم على الخاص|يكلمني خاص|كلمني خاص|متوفر من|متوفره من|متوفرة من)/i.test(text);
+  const routeOrTripContext =
+    /(?:السعوديه|السعودية|الكويت|قطر|الامارات|الإمارات|الاردن|الأردن|سوريا|الخبر|الدمام|البحرين|المنامه|المنامة|المحرق|مدينة حمد|مجمع التنين|طالع|رايح|راجع|رحله|رحلة|رحلات)/i.test(text);
+  if (explicitProviderOffer && customerInvitation && routeOrTripContext &&
+      (contactCallToAction || hasPhoneOrSocial || serviceItemCount >= 1)) {
+    return { isAdvertisement: true, reason: 'إعلان رحلة أو عرض خدمات/أغراض للزبائن، وليس طلب توصيل محدداً' };
+  }
+
   // Strong trip/service advert: the author announces their own travel or service,
   // then invites people to contact them or offers a list of services.
   if (providerOrTravelOffer && (contactCallToAction || invitationToCustomers || hasPhoneOrSocial) &&
