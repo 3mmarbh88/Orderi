@@ -30,6 +30,9 @@ public class OrderiAccessibilityService extends AccessibilityService {
     private static final int STAGE_CLICK_MESSAGE_ACTION = 2;
     private static final int STAGE_ENTER_PRIVATE_MESSAGE = 3;
     private static final int STAGE_CLICK_SEND = 4;
+    private static final int STAGE_BROADCAST_OPEN_GROUP = 5;
+    private static final int STAGE_BROADCAST_ENTER_MESSAGE = 6;
+    private static final int STAGE_BROADCAST_CLICK_SEND = 7;
 
     private static volatile int currentStage = STAGE_IDLE;
     private static volatile String pendingMessageToSend = null;
@@ -40,6 +43,8 @@ public class OrderiAccessibilityService extends AccessibilityService {
     private static volatile boolean pendingSawWindowTransition = false;
     private static volatile long pendingMessageTimestamp = 0L;
     private static final AtomicBoolean isSendingInProgress = new AtomicBoolean(false);
+    private static volatile java.util.ArrayList<String> pendingBroadcastGroups = new java.util.ArrayList<>();
+    private static volatile int pendingBroadcastGroupIndex = 0;
 
     // Accessibility-driven fallback for archived WhatsApp chats. It only opens chats
     // when WhatsApp exposes an explicit unread indicator; it never sends messages.
@@ -111,6 +116,46 @@ public class OrderiAccessibilityService extends AccessibilityService {
 
     public static void queueOutreachToMember(String memberName, String message) {
         queueOutreachToMember(memberName, message, false, null);
+    }
+
+    /** Queue a sequential broadcast to explicitly selected groups with exact title verification. */
+    public static boolean queueBroadcastToGroups(java.util.List<String> groupNames, String message) {
+        OrderiAccessibilityService service = instance;
+        if (service == null || groupNames == null || groupNames.isEmpty() || TextUtils.isEmpty(message)) return false;
+        if (!isAccessibilityEnabled(service)) return false;
+        java.util.LinkedHashSet<String> unique = new java.util.LinkedHashSet<>();
+        for (String group : groupNames) {
+            if (!TextUtils.isEmpty(group) && !group.trim().isEmpty()) unique.add(group.trim());
+        }
+        if (unique.isEmpty() || isSendingInProgress.get()) return false;
+        pendingBroadcastGroups = new java.util.ArrayList<>(unique);
+        pendingBroadcastGroupIndex = 0;
+        pendingMessageToSend = message;
+        pendingTargetMemberName = null;
+        pendingOriginGroupName = null;
+        pendingAutoSend = true;
+        pendingAwaitingWindowTransition = false;
+        pendingSawWindowTransition = false;
+        pendingMessageTimestamp = System.currentTimeMillis();
+        currentStage = STAGE_BROADCAST_OPEN_GROUP;
+        isSendingInProgress.set(true);
+        writeOutreachStatus("sending", "بدء النشر التلقائي في " + pendingBroadcastGroups.size() + " قروب/قروبات");
+        service.startNextBroadcastGroup();
+        return isSendingInProgress.get();
+    }
+
+    private void startNextBroadcastGroup() {
+        if (pendingBroadcastGroupIndex < 0 || pendingBroadcastGroupIndex >= pendingBroadcastGroups.size()) return;
+        String groupName = pendingBroadcastGroups.get(pendingBroadcastGroupIndex);
+        boolean opened = WhatsAppNotificationListenerService.openWhatsAppGroupConversation(getApplicationContext(), groupName);
+        if (!opened) {
+            writeOutreachStatus("failed", "تعذر فتح القروب المحدد من إشعارات واتساب: " + groupName + ". تأكد من وجود إشعار حديث لهذا القروب");
+            resetOperation();
+            return;
+        }
+        currentStage = STAGE_BROADCAST_OPEN_GROUP;
+        pendingMessageTimestamp = System.currentTimeMillis();
+        Log.i(TAG, "Opened selected broadcast group " + groupName);
     }
 
     private static String cleanMemberName(String raw) {
@@ -204,6 +249,12 @@ public class OrderiAccessibilityService extends AccessibilityService {
         if (rootNode == null) return;
 
         try {
+            if (currentStage == STAGE_BROADCAST_OPEN_GROUP || currentStage == STAGE_BROADCAST_ENTER_MESSAGE
+                    || currentStage == STAGE_BROADCAST_CLICK_SEND) {
+                handleBroadcastEvent(rootNode);
+                return;
+            }
+
             // Phone-based intents must cause a fresh WhatsApp window transition before
             // processing any composer. This prevents the previously visible group chat
             // from accidentally receiving the acceptance message.
@@ -302,6 +353,70 @@ public class OrderiAccessibilityService extends AccessibilityService {
         } finally {
             rootNode.recycle();
         }
+    }
+
+    private void handleBroadcastEvent(AccessibilityNodeInfo root) {
+        if (pendingBroadcastGroupIndex < 0 || pendingBroadcastGroupIndex >= pendingBroadcastGroups.size()) {
+            writeOutreachStatus("sent_confirmed", "انتهى النشر في القروبات المحددة");
+            resetOperation();
+            returnToOrderi();
+            return;
+        }
+        String targetGroup = pendingBroadcastGroups.get(pendingBroadcastGroupIndex);
+        if (System.currentTimeMillis() - pendingMessageTimestamp > 45000L) {
+            writeOutreachStatus("failed", "انتهت مهلة النشر عند القروب: " + targetGroup + " (تم إيقاف العملية لتجنب الإرسال الخاطئ)");
+            resetOperation();
+            returnToOrderi();
+            return;
+        }
+        if (!isTargetBroadcastGroupScreen(root, targetGroup)) return;
+
+        if (currentStage == STAGE_BROADCAST_OPEN_GROUP) {
+            currentStage = STAGE_BROADCAST_ENTER_MESSAGE;
+            pendingMessageTimestamp = System.currentTimeMillis();
+            Log.i(TAG, "Verified exact broadcast group title: " + targetGroup);
+            return;
+        }
+        if (currentStage == STAGE_BROADCAST_ENTER_MESSAGE) {
+            AccessibilityNodeInfo input = findInputField(root);
+            if (input == null) return;
+            Bundle args = new Bundle();
+            args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, pendingMessageToSend);
+            if (!input.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) {
+                writeOutreachStatus("failed", "تعذر إدخال النص في القروب: " + targetGroup);
+                resetOperation();
+                returnToOrderi();
+                return;
+            }
+            currentStage = STAGE_BROADCAST_CLICK_SEND;
+            pendingMessageTimestamp = System.currentTimeMillis();
+            return;
+        }
+        if (currentStage == STAGE_BROADCAST_CLICK_SEND) {
+            AccessibilityNodeInfo send = findSendButton(root);
+            if (send == null || !send.isEnabled() || !send.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return;
+            Log.i(TAG, "Broadcast send action performed for exact group " + targetGroup);
+            pendingBroadcastGroupIndex++;
+            if (pendingBroadcastGroupIndex >= pendingBroadcastGroups.size()) {
+                writeOutreachStatus("sent_confirmed", "تم الضغط على زر الإرسال في جميع القروبات المحددة (" + pendingBroadcastGroups.size() + ")");
+                resetOperation();
+                returnToOrderi();
+                return;
+            }
+            writeOutreachStatus("sending", "تم إرسال القروب " + pendingBroadcastGroupIndex + " من " + pendingBroadcastGroups.size() + "؛ جاري فتح القروب التالي");
+            startNextBroadcastGroup();
+        }
+    }
+
+    private boolean isTargetBroadcastGroupScreen(AccessibilityNodeInfo root, String targetGroup) {
+        if (root == null || findInputField(root) == null || TextUtils.isEmpty(targetGroup)) return false;
+        List<AccessibilityNodeInfo> headers = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/conversation_contact_name");
+        if (headers == null || headers.isEmpty()) return false;
+        for (AccessibilityNodeInfo node : headers) {
+            String header = describeNode(node);
+            if (header.equalsIgnoreCase(targetGroup.trim())) return true;
+        }
+        return false;
     }
 
     private void handleArchivedChatsReadEvent() {
@@ -499,6 +614,8 @@ public class OrderiAccessibilityService extends AccessibilityService {
 
     private void resetOperation() {
         pendingMessageToSend = null;
+        pendingBroadcastGroups = new java.util.ArrayList<>();
+        pendingBroadcastGroupIndex = 0;
         pendingTargetMemberName = null;
         pendingOriginGroupName = null;
         pendingAutoSend = false;
