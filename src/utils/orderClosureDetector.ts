@@ -296,7 +296,8 @@ export async function checkIncomingMessageForClosureWithAI(
     const inSameGroup = 
       (msgGroup && order.groupName && (order.groupName.includes(msgGroup) || msgGroup.includes(order.groupName))) ||
       (order.crossPostedGroups && order.crossPostedGroups.some((g) => g.includes(msgGroup) || msgGroup.includes(g)));
-    if (!inSameGroup && msgGroup) return false;
+    // A closure confirmation must be tied to a known matching group as well as sender.
+    if (!msgGroup || !inSameGroup) return false;
     return isAdvertiserSenderMatch(msgSender, msgPhone, order.senderName, order.senderPhone);
   });
 
