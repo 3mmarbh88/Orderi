@@ -33,6 +33,7 @@ import {
 import { BAHRAIN_AREAS, POPULAR_WHATSAPP_GROUPS } from '../data/bahrainAreas';
 import { MatcherLocation, evaluateOrderMatch } from '../utils/matcher';
 import { OrderBroadcast, OrderFilter, ParsedOrder } from '../types';
+import { isNativeAndroid, publishWhatsAppBroadcast } from '../native/whatsappListener';
 
 interface BroadcastPublisherProps {
   driverLocation: MatcherLocation | null;
@@ -397,21 +398,38 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
     onToast('تم حذف القروب');
   };
 
-  // Publish to WhatsApp Action
-  const handlePublishToWhatsApp = () => {
+  // Publish to selected WhatsApp groups. Android uses native accessibility automation;
+  // browser builds retain the existing share-link fallback.
+  const handlePublishToWhatsApp = async () => {
     if (!broadcastText.trim()) {
       onToast('يرجى كتابة نص الإعلان أولاً');
       return;
     }
 
-    // 1. Copy text to clipboard automatically for hassle-free pasting in multiple groups
-    navigator.clipboard.writeText(broadcastText);
+    if (isNativeAndroid()) {
+      if (selectedGroupNames.length === 0) {
+        onToast('يرجى تحديد قروب واحد على الأقل قبل النشر');
+        return;
+      }
+      try {
+        const result = await publishWhatsAppBroadcast({
+          groupNames: selectedGroupNames,
+          message: broadcastText,
+        });
+        if (!result.success) {
+          onToast('تعذر بدء النشر التلقائي. تأكد من تفعيل إمكانية الوصول في Orderi ووجود إشعار حديث لكل قروب محدد.');
+          return;
+        }
+      } catch {
+        onToast('تعذر بدء النشر التلقائي في واتساب');
+        return;
+      }
+    } else {
+      try { await navigator.clipboard.writeText(broadcastText); } catch {}
+      const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(broadcastText)}`;
+      window.open(waUrl, '_blank');
+    }
 
-    // 2. Open WhatsApp Web/Mobile sharing intent with encoded message
-    const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(broadcastText)}`;
-    window.open(waUrl, '_blank');
-
-    // 3. Save to broadcast history
     const newBroadcast: OrderBroadcast = {
       id: 'bcast-' + Date.now(),
       text: broadcastText,
@@ -430,7 +448,9 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
       localStorage.setItem('orderi_broadcast_history', JSON.stringify(updatedHistory));
     } catch {}
 
-    onToast('🚀 تم نسخ النص وفتح واتساب للنشر في القروبات المختارة!');
+    onToast(isNativeAndroid()
+      ? `بدأ النشر التلقائي في ${selectedGroupNames.length} قروب/قروبات؛ سيعود التطبيق إلى Orderi عند الانتهاء.`
+      : 'تم نسخ النص وفتح واتساب للنشر في القروبات المختارة!');
   };
 
   // Build formatted replay message
