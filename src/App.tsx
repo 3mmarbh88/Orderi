@@ -387,7 +387,7 @@ function OrderiApp() {
                 scheduledTimeMinutes: parsed.scheduledTimeMinutes,
                 isFutureSchedule: parsed.isFutureSchedule,
                 rawText: rawText || event.title || '', groupName,
-                senderName: event.title || 'WhatsApp', senderPhone: parsed.phone,
+                senderName: event.senderName || event.title || 'WhatsApp', senderPhone: parsed.phone,
                 receivedAt: new Date(event.receivedAt || Date.now()),
                 confidence: parsed.confidence, type: 'whatsapp_notification',
                 notes: parsed.notes, status: 'pending',
@@ -1115,9 +1115,14 @@ function OrderiApp() {
       if (filterRef.current.autoCloseOrdersEnabled !== false) {
         const closureMessageData = {
           text: rawText || event.title || '',
-          senderName: event.title,
+          // In group notifications title is often the GROUP name. Prefer the actual
+          // sender extracted from Android MessagingStyle so "تم"/stickers can be
+          // safely linked to the advertiser who posted the original order.
+          senderName: event.senderName || (event.isGroup ? '' : event.title) || '',
           groupName,
           timestamp: event.receivedAt || Date.now(),
+          rawQuotedText: (event as any).rawQuotedText || (event as any).quotedText || '',
+          messageId: event.id,
         };
 
         const fastClosureMatch = checkIncomingMessageForClosure(

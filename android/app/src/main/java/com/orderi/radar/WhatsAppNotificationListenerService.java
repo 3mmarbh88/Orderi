@@ -293,6 +293,14 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         boolean isWhatsApp = PACKAGE_WHATSAPP.equals(pkg) || PACKAGE_WHATSAPP_BUSINESS.equals(pkg) || pkg.contains("whatsapp");
         if (!isWhatsApp) return;
 
+        // The OS notification listener can remain connected after the app is swiped
+        // from Recents. Respect the explicit runtime flag so no new radar events or
+        // Orderi alerts are processed until the user opens Orderi again.
+        if (!getSharedPreferences(BackgroundRadarService.PREFS, MODE_PRIVATE)
+                .getBoolean(BackgroundRadarService.KEY_ENABLED, false)) {
+            return;
+        }
+
         Notification n = sbn.getNotification();
         if (n == null) return;
         Bundle extras = n.extras;
@@ -382,8 +390,7 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         // If the sender differs from the notification title, the title is usually the group
         // name (even when Android omits EXTRA_CONVERSATION_TITLE and the group name has no keywords).
         // For direct chats, the sender normally matches the title, so they are not misclassified.
-        if (TextUtils.isEmpty(detectedGroupName) && !TextUtils.isEmpty(title)
-                && Build.VERSION.SDK_INT >= 24) {
+        if (!TextUtils.isEmpty(title) && Build.VERSION.SDK_INT >= 24) {
             try {
                 Object messages = extras.get(Notification.EXTRA_MESSAGES);
                 if (messages instanceof Parcelable[]) {
@@ -405,7 +412,11 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                     }
                     if (!TextUtils.isEmpty(latestSender)
                             && !latestSender.equalsIgnoreCase(title.trim())) {
-                        detectedGroupName = title.trim();
+                        // Keep an explicit conversation title as the group name, but always
+                        // retain the actual sender for matching short "تم"/sticker closures.
+                        if (TextUtils.isEmpty(detectedGroupName)) {
+                            detectedGroupName = title.trim();
+                        }
                         detectedSenderName = latestSender;
                     }
                 }

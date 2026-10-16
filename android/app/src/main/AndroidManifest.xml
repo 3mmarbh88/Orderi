@@ -25,6 +25,16 @@
         </activity>
 
         <service
+            android:name=".BackgroundRadarService"
+            android:exported="false"
+            android:stopWithTask="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keep Orderi's WhatsApp radar active in the background until the app task is dismissed" />
+        </service>
+
+        <service
             android:name=".WhatsAppNotificationListenerService"
             android:label="Orderi - WhatsApp Reader"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
@@ -70,4 +80,5 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 </manifest>
