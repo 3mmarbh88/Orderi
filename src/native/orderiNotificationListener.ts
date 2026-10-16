@@ -32,6 +32,10 @@ interface OrderiNotificationListenerPlugin {
     message: string;
     autoSend?: boolean;
   }): Promise<{ success: boolean; method: string }>;
+  publishToWhatsAppGroups(options: {
+    groupNames: string[];
+    message: string;
+  }): Promise<{ success: boolean; method: string; groupCount?: number }>;
   sendQuickReply(options: {
     groupName?: string;
     phone?: string;
@@ -74,6 +78,18 @@ export const OrderiNotificationListener = registerPlugin<OrderiNotificationListe
 );
 
 export const isNativeAndroid = () => Capacitor.getPlatform() === 'android';
+
+/** Start sequential multi-group publishing through Android Accessibility. */
+export async function publishToWhatsAppGroups(groupNames: string[], message: string): Promise<{ success: boolean; method: string; groupCount?: number }> {
+  if (!isNativeAndroid()) return { success: false, method: 'not_native' };
+  const names = Array.from(new Set(groupNames.map((name) => name.trim()).filter(Boolean)));
+  if (!names.length || !message.trim()) return { success: false, method: 'missing_groups_or_message' };
+  try {
+    return await OrderiNotificationListener.publishToWhatsAppGroups({ groupNames: names, message });
+  } catch (error: any) {
+    return { success: false, method: error?.message || 'error' };
+  }
+}
 
 /** Open the exact WhatsApp group using its cached Android notification intent. */
 export async function openWhatsAppGroupConversation(groupName: string): Promise<{ success: boolean; method: string }> {
