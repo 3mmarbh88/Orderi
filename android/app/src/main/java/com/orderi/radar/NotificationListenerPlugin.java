@@ -371,7 +371,7 @@ public class NotificationListenerPlugin extends Plugin {
             // Case A: Confirmed phone number exists -> Open WhatsApp private chat directly via native intent
             if (!android.text.TextUtils.isEmpty(phone)) {
                 String cleanPhone = phone.replaceAll("\\D", "");
-                OrderiAccessibilityService.queueMessageToSend(message, autoSend);
+                OrderiAccessibilityService.queueMessageToSend(message, autoSend, groupName);
 
                 try {
                     android.net.Uri uri = android.net.Uri.parse("whatsapp://send?phone=" + cleanPhone + "&text=" + java.net.URLEncoder.encode(message, "UTF-8"));
