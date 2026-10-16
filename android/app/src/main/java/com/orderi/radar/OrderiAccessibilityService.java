@@ -413,7 +413,10 @@ public class OrderiAccessibilityService extends AccessibilityService {
         List<AccessibilityNodeInfo> headers = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/conversation_contact_name");
         if (headers == null || headers.isEmpty()) return false;
         for (AccessibilityNodeInfo node : headers) {
-            String header = describeNode(node);
+            CharSequence text = node.getText();
+            CharSequence description = node.getContentDescription();
+            String header = text != null ? text.toString().trim()
+                    : (description != null ? description.toString().trim() : "");
             if (header.equalsIgnoreCase(targetGroup.trim())) return true;
         }
         return false;
