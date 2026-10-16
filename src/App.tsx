@@ -387,7 +387,7 @@ function OrderiApp() {
                 scheduledTimeMinutes: parsed.scheduledTimeMinutes,
                 isFutureSchedule: parsed.isFutureSchedule,
                 rawText: rawText || event.title || '', groupName,
-                senderName: event.title || 'WhatsApp', senderPhone: parsed.phone,
+                senderName: event.senderName || event.title || 'WhatsApp', senderPhone: parsed.phone,
                 receivedAt: new Date(event.receivedAt || Date.now()),
                 confidence: parsed.confidence, type: 'whatsapp_notification',
                 notes: parsed.notes, status: 'pending',
