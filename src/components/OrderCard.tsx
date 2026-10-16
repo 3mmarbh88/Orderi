@@ -864,7 +864,7 @@ export function OrderCard({
                   {isAutoReplying ? (
                     <>
                       <RefreshCw className="w-4 h-4 animate-spin text-white" />
-                      <span>جاري فتح الخاص مع صاحب الإعلان...</span>
+                      <span>جاري إرسال رسالة القبول إلى المعلن...</span>
                     </>
                   ) : isMyBroadcast ? (
                     <>
@@ -893,7 +893,7 @@ export function OrderCard({
                           <span className="text-[11px] font-bold text-amber-200">👤⚡</span>
                         </span>
                         <span className="text-[10px] font-normal text-emerald-100">
-                          (محادثة خاصة في واتساب العادي — بدون أي رد بالقروب 🔒)
+                          (إرسال الرد المخصص إلى الخاص تلقائياً — بدون رد بالقروب 🔒)
                         </span>
                       </div>
                     </>
@@ -923,11 +923,11 @@ export function OrderCard({
                 <button
                   type="button"
                   onClick={handleQuickAutoReply}
-                  title="فتح المحادثة الخاصة في واتساب مباشرة مع صاحب الإعلان"
+                  title="إرسال رسالة القبول المخصصة إلى الخاص مع صاحب الإعلان"
                   className="min-h-[44px] flex-1 flex items-center justify-center gap-1 py-2 px-1.5 sm:px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[11px] sm:text-xs font-bold border border-emerald-200 transition-all active:scale-95 cursor-pointer whitespace-nowrap"
                 >
                   <MessageCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-600 shrink-0" />
-                  <span>خاص واتساب</span>
+                  <span>قبول وإرسال خاص</span>
                 </button>
               )}
 
@@ -1025,7 +1025,7 @@ export function OrderCard({
                     <strong className="text-slate-800">{order.groupName || 'قروب واتساب'}</strong>
                   </div>
                   <div className="mt-1 text-emerald-900 font-bold bg-white/80 p-2 rounded-xl border border-emerald-200/70">
-                    🔒 خصوصية تامة: لن يُنشر أي رد داخل قروب الواتساب، بل سيتم فتح المحادثة الخاصة مع المعلن مباشرة للتنسيق والاتفاق.
+                    🔒 خصوصية تامة: لن يُنشر أي رد داخل قروب الواتساب، بل سيتم إرسال رسالة القبول إلى المعلن في الخاص مباشرة للتنسيق والاتفاق.
                   </div>
                 </div>
               </div>
