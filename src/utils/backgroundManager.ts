@@ -84,40 +84,14 @@ export function sendBackgroundOrderNotification(order: ParsedOrder, filter?: Ord
     const isPassenger = order.passengerDetection?.level === 'confirmed_passenger';
     const count = order.passengerCount || order.passengerDetection?.passengerCount;
     
-    // Title format: highlights route or passenger warning
-    let title = '';
-    if (isPassenger) {
-      if (filter.blockPassengerDeliveries !== false) {
-        title = `🚨 نقل ركاب ${count ? `(${count} ركاب)` : ''} • تحذير: توصيل أشخاص ممنوع 🚫`;
-      } else {
-        title = `👥 طلب توصيل راكب: ${order.from} ← ${order.to}${count ? ` (${count} ركاب)` : ''}`;
-      }
-    } else {
-      title = `🚗 طلب جديد: ${order.from} ← ${order.to}`;
-    }
-
-    // Message snippet formatted as WhatsApp chat message
-    const cleanText = order.rawText
-      ? order.rawText.trim().replace(/\s+/g, ' ')
-      : `مطلوب توصيل من ${order.from} إلى ${order.to}`;
-    const preview = cleanText.length > 70 ? cleanText.substring(0, 70) + '...' : cleanText;
-
     const priceText = (!order.price || order.price <= 0 || order.isPriceUnspecified)
-      ? 'غير محدد (بالاتفاق 🤝)'
-      : `${order.price.toFixed(1)} د.ب`;
-
-    // Order summary body with pickup, destination, price and original snippet
-    const bodyLines = [
-      `📍 الاستلام: ${order.from}`,
-      `🏁 الوجهة: ${order.to}`,
-      `💰 السعر: ${priceText}`,
-    ];
-    if (count && count > 0) {
-      bodyLines.push(`👥 عدد الركاب: ${count} ${count === 1 ? 'شخص' : count === 2 ? 'شخصين' : 'أشخاص'}`);
-    }
-    bodyLines.push(`💬 "${preview}"`);
-
-    const body = bodyLines.join('\n');
+      ? ''
+      : ` ${Number.isInteger(order.price) ? order.price.toFixed(0) : order.price.toFixed(1)} دينار`;
+    // Keep the system notification concise and consistent: area ← area + optional price.
+    const routeText = `${order.from} ← ${order.to}${priceText}`;
+    const isBlockedPassenger = isPassenger && filter.blockPassengerDeliveries !== false;
+    const title = isBlockedPassenger ? `🚨 نقل ركاب • ${routeText} • تحذير 🚫` : routeText;
+    const body = routeText;
 
     const options: any = {
       body,
