@@ -960,7 +960,9 @@ function OrderiApp() {
         from: newOrder.from || 'غير محدد',
         to: newOrder.to || 'غير محدد',
         price: newOrder.price || 0,
-        priceDisplay: newOrder.isPriceUnspecified ? 'غير محدد' : String(newOrder.price || 0) + ' د.ب',
+        priceDisplay: (!newOrder.price || newOrder.price <= 0 || newOrder.isPriceUnspecified)
+          ? ''
+          : `${Number.isInteger(newOrder.price) ? newOrder.price : Number(newOrder.price.toFixed(1))} دينار`,
         rawText: newOrder.rawText || '',
       }).catch((error) => console.warn('[Orderi] Could not show accepted Radar order notification:', error));
     }
