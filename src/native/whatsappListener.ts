@@ -56,6 +56,18 @@ export async function sendNativeQuickReply(options: {
   }
 }
 
+export async function publishWhatsAppBroadcast(options: {
+  groupNames: string[];
+  message: string;
+}): Promise<{ success: boolean; method: string; queuedGroups?: number }> {
+  if (!isNativeAndroid()) return { success: false, method: 'not_native' };
+  try {
+    return await OrderiNotificationListener.publishWhatsAppBroadcast(options);
+  } catch {
+    return { success: false, method: 'error' };
+  }
+}
+
 export async function reachNativeAdvertiserPrivateChat(options: {
   phone?: string;
   memberName?: string;
