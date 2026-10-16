@@ -32,6 +32,10 @@ interface OrderiNotificationListenerPlugin {
     message: string;
     autoSend?: boolean;
   }): Promise<{ success: boolean; method: string }>;
+  sendPrivateNotificationReply(options: {
+    target: string;
+    message: string;
+  }): Promise<{ success: boolean; method: string }>;
   publishToWhatsAppGroups(options: {
     groupNames: string[];
     message: string;
