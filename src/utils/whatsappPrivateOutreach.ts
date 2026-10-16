@@ -1,5 +1,6 @@
 import { ParsedOrder, OutreachDeliveryStatus, OutreachAttemptDetails } from '../types';
 import { reachNativeAdvertiserPrivateChat, getNativePrivateOutreachStatus } from '../native/whatsappListener';
+import { OrderiNotificationListener } from '../native/orderiNotificationListener';
 import { isNativeAndroid } from '../native/orderiNotificationListener';
 
 /**
@@ -465,6 +466,47 @@ export async function executePrivateAdvertiserOutreach(
           statusLabel: 'يلزم التأكد من رقم المعلن قبل الإرسال',
         };
       }
+      // First try Android's direct-reply action for this exact private-chat notification.
+      // This can send without opening WhatsApp; if no safe matching action exists, fall back
+      // to the Accessibility workflow below, which may bring WhatsApp to the foreground.
+      const quickReplyTargets = [advertiserName, safePhone || ''].filter((value) => !!value.trim());
+      for (const target of quickReplyTargets) {
+        try {
+          const quickReply = await OrderiNotificationListener.sendPrivateNotificationReply({
+            target,
+            message: messageText,
+          });
+          if (quickReply.success) {
+            try {
+              fetch('/api/whatsapp/quick-accept-reply', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  orderId: order.id,
+                  phone: safePhone || null,
+                  targetType: 'private_notification_reply',
+                  groupName: order.groupName,
+                  senderName: advertiserName,
+                  replyText: messageText,
+                  price: order.price,
+                  from: order.from,
+                  to: order.to,
+                }),
+              }).catch(() => {});
+            } catch {}
+            return {
+              success: true,
+              status: 'sent_confirmed',
+              needsVerification: false,
+              resolution,
+              message: messageText,
+              phoneUsed: safePhone || null,
+              statusLabel: `تم تنفيذ الرد الخاص إلى ${advertiserName} من الإشعار دون فتح واتساب`,
+            };
+          }
+        } catch {}
+      }
+
       const nativeResult = await reachNativeAdvertiserPrivateChat({
         phone: safePhone || undefined,
         memberName: advertiserName,
