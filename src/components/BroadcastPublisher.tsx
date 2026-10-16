@@ -576,40 +576,45 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
   };
 
   // Send Replay to a single specific group
-  const handleSendReplayToSingleGroup = (groupName: string) => {
+  const handleSendReplayToSingleGroup = async (groupName: string) => {
     if (!replayItem || !replayText.trim()) return;
+    if (!isNativeAndroid()) {
+      try { await navigator.clipboard.writeText(replayText); } catch {}
+      window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(replayText)}`, '_blank');
+      onToast('تم فتح مشاركة واتساب؛ الإرسال المباشر لقروب محدد يتطلب تطبيق أندرويد.');
+      return;
+    }
 
-    // Copy to clipboard
-    navigator.clipboard.writeText(replayText);
-
-    // Open WhatsApp
-    const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(replayText)}`;
-    window.open(waUrl, '_blank');
+    const queued = await publishToWhatsAppGroups([groupName], replayText);
+    if (!queued.success) {
+      onToast('تعذر بدء نشر الرد في القروب المحدد. تأكد من تفعيل خدمة إمكانية الوصول.');
+      return;
+    }
+    onToast(`بدأ إرسال الرد إلى «${groupName}». قد يظهر واتساب مؤقتاً أثناء الإرسال.`);
+    const completion = await waitForNativeBroadcastCompletion();
+    if (completion !== 'sent') {
+      onToast(completion === 'failed'
+        ? `توقف النشر في «${groupName}» ولم يتم تسجيله كمكتمل.`
+        : 'لم يصل تأكيد نهائي من واتساب؛ لم يتم تسجيل الرد كمكتمل.');
+      return;
+    }
 
     const updatedReplied = Array.from(new Set([...repliedGroups, groupName]));
     setRepliedGroups(updatedReplied);
-
-    const isAllDone = replayTargetGroups.every((g) => updatedReplied.includes(g));
-
-    const updatedHistory = broadcastHistory.map((item) => {
-      if (item.id === replayItem.id) {
-        return {
+    const isAllDone = replayTargetGroups.length > 0 && replayTargetGroups.every((g) => updatedReplied.includes(g));
+    const updatedHistory = broadcastHistory.map((item) => item.id === replayItem.id
+      ? {
           ...item,
           isCompleted: isAllDone ? true : item.isCompleted,
           completedAt: isAllDone ? new Date().toLocaleTimeString('ar-BH', { hour: '2-digit', minute: '2-digit' }) : item.completedAt,
           repliedGroups: updatedReplied,
           replyTextSent: replayText,
-        };
-      }
-      return item;
-    });
-
+        }
+      : item
+    );
     setBroadcastHistory(updatedHistory);
-    try {
-      localStorage.setItem('orderi_broadcast_history', JSON.stringify(updatedHistory));
-    } catch {}
-
-    onToast(`تم نسخ الرد وفتح واتساب لإرساله إلى: "${groupName}"`);
+    try { localStorage.setItem('orderi_broadcast_history', JSON.stringify(updatedHistory)); } catch {}
+    onToast(`تم إرسال الرد إلى «${groupName}»`);
   };
 
   // Save current replay text as permanent default in settings
