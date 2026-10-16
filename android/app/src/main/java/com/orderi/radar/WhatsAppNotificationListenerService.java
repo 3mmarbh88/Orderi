@@ -382,8 +382,7 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         // If the sender differs from the notification title, the title is usually the group
         // name (even when Android omits EXTRA_CONVERSATION_TITLE and the group name has no keywords).
         // For direct chats, the sender normally matches the title, so they are not misclassified.
-        if (TextUtils.isEmpty(detectedGroupName) && !TextUtils.isEmpty(title)
-                && Build.VERSION.SDK_INT >= 24) {
+        if (!TextUtils.isEmpty(title) && Build.VERSION.SDK_INT >= 24) {
             try {
                 Object messages = extras.get(Notification.EXTRA_MESSAGES);
                 if (messages instanceof Parcelable[]) {
@@ -405,7 +404,11 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                     }
                     if (!TextUtils.isEmpty(latestSender)
                             && !latestSender.equalsIgnoreCase(title.trim())) {
-                        detectedGroupName = title.trim();
+                        // Keep an explicit conversation title as the group name, but always
+                        // retain the actual sender for matching short "تم"/sticker closures.
+                        if (TextUtils.isEmpty(detectedGroupName)) {
+                            detectedGroupName = title.trim();
+                        }
                         detectedSenderName = latestSender;
                     }
                 }
