@@ -771,6 +771,13 @@ function OrderiApp() {
       { rawText: raw.rawText || '', scheduledTimeMinutes: raw.scheduledTimeMinutes, postedAt: raw.receivedAt }
     );
 
+    // Do not surface scheduled requests that are already late or cannot be reached in time.
+    // Keep native notification captures in the radar for audit, but suppress their alert below.
+    if (!isNativeNotification && match.scheduleFeasible === false) {
+      console.info('[Orderi] Scheduled request excluded:', match.scheduleReason || 'pickup time infeasible');
+      return;
+    }
+
     // Check VIP or Blacklist contact status
     const contactCheck = checkOrderContactStatus(
       raw.senderPhone,
@@ -893,7 +900,9 @@ function OrderiApp() {
     if (!isInitialBatch) {
       const isPassengerBlocked = passengerDetection.level === 'confirmed_passenger' && filterRef.current.blockPassengerDeliveries !== false;
 
-      if (isPassengerBlocked) {
+      if (newOrder.match.scheduleFeasible === false) {
+        showToast(`تم رصد الطلب للمراجعة دون تنبيه: ${newOrder.match.scheduleReason || 'موعد الاستلام غير مناسب'}`);
+      } else if (isPassengerBlocked) {
         // تنبيه أحمر بنقل أشخاص: الإعلان يظهر بالرادار للعلم مع تحذير المنع
         showToast(`🚨 رصد إعلان نقل ركاب (${newOrder.from} ← ${newOrder.to}) • تحذير: توصيل أشخاص ممنوع 🚫`);
         if (filterRef.current.soundEnabled) {
