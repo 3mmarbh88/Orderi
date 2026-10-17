@@ -12,8 +12,8 @@ export interface ScheduleFeasibility {
 }
 
 function parseExplicitPeriod(text: string): 'am' | 'pm' | null {
-  if (/(صباح|الصبح|الصباح|\bص\b)/i.test(text)) return 'am';
-  if (/(مساء|المساء|العصر|الظهر|المغرب|بالليل|في الليل|ليل|\bم\b)/i.test(text)) return 'pm';
+  if (/(صباح|الصبح|الصباح|(?:^|\\s)ص(?=\\s|$))/i.test(text)) return 'am';
+  if (/(مساء|المساء|العصر|الظهر|المغرب|بالليل|في الليل|ليل|(?:^|\\s)م(?=\\s|$))/i.test(text)) return 'pm';
   return null;
 }
 
