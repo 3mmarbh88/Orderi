@@ -51,7 +51,7 @@ export function resolveAdSchedule(
 ): { minutes: number; date: Date; ambiguous: boolean } | null {
   const raw = getRawHourAndMinute(rawText, scheduledTimeMinutes);
   if (!raw || raw.hour < 0 || raw.hour > 24 || raw.minute < 0 || raw.minute > 59) return null;
-  const postDate = postedAt ? new Date(postedAt) : now;
+  const postDate = postedAt ? (postedAt instanceof Date ? new Date(postedAt.getTime()) : new Date(postedAt)) : now;
   const reference = Number.isNaN(postDate.getTime()) ? now : postDate;
   const explicit = parseExplicitPeriod(rawText);
   const hasDaypartWords = /صباح|الصبح|الصباح|مساء|المساء|العصر|الظهر|المغرب|بالليل|في الليل|ليل/i.test(rawText);
@@ -61,19 +61,19 @@ export function resolveAdSchedule(
   if (explicit) {
     let hour24 = baseHour % 12;
     if (explicit === 'pm') hour24 += 12;
-    const date = new Date(reference);
+    const date = new Date(reference.getTime());
     date.setHours(hour24, raw.minute, 0, 0);
     if (date.getTime() < reference.getTime() - 60_000) date.setDate(date.getDate() + 1);
     candidates.push(date);
   } else if (baseHour > 12) {
-    const date = new Date(reference);
+    const date = new Date(reference.getTime());
     date.setHours(baseHour, raw.minute, 0, 0);
     if (date.getTime() < reference.getTime() - 60_000) date.setDate(date.getDate() + 1);
     candidates.push(date);
   } else {
     const hours = baseHour === 12 ? [12, 0] : [baseHour, baseHour + 12];
     for (const hour of hours) {
-      const date = new Date(reference);
+      const date = new Date(reference.getTime());
       date.setHours(hour, raw.minute, 0, 0);
       if (date.getTime() < reference.getTime() - 60_000) date.setDate(date.getDate() + 1);
       candidates.push(date);
