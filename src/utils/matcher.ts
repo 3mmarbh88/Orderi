@@ -139,6 +139,9 @@ export function evaluateOrderMatch(
 
   // Appointment feasibility is a hard safety gate: never notify for missed/unreachable scheduled pickups.
   let scheduleEligible = true;
+  let scheduleReason: string | undefined;
+  let estimatedPickupMinutes: number | undefined;
+  let minutesUntilScheduledPickup: number | undefined;
   if (scheduleContext?.rawText) {
     const schedule = evaluateScheduleFeasibility({
       rawText: scheduleContext.rawText,
@@ -147,6 +150,9 @@ export function evaluateOrderMatch(
       driverLocation,
     });
     scheduleEligible = schedule.eligible;
+    scheduleReason = schedule.reason;
+    estimatedPickupMinutes = schedule.etaMinutes;
+    minutesUntilScheduledPickup = schedule.minutesUntilPickup;
     if (!scheduleEligible) timeMatched = false;
   }
 
@@ -191,5 +197,9 @@ export function evaluateOrderMatch(
     statusLabel,
     statusColor,
     pickupToDeliveryDistanceKm,
+    scheduleFeasible: scheduleContext?.rawText ? scheduleEligible : undefined,
+    scheduleReason,
+    estimatedPickupMinutes,
+    minutesUntilScheduledPickup,
   };
 }
