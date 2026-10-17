@@ -34,10 +34,6 @@ function getRawHourAndMinute(text: string, scheduledTimeMinutes?: number): { hou
   return null;
 }
 
-function minutesOfDay(date: Date): number {
-  return date.getHours() * 60 + date.getMinutes();
-}
-
 /**
  * Resolves an ambiguous 12-hour clock using the post timestamp and current local time.
  * For unlabelled times, chooses the next plausible occurrence after the post; it never
@@ -98,6 +94,7 @@ export function evaluateScheduleFeasibility(args: {
   scheduledTimeMinutes?: number;
   postedAt?: Date | string;
   driverLocation: MatcherLocation | null;
+  pickupAreaName?: string;
   now?: Date;
 }): ScheduleFeasibility {
   const now = args.now || new Date();
@@ -127,10 +124,11 @@ export function evaluateScheduleFeasibility(args: {
     };
   }
 
-  const fromMatch = /(?:من|استلام من|بيك اب من|بال)s*([^،,\n]+)/i.exec(args.rawText);
+  const fromMatch = /(?:من|استلام من|بيك اب من|بال)\s*([^،,\n]+)/i.exec(args.rawText);
   const fromText = fromMatch?.[1]?.split(/(?:الى|إلى|لـ|لل)/i)[0]?.trim() || '';
-  const pickup = findAreaByName(fromText) || findAreaByName(args.rawText);
-  const landmark = findLandmarkByName(fromText) || findLandmarkByName(args.rawText);
+  const pickupName = args.pickupAreaName || fromText;
+  const pickup = findAreaByName(pickupName) || findAreaByName(fromText) || findAreaByName(args.rawText);
+  const landmark = findLandmarkByName(pickupName) || findLandmarkByName(fromText) || findLandmarkByName(args.rawText);
   const pickupArea = pickup || (landmark ? findAreaByName(landmark.parentAreaName) : null);
 
   if (!pickupArea) {
