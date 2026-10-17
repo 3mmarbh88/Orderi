@@ -1188,20 +1188,11 @@ function OrderiApp() {
         };
 
         const isPassengerRequest = parsed.passengerDetection?.level === 'confirmed_passenger' || parsed.passengerDetection?.level === 'suspicious_passenger';
-        const normalizedMessage = (rawText || event.title || '')
-          .replace(/[إأآ]/g, 'ا')
-          .replace(/[\u064B-\u065F\u0640]/g, '')
-          .toLowerCase()
-          .trim();
         // Only actionable delivery/passenger requests enter Radar. Ordinary chat,
         // general announcements, reactions and unparsed messages are silently ignored.
         if (parsed.canCreateOrder || isPassengerRequest) {
           if (!order.from) order.from = 'موقع الاستلام غير محدد 📍';
           if (!order.to) order.to = 'وجهة التوصيل غير محددة 📍';
-          if (!parsed.canCreateOrder && !isPassengerRequest) {
-            order.notes = [order.notes, 'إشعار واتساب محفوظ في الرادار كما ورد؛ لم يتمكن المحلل من تأكيد نوع الطلب أو مساره، راجع النص الأصلي'].filter(Boolean).join(' • ');
-            order.confidence = Math.min(order.confidence || 50, 40);
-          }
 
           // Once local AI confirms an order from a group, ask Android to use
           // that group's own explicit WhatsApp "Mark as read" notification action.
