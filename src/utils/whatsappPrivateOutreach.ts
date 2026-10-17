@@ -469,7 +469,13 @@ export async function executePrivateAdvertiserOutreach(
       // First try Android's direct-reply action for this exact private-chat notification.
       // This can send without opening WhatsApp; if no safe matching action exists, fall back
       // to the Accessibility workflow below, which may bring WhatsApp to the foreground.
-      const quickReplyTargets = [advertiserName, safePhone || ''].filter((value) => !!value.trim());
+      // A group-originated order without a verified advertiser phone must not reply
+      // to a same-named private notification: that notification may belong to another person.
+      // Name-only notification replies are allowed only when the order itself came from that
+      // advertiser's direct private chat.
+      const quickReplyTargets = safePhone
+        ? [safePhone]
+        : (order.isDirectPrivate ? [advertiserName] : []);
       for (const target of quickReplyTargets) {
         try {
           const quickReply = await OrderiNotificationListener.sendPrivateNotificationReply({
