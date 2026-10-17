@@ -699,8 +699,18 @@ function OrderiApp() {
       const dismissed = JSON.parse(localStorage.getItem('orderi_notification_dismissed_order_ids') || '[]');
       if (Array.isArray(dismissed) && dismissed.includes(raw.id)) return;
     } catch {}
-    if (processedOrderIdsRef.current.has(raw.id)) return;
 
+    // Apply the same silent advertisement gate before any side effects, including
+    // group discovery, link prompts, radar insertion, sounds, toasts or notifications.
+    const earlyAdvertisementCheck = detectAdvertisementMessage(
+      raw.rawText || `${raw.from || ''} ${raw.to || ''}`
+    );
+    if (earlyAdvertisementCheck.isAdvertisement) {
+      console.info('[Orderi] Silently filtered advertisement before processing:', earlyAdvertisementCheck.reason || 'advertisement');
+      return;
+    }
+
+    if (processedOrderIdsRef.current.has(raw.id)) return;
     processedOrderIdsRef.current.add(raw.id);
 
     // Always save detected group name immediately from incoming WhatsApp message/notification
@@ -743,22 +753,6 @@ function OrderiApp() {
       return;
     }
 
-    // Filter service-provider adverts before radar insertion, sounds, toasts, or phone notifications.
-    // Use the full original WhatsApp text; words like "توصيل" or "أغراض" alone never determine this.
-    const advertisementCheck = detectAdvertisementMessage(
-      raw.rawText || `${raw.from || ''} ${raw.to || ''}`
-    );
-    if (advertisementCheck.isAdvertisement) {
-      console.info('[Orderi] Suppressed service/commercial advertisement:', advertisementCheck.reason || 'advertisement');
-      return;
-    }
-
-    // Native WhatsApp notifications must remain visible in the radar even when
-    // route matching, group allow-lists, blacklist rules, or passenger filters
-    // would otherwise silently discard them. Those rules can annotate/filter
-    // actionable orders, but must not erase the captured source notification.
-    const isNativeNotification = raw.source === 'android_notification' || raw.type === 'whatsapp_notification';
-
     setWebhookOrdersCount((prev) => prev + 1);
 
     // Calculate matching with current driver location & active filter
@@ -773,7 +767,7 @@ function OrderiApp() {
 
     // Do not surface scheduled requests that are already late or cannot be reached in time.
     // Keep native notification captures in the radar for audit, but suppress their alert below.
-    if (!isNativeNotification && match.scheduleFeasible === false) {
+    if (match.scheduleFeasible === false) {
       console.info('[Orderi] Scheduled request excluded:', match.scheduleReason || 'pickup time infeasible');
       return;
     }
@@ -786,12 +780,12 @@ function OrderiApp() {
     );
 
     // Auto-block if blacklisted
-    if (!isNativeNotification && filterRef.current.autoBlockBlacklist && contactCheck.status === 'blacklist') {
+    if (filterRef.current.autoBlockBlacklist && contactCheck.status === 'blacklist') {
       return;
     }
 
     // Check if WhatsApp group is allowed by driver's group filter
-    if (!isNativeNotification && !isOrderGroupAllowedRef(raw.groupName)) {
+    if (!isOrderGroupAllowedRef(raw.groupName)) {
       return;
     }
 
@@ -806,7 +800,6 @@ function OrderiApp() {
     // The "ignore non-matching" setting applies to passenger ads too, including VIP senders.
     // Keep the existing VIP exception only for ordinary goods orders.
     if (
-      !isNativeNotification &&
       filterRef.current.ignoreNonMatching &&
       match.score < 80 &&
       (isPassengerOrder || contactCheck.status !== 'vip')
@@ -1200,12 +1193,9 @@ function OrderiApp() {
           .replace(/[\u064B-\u065F\u0640]/g, '')
           .toLowerCase()
           .trim();
-        // Keep substantive captured notifications visible even when the parser
-        // cannot confidently identify a route. Do not turn short acknowledgments
-        // and stickers into new radar entries.
-        const isClosureOnlyReply = /^(?:تم|تم\s*الحمد\s*لله|حصلت|حصل|اخذت|أخذت|انحجز|انحجزت|خلص|خلاص|شكرا|شكرًا|مشكور|مشكوره|يعطيك\s*العافيه|sticker|ملصق|👍+|🙏+|✅+|👌+)\s*[.!؟👍🙏✅👌]*$/i.test(normalizedMessage);
-        const shouldMirrorNotification = normalizedMessage.length > 0 && !isClosureOnlyReply;
-        if (parsed.canCreateOrder || isPassengerRequest || shouldMirrorNotification) {
+        // Only actionable delivery/passenger requests enter Radar. Ordinary chat,
+        // general announcements, reactions and unparsed messages are silently ignored.
+        if (parsed.canCreateOrder || isPassengerRequest) {
           if (!order.from) order.from = 'موقع الاستلام غير محدد 📍';
           if (!order.to) order.to = 'وجهة التوصيل غير محددة 📍';
           if (!parsed.canCreateOrder && !isPassengerRequest) {
