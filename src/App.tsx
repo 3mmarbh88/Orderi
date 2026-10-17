@@ -765,8 +765,8 @@ function OrderiApp() {
       { rawText: raw.rawText || '', scheduledTimeMinutes: raw.scheduledTimeMinutes, postedAt: raw.receivedAt }
     );
 
-    // Do not surface scheduled requests that are already late or cannot be reached in time.
-    // Keep native notification captures in the radar for audit, but suppress their alert below.
+    // Apply the schedule feasibility gate uniformly to webhook and native WhatsApp events.
+    // A request that cannot be reached in time is silently excluded from Radar and alerts.
     if (match.scheduleFeasible === false) {
       console.info('[Orderi] Scheduled request excluded:', match.scheduleReason || 'pickup time infeasible');
       return;
