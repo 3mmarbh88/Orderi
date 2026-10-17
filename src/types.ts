@@ -132,6 +132,11 @@ export interface OrderMatchBreakdown {
   statusLabel: 'طلب ممتاز' | 'مطابق جداً' | 'مطابق جزئياً' | 'غير مطابق' | 'في انتظار الموقع';
   statusColor: 'emerald' | 'blue' | 'amber' | 'rose' | 'slate';
   pickupToDeliveryDistanceKm?: number;
+  /** False when a stated pickup appointment is already missed or cannot be reached in time. */
+  scheduleFeasible?: boolean;
+  scheduleReason?: string;
+  estimatedPickupMinutes?: number;
+  minutesUntilScheduledPickup?: number;
 }
 
 export type PassengerRiskLevel = 'confirmed_passenger' | 'suspicious_passenger' | 'goods_safe';
