@@ -398,7 +398,7 @@ public class OrderiAccessibilityService extends AccessibilityService {
 
             // STEP 2: When member popup appears, click "Message {name}" / "مراسلة"
             if (currentStage == STAGE_CLICK_MESSAGE_ACTION) {
-                AccessibilityNodeInfo messageAction = findPrivateMessageAction(rootNode);
+                AccessibilityNodeInfo messageAction = findPrivateMessageAction(rootNode, pendingTargetMemberName);
                 if (messageAction != null && messageAction.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
                     Log.i(TAG, "Clicked private Message action for member in dialog");
                     currentStage = STAGE_ENTER_PRIVATE_MESSAGE;
@@ -415,8 +415,15 @@ public class OrderiAccessibilityService extends AccessibilityService {
                 return;
             }
 
-            // STEP 3: Inside private 1-on-1 chat, find message input, set text, and optionally click send
+            // STEP 3: Before typing, confirm the visible one-to-one chat header matches
+            // the advertiser selected in the source group. If the header cannot be verified,
+            // do not type or send anything.
             if (currentStage == STAGE_ENTER_PRIVATE_MESSAGE) {
+                if (!TextUtils.isEmpty(pendingTargetMemberName)
+                        && !isPrivateChatForTarget(rootNode, pendingTargetMemberName)) {
+                    Log.i(TAG, "Waiting for exact private-chat header match before typing");
+                    return;
+                }
                 AccessibilityNodeInfo inputField = findInputField(rootNode);
                 if (inputField != null) {
                     Bundle arguments = new Bundle();
@@ -653,93 +660,114 @@ public class OrderiAccessibilityService extends AccessibilityService {
         isSendingInProgress.set(false);
     }
 
+    private String normalizeLabel(String value) {
+        if (value == null) return "";
+        return value.toLowerCase(java.util.Locale.ROOT).replaceAll("\\s+", " ").trim();
+    }
+
+    private boolean nodeHasExactLabel(AccessibilityNodeInfo node, String expected) {
+        if (node == null || TextUtils.isEmpty(expected)) return false;
+        String wanted = normalizeLabel(expected);
+        CharSequence text = node.getText();
+        CharSequence description = node.getContentDescription();
+        return wanted.equals(normalizeLabel(text == null ? "" : text.toString()))
+                || wanted.equals(normalizeLabel(description == null ? "" : description.toString()));
+    }
+
+    private boolean isPrivateChatForTarget(AccessibilityNodeInfo root, String expectedName) {
+        if (root == null || TextUtils.isEmpty(expectedName)) return false;
+        String[] headerIds = new String[]{
+                "com.whatsapp:id/conversation_contact_name",
+                "com.whatsapp:id/conversation_contact_name_container"
+        };
+        for (String viewId : headerIds) {
+            List<AccessibilityNodeInfo> headers = root.findAccessibilityNodeInfosByViewId(viewId);
+            if (headers == null) continue;
+            for (AccessibilityNodeInfo header : headers) {
+                if (nodeHasExactLabel(header, expectedName)) return true;
+            }
+        }
+        return false;
+    }
+
     private AccessibilityNodeInfo findMemberNameNode(AccessibilityNodeInfo root, String name) {
         if (root == null || TextUtils.isEmpty(name)) return null;
 
-        // 1. Text lookup by full or partial name
+        // Android's text search is partial by design. Only accept a node whose own
+        // text/content-description exactly matches the advertiser name; never fall back
+        // to a first name or arbitrary message body.
         List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByText(name);
-        if (nodes != null && !nodes.isEmpty()) {
-            for (AccessibilityNodeInfo n : nodes) {
-                if (n.isClickable()) return n;
-                AccessibilityNodeInfo parent = n.getParent();
+        if (nodes != null) {
+            for (AccessibilityNodeInfo node : nodes) {
+                if (!nodeHasExactLabel(node, name)) continue;
+                if (node.isClickable()) return node;
+                AccessibilityNodeInfo parent = node.getParent();
                 if (parent != null && parent.isClickable()) return parent;
                 if (parent != null) {
                     AccessibilityNodeInfo grandParent = parent.getParent();
                     if (grandParent != null && grandParent.isClickable()) return grandParent;
                 }
             }
-            return nodes.get(0);
         }
 
-        // 2. Search in common message author / name view IDs
+        // Only inspect identity/name views; message-body nodes are intentionally excluded.
         String[] viewIds = new String[]{
                 "com.whatsapp:id/name",
-                "com.whatsapp:id/conversation_contact_name",
-                "com.whatsapp:id/message_text"
+                "com.whatsapp:id/conversation_contact_name"
         };
-        for (String vid : viewIds) {
-            List<AccessibilityNodeInfo> idNodes = root.findAccessibilityNodeInfosByViewId(vid);
-            if (idNodes != null) {
-                for (AccessibilityNodeInfo n : idNodes) {
-                    CharSequence text = n.getText();
-                    if (text != null && text.toString().toLowerCase().contains(name.toLowerCase())) {
-                        if (n.isClickable()) return n;
-                        AccessibilityNodeInfo parent = n.getParent();
-                        if (parent != null && parent.isClickable()) return parent;
-                    }
-                }
+        for (String viewId : viewIds) {
+            List<AccessibilityNodeInfo> idNodes = root.findAccessibilityNodeInfosByViewId(viewId);
+            if (idNodes == null) continue;
+            for (AccessibilityNodeInfo node : idNodes) {
+                if (!nodeHasExactLabel(node, name)) continue;
+                if (node.isClickable()) return node;
+                AccessibilityNodeInfo parent = node.getParent();
+                if (parent != null && parent.isClickable()) return parent;
             }
         }
-
-        // 3. Fallback to first word of name
-        String firstWord = name.split("\\s+")[0];
-        if (firstWord.length() >= 3 && !firstWord.equals(name)) {
-            List<AccessibilityNodeInfo> partialNodes = root.findAccessibilityNodeInfosByText(firstWord);
-            if (partialNodes != null && !partialNodes.isEmpty()) {
-                for (AccessibilityNodeInfo n : partialNodes) {
-                    if (n.isClickable()) return n;
-                    AccessibilityNodeInfo parent = n.getParent();
-                    if (parent != null && parent.isClickable()) return parent;
-                }
-            }
-        }
-
         return null;
     }
 
-    private AccessibilityNodeInfo findPrivateMessageAction(AccessibilityNodeInfo root) {
+    private AccessibilityNodeInfo findPrivateMessageAction(AccessibilityNodeInfo root, String memberName) {
         if (root == null) return null;
 
-        // Common keywords for "Message {name}" in WhatsApp Arabic and English
-        String[] keywords = new String[]{"مراسلة", "رسالة", "message", "chat", "direct"};
-
-        for (String kw : keywords) {
-            List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByText(kw);
-            if (nodes != null && !nodes.isEmpty()) {
-                for (AccessibilityNodeInfo n : nodes) {
-                    if (n.isClickable()) return n;
-                    AccessibilityNodeInfo parent = n.getParent();
-                    if (parent != null && parent.isClickable()) return parent;
-                }
-                return nodes.get(0);
+        // Require a specific action label. The generic Arabic word "رسالة" and
+        // partial text matches are excluded because they can refer to unrelated UI.
+        String[] actionLabels = new String[]{"مراسلة", "Message", "Chat"};
+        for (String actionLabel : actionLabels) {
+            List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByText(actionLabel);
+            if (nodes == null) continue;
+            for (AccessibilityNodeInfo node : nodes) {
+                boolean exactAction = nodeHasExactLabel(node, actionLabel);
+                String text = normalizeLabel(node.getText() == null ? "" : node.getText().toString());
+                String desc = normalizeLabel(node.getContentDescription() == null ? "" : node.getContentDescription().toString());
+                String target = normalizeLabel(memberName);
+                boolean namedAction = !TextUtils.isEmpty(target)
+                        && (text.equals("message " + target) || desc.equals("message " + target)
+                        || text.equals("مراسلة " + target) || desc.equals("مراسلة " + target));
+                if (!exactAction && !namedAction) continue;
+                if (node.isClickable() && node.isEnabled()) return node;
+                AccessibilityNodeInfo parent = node.getParent();
+                if (parent != null && parent.isClickable() && parent.isEnabled()) return parent;
             }
         }
 
-        // Search by view IDs for contact action dialogs
+        // These IDs identify explicit message/chat actions, not generic contact rows.
         String[] actionIds = new String[]{
                 "com.whatsapp:id/conversation_contact_chat",
                 "com.whatsapp:id/quick_action_message",
                 "com.whatsapp:id/btn_msg",
-                "com.whatsapp:id/chat_btn",
-                "com.whatsapp:id/contact_row"
+                "com.whatsapp:id/chat_btn"
         };
-        for (String vid : actionIds) {
-            List<AccessibilityNodeInfo> idNodes = root.findAccessibilityNodeInfosByViewId(vid);
-            if (idNodes != null && !idNodes.isEmpty()) {
-                return idNodes.get(0);
+        for (String viewId : actionIds) {
+            List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByViewId(viewId);
+            if (nodes == null) continue;
+            for (AccessibilityNodeInfo node : nodes) {
+                if (node.isClickable() && node.isEnabled()) return node;
+                AccessibilityNodeInfo parent = node.getParent();
+                if (parent != null && parent.isClickable() && parent.isEnabled()) return parent;
             }
         }
-
         return null;
     }
 

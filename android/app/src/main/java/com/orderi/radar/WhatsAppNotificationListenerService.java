@@ -227,9 +227,12 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
     public static boolean openWhatsAppGroupConversation(android.content.Context context, String targetTitle) {
         if (TextUtils.isEmpty(targetTitle)) return false;
         String targetNormalized = targetTitle.trim().toLowerCase(java.util.Locale.ROOT);
+        long now = System.currentTimeMillis();
         for (java.util.Map.Entry<String, ChatIntentHolder> entry : CHAT_INTENTS.entrySet()) {
             ChatIntentHolder holder = entry.getValue();
-            if (holder == null || !holder.isGroup || holder.contentIntent == null) continue;
+            if (holder == null || !holder.isGroup || holder.contentIntent == null
+                    || holder.timestamp <= 0L || now - holder.timestamp < 0L
+                    || now - holder.timestamp > 900_000L) continue;
             String key = entry.getKey();
             if (key == null || !key.trim().toLowerCase(java.util.Locale.ROOT).equals(targetNormalized)) continue;
             try {
@@ -237,6 +240,33 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                 return true;
             } catch (Exception e) {
                 android.util.Log.w("WhatsAppNotificationListenerService", "Unable to open cached WhatsApp group intent", e);
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Open only a recent, exactly named private conversation from a WhatsApp notification.
+     * Group intents and fuzzy/partial title matches are deliberately rejected.
+     */
+    public static boolean openWhatsAppPrivateConversation(android.content.Context context, String targetTitle) {
+        if (TextUtils.isEmpty(targetTitle)) return false;
+        String targetNormalized = targetTitle.trim().toLowerCase(java.util.Locale.ROOT).replaceAll("\\s+", " ");
+        long now = System.currentTimeMillis();
+        for (java.util.Map.Entry<String, ChatIntentHolder> entry : CHAT_INTENTS.entrySet()) {
+            ChatIntentHolder holder = entry.getValue();
+            if (holder == null || holder.isGroup || holder.contentIntent == null
+                    || holder.timestamp <= 0L || now - holder.timestamp < 0L
+                    || now - holder.timestamp > 900_000L) continue;
+            String key = entry.getKey();
+            if (key == null) continue;
+            String normalizedKey = key.trim().toLowerCase(java.util.Locale.ROOT).replaceAll("\\s+", " ");
+            if (!normalizedKey.equals(targetNormalized)) continue;
+            try {
+                holder.contentIntent.send();
+                return true;
+            } catch (Exception e) {
+                android.util.Log.w("WhatsAppNotificationListenerService", "Unable to open exact private WhatsApp conversation", e);
             }
         }
         return false;
@@ -281,14 +311,18 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         for (java.util.Map.Entry<String, ReplyActionHolder> entry : REPLY_ACTIONS.entrySet()) {
             ReplyActionHolder holder = entry.getValue();
             if (holder == null || holder.isGroup || holder.pendingIntent == null
-                    || holder.remoteInputs == null || now - holder.timestamp > 900_000L) continue;
+                    || holder.remoteInputs == null || holder.timestamp <= 0L
+                    || now - holder.timestamp < 0L || now - holder.timestamp > 900_000L) continue;
             String key = entry.getKey() == null ? "" : entry.getKey().toLowerCase(java.util.Locale.ROOT).trim();
             String keyDigits = key.replaceAll("\\D", "");
-            boolean exactName = !wantedText.isEmpty() && (key.equals(wantedText)
-                    || (wantedText.length() >= 4 && key.length() >= 4
-                    && (key.contains(wantedText) || wantedText.contains(key))));
+            String normalizedKey = key.replaceAll("\\s+", " ").trim();
+            String normalizedWanted = wantedText.replaceAll("\\s+", " ").trim();
+            boolean exactName = !normalizedWanted.isEmpty() && normalizedKey.equals(normalizedWanted);
+            // Allow a local Bahrain number to match its +973 form, but never use arbitrary suffix matches.
             boolean exactPhone = wanted.length() >= 8 && keyDigits.length() >= 8
-                    && (keyDigits.equals(wanted) || keyDigits.endsWith(wanted) || wanted.endsWith(keyDigits));
+                    && (keyDigits.equals(wanted)
+                    || (wanted.length() == 11 && keyDigits.length() == 8 && wanted.endsWith(keyDigits))
+                    || (keyDigits.length() == 11 && wanted.length() == 8 && keyDigits.endsWith(wanted)));
             if ((exactName || exactPhone) && executeReply(context, holder, replyText)) return true;
         }
         return false;
