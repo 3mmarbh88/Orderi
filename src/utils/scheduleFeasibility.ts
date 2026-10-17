@@ -1,6 +1,6 @@
 import { calculateDistanceKm, findAreaByName } from '../data/bahrainAreas';
 import { findLandmarkByName } from '../data/bahrainLandmarks';
-import { MatcherLocation } from './matcher';
+import type { MatcherLocation } from './matcher';
 
 export interface ScheduleFeasibility {
   status: 'not_scheduled' | 'feasible' | 'late' | 'ambiguous' | 'unknown_location';
@@ -128,7 +128,7 @@ export function evaluateScheduleFeasibility(args: {
   }
 
   const fromMatch = /(?:من|استلام من|بيك اب من|بال)s*([^،,\n]+)/i.exec(args.rawText);
-  const fromText = fromMatch?.[1]?.trim() || '';
+  const fromText = fromMatch?.[1]?.split(/(?:الى|إلى|لـ|لل)/i)[0]?.trim() || '';
   const pickup = findAreaByName(fromText) || findAreaByName(args.rawText);
   const landmark = findLandmarkByName(fromText) || findLandmarkByName(args.rawText);
   const pickupArea = pickup || (landmark ? findAreaByName(landmark.parentAreaName) : null);
