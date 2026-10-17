@@ -148,6 +148,7 @@ export function evaluateOrderMatch(
       scheduledTimeMinutes: scheduleContext.scheduledTimeMinutes,
       postedAt: scheduleContext.postedAt,
       driverLocation,
+      pickupAreaName: from,
     });
     scheduleEligible = schedule.eligible;
     scheduleReason = schedule.reason;
