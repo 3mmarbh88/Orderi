@@ -1,6 +1,7 @@
 import { OrderFilter, OrderMatchBreakdown } from '../types';
 import { calculateDistanceKm, findAreaByName, normalizeArabicText } from '../data/bahrainAreas';
 import { findLandmarkByName } from '../data/bahrainLandmarks';
+import { evaluateScheduleFeasibility } from './scheduleFeasibility';
 
 export interface MatcherLocation {
   latitude: number;
@@ -23,7 +24,8 @@ export function evaluateOrderMatch(
   to: string,
   price: number,
   filter: OrderFilter,
-  driverLocation: MatcherLocation | null
+  driverLocation: MatcherLocation | null,
+  scheduleContext?: { rawText: string; scheduledTimeMinutes?: number; postedAt?: Date | string }
 ): OrderMatchBreakdown {
   const fromAreaObj = findAreaByName(from);
   const fromLandmark = findLandmarkByName(from);
@@ -135,6 +137,19 @@ export function evaluateOrderMatch(
     timeMatched = true;
   }
 
+  // Appointment feasibility is a hard safety gate: never notify for missed/unreachable scheduled pickups.
+  let scheduleEligible = true;
+  if (scheduleContext?.rawText) {
+    const schedule = evaluateScheduleFeasibility({
+      rawText: scheduleContext.rawText,
+      scheduledTimeMinutes: scheduleContext.scheduledTimeMinutes,
+      postedAt: scheduleContext.postedAt,
+      driverLocation,
+    });
+    scheduleEligible = schedule.eligible;
+    if (!scheduleEligible) timeMatched = false;
+  }
+
   // Score calculation:
   // مكان الاستلام من موقعي الحالي ونطاق التغطية والمسافة: 45%
   // وجهة التسليم المطلوبة: 35%
@@ -143,6 +158,7 @@ export function evaluateOrderMatch(
   if (startMatched) score += 45;
   if (destinationMatched) score += 35;
   if (priceMatched) score += 20;
+  if (!scheduleEligible) score = 0;
 
   let statusLabel: OrderMatchBreakdown['statusLabel'] = 'غير مطابق';
   let statusColor: OrderMatchBreakdown['statusColor'] = 'slate';
