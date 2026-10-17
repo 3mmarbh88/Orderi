@@ -428,6 +428,10 @@ public class NotificationListenerPlugin extends Plugin {
             // Case A: Confirmed phone number exists -> Open WhatsApp private chat directly via native intent
             if (!android.text.TextUtils.isEmpty(phone)) {
                 String cleanPhone = phone.replaceAll("\\D", "");
+                if (cleanPhone.length() < 8 || cleanPhone.length() > 15) {
+                    call.reject("Advertiser phone number is not valid; refusing to open an unverified chat");
+                    return;
+                }
                 OrderiAccessibilityService.queueMessageToSend(message, autoSend);
 
                 try {
@@ -457,37 +461,41 @@ public class NotificationListenerPlugin extends Plugin {
                 }
             }
 
-            // Case B: No phone number in ad text, but advertiser name is known
-            // User requirement: Click advertiser name -> show private chat option -> send acceptance message in private
+            // Case B: No verified phone number. Open only an exact cached group intent,
+            // then let Accessibility select the advertiser by their exact displayed name.
+            // Never launch WhatsApp home and guess which conversation should receive the message.
             if (!android.text.TextUtils.isEmpty(memberName)) {
-                OrderiAccessibilityService.queueOutreachToMember(memberName, message, autoSend);
-
-                // Try to launch directly to the specific conversation from cached notification
-                boolean launched = false;
-                if (!android.text.TextUtils.isEmpty(groupName)) {
-                    launched = WhatsAppNotificationListenerService.openWhatsAppConversation(getContext(), groupName);
-                }
-                if (!launched && !android.text.TextUtils.isEmpty(memberName)) {
-                    launched = WhatsAppNotificationListenerService.openWhatsAppConversation(getContext(), memberName);
-                }
-
-                if (!launched) {
-                    // Launch WhatsApp directly so Accessibility Service takes over
-                    Intent launchIntent = getContext().getPackageManager().getLaunchIntentForPackage("com.whatsapp");
-                    if (launchIntent != null) {
-                        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                        getContext().startActivity(launchIntent);
-                    } else {
-                        Intent intent = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse("whatsapp://"));
-                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                        getContext().startActivity(intent);
-                    }
+                boolean groupLaunched = !android.text.TextUtils.isEmpty(groupName)
+                        && WhatsAppNotificationListenerService.openWhatsAppGroupConversation(getContext(), groupName);
+                if (groupLaunched) {
+                    OrderiAccessibilityService.queueOutreachToMember(memberName, message, autoSend);
+                    JSObject ret = new JSObject();
+                    ret.put("success", true);
+                    ret.put("method", "exact_group_then_member_private_outreach");
+                    call.resolve(ret);
+                    return;
                 }
 
-                JSObject ret = new JSObject();
-                ret.put("success", true);
-                ret.put("method", "accessibility_member_private_outreach");
-                call.resolve(ret);
+                // If the exact source group is not available, a recent, exact private-chat
+                // notification may still safely identify the advertiser's one-to-one chat.
+                boolean privateLaunched = WhatsAppNotificationListenerService
+                        .openWhatsAppPrivateConversation(getContext(), memberName);
+                if (privateLaunched) {
+                    OrderiAccessibilityService.queueMessageToSend(message, autoSend);
+                    JSObject ret = new JSObject();
+                    ret.put("success", true);
+                    ret.put("method", "exact_private_notification_chat");
+                    call.resolve(ret);
+                    return;
+                }
+
+                getContext().getSharedPreferences("orderi_private_outreach", Context.MODE_PRIVATE)
+                        .edit()
+                        .putString("status", "failed")
+                        .putString("status_label", "لم أجد محادثة خاصة أو قروبًا مطابقًا بشكل مؤكد؛ أوقفت الإرسال لتجنب مراسلة شخص آخر")
+                        .putLong("updated_at", System.currentTimeMillis())
+                        .apply();
+                call.reject("No exact cached WhatsApp group/private conversation found; refusing to guess target");
                 return;
             }
 
