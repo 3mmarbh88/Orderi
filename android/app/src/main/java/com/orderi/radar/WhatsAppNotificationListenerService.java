@@ -311,7 +311,8 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         for (java.util.Map.Entry<String, ReplyActionHolder> entry : REPLY_ACTIONS.entrySet()) {
             ReplyActionHolder holder = entry.getValue();
             if (holder == null || holder.isGroup || holder.pendingIntent == null
-                    || holder.remoteInputs == null || now - holder.timestamp > 900_000L) continue;
+                    || holder.remoteInputs == null || holder.timestamp <= 0L
+                    || now - holder.timestamp < 0L || now - holder.timestamp > 900_000L) continue;
             String key = entry.getKey() == null ? "" : entry.getKey().toLowerCase(java.util.Locale.ROOT).trim();
             String keyDigits = key.replaceAll("\\D", "");
             String normalizedKey = key.replaceAll("\\s+", " ").trim();
