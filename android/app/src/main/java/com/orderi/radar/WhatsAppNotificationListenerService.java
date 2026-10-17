@@ -227,9 +227,12 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
     public static boolean openWhatsAppGroupConversation(android.content.Context context, String targetTitle) {
         if (TextUtils.isEmpty(targetTitle)) return false;
         String targetNormalized = targetTitle.trim().toLowerCase(java.util.Locale.ROOT);
+        long now = System.currentTimeMillis();
         for (java.util.Map.Entry<String, ChatIntentHolder> entry : CHAT_INTENTS.entrySet()) {
             ChatIntentHolder holder = entry.getValue();
-            if (holder == null || !holder.isGroup || holder.contentIntent == null) continue;
+            if (holder == null || !holder.isGroup || holder.contentIntent == null
+                    || holder.timestamp <= 0L || now - holder.timestamp < 0L
+                    || now - holder.timestamp > 900_000L) continue;
             String key = entry.getKey();
             if (key == null || !key.trim().toLowerCase(java.util.Locale.ROOT).equals(targetNormalized)) continue;
             try {
