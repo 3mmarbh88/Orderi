@@ -767,8 +767,16 @@ function OrderiApp() {
       raw.to,
       raw.price,
       filterRef.current,
-      driverLocationRef.current
+      driverLocationRef.current,
+      { rawText: raw.rawText || '', scheduledTimeMinutes: raw.scheduledTimeMinutes, postedAt: raw.receivedAt }
     );
+
+    // Do not surface scheduled requests that are already late or cannot be reached in time.
+    // Keep native notification captures in the radar for audit, but suppress their alert below.
+    if (!isNativeNotification && match.scheduleFeasible === false) {
+      console.info('[Orderi] Scheduled request excluded:', match.scheduleReason || 'pickup time infeasible');
+      return;
+    }
 
     // Check VIP or Blacklist contact status
     const contactCheck = checkOrderContactStatus(
@@ -892,7 +900,9 @@ function OrderiApp() {
     if (!isInitialBatch) {
       const isPassengerBlocked = passengerDetection.level === 'confirmed_passenger' && filterRef.current.blockPassengerDeliveries !== false;
 
-      if (isPassengerBlocked) {
+      if (newOrder.match.scheduleFeasible === false) {
+        showToast(`تم رصد الطلب للمراجعة دون تنبيه: ${newOrder.match.scheduleReason || 'موعد الاستلام غير مناسب'}`);
+      } else if (isPassengerBlocked) {
         // تنبيه أحمر بنقل أشخاص: الإعلان يظهر بالرادار للعلم مع تحذير المنع
         showToast(`🚨 رصد إعلان نقل ركاب (${newOrder.from} ← ${newOrder.to}) • تحذير: توصيل أشخاص ممنوع 🚫`);
         if (filterRef.current.soundEnabled) {
@@ -1247,7 +1257,7 @@ function OrderiApp() {
             const rawFrom = data.from || 'البحرين';
             const rawTo = data.to || 'حسب طلب الزبون 📍';
             const rawPrice = typeof data.price === 'number' ? data.price : 0;
-            const match = evaluateOrderMatch(rawFrom, rawTo, rawPrice, filterRef.current, driverLocationRef.current);
+            const match = evaluateOrderMatch(rawFrom, rawTo, rawPrice, filterRef.current, driverLocationRef.current, { rawText: data.rawText || '', scheduledTimeMinutes: data.scheduledTimeMinutes, postedAt: data.receivedAt });
             const isPassenger = !!data.isPassenger;
 
             const newOrderFromNotif: ParsedOrder = {
@@ -1680,7 +1690,7 @@ function OrderiApp() {
   const recalculateOrdersWithNewLocation = (loc: MatcherLocation, currentFilter: OrderFilter) => {
     setOrders((prevOrders) =>
       prevOrders.map((ord) => {
-        const match = evaluateOrderMatch(ord.from, ord.to, ord.price, currentFilter, loc);
+        const match = evaluateOrderMatch(ord.from, ord.to, ord.price, currentFilter, loc, { rawText: ord.rawText || '', scheduledTimeMinutes: ord.scheduledTimeMinutes, postedAt: ord.receivedAt });
         return { ...ord, match };
       })
     );
