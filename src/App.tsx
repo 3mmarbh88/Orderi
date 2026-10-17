@@ -767,7 +767,8 @@ function OrderiApp() {
       raw.to,
       raw.price,
       filterRef.current,
-      driverLocationRef.current
+      driverLocationRef.current,
+      { rawText: raw.rawText || '', scheduledTimeMinutes: raw.scheduledTimeMinutes, postedAt: raw.receivedAt }
     );
 
     // Check VIP or Blacklist contact status
@@ -1247,7 +1248,7 @@ function OrderiApp() {
             const rawFrom = data.from || 'البحرين';
             const rawTo = data.to || 'حسب طلب الزبون 📍';
             const rawPrice = typeof data.price === 'number' ? data.price : 0;
-            const match = evaluateOrderMatch(rawFrom, rawTo, rawPrice, filterRef.current, driverLocationRef.current);
+            const match = evaluateOrderMatch(rawFrom, rawTo, rawPrice, filterRef.current, driverLocationRef.current, { rawText: data.rawText || '', scheduledTimeMinutes: data.scheduledTimeMinutes, postedAt: data.receivedAt });
             const isPassenger = !!data.isPassenger;
 
             const newOrderFromNotif: ParsedOrder = {
@@ -1680,7 +1681,7 @@ function OrderiApp() {
   const recalculateOrdersWithNewLocation = (loc: MatcherLocation, currentFilter: OrderFilter) => {
     setOrders((prevOrders) =>
       prevOrders.map((ord) => {
-        const match = evaluateOrderMatch(ord.from, ord.to, ord.price, currentFilter, loc);
+        const match = evaluateOrderMatch(ord.from, ord.to, ord.price, currentFilter, loc, { rawText: ord.rawText || '', scheduledTimeMinutes: ord.scheduledTimeMinutes, postedAt: ord.receivedAt });
         return { ...ord, match };
       })
     );
