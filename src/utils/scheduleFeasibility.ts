@@ -57,6 +57,8 @@ export function resolveAdSchedule(
   if (explicit) {
     let hour24 = baseHour % 12;
     if (explicit === 'pm') hour24 += 12;
+    if (baseHour === 12 && /مساء|المساء|بالليل|في الليل|ليل/i.test(rawText) && !/الظهر/i.test(rawText)) hour24 = 0;
+    if (baseHour === 12 && /الظهر/i.test(rawText)) hour24 = 12;
     const date = new Date(reference.getTime());
     date.setHours(hour24, raw.minute, 0, 0);
     if (date.getTime() < reference.getTime() - 60_000) date.setDate(date.getDate() + 1);
