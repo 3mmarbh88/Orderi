@@ -20,6 +20,17 @@ export function detectAdvertisementMessage(rawText: string): AdvertisementDetect
     .trim();
   if (!text) return { isAdvertisement: false };
 
+  // Group rules, welcome posts and service directories are not delivery orders.
+  // Preserve genuine requests when the same message explicitly asks for a courier,
+  // pickup, delivery or a concrete order.
+  const groupInformationPost =
+    /(?:قوانين\s*(?:القروب|القروب|المجموعه|المجموعة)|شروط\s*(?:القروب|المجموعه|المجموعة)|الرجاء\s*(?:الالتزام|عدم)|يرجى\s*(?:الالتزام|عدم)|تنبيه\s*(?:من\s*)?(?:الاداره|الإدارة)|اداره\s*(?:القروب|المجموعة)|إدارة\s*(?:القروب|المجموعة)|رابط\s*(?:الدعوه|الدعوة)|هذا\s*(?:القروب|الجروب|المجموعة)\s*(?:مخصص|خاص)|الخدمات\s*(?:المتوفره|المتوفرة|المتاحه|المتاحة)|خدمات\s*عامه|خدمات\s*عامة|اهلا\s*وسهلا\s*(?:بكم\s*)?(?:في|بقروب|بقروبنا)|أهلا\s*وسهلا\s*(?:بكم\s*)?(?:في|بقروب|بقروبنا))/i.test(text);
+  const explicitDeliveryRequest =
+    /(?:مطلوب\s*(?:مندوب|توصيل|استلام|سائق)|ابي\s*(?:مندوب|توصيل|استلام)|ابغي\s*(?:مندوب|توصيل|استلام)|أبي\s*(?:مندوب|توصيل|استلام)|أبغي\s*(?:مندوب|توصيل|استلام)|محتاج\s*(?:مندوب|توصيل|استلام)|احتاج\s*(?:مندوب|توصيل|استلام)|أحتاج\s*(?:مندوب|توصيل|استلام)|استلام.{0,60}توصيل|توصيل.{0,60}(?:الى|إلى|لـ)\s*\S+)/i.test(text);
+  if (groupInformationPost && !explicitDeliveryRequest) {
+    return { isAdvertisement: true, reason: 'رسالة قوانين أو تعريف أو قائمة خدمات للقروب وليست طلب توصيل محدداً' };
+  }
+
   const contactCallToAction =
     /(?:للتواصل|للتواصل والواتساب|للتواصل واتساب|واتساب|كلمني خاص|يكلمني خاص|على الخاص|عالخاص|تواصل مع|راسلني|للحجز|للاستفسار|للتنسيق|instagram|انستقرام|انستا|خاص\s*[:：])/i.test(text);
 
