@@ -1,5 +1,5 @@
 import { ParsedOrder, OutreachDeliveryStatus, OutreachAttemptDetails } from '../types';
-import { reachNativeAdvertiserPrivateChat, getNativePrivateOutreachStatus } from '../native/whatsappListener';
+
 import { OrderiNotificationListener } from '../native/orderiNotificationListener';
 import { isNativeAndroid } from '../native/orderiNotificationListener';
 
