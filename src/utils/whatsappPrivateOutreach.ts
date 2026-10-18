@@ -1,5 +1,5 @@
 import { ParsedOrder, OutreachDeliveryStatus, OutreachAttemptDetails } from '../types';
-import { reachNativeAdvertiserPrivateChat, getNativePrivateOutreachStatus } from '../native/whatsappListener';
+
 import { OrderiNotificationListener } from '../native/orderiNotificationListener';
 import { isNativeAndroid } from '../native/orderiNotificationListener';
 
@@ -513,49 +513,21 @@ export async function executePrivateAdvertiserOutreach(
         } catch {}
       }
 
-      const nativeResult = await reachNativeAdvertiserPrivateChat({
-        phone: safePhone || undefined,
-        memberName: advertiserName,
-        groupName: order.groupName,
+      // Background-only policy: do not launch WhatsApp's UI as a fallback.
+      // Accessibility navigation requires WhatsApp to be foregrounded, which violates
+      // the user's requirement that acceptance messaging stay in the background.
+      // Only a verified private notification action may send silently.
+      return {
+        success: false,
+        status: safePhone ? 'failed' : 'verification_required',
+        needsVerification: !safePhone,
+        resolution,
         message: messageText,
-        autoSend: true,
-      });
-
-      if (nativeResult.success) {
-        const finalResult = await getNativePrivateOutreachStatus(30000);
-        if (finalResult.status === 'sent_confirmed') {
-          // Register the outreach only after Android performed the send-button action.
-          try {
-            fetch('/api/whatsapp/quick-accept-reply', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                orderId: order.id,
-                phone: safePhone || null,
-                targetType: 'private_direct',
-                groupName: order.groupName,
-                senderName: advertiserName,
-                replyText: messageText,
-                price: order.price,
-                from: order.from,
-                to: order.to,
-              }),
-            }).catch(() => {});
-          } catch {}
-          return {
-            success: true, status: 'sent_confirmed', needsVerification: false,
-            resolution, message: messageText, phoneUsed: safePhone || null,
-            statusLabel: `تم تأكيد تنفيذ إرسال الرسالة الخاصة إلى ${advertiserName}`,
-          };
-        }
-        return {
-          success: false,
-          status: finalResult.status === 'verification_required' ? 'verification_required' : 'failed',
-          needsVerification: finalResult.status === 'verification_required',
-          resolution, message: messageText, phoneUsed: safePhone || null,
-          statusLabel: finalResult.statusLabel || 'لم يؤكد واتساب تنفيذ الإرسال',
-        };
-      }
+        phoneUsed: safePhone || null,
+        statusLabel: safePhone
+          ? 'لم يتوفر إجراء رد خاص صالح في الإشعار؛ لم يتم فتح واتساب ولم تُرسل الرسالة'
+          : 'لا يمكن إرسال رسالة خاصة في الخلفية دون رقم أو إجراء رد خاص موثوق؛ لم يتم فتح واتساب',
+      };
     } catch (e) {
       console.warn('[Orderi Native Outreach Error]', e);
     }
