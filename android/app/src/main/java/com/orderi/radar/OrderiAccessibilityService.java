@@ -98,43 +98,60 @@ public class OrderiAccessibilityService extends AccessibilityService {
         queueMessageToSend(message, false);
     }
 
+    /**
+     * Background-only group broadcast.
+     *
+     * Uses an exact, recent WhatsApp group notification's RemoteInput reply action.
+     * It never launches WhatsApp or drives its visible UI. Groups without a usable
+     * reply action are reported as skipped rather than opening WhatsApp as a fallback.
+     */
     public static boolean queueGroupBroadcast(Context context, List<String> groupNames, String message) {
         if (context == null || instance == null || !isAccessibilityEnabled(context)
                 || groupNames == null || groupNames.isEmpty() || TextUtils.isEmpty(message)) {
+            writeOutreachStatus("failed", "تعذر النشر بالخلفية: تحقق من تفعيل خدمة إمكانية الوصول وإشعارات واتساب");
             return false;
         }
+
         ArrayList<String> cleanGroups = new ArrayList<>();
         for (String group : groupNames) {
             if (group == null) continue;
             String clean = group.trim();
             if (!TextUtils.isEmpty(clean) && !cleanGroups.contains(clean)) cleanGroups.add(clean);
         }
-        if (cleanGroups.isEmpty()) return false;
-
-        OrderiAccessibilityService service = instance;
-        pendingBroadcastGroups = cleanGroups;
-        pendingBroadcastMessage = message;
-        pendingBroadcastIndex = 0;
-        broadcastInProgress = true;
-        service.broadcastStage = BROADCAST_FIND_SEARCH;
-        service.broadcastRetries = 0;
-        service.lastBroadcastActionAt = 0L;
-        writeOutreachStatus("broadcasting", "جاري النشر بالتتابع في " + cleanGroups.size() + " قروب واتساب");
-
-        Intent launch = context.getPackageManager().getLaunchIntentForPackage(PACKAGE_WHATSAPP);
-        if (launch == null) {
-            finishGroupBroadcast("failed", "تعذر العثور على تطبيق واتساب");
+        if (cleanGroups.isEmpty()) {
+            writeOutreachStatus("failed", "لم يتم تحديد أي قروب للنشر");
             return false;
         }
-        try {
-            launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-            context.startActivity(launch);
+
+        int sent = 0;
+        ArrayList<String> failedGroups = new ArrayList<>();
+        writeOutreachStatus("broadcasting", "محاولة النشر في الخلفية إلى " + cleanGroups.size() + " قروب محدد");
+
+        for (String groupName : cleanGroups) {
+            boolean ok = WhatsAppNotificationListenerService.sendGroupNotificationReply(context, groupName, message);
+            if (ok) {
+                sent++;
+                Log.i(TAG, "Background group reply action submitted for exact group: " + groupName);
+            } else {
+                failedGroups.add(groupName);
+                Log.w(TAG, "No safe recent group reply action available for: " + groupName);
+            }
+        }
+
+        if (sent == cleanGroups.size()) {
+            writeOutreachStatus("sent_confirmed", "تم تمرير الرسالة عبر إجراء الرد بالخلفية إلى " + sent
+                    + " قروب؛ هذا لا يؤكد وصولها أو قراءتها");
             return true;
-        } catch (Exception e) {
-            Log.w(TAG, "Could not launch WhatsApp for group broadcast", e);
-            finishGroupBroadcast("failed", "تعذر فتح واتساب لبدء النشر");
-            return false;
         }
+        if (sent > 0) {
+            writeOutreachStatus("sent_confirmed", "تم تمرير الرسالة إلى " + sent + " من " + cleanGroups.size()
+                    + " قروب بالخلفية. لم يتوفر إجراء رد آمن لهذه القروبات: " + TextUtils.join("، ", failedGroups));
+            return true;
+        }
+
+        writeOutreachStatus("failed", "لم تُرسل أي رسالة. لا يوجد إجراء رد حديث وصالح في إشعارات القروبات المحددة: "
+                + TextUtils.join("، ", failedGroups) + ". افتح إشعار القروب أو استخدم النشر اليدوي");
+        return false;
     }
 
     private static void finishGroupBroadcast(String status, String label) {
