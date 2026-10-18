@@ -328,6 +328,33 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         return false;
     }
 
+    /**
+     * Submit a reply only through a recent RemoteInput action belonging to the
+     * exact requested WhatsApp group. This does not launch WhatsApp.
+     *
+     * Note: Android/WhatsApp expose reply actions only for some notifications.
+     * A successful PendingIntent send means the action was submitted, not that
+     * WhatsApp delivered or the group received the message.
+     */
+    public static boolean sendGroupNotificationReply(android.content.Context context, String targetGroup, String message) {
+        if (TextUtils.isEmpty(targetGroup) || TextUtils.isEmpty(message)) return false;
+        String wanted = targetGroup.toLowerCase(java.util.Locale.ROOT).replaceAll("\\s+", " ").trim();
+        long now = System.currentTimeMillis();
+        for (java.util.Map.Entry<String, ReplyActionHolder> entry : REPLY_ACTIONS.entrySet()) {
+            ReplyActionHolder holder = entry.getValue();
+            if (holder == null || !holder.isGroup || holder.pendingIntent == null
+                    || holder.remoteInputs == null || holder.remoteInputs.length == 0
+                    || holder.timestamp <= 0L || now - holder.timestamp < 0L
+                    || now - holder.timestamp > 900_000L) continue;
+            String key = entry.getKey();
+            if (key == null) continue;
+            String normalizedKey = key.toLowerCase(java.util.Locale.ROOT).replaceAll("\\s+", " ").trim();
+            if (!normalizedKey.equals(wanted)) continue;
+            if (executeReply(context, holder, message)) return true;
+        }
+        return false;
+    }
+
     private static boolean executeReply(android.content.Context context, ReplyActionHolder holder, String replyText) {
         if (holder == null || holder.pendingIntent == null || holder.remoteInputs == null) return false;
         try {
