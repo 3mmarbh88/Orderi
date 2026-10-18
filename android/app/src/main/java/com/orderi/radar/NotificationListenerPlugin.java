@@ -380,6 +380,28 @@ public class NotificationListenerPlugin extends Plugin {
         }
     }
 
+    /**
+     * Sends a short completion reply through the most recent exact-group WhatsApp notification action.
+     * This does not open WhatsApp. Android/WhatsApp do not expose a stable message-id quote reply API here.
+     */
+    @PluginMethod
+    public void replyDoneToOriginalAd(PluginCall call) {
+        String targetGroup = call.getString("targetGroup", "").trim();
+        JSObject ret = new JSObject();
+        if (targetGroup.isEmpty()) {
+            ret.put("success", false);
+            ret.put("method", "missing_target_group");
+            call.resolve(ret);
+            return;
+        }
+        boolean sent = WhatsAppNotificationListenerService.sendGroupNotificationReply(getContext(), targetGroup, "تم");
+        ret.put("success", sent);
+        ret.put("method", sent ? "group_notification_remote_input" : "no_recent_exact_group_reply_action");
+        ret.put("targetGroup", targetGroup);
+        ret.put("message", "تم");
+        call.resolve(ret);
+    }
+
     @PluginMethod
     public void sendPrivateNotificationReply(PluginCall call) {
         String target = call.getString("target", "").trim();

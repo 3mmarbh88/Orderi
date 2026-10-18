@@ -33,7 +33,7 @@ import {
 import { BAHRAIN_AREAS, POPULAR_WHATSAPP_GROUPS } from '../data/bahrainAreas';
 import { MatcherLocation, evaluateOrderMatch } from '../utils/matcher';
 import { OrderBroadcast, OrderFilter, ParsedOrder } from '../types';
-import { isNativeAndroid, publishToWhatsAppGroups, OrderiNotificationListener } from '../native/orderiNotificationListener';
+import { isNativeAndroid, publishToWhatsAppGroups, replyDoneToOriginalAd, OrderiNotificationListener } from '../native/orderiNotificationListener';
 
 interface BroadcastPublisherProps {
   driverLocation: MatcherLocation | null;
@@ -578,55 +578,55 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
   // One-tap "got a driver": send the configured completion reply to all groups
   // where this ad was published, then mark it complete only after Android confirms.
   const handleQuickCompleteBroadcast = async (item: OrderBroadcast) => {
-    const groups = item.targetGroups?.length ? item.targetGroups : selectedGroupNames;
-    const reply = item.replyTextSent || buildReplayMessage(
-      item,
-      filter.broadcastReplayTemplate ? 'saved_template' : 'full_quote',
-      filter.broadcastDefaultDoneText || '(تم) ✅',
-      filter.broadcastIncludeQuote ?? true
-    );
-    if (!reply.trim() || groups.length === 0) {
-      onToast('لا توجد قروبات محفوظة لهذا الإعلان. افتح إعداد الرد وحدد القروبات أولاً.');
+    // Use the exact group list saved with this ad, not the currently selected broadcast groups.
+    const groups = Array.from(new Set((item.targetGroups?.length ? item.targetGroups : [])
+      .map((name) => name.trim()).filter(Boolean)));
+    if (!groups.length) {
+      onToast('لا توجد قروبات محفوظة لهذا الإعلان؛ لم أرسل «تم» إلى قروب بديل.');
       return;
     }
     if (!isNativeAndroid()) {
-      try { await navigator.clipboard.writeText(reply); } catch {}
-      window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(reply)}`, '_blank');
-      onToast('تم تجهيز رد «تم»؛ الإرسال المتتابع التلقائي يتطلب تطبيق أندرويد.');
+      onToast('الرد الخلفي «تم» متاح داخل تطبيق Orderi على أندرويد فقط، مع وجود إشعار حديث للقروب.');
       return;
     }
 
-    const queued = await publishToWhatsAppGroups(groups, reply);
-    if (!queued.success) {
-      onToast('تعذر بدء رد «تم». تأكد من تفعيل خدمة إمكانية الوصول.');
-      return;
-    }
-    onToast(`جاري إرسال رد «تم» إلى ${groups.length} قروب بالتتابع...`);
-    const completion = await waitForNativeBroadcastCompletion();
-    if (completion !== 'sent') {
-      onToast(completion === 'failed'
-        ? 'توقف إرسال رد «تم» قبل اكتمال جميع القروبات؛ لم يُسجل الإعلان كمكتمل.'
-        : 'لم يصل تأكيد نهائي من واتساب؛ لم يُسجل الإعلان كمكتمل.');
+    onToast('يحاول Orderi إرسال «تم» من إجراء إشعار واتساب الحديث، دون فتح واجهة واتساب...');
+    const results = await Promise.all(groups.map(async (groupName) => ({
+      groupName,
+      result: await replyDoneToOriginalAd(groupName),
+    })));
+    const succeeded = results.filter((entry) => entry.result.success).map((entry) => entry.groupName);
+    const failed = results.filter((entry) => !entry.result.success).map((entry) => entry.groupName);
+
+    if (!succeeded.length) {
+      onToast('لم يُرسل «تم»: لا يوجد إجراء رد حديث وصالح للقروبات الأصلية. لم يتم فتح واتساب.');
       return;
     }
 
     const now = new Date().toLocaleTimeString('ar-BH', { hour: '2-digit', minute: '2-digit' });
     const updatedHistory = broadcastHistory.map((entry) => entry.id === item.id
-      ? { ...entry, isCompleted: true, completedAt: now, repliedGroups: groups, replyTextSent: reply }
+      ? {
+          ...entry,
+          isCompleted: failed.length === 0,
+          completedAt: failed.length === 0 ? now : entry.completedAt,
+          repliedGroups: Array.from(new Set([...(entry.repliedGroups || []), ...succeeded])),
+          replyTextSent: 'تم',
+        }
       : entry
     );
     setBroadcastHistory(updatedHistory);
-    setReplayItem(item);
-    setReplayText(reply);
-    setReplayTargetGroups(groups);
-    setRepliedGroups(groups);
     try { localStorage.setItem('orderi_broadcast_history', JSON.stringify(updatedHistory)); } catch {}
     fetch('/api/whatsapp/broadcast-reply', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ broadcastId: item.id, replyText: reply, targetGroups: groups, originalText: item.text }),
+      body: JSON.stringify({ broadcastId: item.id, replyText: 'تم', targetGroups: succeeded, originalText: item.text }),
     }).catch(() => {});
-    onToast(`اكتمل إرسال رد «تم» إلى ${groups.length} قروب`);
+
+    if (failed.length) {
+      onToast(`تم تمرير «تم» إلى ${succeeded.length} قروب من أصل ${groups.length}. تعذر الإرسال إلى: ${failed.join('، ')}. الإرسال لا يثبت التسليم.`);
+    } else {
+      onToast(`تم تمرير «تم» عبر إشعارات ${succeeded.length} قروب أصلية دون فتح واتساب. هذا لا يؤكد وصول الرسائل.`);
+    }
   };
 
   // Send Replay to a single specific group
