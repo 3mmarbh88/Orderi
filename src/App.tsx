@@ -55,6 +55,8 @@ import { NewGroupLinkPrompt } from './components/NewGroupLinkPrompt';
 import { DiscoveredGroupsModal } from './components/DiscoveredGroupsModal';
 import { APKDownloadModal } from './components/APKDownloadModal';
 import { AuthModal } from './components/AuthModal';
+import { SplashScreen } from './components/SplashScreen';
+import { FaceBiometricModal } from './components/FaceBiometricModal';
 import { ActivationLockBarrier } from './components/ActivationLockBarrier';
 import { DeviceTrialModal } from './components/DeviceTrialModal';
 import { 
@@ -142,7 +144,13 @@ const DEFAULT_FILTER: OrderFilter = {
   useCloudAiFallback: true,
 };
 
-function OrderiApp() {
+function OrderiApp({
+  onShowSplash,
+  onOpenFaceLogin,
+}: {
+  onShowSplash?: () => void;
+  onOpenFaceLogin?: () => void;
+} = {}) {
   // 1. Persistent Filter State (Merged with DEFAULT_FILTER to guarantee all fields exist)
   const [filter, setFilter] = useState<OrderFilter>(() => {
     try {
@@ -941,7 +949,7 @@ function OrderiApp() {
         }
       } else {
         // الطلب غير مطابق لشروط الكابتن
-        if (filterRef.current.ignoreNonMatching && newOrder.match.score < 80 && (isPassengerOrder || contactCheck.status !== 'vip')) {
+        if (filterRef.current.ignoreNonMatching && newOrder.match.score < 80) {
           // لا نصدر تنبيهاً لطلب غير مطابق؛ يشمل ذلك نقل الركاب، ولا يسمح لتصنيف الراكب بتجاوز الفلتر.
           return;
         }
@@ -2393,6 +2401,8 @@ function OrderiApp() {
         trialStatus={deviceTrialStatus}
         onOpenTrialModal={() => setIsDeviceTrialModalOpen(true)}
         onMarkAllWhatsAppAsRead={handleMarkAllWhatsAppAsRead}
+        onOpenFaceLogin={onOpenFaceLogin}
+        onShowSplash={onShowSplash}
       />
 
       {/* 2. Main Content Container */}
@@ -2986,8 +2996,13 @@ function OrderiApp() {
  * never by the browser WebView.
  */
 export default function App() {
+  const [showSplash, setShowSplash] = useState<boolean>(true);
+  const [showFaceModal, setShowFaceModal] = useState<boolean>(false);
   const [authenticated, setAuthenticated] = useState<boolean>(
     () => !!getCurrentUser()
+  );
+  const [currentUser, setCurrentUser] = useState<CaptainUser | null>(
+    () => getCurrentUser()
   );
 
   useEffect(() => {
@@ -3010,19 +3025,83 @@ export default function App() {
       });
   }, []);
 
-  if (!authenticated) {
+  const handleAuthSuccess = (user: CaptainUser) => {
+    setStoredCurrentUser(user);
+    setCurrentUser(user);
+    setAuthenticated(true);
+    setShowSplash(false);
+  };
+
+  // 1. Initial Professional Mobile Splash & Loading Screen
+  if (showSplash) {
     return (
-      <AuthModal
-        isOpen={true}
-        onClose={() => {}}
-        onSuccess={(user) => {
-          setStoredCurrentUser(user);
-          setAuthenticated(true);
-        }}
-        initialTab="login"
-      />
+      <>
+        <SplashScreen
+          currentUser={currentUser}
+          onComplete={() => setShowSplash(false)}
+          onOpenFaceLogin={() => setShowFaceModal(true)}
+          onOpenFingerprintLogin={async () => {
+            const { authenticateWithBiometrics } = await import('./utils/authManager');
+            const res = await authenticateWithBiometrics('fingerprint');
+            if (res.success && res.user) {
+              handleAuthSuccess(res.user);
+            } else {
+              setShowSplash(false);
+            }
+          }}
+        />
+
+        <FaceBiometricModal
+          isOpen={showFaceModal}
+          onClose={() => setShowFaceModal(false)}
+          onSuccess={(user) => {
+            setShowFaceModal(false);
+            handleAuthSuccess(user);
+          }}
+        />
+      </>
     );
   }
 
-  return <OrderiApp />;
+  // 2. Authentication Gate if not logged in
+  if (!authenticated) {
+    return (
+      <>
+        <AuthModal
+          isOpen={true}
+          onClose={() => {}}
+          onSuccess={handleAuthSuccess}
+          initialTab="login"
+        />
+
+        <FaceBiometricModal
+          isOpen={showFaceModal}
+          onClose={() => setShowFaceModal(false)}
+          onSuccess={(user) => {
+            setShowFaceModal(false);
+            handleAuthSuccess(user);
+          }}
+        />
+      </>
+    );
+  }
+
+  // 3. Main Orderi Radar Application
+  return (
+    <>
+      <OrderiApp 
+        onShowSplash={() => setShowSplash(true)} 
+        onOpenFaceLogin={() => setShowFaceModal(true)} 
+      />
+
+      <FaceBiometricModal
+        isOpen={showFaceModal}
+        onClose={() => setShowFaceModal(false)}
+        onSuccess={(user) => {
+          setShowFaceModal(false);
+          handleAuthSuccess(user);
+        }}
+      />
+    </>
+  );
 }

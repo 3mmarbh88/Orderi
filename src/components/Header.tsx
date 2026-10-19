@@ -30,7 +30,9 @@ import {
   CalendarDays,
   Clock,
   CheckCheck,
-  RefreshCw
+  RefreshCw,
+  Scan,
+  Camera
 } from 'lucide-react';
 import { MatcherLocation } from '../utils/matcher';
 import { CaptainUser } from '../types';
@@ -73,6 +75,8 @@ interface HeaderProps {
   trialStatus?: DeviceTrialStatus | null;
   onOpenTrialModal?: () => void;
   onMarkAllWhatsAppAsRead?: () => void;
+  onOpenFaceLogin?: () => void;
+  onShowSplash?: () => void;
 }
 
 export function Header({
@@ -109,6 +113,8 @@ export function Header({
   trialStatus,
   onOpenTrialModal,
   onMarkAllWhatsAppAsRead,
+  onOpenFaceLogin,
+  onShowSplash,
 }: HeaderProps) {
   const [timeStr, setTimeStr] = useState('');
   const [isExitConfirmOpen, setIsExitConfirmOpen] = useState(false);
@@ -468,6 +474,19 @@ export function Header({
                 <PWAInstallButton />
               </div>
 
+              {/* Face ID Camera Biometrics Quick Trigger */}
+              {onOpenFaceLogin && (
+                <button
+                  type="button"
+                  onClick={onOpenFaceLogin}
+                  title="فحص وتسجيل الدخول ببصمة الوجه (Face ID)"
+                  className="h-9 sm:h-10 flex items-center gap-1.5 px-3 rounded-xl text-xs font-black transition-all bg-emerald-50 hover:bg-emerald-100 text-emerald-950 border border-emerald-300 shadow-2xs cursor-pointer active:scale-95 shrink-0"
+                >
+                  <Scan className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Face ID</span>
+                </button>
+              )}
+
               {/* Live Radar Toggle */}
               <button
                 onClick={onToggleRadar}
@@ -497,6 +516,19 @@ export function Header({
 
             {/* Mobile Top Actions (Always visible on phone screen) */}
             <div className="flex md:hidden items-center gap-1.5 shrink-0">
+              {/* Mobile Face ID */}
+              {onOpenFaceLogin && (
+                <button
+                  type="button"
+                  onClick={onOpenFaceLogin}
+                  title="بصمة الوجه بالكاميرا Face ID"
+                  className="h-8 px-2 flex items-center justify-center gap-1 rounded-xl text-xs font-bold transition-all active:scale-95 shrink-0 cursor-pointer bg-emerald-50 text-emerald-900 border border-emerald-300 shadow-2xs"
+                >
+                  <Scan className="w-3.5 h-3.5 text-emerald-600" />
+                  <span className="text-[10px] font-black">Face ID</span>
+                </button>
+              )}
+
               {/* Sound Toggle */}
               <button
                 onClick={onToggleSound}

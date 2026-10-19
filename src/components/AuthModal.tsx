@@ -17,9 +17,12 @@ import {
   CarTaxiFront,
   X,
   BadgeCheck,
+  Camera,
+  Scan,
 } from 'lucide-react';
 
 import { CaptainUser, VehicleType } from '../types';
+import { FaceBiometricModal } from './FaceBiometricModal';
 
 import {
   getCurrentUser,
@@ -60,6 +63,8 @@ const translations = {
     passwordHint: 'كلمة المرور الخاصة بحسابك',
     passwordPlaceholder: 'أدخل كلمة المرور...',
     biometricBtn: 'تسجيل الدخول بالبصمة (Fingerprint / Face ID)',
+    faceBtn: 'بصمة الوجه (Face ID)',
+    fingerprintBtn: 'بصمة الإصبع',
     loginBtn: 'تسجيل الدخول إلى Orderi',
     loggingIn: 'جاري الاتصال بالسيرفر...',
     serverVerify: 'سيتم التحقق من الحساب والاشتراك عبر سيرفر Orderi',
@@ -114,6 +119,8 @@ const translations = {
     passwordHint: 'Your account password',
     passwordPlaceholder: 'Enter your password...',
     biometricBtn: 'Sign In with Biometrics (Fingerprint / Face ID)',
+    faceBtn: 'Face ID Login',
+    fingerprintBtn: 'Fingerprint Login',
     loginBtn: 'Sign In to Orderi',
     loggingIn: 'Connecting to server...',
     serverVerify: 'Account and subscription verified via Orderi secure server',
@@ -233,6 +240,8 @@ export function AuthModal({
   // ============================================================
 
   const [showBiometricScanner, setShowBiometricScanner] =
+    useState(false);
+  const [showFaceBiometricModal, setShowFaceBiometricModal] =
     useState(false);
 
   const [scannerStatus, setScannerStatus] =
@@ -930,25 +939,39 @@ export function AuthModal({
                 </div>
               </div>
 
-              {/* Biometric */}
-
-              <div className="pt-1">
-
-                <button
-                  type="button"
-                  onClick={
-                    handleTriggerBiometrics
-                  }
-                  disabled={isLoading}
-                  className="w-full py-3 px-4 rounded-2xl bg-gradient-to-r from-teal-50 via-emerald-50 to-teal-50 border border-emerald-300 text-emerald-950 font-black text-xs flex items-center justify-center gap-2 hover:bg-emerald-100/60 shadow-xs transition-all active:scale-[0.98] disabled:opacity-50"
-                >
-                  <Fingerprint className="w-5 h-5 text-emerald-600" />
-
-                  <span>
-                    {tr.biometricBtn}
+              {/* Biometric: Face ID (Camera) & Fingerprint */}
+              <div className="pt-1 space-y-2">
+                <div className="flex items-center gap-2">
+                  <div className="h-px bg-slate-200 flex-1" />
+                  <span className="text-[10px] font-bold text-slate-400">
+                    {lang === 'ar' ? 'أو الدخول البيومتري السريع' : 'Or Quick Biometric Login'}
                   </span>
-                </button>
+                  <div className="h-px bg-slate-200 flex-1" />
+                </div>
 
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowFaceBiometricModal(true)}
+                    disabled={isLoading}
+                    className="py-3 px-2 rounded-2xl bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-300 hover:border-emerald-400 text-emerald-950 font-black text-xs flex items-center justify-center gap-1.5 hover:bg-emerald-100/60 shadow-xs transition-all active:scale-[0.98] disabled:opacity-50 min-h-[44px] cursor-pointer"
+                    title="تسجيل الدخول ببصمة الوجه عبر الكاميرا"
+                  >
+                    <Camera className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span className="truncate">{tr.faceBtn}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleTriggerBiometrics}
+                    disabled={isLoading}
+                    className="py-3 px-2 rounded-2xl bg-gradient-to-r from-teal-50 to-emerald-50 border border-emerald-300 hover:border-emerald-400 text-emerald-950 font-black text-xs flex items-center justify-center gap-1.5 hover:bg-emerald-100/60 shadow-xs transition-all active:scale-[0.98] disabled:opacity-50 min-h-[44px] cursor-pointer"
+                    title="تسجيل الدخول بمستشعر بصمة الإصبع"
+                  >
+                    <Fingerprint className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span className="truncate">{tr.fingerprintBtn}</span>
+                  </button>
+                </div>
               </div>
 
               {/* Login */}
@@ -1407,6 +1430,17 @@ export function AuthModal({
         </div>
 
       </div>
+
+      {/* Face Biometric Camera Scanner Modal */}
+      <FaceBiometricModal
+        isOpen={showFaceBiometricModal}
+        onClose={() => setShowFaceBiometricModal(false)}
+        onSuccess={(user) => {
+          setShowFaceBiometricModal(false);
+          onSuccess(user);
+          onClose();
+        }}
+      />
     </div>
   );
 }
