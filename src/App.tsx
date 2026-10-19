@@ -3035,27 +3035,7 @@ export default function App() {
     return (
       <>
         <SplashScreen
-          currentUser={currentUser}
           onComplete={() => setShowSplash(false)}
-          onOpenFaceLogin={() => setShowFaceModal(true)}
-          onOpenFingerprintLogin={async () => {
-            const { authenticateWithBiometrics } = await import('./utils/authManager');
-            const res = await authenticateWithBiometrics('fingerprint');
-            if (res.success && res.user) {
-              handleAuthSuccess(res.user);
-            } else {
-              setShowSplash(false);
-            }
-          }}
-        />
-
-        <FaceBiometricModal
-          isOpen={showFaceModal}
-          onClose={() => setShowFaceModal(false)}
-          onSuccess={(user) => {
-            setShowFaceModal(false);
-            handleAuthSuccess(user);
-          }}
         />
       </>
     );
