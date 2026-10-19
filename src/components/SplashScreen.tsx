@@ -42,7 +42,7 @@ export function SplashScreen({
 
     const timer = setInterval(() => {
       setProgress((prev) => {
-        const next = prev + 3;
+        const next = prev + 5;
         const matchingStage = stages.find((s) => next >= s.at && prev < s.at);
         if (matchingStage) {
           setStageText(matchingStage.text);
@@ -50,6 +50,10 @@ export function SplashScreen({
         if (next >= 100) {
           clearInterval(timer);
           setIsLoaded(true);
+          // بعد لودنق مباشرة يفتح صفحة تسجيل الدخول تلقائياً
+          setTimeout(() => {
+            onComplete();
+          }, 400);
           return 100;
         }
         return next;
@@ -57,7 +61,7 @@ export function SplashScreen({
     }, 45);
 
     return () => clearInterval(timer);
-  }, []);
+  }, [onComplete]);
 
   return (
     <div 
@@ -192,7 +196,7 @@ export function SplashScreen({
               : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/20'
           }`}
         >
-          <span>{currentUser ? `متابعة بصفتك ${currentUser.name}` : 'دخول البرنامج واستكشاف الرادار'}</span>
+          <span>{isLoaded ? 'جاري فتح صفحة تسجيل الدخول... 🚀' : 'تسجيل الدخول إلى Orderi'}</span>
           <ChevronLeft className="w-5 h-5" />
         </button>
 

@@ -2998,9 +2998,7 @@ function OrderiApp({
 export default function App() {
   const [showSplash, setShowSplash] = useState<boolean>(true);
   const [showFaceModal, setShowFaceModal] = useState<boolean>(false);
-  const [authenticated, setAuthenticated] = useState<boolean>(
-    () => !!getCurrentUser()
-  );
+  const [authenticated, setAuthenticated] = useState<boolean>(false);
   const [currentUser, setCurrentUser] = useState<CaptainUser | null>(
     () => getCurrentUser()
   );

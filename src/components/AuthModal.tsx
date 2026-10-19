@@ -19,6 +19,10 @@ import {
   BadgeCheck,
   Camera,
   Scan,
+  HelpCircle,
+  ArrowRight,
+  Send,
+  RotateCcw,
 } from 'lucide-react';
 
 import { CaptainUser, VehicleType } from '../types';
@@ -31,6 +35,9 @@ import {
   applyActivationCode,
   authenticateWithBiometrics,
   ACTIVATION_WHATSAPP_LINK,
+  generatePasswordResetOtp,
+  verifyPasswordResetOtp,
+  resetPasswordWithVerification,
 } from '../utils/authManager';
 
 function WhatsAppIcon({
@@ -105,6 +112,26 @@ const translations = {
     scannerFailed: 'تعذر التحقق من الحساب',
     scannerQuick: 'دخول سريع وآمن',
     scannerCancel: 'إلغاء والعودة لتسجيل الدخول',
+    forgotPassword: 'نسيت كلمة المرور؟',
+    forgotTitle: 'استعادة كلمة المرور',
+    forgotSubtitle: 'إعادة ضبط كلمة المرور عبر رقم هاتف واتساب أو رمز التحقق',
+    forgotDesc: 'أدخل رقم هاتف واتساب المسجل لاستلام رمز التحقق وتعيين كلمة مرور جديدة مباشرة.',
+    forgotPhoneLabel: 'رقم هاتف واتساب المسجل (البحرين):',
+    sendOtpBtn: 'إرسال رمز التحقق (OTP)',
+    sendingOtp: 'جاري إرسال الرمز...',
+    otpLabel: 'رمز التحقق (OTP):',
+    otpPlaceholder: 'أدخل رمز التحقق (مثلاً: 1234)...',
+    newPasswordLabel: 'كلمة المرور الجديدة:',
+    newPasswordPlaceholder: '6 أحرف أو أرقام على الأقل',
+    confirmPasswordLabel: 'تأكيد كلمة المرور الجديدة:',
+    confirmPasswordPlaceholder: 'أعد كتابة كلمة المرور الجديدة...',
+    resetBtn: 'حفظ وتعيين كلمة المرور الجديدة',
+    resetting: 'جاري إعادة الضبط...',
+    backToLogin: 'العودة لتسجيل الدخول',
+    whatsappResetHelp: 'تواصل مع الدعم الفني عبر واتساب لاستعادة الحساب فوراً',
+    orBiometricBypass: 'هل نسيت كلمة المرور؟ يمكنك الدخول مباشرة ببصمة الوجه أو بصمة الإصبع إن كانت مفعلة',
+    otpSentSuccess: 'تم توليد رمز التحقق بنجاح!',
+    resetSuccess: 'تمت إعادة تعيين كلمة المرور بنجاح! يمكنك الآن تسجيل الدخول بكلمة المرور الجديدة.',
   },
   en: {
     title: 'Orderi',
@@ -161,6 +188,26 @@ const translations = {
     scannerFailed: 'Verification failed',
     scannerQuick: 'Fast & Secure Login',
     scannerCancel: 'Cancel and return to login',
+    forgotPassword: 'Forgot Password?',
+    forgotTitle: 'Reset Password',
+    forgotSubtitle: 'Reset password via WhatsApp phone or verification code',
+    forgotDesc: 'Enter your registered WhatsApp phone number to receive a verification code and set a new password.',
+    forgotPhoneLabel: 'Registered WhatsApp Phone (Bahrain):',
+    sendOtpBtn: 'Send Verification Code (OTP)',
+    sendingOtp: 'Sending code...',
+    otpLabel: 'Verification Code (OTP):',
+    otpPlaceholder: 'Enter verification code (e.g. 1234)...',
+    newPasswordLabel: 'New Password:',
+    newPasswordPlaceholder: 'At least 6 characters or numbers',
+    confirmPasswordLabel: 'Confirm New Password:',
+    confirmPasswordPlaceholder: 'Re-enter new password...',
+    resetBtn: 'Save & Set New Password',
+    resetting: 'Resetting...',
+    backToLogin: 'Back to Sign In',
+    whatsappResetHelp: 'Contact Support on WhatsApp for instant account recovery',
+    orBiometricBypass: 'Forgot password? You can log in directly using Face ID or Fingerprint',
+    otpSentSuccess: 'Verification code generated successfully!',
+    resetSuccess: 'Password reset successfully! You can now log in with your new password.',
   }
 };
 
@@ -168,7 +215,7 @@ interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: (user: CaptainUser) => void;
-  initialTab?: 'login' | 'register' | 'activate';
+  initialTab?: 'login' | 'register' | 'activate' | 'forgot';
 }
 
 export function AuthModal({
@@ -178,7 +225,7 @@ export function AuthModal({
   initialTab = 'login',
 }: AuthModalProps) {
   const [tab, setTab] = useState<
-    'login' | 'register' | 'activate'
+    'login' | 'register' | 'activate' | 'forgot'
   >(initialTab);
 
   const [lang, setLang] = useState<'ar' | 'en'>(() => {
@@ -202,7 +249,15 @@ export function AuthModal({
   // Login
   // ============================================================
 
-  const [loginPhone, setLoginPhone] = useState('');
+  const [loginPhone, setLoginPhone] = useState(() => {
+    try {
+      const savedUser = getCurrentUser();
+      if (savedUser?.phone) {
+        return savedUser.phone;
+      }
+    } catch {}
+    return '';
+  });
   const [loginPassword, setLoginPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
@@ -226,6 +281,20 @@ export function AuthModal({
 
   const [activationInput, setActivationInput] =
     useState('');
+
+  // ============================================================
+  // Forgot Password / Reset
+  // ============================================================
+
+  const [forgotPhone, setForgotPhone] = useState('');
+  const [forgotOtp, setForgotOtp] = useState('');
+  const [forgotNewPassword, setForgotNewPassword] = useState('');
+  const [forgotConfirmPassword, setForgotConfirmPassword] = useState('');
+  const [showForgotNewPassword, setShowForgotNewPassword] = useState(false);
+  const [showForgotConfirmPassword, setShowForgotConfirmPassword] = useState(false);
+  const [forgotOtpGenerated, setForgotOtpGenerated] = useState<string | null>(null);
+  const [forgotWhatsappLink, setForgotWhatsappLink] = useState('');
+  const [isSendingOtp, setIsSendingOtp] = useState(false);
 
   // ============================================================
   // Feedback
@@ -573,6 +642,88 @@ export function AuthModal({
     };
 
   // ============================================================
+  // FORGOT PASSWORD / RESET
+  // ============================================================
+
+  const handleSendResetOtp = () => {
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    const phone = forgotPhone.trim() || loginPhone.trim();
+    if (!phone) {
+      setErrorMsg('يرجى إدخال رقم هاتف واتساب المسجل');
+      return;
+    }
+
+    setIsSendingOtp(true);
+    try {
+      const { code, whatsappLink } = generatePasswordResetOtp(phone);
+      setForgotOtpGenerated(code);
+      setForgotWhatsappLink(whatsappLink);
+      setForgotOtp(code);
+      setSuccessMsg(`تم توليد رمز التحقق الخاص بك بنجاح: [${code}]. أدخل كلمة المرور الجديدة لحفظ التعديل.`);
+    } catch {
+      setErrorMsg('تعذر إنشاء رمز التحقق. يرجى المحاولة مجدداً.');
+    } finally {
+      setIsSendingOtp(false);
+    }
+  };
+
+  const handleResetPassword = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    const phone = forgotPhone.trim() || loginPhone.trim();
+    if (!phone) {
+      setErrorMsg('يرجى إدخال رقم الهاتف');
+      return;
+    }
+
+    if (!forgotOtp.trim()) {
+      setErrorMsg('يرجى إدخال رمز التحقق');
+      return;
+    }
+
+    const isValidOtp = verifyPasswordResetOtp(phone, forgotOtp);
+    if (!isValidOtp) {
+      setErrorMsg('رمز التحقق غير صحيح أو منتهي الصلاحية. اضغط على إرسال رمز التحقق أو تواصل عبر واتساب.');
+      return;
+    }
+
+    if (!forgotNewPassword || forgotNewPassword.length < 6) {
+      setErrorMsg('كلمة المرور الجديدة يجب أن تكون 6 أحرف أو أرقام على الأقل');
+      return;
+    }
+
+    if (forgotNewPassword !== forgotConfirmPassword) {
+      setErrorMsg('كلمتا المرور غير متطابقتين، يرجى التأكد وإعادة الكتابة');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const res = await resetPasswordWithVerification(phone, forgotNewPassword, forgotOtp);
+      if (res.success) {
+        setSuccessMsg(tr.resetSuccess);
+        setLoginPhone(phone);
+        setLoginPassword(forgotNewPassword);
+
+        setTimeout(() => {
+          setTab('login');
+          setSuccessMsg('تم حفظ كلمة المرور الجديدة! يمكنك تسجيل الدخول الآن.');
+        }, 1200);
+      } else {
+        setErrorMsg(res.error || 'تعذر إعادة تعيين كلمة المرور');
+      }
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'حدث خطأ أثناء إعادة ضبط كلمة المرور');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // ============================================================
   // UI
   // ============================================================
 
@@ -759,58 +910,79 @@ export function AuthModal({
 
           {/* Tabs */}
 
-          <div className="grid grid-cols-3 gap-1.5 p-1 bg-white/10 rounded-2xl mt-4 border border-white/10">
+          {tab !== 'forgot' ? (
+            <div className="grid grid-cols-3 gap-1.5 p-1 bg-white/10 rounded-2xl mt-4 border border-white/10">
 
-            <button
-              type="button"
-              onClick={() => {
-                setTab('login');
-                setErrorMsg('');
-                setSuccessMsg('');
-              }}
-              className={`py-2 px-1 text-center text-xs font-bold rounded-xl transition-all ${
-                tab === 'login'
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-300 hover:text-white hover:bg-white/5'
-              }`}
-            >
-              {tr.tabLogin}
-            </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setTab('login');
+                  setErrorMsg('');
+                  setSuccessMsg('');
+                }}
+                className={`py-2 px-1 text-center text-xs font-bold rounded-xl transition-all ${
+                  tab === 'login'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-300 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                {tr.tabLogin}
+              </button>
 
-            <button
-              type="button"
-              onClick={() => {
-                setTab('register');
-                setErrorMsg('');
-                setSuccessMsg('');
-              }}
-              className={`py-2 px-1 text-center text-xs font-bold rounded-xl transition-all ${
-                tab === 'register'
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-300 hover:text-white hover:bg-white/5'
-              }`}
-            >
-              {tr.tabRegister}
-            </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setTab('register');
+                  setErrorMsg('');
+                  setSuccessMsg('');
+                }}
+                className={`py-2 px-1 text-center text-xs font-bold rounded-xl transition-all ${
+                  tab === 'register'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-300 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                {tr.tabRegister}
+              </button>
 
-            <button
-              type="button"
-              onClick={() => {
-                setTab('activate');
-                setErrorMsg('');
-                setSuccessMsg('');
-              }}
-              className={`py-2 px-1 text-center text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1 ${
-                tab === 'activate'
-                  ? 'bg-emerald-500 text-slate-950 font-black shadow-xs'
-                  : 'text-emerald-300 hover:text-emerald-200 hover:bg-white/5'
-              }`}
-            >
-              <KeyRound className="w-3.5 h-3.5 shrink-0" />
-              <span>{tr.tabActivate}</span>
-            </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setTab('activate');
+                  setErrorMsg('');
+                  setSuccessMsg('');
+                }}
+                className={`py-2 px-1 text-center text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1 ${
+                  tab === 'activate'
+                    ? 'bg-emerald-500 text-slate-950 font-black shadow-xs'
+                    : 'text-emerald-300 hover:text-emerald-200 hover:bg-white/5'
+                }`}
+              >
+                <KeyRound className="w-3.5 h-3.5 shrink-0" />
+                <span>{tr.tabActivate}</span>
+              </button>
 
-          </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between p-2 bg-white/10 rounded-2xl mt-4 border border-white/10">
+              <div className="flex items-center gap-2 text-white font-black text-xs px-2">
+                <KeyRound className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>{tr.forgotTitle}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setTab('login');
+                  setErrorMsg('');
+                  setSuccessMsg('');
+                }}
+                className="text-xs font-bold text-emerald-300 hover:text-white flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 transition-all cursor-pointer"
+              >
+                <span>{tr.backToLogin}</span>
+                <ArrowRight className="w-3.5 h-3.5 rtl:rotate-180" />
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Content */}
@@ -936,6 +1108,41 @@ export function AuthModal({
                     )}
                   </button>
 
+                </div>
+
+                {/* Forgot Password Link */}
+                <div className="flex items-center justify-between pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setForgotPhone(loginPhone || '');
+                      setForgotOtp('');
+                      setForgotNewPassword('');
+                      setForgotConfirmPassword('');
+                      setTab('forgot');
+                      setErrorMsg('');
+                      setSuccessMsg('');
+                    }}
+                    className="text-xs font-bold text-emerald-600 hover:text-emerald-700 hover:underline flex items-center gap-1 cursor-pointer transition-colors"
+                  >
+                    <HelpCircle className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
+                    <span>{tr.forgotPassword}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const phone = loginPhone.trim();
+                      setForgotPhone(phone);
+                      setTab('forgot');
+                      if (phone) {
+                        handleSendResetOtp();
+                      }
+                    }}
+                    className="text-[11px] font-semibold text-slate-500 hover:text-emerald-600 transition-colors cursor-pointer"
+                  >
+                    {lang === 'ar' ? 'استعادة الرمز 📲' : 'Recover OTP 📲'}
+                  </button>
                 </div>
               </div>
 
@@ -1410,6 +1617,206 @@ export function AuthModal({
               </div>
 
             </div>
+          )}
+
+          {/* ==================================================
+              FORGOT PASSWORD / RESET
+              ================================================== */}
+
+          {tab === 'forgot' && (
+            <form onSubmit={handleResetPassword} className="space-y-4 animate-in fade-in">
+              <div className="p-4 rounded-2xl bg-gradient-to-br from-emerald-50 via-teal-50/40 to-white border border-emerald-200 space-y-1.5">
+                <div className="flex items-center gap-2 font-black text-emerald-950 text-sm">
+                  <KeyRound className="w-4 h-4 text-emerald-600" />
+                  <span>{tr.forgotTitle}</span>
+                </div>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  {tr.forgotDesc}
+                </p>
+              </div>
+
+              {/* Phone */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700 block">
+                  {tr.forgotPhoneLabel}
+                </label>
+                <div className="relative flex items-center">
+                  <input
+                    type="tel"
+                    value={forgotPhone}
+                    onChange={(e) => setForgotPhone(e.target.value)}
+                    placeholder="3XXXXXXX"
+                    dir="ltr"
+                    autoComplete="tel"
+                    className="w-full pl-4 pr-24 py-3 rounded-2xl border border-slate-200 bg-slate-50 font-bold text-sm text-slate-900 focus:bg-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none"
+                  />
+                  <div className={`absolute ${lang === 'ar' ? 'right-3 border-l pr-0 pl-2.5' : 'right-3 border-l pr-0 pl-2.5'} flex items-center gap-1.5 text-xs font-black text-slate-600 border-slate-200`}>
+                    <span>🇧🇭 +973</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action buttons: Generate OTP & WhatsApp Support link */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={handleSendResetOtp}
+                  disabled={isSendingOtp || !forgotPhone.trim()}
+                  className="py-2.5 px-3 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-xs active:scale-95 disabled:opacity-50 cursor-pointer min-h-[44px]"
+                >
+                  <Send className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>{isSendingOtp ? tr.sendingOtp : tr.sendOtpBtn}</span>
+                </button>
+
+                <a
+                  href={
+                    forgotWhatsappLink ||
+                    `https://wa.me/97333314353?text=${encodeURIComponent(
+                      `السلام عليكم، نسيت كلمة المرور لحسابي في Orderi. رقم الهاتف: 973${forgotPhone || loginPhone}، يرجى تزويدي برمز التحقق أو المساعدة في استعادة الحساب`
+                    )}`
+                  }
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="py-2.5 px-3 rounded-2xl bg-[#25D366] hover:bg-[#20ba59] text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-xs active:scale-95 cursor-pointer text-center min-h-[44px]"
+                >
+                  <WhatsAppIcon className="w-4 h-4 fill-current shrink-0" />
+                  <span className="truncate">{lang === 'ar' ? 'طلب كود عبر واتساب' : 'Request Code via WhatsApp'}</span>
+                </a>
+              </div>
+
+              {/* OTP Input */}
+              <div className="space-y-1.5 pt-1">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-700">
+                    {tr.otpLabel}
+                  </label>
+                  {forgotOtpGenerated && (
+                    <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                      رمزك: {forgotOtpGenerated}
+                    </span>
+                  )}
+                </div>
+                <input
+                  type="text"
+                  value={forgotOtp}
+                  onChange={(e) => setForgotOtp(e.target.value)}
+                  placeholder={tr.otpPlaceholder}
+                  dir="ltr"
+                  maxLength={8}
+                  className="w-full px-4 py-2.5 rounded-2xl border border-slate-200 bg-slate-50 font-mono font-bold text-sm text-slate-900 focus:bg-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none"
+                />
+              </div>
+
+              {/* New Password */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700 block">
+                  {tr.newPasswordLabel}
+                </label>
+                <div className="relative flex items-center">
+                  <input
+                    type={showForgotNewPassword ? 'text' : 'password'}
+                    value={forgotNewPassword}
+                    onChange={(e) => setForgotNewPassword(e.target.value)}
+                    placeholder={tr.newPasswordPlaceholder}
+                    autoComplete="new-password"
+                    className="w-full px-4 py-2.5 rounded-2xl border border-slate-200 bg-slate-50 font-bold text-sm text-slate-900 focus:bg-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowForgotNewPassword(!showForgotNewPassword)}
+                    className={`absolute ${lang === 'ar' ? 'left-3' : 'right-3'} text-slate-400 hover:text-slate-600 p-1`}
+                  >
+                    {showForgotNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Confirm New Password */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700 block">
+                  {tr.confirmPasswordLabel}
+                </label>
+                <div className="relative flex items-center">
+                  <input
+                    type={showForgotConfirmPassword ? 'text' : 'password'}
+                    value={forgotConfirmPassword}
+                    onChange={(e) => setForgotConfirmPassword(e.target.value)}
+                    placeholder={tr.confirmPasswordPlaceholder}
+                    autoComplete="new-password"
+                    className="w-full px-4 py-2.5 rounded-2xl border border-slate-200 bg-slate-50 font-bold text-sm text-slate-900 focus:bg-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowForgotConfirmPassword(!showForgotConfirmPassword)}
+                    className={`absolute ${lang === 'ar' ? 'left-3' : 'right-3'} text-slate-400 hover:text-slate-600 p-1`}
+                  >
+                    {showForgotConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Reset Submit Button */}
+              <div className="pt-2">
+                <button
+                  type="submit"
+                  disabled={isLoading || !forgotPhone.trim() || !forgotOtp.trim() || !forgotNewPassword}
+                  className="w-full py-3.5 px-6 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-sm shadow-lg shadow-emerald-600/25 transition-all flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-50 cursor-pointer min-h-[48px]"
+                >
+                  <KeyRound className="w-4 h-4" />
+                  <span>{isLoading ? tr.resetting : tr.resetBtn}</span>
+                </button>
+              </div>
+
+              {/* Alternative Biometric Login Bypass */}
+              <div className="pt-2 space-y-2">
+                <div className="flex items-center gap-2">
+                  <div className="h-px bg-slate-200 flex-1" />
+                  <span className="text-[10px] font-bold text-slate-400">
+                    {lang === 'ar' ? 'أو الدخول المباشر بالبصمة' : 'Or Direct Biometric Sign In'}
+                  </span>
+                  <div className="h-px bg-slate-200 flex-1" />
+                </div>
+                <p className="text-[11px] text-slate-500 text-center">
+                  {tr.orBiometricBypass}
+                </p>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowFaceBiometricModal(true)}
+                    disabled={isLoading}
+                    className="py-2.5 px-2 rounded-2xl bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-300 hover:border-emerald-400 text-emerald-950 font-black text-xs flex items-center justify-center gap-1.5 hover:bg-emerald-100/60 shadow-xs transition-all active:scale-[0.98] disabled:opacity-50 min-h-[44px] cursor-pointer"
+                  >
+                    <Camera className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span className="truncate">{tr.faceBtn}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleTriggerBiometrics}
+                    disabled={isLoading}
+                    className="py-2.5 px-2 rounded-2xl bg-gradient-to-r from-teal-50 to-emerald-50 border border-emerald-300 hover:border-emerald-400 text-emerald-950 font-black text-xs flex items-center justify-center gap-1.5 hover:bg-emerald-100/60 shadow-xs transition-all active:scale-[0.98] disabled:opacity-50 min-h-[44px] cursor-pointer"
+                  >
+                    <Fingerprint className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span className="truncate">{tr.fingerprintBtn}</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="pt-1 text-center">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTab('login');
+                    setErrorMsg('');
+                    setSuccessMsg('');
+                  }}
+                  className="text-xs font-bold text-slate-600 hover:text-slate-900 underline py-1 cursor-pointer"
+                >
+                  {tr.backToLogin}
+                </button>
+              </div>
+            </form>
           )}
 
         </div>
