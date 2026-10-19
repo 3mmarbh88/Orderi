@@ -516,19 +516,6 @@ export function Header({
 
             {/* Mobile Top Actions (Always visible on phone screen) */}
             <div className="flex md:hidden items-center gap-1.5 shrink-0">
-              {/* Mobile Face ID */}
-              {onOpenFaceLogin && (
-                <button
-                  type="button"
-                  onClick={onOpenFaceLogin}
-                  title="بصمة الوجه بالكاميرا Face ID"
-                  className="h-8 px-2 flex items-center justify-center gap-1 rounded-xl text-xs font-bold transition-all active:scale-95 shrink-0 cursor-pointer bg-emerald-50 text-emerald-900 border border-emerald-300 shadow-2xs"
-                >
-                  <Scan className="w-3.5 h-3.5 text-emerald-600" />
-                  <span className="text-[10px] font-black">Face ID</span>
-                </button>
-              )}
-
               {/* Sound Toggle */}
               <button
                 onClick={onToggleSound}

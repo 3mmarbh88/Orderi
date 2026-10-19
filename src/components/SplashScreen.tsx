@@ -1,17 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Radar, 
-  Sparkles, 
   ShieldCheck, 
-  CheckCircle2, 
-  Camera, 
-  Fingerprint, 
   Zap, 
-  ArrowLeft,
-  ChevronLeft
+  Loader2
 } from 'lucide-react';
 import { CaptainUser } from '../types';
-import { getCurrentUser } from '../utils/authManager';
 
 interface SplashScreenProps {
   onComplete: () => void;
@@ -22,22 +16,18 @@ interface SplashScreenProps {
 
 export function SplashScreen({
   onComplete,
-  onOpenFaceLogin,
-  onOpenFingerprintLogin,
-  currentUser,
 }: SplashScreenProps) {
   const [progress, setProgress] = useState(0);
   const [stageText, setStageText] = useState('تهيئة نظام رادار طلبات البحرين 🇧🇭...');
-  const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
     // Stage simulation reflecting real Orderi modules loading
     const stages = [
-      { at: 12, text: 'تهيئة خريطة مناطق ومعالم البحرين...' },
-      { at: 35, text: 'تشغيل محرك الكشف اللحظي وتصفية الطلبات ⚡' },
-      { at: 60, text: 'تهيئة مستشعرات بصمة الوجه والإصبع بالكاميرا 🔐' },
+      { at: 15, text: 'تهيئة خريطة مناطق ومعالم البحرين...' },
+      { at: 40, text: 'تشغيل محرك الكشف اللحظي وتصفية الطلبات ⚡' },
+      { at: 65, text: 'تهيئة مستشعرات بصمة الوجه والإصبع بالكاميرا 🔐' },
       { at: 85, text: 'مزامنة مجموعات وقنوات سحب واتساب 📲' },
-      { at: 100, text: 'اكتمل التحميل! مرحباً بك في Ordari 🚀' },
+      { at: 100, text: 'اكتمل التحميل! جاري فتح شاشة تسجيل الدخول... 🚀' },
     ];
 
     const timer = setInterval(() => {
@@ -49,11 +39,10 @@ export function SplashScreen({
         }
         if (next >= 100) {
           clearInterval(timer);
-          setIsLoaded(true);
-          // بعد لودنق مباشرة يفتح صفحة تسجيل الدخول تلقائياً
+          // بعد اكتمال اللودنق مباشرة يفتح صفحة تسجيل الدخول تلقائياً بدون أي أزرار
           setTimeout(() => {
             onComplete();
-          }, 400);
+          }, 350);
           return 100;
         }
         return next;
@@ -65,7 +54,7 @@ export function SplashScreen({
 
   return (
     <div 
-      className="fixed inset-0 z-50 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-white flex flex-col justify-between items-center px-6 py-8 sm:py-12 select-none overflow-y-auto no-scrollbar"
+      className="fixed inset-0 z-50 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-white flex flex-col justify-between items-center px-6 py-8 sm:py-12 select-none overflow-hidden"
       dir="rtl"
     >
       {/* Top Bar Branding */}
@@ -81,7 +70,7 @@ export function SplashScreen({
         </div>
       </div>
 
-      {/* Main Radar Brand Center */}
+      {/* Main Radar Brand & Logo Center */}
       <div className="w-full max-w-sm flex flex-col items-center my-auto py-6 space-y-6">
         {/* Animated Radar Ripples & Logo */}
         <div className="relative w-40 h-40 sm:w-48 sm:h-48 flex items-center justify-center">
@@ -139,8 +128,8 @@ export function SplashScreen({
           </p>
         </div>
 
-        {/* Progress Bar & Stage Description */}
-        <div className="w-full space-y-2 pt-2">
+        {/* Progress Bar & Stage Description (Loading Indicator only - No Buttons) */}
+        <div className="w-full space-y-2.5 pt-2">
           <div className="w-full bg-slate-800/80 h-2.5 rounded-full overflow-hidden border border-slate-700/60 p-0.5">
             <div
               className="h-full rounded-full bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-400 transition-all duration-150 shadow-[0_0_12px_#10b981]"
@@ -149,60 +138,23 @@ export function SplashScreen({
           </div>
 
           <div className="flex items-center justify-between text-xs text-slate-400 font-mono px-1">
-            <span>جاري التحميل...</span>
+            <div className="flex items-center gap-1.5 text-emerald-400">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              <span>جاري التحميل...</span>
+            </div>
             <span className="text-emerald-400 font-bold">{progress}%</span>
           </div>
 
-          <p className="text-xs sm:text-sm font-bold text-emerald-300 min-h-[24px]">
+          <p className="text-xs sm:text-sm font-bold text-emerald-300 min-h-[24px] text-center">
             {stageText}
           </p>
         </div>
       </div>
 
-      {/* Quick Biometric Access & Start Buttons for Mobile */}
-      <div className="w-full max-w-sm space-y-2.5 pb-safe pt-2">
-        {/* Biometric Quick Entry Buttons */}
-        <div className="grid grid-cols-2 gap-2">
-          {onOpenFaceLogin && (
-            <button
-              type="button"
-              onClick={onOpenFaceLogin}
-              className="py-3 px-3 rounded-2xl bg-slate-800/90 hover:bg-slate-700/90 border border-emerald-500/40 text-emerald-300 font-bold text-xs flex items-center justify-center gap-1.5 transition-all active:scale-98 cursor-pointer shadow-md min-h-[44px]"
-            >
-              <Camera className="w-4 h-4 text-emerald-400" />
-              <span>بصمة الوجه Face ID</span>
-            </button>
-          )}
-
-          {onOpenFingerprintLogin && (
-            <button
-              type="button"
-              onClick={onOpenFingerprintLogin}
-              className="py-3 px-3 rounded-2xl bg-slate-800/90 hover:bg-slate-700/90 border border-emerald-500/40 text-emerald-300 font-bold text-xs flex items-center justify-center gap-1.5 transition-all active:scale-98 cursor-pointer shadow-md min-h-[44px]"
-            >
-              <Fingerprint className="w-4 h-4 text-emerald-400" />
-              <span>بصمة الإصبع</span>
-            </button>
-          )}
-        </div>
-
-        {/* Primary Start / Proceed Button */}
-        <button
-          type="button"
-          onClick={onComplete}
-          className={`w-full py-3.5 px-4 rounded-2xl font-black text-sm flex items-center justify-center gap-2 transition-all active:scale-98 cursor-pointer min-h-[48px] shadow-lg ${
-            isLoaded
-              ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-emerald-500/30'
-              : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/20'
-          }`}
-        >
-          <span>{isLoaded ? 'جاري فتح صفحة تسجيل الدخول... 🚀' : 'تسجيل الدخول إلى Orderi'}</span>
-          <ChevronLeft className="w-5 h-5" />
-        </button>
-
-        {/* Footnote */}
-        <div className="flex items-center justify-center gap-1.5 text-[11px] text-slate-500 pt-1">
-          <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+      {/* Clean Bottom Footer (No buttons whatsoever) */}
+      <div className="w-full max-w-sm flex flex-col items-center justify-center pb-safe pt-2 text-center">
+        <div className="flex items-center justify-center gap-1.5 text-[11px] text-slate-500">
+          <ShieldCheck className="w-3.5 h-3.5 text-emerald-500/80" />
           <span>إصدار 2026 المطور • مخصص لكباتن التوصيل بمملكة البحرين</span>
         </div>
       </div>
