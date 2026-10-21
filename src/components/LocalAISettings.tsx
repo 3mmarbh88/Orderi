@@ -124,24 +124,22 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
           },
           {
             id: 'gemma3_model',
-            name: 'محرك ونموذج Gemma 3 1B INT4 (584 MB)',
-            detail: isAndroid 
-              ? 'متصل عبر جسر أندرويد الأصلي مع ملف gemma3-1b-it-int4.litertlm' 
-              : 'يعمل عبر المحرك الهجين التكيفي ونموذج INT4 السريع',
+            name: 'استدلال Gemma 3 1B INT4',
+            detail: isAndroid
+              ? 'تم فحص حالة الملف فقط؛ استدلال LiteRT-LM غير مدمج، لذلك النموذج غير جاهز للاستدلال.'
+              : 'يعمل استخراج القواعد المحلية فقط؛ لا يوجد استدلال Gemma في المتصفح.',
             latencyMs: gLatency,
-            status: 'passed',
+            status: 'warning',
           },
           {
             id: 'cloud_gemini',
-            name: 'الذكاء السحابي الاحتياطي (Gemini 3.8 Flash)',
-            detail: cloudPassed 
-              ? 'متصل وجاهز للاستدعاء التلقائي عند استلام نصوص معقدة'
-              : 'جاهز ويعمل عند الحاجة',
+            name: 'تحليل رسائل واتساب عبر السحابة (معطّل للخصوصية)',
+            detail: 'لا يتم إرسال نصوص رسائل واتساب إلى خدمة ذكاء اصطناعي خارجية. فحص /api/health لا يعني أن تحليل الرسائل السحابي مفعّل.',
             latencyMs: cLatency,
-            status: 'passed',
+            status: 'warning',
           },
         ],
-        summary: `كافة مكونات الذكاء الاصطناعي وخريطة HERE WeGo جاهزة وتعمل في جميع أجزاء البرنامج`,
+        summary: `قاعدة HERE WeGo وقواعد التحليل المحلية متاحة؛ استدلال Gemma غير مدمج، وتحليل رسائل واتساب السحابي معطّل.`, 
       };
 
       setReadinessAudit(audit);
@@ -174,14 +172,14 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <h3 className="text-base sm:text-lg font-black tracking-tight">
-                الذكاء الاصطناعي الهجين (Gemma 3 1B + HERE WeGo) 🧠
+                محرك التحليل المحلي + HERE WeGo 🧠
               </h3>
               <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-white/20 text-white border border-white/30">
                 {isEnabled ? 'مفعّل وشغال ⚡' : 'معطّل'}
               </span>
             </div>
             <p className="text-xs text-white/80 mt-0.5 leading-relaxed">
-              محرك تكيفي هجين داخلي وخارجي مدمج مع خريطة HERE WeGo الشاملة لمعالم وأسواق ومجمعات البحرين
+              قواعد استخراج محلية وقاعدة معالم البحرين؛ استدلال Gemma غير مدمج حاليًا
             </p>
           </div>
         </div>
@@ -251,10 +249,10 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
                   </span>
                 </h4>
                 <p className="text-[11px] text-indigo-800/80 mt-0.5 leading-relaxed">
-                  {modelStatus?.detail || 'تم دمج وتفعيل المحرك الهجين التكيفي للعمل مع نموذج Gemma 3 وقاعدة خرائط HERE WeGo.'}
+                  {modelStatus?.detail || 'يتم استخدام قواعد محلية وقاعدة HERE WeGo؛ لا يُعتبر ملف النموذج جاهزًا قبل دمج واختبار الاستدلال.'}
                 </p>
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] text-indigo-600 font-semibold">
-                  <span>⚡ المعمارية: {modelStatus?.architecture || 'هجين محلي وسحابي'}</span>
+                  <span>⚡ المعمارية: {modelStatus?.architecture || 'قواعد محلية؛ تحليل رسائل واتساب يبقى على الجهاز'}</span>
                   <span>·</span>
                   <span>📍 قاعدة HERE WeGo: {HERE_WE_GO_BAHRAIN_PLACES.length}+ معلماً تعمل في الخلفية</span>
                 </div>
@@ -281,7 +279,7 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
                     <Check className="w-3.5 h-3.5 stroke-[3]" />
                   </div>
                   <h5 className="text-xs font-black text-slate-900">
-                    نتيجة فحص الجاهزية: كافة الأنظمة جاهزة 100% 🚀 ({readinessAudit.totalElapsedMs} ms)
+                    نتيجة فحص المكونات (ليست شهادة جاهزية كاملة) ({readinessAudit.totalElapsedMs} ms)
                   </h5>
                 </div>
 
@@ -334,28 +332,19 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
                   الذكاء الاصطناعي السحابي عند الحاجة (Cloud AI Fallback) ☁️
                 </h4>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-violet-100 text-violet-800">
-                  Gemini Flash 3.8
+                  غير مفعّل
                 </span>
               </div>
               <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
-                استدعاء ذكاء اصطناعي خارجي سحابي فائق الدقة تلقائياً عند غموض النص، أو نقص بيانات الاستلام والتسليم، أو عند الاشتباه بنقل ركاب.
+                معالجة نصوص واتساب تبقى على الجهاز. لا يتوفر حاليًا مسار سحابي معتمد لتحليل هذه الرسائل، حفاظًا على الخصوصية.
               </p>
             </div>
 
             <label className="relative inline-flex items-center cursor-pointer select-none shrink-0">
               <input
                 type="checkbox"
-                checked={filter.useCloudAiFallback !== false}
-                onChange={(e) => {
-                  onUpdateFilter({
-                    ...filter,
-                    useCloudAiFallback: e.target.checked,
-                    localAiConfig: {
-                      ...(filter.localAiConfig || DEFAULT_LOCAL_AI_CONFIG),
-                      cloudFallbackEnabled: e.target.checked,
-                    },
-                  });
-                }}
+                checked={false}
+                disabled={true}
                 className="sr-only"
               />
               <div className={`w-9 h-5 rounded-full transition-colors ${filter.useCloudAiFallback !== false ? 'bg-violet-600' : 'bg-slate-300'}`}>
