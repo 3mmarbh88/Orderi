@@ -48,7 +48,6 @@ public class OrderiLocalAIPlugin extends Plugin {
         for (File candidate : candidatePaths) {
             if (candidate.exists() && candidate.length() > 1024 * 1024) { // > 1MB
                 modelFile = candidate;
-                isModelLoaded = true;
                 Log.i(TAG, "Located local AI model file: " + candidate.getAbsolutePath() + " (" + (candidate.length() / (1024 * 1024)) + " MB)");
                 return;
             }
@@ -108,7 +107,7 @@ public class OrderiLocalAIPlugin extends Plugin {
         executor.execute(() -> {
             long startMs = SystemClock.elapsedRealtime();
 
-            // Extract using local semantic pattern matcher + LiteRT inference wrapper
+            // Extract using the local rule-based matcher only; no model inference is run.
             String fromArea = "";
             String toArea = "";
             float price = 0.0f;
