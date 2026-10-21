@@ -140,8 +140,8 @@ const DEFAULT_FILTER: OrderFilter = {
   autoCloseAmbiguousAction: 'flag',
   excludeMyOwnAds: true,
   captainPhone: '',
-  // Use the cloud model automatically for ambiguous messages; users can explicitly disable it.
-  useCloudAiFallback: true,
+  // Privacy-first: do not send WhatsApp message contents to a third-party AI unless the user explicitly enables it.
+  useCloudAiFallback: false,
 };
 
 function OrderiApp({
