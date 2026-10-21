@@ -90,15 +90,10 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
       const gLatency = Math.max(2, Math.round(performance.now() - gStart));
 
       // 4. فحص اتصال الذكاء السحابي الاحتياطي
-      const cStart = performance.now();
-      let cloudPassed = true;
-      try {
-        const ping = await fetch('/api/health');
-        cloudPassed = ping.ok;
-      } catch {
-        cloudPassed = true;
-      }
-      const cLatency = Math.max(16, Math.round(performance.now() - cStart));
+      // A generic server health endpoint does not prove that Cloud AI is configured.
+      // Keep message analysis disabled unless a real, explicitly enabled provider exists.
+      const cLatency = 0;
+      const cloudPassed = false;
 
       const totalElapsed = Math.round(performance.now() - t0);
       const isAndroid = Capacitor.getPlatform() === 'android';
@@ -134,12 +129,12 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
           {
             id: 'cloud_gemini',
             name: 'تحليل رسائل واتساب عبر السحابة (معطّل للخصوصية)',
-            detail: 'لا يتم إرسال نصوص رسائل واتساب إلى خدمة ذكاء اصطناعي خارجية. فحص /api/health لا يعني أن تحليل الرسائل السحابي مفعّل.',
+            detail: 'معطّل عمدًا لحماية الخصوصية؛ لا يوجد مزوّد تحليل رسائل سحابي مهيأ، وفحص صحة الخادم لا يثبت جاهزية هذه الميزة.',
             latencyMs: cLatency,
             status: 'warning',
           },
         ],
-        summary: `قاعدة HERE WeGo وقواعد التحليل المحلية متاحة؛ استدلال Gemma غير مدمج، وتحليل رسائل واتساب السحابي معطّل.`, 
+        summary: `قاعدة HERE WeGo وقواعد التحليل المحلية متاحة؛ استدلال Gemma غير مدمج، والمصادقة بالوجه غير مهيأة، وتحليل رسائل واتساب السحابي معطّل للخصوصية.`, 
       };
 
       setReadinessAudit(audit);
