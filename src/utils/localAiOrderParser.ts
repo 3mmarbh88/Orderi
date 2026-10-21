@@ -107,8 +107,7 @@ export async function parseWhatsAppOrderWithLocalAi(
   const startTime = performance.now();
   const hybridMode = options.hybridMode !== false;
   const minConfidence = options.minConfidence ?? 85;
-  // Privacy-first: WhatsApp content stays on-device unless a caller explicitly opts in.
-  const useCloudFallback = options.useCloudFallback === true;
+  // Privacy-first: WhatsApp content is parsed locally and is never sent to a third-party AI.
 
   // Reject promotional/service-provider ads before any AI tier can reinterpret them as orders.
   // This also prevents message content from being sent to the optional cloud fallback for known ads.
@@ -186,65 +185,8 @@ export async function parseWhatsAppOrderWithLocalAi(
     }
   }
 
-  // Step 3: Cloud AI Fallback (Gemini API) if text is still ambiguous or incomplete (e.g. missing from/to or suspicious)
-  const isMissingKeyInfo = !fastResult.from || !fastResult.to;
-  if (useCloudFallback && (options.forceAi || isMissingKeyInfo || fastResult.confidence < minConfidence || fastResult.passengerDetection?.level === 'suspicious_passenger')) {
-    try {
-      const cloudRes = await fetch('/api/ai/cloud-parse-order', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          rawText,
-          senderName: options.senderName || '',
-          groupName: options.groupName || '',
-        }),
-      });
-
-      if (cloudRes.ok) {
-        const json = await cloudRes.json();
-        if (json && json.success && json.data) {
-          const cloudData = json.data;
-          const fromArea = snapToOfficialBahrainArea(cloudData.from) || fastResult.from;
-          const toArea = snapToOfficialBahrainArea(cloudData.to) || fastResult.to;
-          const price = typeof cloudData.price === 'number' && cloudData.price > 0 ? cloudData.price : fastResult.price;
-          const elapsed = Math.round(performance.now() - startTime);
-
-          const passengerDet = cloudData.passengerRisk === 'confirmed_passenger'
-            ? {
-                level: 'confirmed_passenger' as const,
-                label: 'تحذير: توصيل أشخاص ممنوع',
-                matchedPhrases: ['تم الكشف بواسطة الذكاء الاصطناعي السحابي'],
-                reason: 'الإعلان يحتوي على نقل ركاب أو أشخاص مخالف لشروط نقل البضائع.',
-                isForbidden: false,
-                passengerCount: cloudData.passengerCount || undefined,
-              }
-            : fastResult.passengerDetection;
-
-          const cloudConfidence = typeof cloudData.confidence === 'number' ? Math.max(0, Math.min(100, cloudData.confidence)) : fastResult.confidence;
-          if (fromArea && toArea && cloudConfidence >= minConfidence) {
-            return {
-              ...fastResult,
-              from: fromArea,
-              to: toArea,
-              price,
-              isPriceUnspecified: price <= 0,
-              phone: cloudData.phone || fastResult.phone,
-              passengerCount: cloudData.passengerCount || fastResult.passengerCount,
-              passengerDetection: passengerDet,
-              notes: cloudData.notes || 'تم التحليل والاستخراج العميق عبر الذكاء الاصطناعي السحابي (Gemini)',
-              confidence: cloudConfidence,
-              canCreateOrder: true,
-              aiUsed: true,
-              inferenceMs: elapsed,
-              parseMethod: 'cloud_ai',
-            };
-          }
-        }
-      }
-    } catch (cloudErr) {
-      console.warn('[Cloud AI Fallback Request Error]', cloudErr);
-    }
-  }
+  // Privacy guarantee: WhatsApp message text is never sent to a third-party AI endpoint.
+  // Internet access may still be used by other app features, but parsing stays on-device.
 
   // Step 4: Refined Heuristic engine fallback
   const elapsed = Math.round(performance.now() - startTime);
