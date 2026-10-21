@@ -22,6 +22,8 @@ public class OrderiLocalAIPlugin extends Plugin {
     private static final String MODEL_FILENAME = "gemma3-1b-it-int4.litertlm";
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    // Finding a model file is not the same as loading it into an inference runtime.
+    // LiteRT-LM inference is not integrated in this plugin yet, so never report ready.
     private boolean isModelLoaded = false;
     private File modelFile = null;
 
@@ -58,15 +60,14 @@ public class OrderiLocalAIPlugin extends Plugin {
     public void isModelAvailable(PluginCall call) {
         checkAndLocateModel();
         JSObject ret = new JSObject();
-        if (modelFile != null && modelFile.exists()) {
-            ret.put("available", true);
-            ret.put("modelPath", modelFile.getAbsolutePath());
-            ret.put("fileSizeMb", modelFile.length() / (1024 * 1024));
-        } else {
-            ret.put("available", false);
-            ret.put("modelPath", "models/" + MODEL_FILENAME);
-            ret.put("fileSizeMb", 0);
-        }
+        boolean filePresent = modelFile != null && modelFile.exists();
+        // A file on disk alone cannot be used as evidence that model inference is ready.
+        ret.put("available", false);
+        ret.put("filePresent", filePresent);
+        ret.put("inferenceReady", false);
+        ret.put("status", filePresent ? "inference_not_integrated" : "model_file_missing");
+        ret.put("modelPath", filePresent ? modelFile.getAbsolutePath() : "models/" + MODEL_FILENAME);
+        ret.put("fileSizeMb", filePresent ? modelFile.length() / (1024 * 1024) : 0);
         call.resolve(ret);
     }
 
@@ -75,14 +76,18 @@ public class OrderiLocalAIPlugin extends Plugin {
         executor.execute(() -> {
             checkAndLocateModel();
             JSObject ret = new JSObject();
+            isModelLoaded = false;
             if (modelFile != null && modelFile.exists()) {
-                isModelLoaded = true;
-                ret.put("success", true);
-                ret.put("status", "loaded");
-                ret.put("memoryUsedMb", 584);
+                ret.put("success", false);
+                ret.put("status", "inference_not_integrated");
+                ret.put("filePresent", true);
+                ret.put("inferenceReady", false);
+                ret.put("message", "The model file exists, but LiteRT-LM inference has not been integrated into this plugin.");
             } else {
                 ret.put("success", false);
                 ret.put("status", "model_file_missing");
+                ret.put("filePresent", false);
+                ret.put("inferenceReady", false);
                 ret.put("message", "Model file gemma3-1b-it-int4.litertlm not found on device storage");
             }
             call.resolve(ret);
@@ -218,8 +223,11 @@ public class OrderiLocalAIPlugin extends Plugin {
             ret.put("to", toArea);
             ret.put("price", price);
             ret.put("phone", phone);
-            ret.put("notes", isModelLoaded ? "تحليل محلي عبر Gemma 3 1B LiteRT" : "تحليل محلي عبر المحرك الهجين السريع");
-            ret.put("confidence", 92);
+            ret.put("notes", "استخراج محلي بالقواعد فقط؛ استدلال Gemma غير مفعّل");
+            // Conservative rule-based confidence only; this is not model confidence.
+            float ruleConfidence = (!fromArea.isEmpty() && !toArea.isEmpty() && !fromArea.equals(toArea)) ? 65.0f : 20.0f;
+            ret.put("confidence", ruleConfidence);
+            ret.put("inferenceReady", false);
             ret.put("inferenceTimeMs", elapsedMs);
             call.resolve(ret);
         });
@@ -229,9 +237,11 @@ public class OrderiLocalAIPlugin extends Plugin {
     public void getStatus(PluginCall call) {
         JSObject ret = new JSObject();
         ret.put("initialized", true);
-        ret.put("modelLoaded", isModelLoaded);
-        ret.put("modelName", "Gemma 3 1B LiteRT (" + MODEL_FILENAME + ")");
-        ret.put("ramMb", 584);
+        ret.put("modelFilePresent", modelFile != null && modelFile.exists());
+        ret.put("modelLoaded", false);
+        ret.put("inferenceReady", false);
+        ret.put("modelName", "Gemma 3 1B LiteRT (inference not integrated)");
+        ret.put("ramMb", 0);
         call.resolve(ret);
     }
 }
