@@ -107,8 +107,7 @@ export async function parseWhatsAppOrderWithLocalAi(
   const startTime = performance.now();
   const hybridMode = options.hybridMode !== false;
   const minConfidence = options.minConfidence ?? 85;
-  // Privacy-first: WhatsApp content stays on-device unless a caller explicitly opts in.
-  const useCloudFallback = options.useCloudFallback === true;
+  // Privacy-first: WhatsApp content is parsed locally and is never sent to a third-party AI.
 
   // Reject promotional/service-provider ads before any AI tier can reinterpret them as orders.
   // This also prevents message content from being sent to the optional cloud fallback for known ads.
@@ -151,7 +150,7 @@ export async function parseWhatsAppOrderWithLocalAi(
   if (isAndroid) {
     try {
       const nativeResponse = await OrderiLocalAIPlugin.parseOrder({ text: rawText });
-      if (nativeResponse && nativeResponse.success && (nativeResponse.from || nativeResponse.to)) {
+      if (nativeResponse && nativeResponse.success && nativeResponse.from && nativeResponse.to) {
         const fromArea = snapToOfficialBahrainArea(nativeResponse.from) || fastResult.from;
         const toArea = snapToOfficialBahrainArea(nativeResponse.to) || fastResult.to;
         const price = (typeof nativeResponse.price === 'number' && nativeResponse.price > 0)
@@ -173,8 +172,8 @@ export async function parseWhatsAppOrderWithLocalAi(
           isFutureSchedule: fastResult.isFutureSchedule,
           phone: nativeResponse.phone || fastResult.phone,
           notes: nativeResponse.notes || fastResult.notes || 'تم التحليل عبر الذكاء الاصطناعي المحلي (Gemma 3 1B)',
-          confidence: Math.max(88, nativeResponse.confidence || 90),
-          canCreateOrder: Boolean(fromArea || toArea || price > 0),
+          confidence: Math.max(0, Math.min(100, typeof nativeResponse.confidence === 'number' ? nativeResponse.confidence : fastResult.confidence)),
+          canCreateOrder: Boolean(fromArea && toArea && (typeof nativeResponse.confidence === 'number' ? nativeResponse.confidence : fastResult.confidence) >= minConfidence),
           passengerDetection: passengerDet,
           aiUsed: true,
           inferenceMs: elapsed,
@@ -186,64 +185,8 @@ export async function parseWhatsAppOrderWithLocalAi(
     }
   }
 
-  // Step 3: Cloud AI Fallback (Gemini API) if text is still ambiguous or incomplete (e.g. missing from/to or suspicious)
-  const isMissingKeyInfo = !fastResult.from || !fastResult.to;
-  if (useCloudFallback && (options.forceAi || isMissingKeyInfo || fastResult.confidence < minConfidence || fastResult.passengerDetection?.level === 'suspicious_passenger')) {
-    try {
-      const cloudRes = await fetch('/api/ai/cloud-parse-order', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          rawText,
-          senderName: options.senderName || '',
-          groupName: options.groupName || '',
-        }),
-      });
-
-      if (cloudRes.ok) {
-        const json = await cloudRes.json();
-        if (json && json.success && json.data) {
-          const cloudData = json.data;
-          const fromArea = snapToOfficialBahrainArea(cloudData.from) || fastResult.from;
-          const toArea = snapToOfficialBahrainArea(cloudData.to) || fastResult.to;
-          const price = typeof cloudData.price === 'number' && cloudData.price > 0 ? cloudData.price : fastResult.price;
-          const elapsed = Math.round(performance.now() - startTime);
-
-          const passengerDet = cloudData.passengerRisk === 'confirmed_passenger'
-            ? {
-                level: 'confirmed_passenger' as const,
-                label: 'تحذير: توصيل أشخاص ممنوع',
-                matchedPhrases: ['تم الكشف بواسطة الذكاء الاصطناعي السحابي'],
-                reason: 'الإعلان يحتوي على نقل ركاب أو أشخاص مخالف لشروط نقل البضائع.',
-                isForbidden: false,
-                passengerCount: cloudData.passengerCount || undefined,
-              }
-            : fastResult.passengerDetection;
-
-          if (fromArea || toArea || price > 0) {
-            return {
-              ...fastResult,
-              from: fromArea,
-              to: toArea,
-              price,
-              isPriceUnspecified: price <= 0,
-              phone: cloudData.phone || fastResult.phone,
-              passengerCount: cloudData.passengerCount || fastResult.passengerCount,
-              passengerDetection: passengerDet,
-              notes: cloudData.notes || 'تم التحليل والاستخراج العميق عبر الذكاء الاصطناعي السحابي (Gemini)',
-              confidence: Math.max(92, cloudData.confidence || 95),
-              canCreateOrder: true,
-              aiUsed: true,
-              inferenceMs: elapsed,
-              parseMethod: 'cloud_ai',
-            };
-          }
-        }
-      }
-    } catch (cloudErr) {
-      console.warn('[Cloud AI Fallback Request Error]', cloudErr);
-    }
-  }
+  // Privacy guarantee: WhatsApp message text is never sent to a third-party AI endpoint.
+  // Internet access may still be used by other app features, but parsing stays on-device.
 
   // Step 4: Refined Heuristic engine fallback
   const elapsed = Math.round(performance.now() - startTime);
@@ -263,7 +206,7 @@ export async function parseWhatsAppOrderWithLocalAi(
     ...fastResult,
     from: refinedFrom || fastResult.from,
     to: refinedTo || fastResult.to,
-    canCreateOrder: Boolean(refinedFrom || refinedTo || fastResult.price > 0),
+    canCreateOrder: Boolean(fastResult.canCreateOrder && refinedFrom && refinedTo && fastResult.confidence >= minConfidence),
     aiUsed: options.forceAi || !hybridMode,
     inferenceMs: elapsed,
     parseMethod: options.forceAi ? 'local_ai' : 'fast_heuristic',
@@ -290,14 +233,14 @@ export async function checkLocalAIStatus(): Promise<{
   if (!isAndroid) {
     return {
       isNativeAndroid: false,
-      modelAvailable: true,
+      modelAvailable: false,
       modelName: DEFAULT_LOCAL_AI_CONFIG.modelName,
       modelPath: DEFAULT_LOCAL_AI_CONFIG.modelPath,
       hereWeGoPlacesCount,
       hereWeGoActive: true,
-      status: 'ready',
-      detail: `يعمل عبر المحرك الهجين التكيفي المباشر مع قاعدة بيانات HERE WeGo (${hereWeGoPlacesCount} معلماً ومجمعاً تجارياً)`,
-      architecture: 'هجين ثلاثي حقيقي: قواعد HERE WeGo + نموذج Gemma 3 1B INT4 + ذكاء Gemini السحابي',
+      status: 'simulated',
+      detail: `تعمل قواعد التحليل وقاعدة HERE WeGo (${hereWeGoPlacesCount} معلماً ومجمعاً تجارياً)، لكن استدلال نموذج Android غير متاح على هذه المنصة.`,
+      architecture: 'قواعد محلية + قاعدة HERE WeGo؛ لا يوجد استدلال Android على هذه المنصة',
     };
   }
 
@@ -319,14 +262,14 @@ export async function checkLocalAIStatus(): Promise<{
   } catch (err: any) {
     return {
       isNativeAndroid: true,
-      modelAvailable: true,
+      modelAvailable: false,
       modelName: DEFAULT_LOCAL_AI_CONFIG.modelName,
       modelPath: DEFAULT_LOCAL_AI_CONFIG.modelPath,
       hereWeGoPlacesCount,
       hereWeGoActive: true,
-      status: 'ready',
-      detail: `جسر الذكاء الاصطناعي المحلي متصل بنجاح، وقاعدة خرائط HERE WeGo نشطة (${hereWeGoPlacesCount} معلماً)`,
-      architecture: 'المحرك الهجين التكيفي المتكامل',
+      status: 'unloaded',
+      detail: `تعذر التحقق من جسر النموذج المحلي؛ تعمل قواعد التحليل فقط، ولا يمكن تأكيد جاهزية النموذج. (${hereWeGoPlacesCount} معلماً في قاعدة HERE WeGo)`,
+      architecture: 'قواعد محلية؛ حالة نموذج Android غير مؤكدة',
     };
   }
 }
