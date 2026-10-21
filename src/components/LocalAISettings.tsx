@@ -118,7 +118,7 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
           {
             id: 'passenger_radar',
             name: 'رادار كشف ومنع نقل الركاب',
-            detail: `نشط بنسبة دقة 100% ويمنع إعلانات الأشخاص تلقائياً`,
+            detail: `تم تشغيل اختبار تصنيفي تجريبي؛ يلزم اختبار حالات واقعية ولا تُضمن دقة 100%.`,
             latencyMs: pLatency,
             status: 'passed',
           },
@@ -299,16 +299,16 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
                     key={item.id}
                     className="p-2.5 rounded-lg bg-slate-50 border border-slate-200/80 flex items-start gap-2"
                   >
-                    <div className="w-4 h-4 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0 mt-0.5">
-                      <Check className="w-3 h-3 stroke-[3]" />
+                    <div className={`w-4 h-4 rounded-full ${item.status === 'passed' ? 'bg-emerald-500' : 'bg-amber-500'} text-white flex items-center justify-center shrink-0 mt-0.5`}>
+                      {item.status === 'passed' ? <Check className="w-3 h-3 stroke-[3]" /> : <span className="text-[10px] font-black">!</span>}
                     </div>
                     <div className="flex-1">
                       <div className="flex items-center justify-between gap-1">
                         <span className="text-[11px] font-black text-slate-900">
                           {item.name}
                         </span>
-                        <span className="text-[9px] font-bold text-emerald-700 bg-emerald-100/70 px-1 py-0.2 rounded">
-                          {item.latencyMs} ms
+                        <span className={`text-[9px] font-bold px-1 py-0.2 rounded ${item.status === 'passed' ? 'text-emerald-700 bg-emerald-100/70' : 'text-amber-800 bg-amber-100'}`}>
+                          {item.status === 'passed' ? `${item.latencyMs} ms` : 'غير جاهز'}
                         </span>
                       </div>
                       <p className="text-[10px] text-slate-500 leading-tight mt-0.5">
