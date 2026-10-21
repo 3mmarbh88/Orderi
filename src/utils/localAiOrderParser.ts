@@ -151,7 +151,7 @@ export async function parseWhatsAppOrderWithLocalAi(
   if (isAndroid) {
     try {
       const nativeResponse = await OrderiLocalAIPlugin.parseOrder({ text: rawText });
-      if (nativeResponse && nativeResponse.success && (nativeResponse.from || nativeResponse.to)) {
+      if (nativeResponse && nativeResponse.success && nativeResponse.from && nativeResponse.to) {
         const fromArea = snapToOfficialBahrainArea(nativeResponse.from) || fastResult.from;
         const toArea = snapToOfficialBahrainArea(nativeResponse.to) || fastResult.to;
         const price = (typeof nativeResponse.price === 'number' && nativeResponse.price > 0)
@@ -173,8 +173,8 @@ export async function parseWhatsAppOrderWithLocalAi(
           isFutureSchedule: fastResult.isFutureSchedule,
           phone: nativeResponse.phone || fastResult.phone,
           notes: nativeResponse.notes || fastResult.notes || 'تم التحليل عبر الذكاء الاصطناعي المحلي (Gemma 3 1B)',
-          confidence: Math.max(88, nativeResponse.confidence || 90),
-          canCreateOrder: Boolean(fromArea || toArea || price > 0),
+          confidence: Math.max(0, Math.min(100, typeof nativeResponse.confidence === 'number' ? nativeResponse.confidence : fastResult.confidence)),
+          canCreateOrder: Boolean(fromArea && toArea && (typeof nativeResponse.confidence === 'number' ? nativeResponse.confidence : fastResult.confidence) >= minConfidence),
           passengerDetection: passengerDet,
           aiUsed: true,
           inferenceMs: elapsed,
@@ -220,7 +220,8 @@ export async function parseWhatsAppOrderWithLocalAi(
               }
             : fastResult.passengerDetection;
 
-          if (fromArea || toArea || price > 0) {
+          const cloudConfidence = typeof cloudData.confidence === 'number' ? Math.max(0, Math.min(100, cloudData.confidence)) : fastResult.confidence;
+          if (fromArea && toArea && cloudConfidence >= minConfidence) {
             return {
               ...fastResult,
               from: fromArea,
@@ -231,7 +232,7 @@ export async function parseWhatsAppOrderWithLocalAi(
               passengerCount: cloudData.passengerCount || fastResult.passengerCount,
               passengerDetection: passengerDet,
               notes: cloudData.notes || 'تم التحليل والاستخراج العميق عبر الذكاء الاصطناعي السحابي (Gemini)',
-              confidence: Math.max(92, cloudData.confidence || 95),
+              confidence: cloudConfidence,
               canCreateOrder: true,
               aiUsed: true,
               inferenceMs: elapsed,
@@ -263,7 +264,7 @@ export async function parseWhatsAppOrderWithLocalAi(
     ...fastResult,
     from: refinedFrom || fastResult.from,
     to: refinedTo || fastResult.to,
-    canCreateOrder: Boolean(refinedFrom || refinedTo || fastResult.price > 0),
+    canCreateOrder: Boolean(fastResult.canCreateOrder && refinedFrom && refinedTo && fastResult.confidence >= minConfidence),
     aiUsed: options.forceAi || !hybridMode,
     inferenceMs: elapsed,
     parseMethod: options.forceAi ? 'local_ai' : 'fast_heuristic',
@@ -290,14 +291,14 @@ export async function checkLocalAIStatus(): Promise<{
   if (!isAndroid) {
     return {
       isNativeAndroid: false,
-      modelAvailable: true,
+      modelAvailable: false,
       modelName: DEFAULT_LOCAL_AI_CONFIG.modelName,
       modelPath: DEFAULT_LOCAL_AI_CONFIG.modelPath,
       hereWeGoPlacesCount,
       hereWeGoActive: true,
-      status: 'ready',
-      detail: `يعمل عبر المحرك الهجين التكيفي المباشر مع قاعدة بيانات HERE WeGo (${hereWeGoPlacesCount} معلماً ومجمعاً تجارياً)`,
-      architecture: 'هجين ثلاثي حقيقي: قواعد HERE WeGo + نموذج Gemma 3 1B INT4 + ذكاء Gemini السحابي',
+      status: 'simulated',
+      detail: `تعمل قواعد التحليل وقاعدة HERE WeGo (${hereWeGoPlacesCount} معلماً ومجمعاً تجارياً)، لكن استدلال نموذج Android غير متاح على هذه المنصة.`,
+      architecture: 'قواعد محلية + قاعدة HERE WeGo؛ لا يوجد استدلال Android على هذه المنصة',
     };
   }
 
@@ -319,14 +320,14 @@ export async function checkLocalAIStatus(): Promise<{
   } catch (err: any) {
     return {
       isNativeAndroid: true,
-      modelAvailable: true,
+      modelAvailable: false,
       modelName: DEFAULT_LOCAL_AI_CONFIG.modelName,
       modelPath: DEFAULT_LOCAL_AI_CONFIG.modelPath,
       hereWeGoPlacesCount,
       hereWeGoActive: true,
-      status: 'ready',
-      detail: `جسر الذكاء الاصطناعي المحلي متصل بنجاح، وقاعدة خرائط HERE WeGo نشطة (${hereWeGoPlacesCount} معلماً)`,
-      architecture: 'المحرك الهجين التكيفي المتكامل',
+      status: 'unloaded',
+      detail: `تعذر التحقق من جسر النموذج المحلي؛ تعمل قواعد التحليل فقط، ولا يمكن تأكيد جاهزية النموذج. (${hereWeGoPlacesCount} معلماً في قاعدة HERE WeGo)`,
+      architecture: 'قواعد محلية؛ حالة نموذج Android غير مؤكدة',
     };
   }
 }
