@@ -935,7 +935,11 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                 existing = trimmed;
             }
             existing.put(event);
-            prefs.edit().putString(KEY_EVENTS, existing.toString()).commit();
+            boolean persisted = prefs.edit().putString(KEY_EVENTS, existing.toString()).commit();
+            if (!persisted) {
+                android.util.Log.e("OrderiSpider", "Could not persist WhatsApp notification event");
+                return false;
+            }
             try { seen.put(eventId, now + 24L * 60L * 60L * 1000L); }
             catch (Exception ignored) {}
             dedupPrefs.edit().putString("seen_ids", seen.toString()).commit();
