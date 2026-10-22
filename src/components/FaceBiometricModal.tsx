@@ -226,9 +226,10 @@ export function FaceBiometricModal({
                 <line x1="50" y1="52" x2="60" y2="68" stroke="#10b981" strokeWidth="0.8" strokeDasharray="2,2" />
               </svg>
             </div>
+          </div>
 
-            {/* Vertical Laser Scan Beam */}
-            <div className="w-full rounded-xl bg-amber-950/40 border border-amber-700/50 p-3 text-xs text-amber-200">
+          {/* Explicitly disable face authentication until real matching is implemented. */}
+          <div className="w-full rounded-xl bg-amber-950/40 border border-amber-700/50 p-3 text-xs text-amber-200">
             لا توجد مقارنة وجه حقيقية في هذه النسخة؛ لم يتم تسجيل الدخول. استخدم كلمة المرور.
           </div>
 
