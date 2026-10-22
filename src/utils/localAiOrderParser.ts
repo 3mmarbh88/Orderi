@@ -49,7 +49,7 @@ export const OrderiLocalAIPlugin = registerPlugin<OrderiLocalAIPluginType>('Orde
 
 export const DEFAULT_LOCAL_AI_CONFIG = {
   enabled: true,
-  modelName: 'Gemma 3 1B IT (runtime not integrated)',
+  modelName: 'Gemma 3 1B INT4 LiteRT-LM (import required)',
   modelPath: 'models/gemma3-1b-it-int4.litertlm',
   hybridMode: true,
   minConfidenceForFastPass: 85,
@@ -163,6 +163,14 @@ export async function parseWhatsAppOrderWithLocalAi(
 
         const elapsed = Math.round(performance.now() - startTime);
         const passengerDet = detectPassengerDelivery(rawText);
+        const nativeRisk = String(nativeResponse.passengerRisk || 'goods_safe');
+        if ((nativeRisk === 'confirmed_passenger' || nativeRisk === 'suspicious_passenger')
+            && passengerDet.level === 'goods_safe') {
+          passengerDet.level = nativeRisk as typeof passengerDet.level;
+          passengerDet.label = nativeRisk === 'confirmed_passenger' ? 'طلب نقل ركاب مؤكد من Gemma' : 'اشتباه بنقل ركاب من Gemma';
+          passengerDet.reason = String(nativeResponse.notes || 'تم تصنيف الرسالة كطلب ركاب بواسطة Gemma');
+          passengerDet.passengerCount = Number(nativeResponse.passengerCount) || passengerDet.passengerCount;
+        }
 
         return {
           from: fromArea,
@@ -177,7 +185,7 @@ export async function parseWhatsAppOrderWithLocalAi(
           phone: nativeResponse.phone || fastResult.phone,
           notes: nativeResponse.notes || fastResult.notes || 'تم التحليل عبر الذكاء الاصطناعي المحلي (Gemma 3 1B)',
           confidence: Math.max(0, Math.min(100, typeof nativeResponse.confidence === 'number' ? nativeResponse.confidence : fastResult.confidence)),
-          canCreateOrder: Boolean(fromArea && toArea && (typeof nativeResponse.confidence === 'number' ? nativeResponse.confidence : fastResult.confidence) >= minConfidence),
+          canCreateOrder: Boolean(fromArea && toArea && nativeRisk === 'goods_safe' && (typeof nativeResponse.confidence === 'number' ? nativeResponse.confidence : fastResult.confidence) >= minConfidence),
           passengerDetection: passengerDet,
           aiUsed: true,
           inferenceMs: elapsed,
