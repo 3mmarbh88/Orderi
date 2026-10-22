@@ -26,6 +26,7 @@ interface OrderiLocalAIPluginType {
   loadModel(): Promise<{ success: boolean; status: string; memoryUsedMb?: number }>;
   parseOrder(options: { text: string }): Promise<{
     success: boolean;
+    inferenceReady?: boolean;
     from: string;
     to: string;
     price: number;
@@ -150,7 +151,7 @@ export async function parseWhatsAppOrderWithLocalAi(
   if (isAndroid) {
     try {
       const nativeResponse = await OrderiLocalAIPlugin.parseOrder({ text: rawText });
-      if (nativeResponse && nativeResponse.success && nativeResponse.from && nativeResponse.to) {
+      if (nativeResponse && nativeResponse.success && nativeResponse.inferenceReady === true && nativeResponse.from && nativeResponse.to) {
         const fromArea = snapToOfficialBahrainArea(nativeResponse.from) || fastResult.from;
         const toArea = snapToOfficialBahrainArea(nativeResponse.to) || fastResult.to;
         const price = (typeof nativeResponse.price === 'number' && nativeResponse.price > 0)
@@ -171,7 +172,7 @@ export async function parseWhatsAppOrderWithLocalAi(
           scheduledTimeMinutes: fastResult.scheduledTimeMinutes,
           isFutureSchedule: fastResult.isFutureSchedule,
           phone: nativeResponse.phone || fastResult.phone,
-          notes: nativeResponse.notes || fastResult.notes || 'تم التحليل عبر الذكاء الاصطناعي المحلي (Gemma 3 1B)',
+          notes: nativeResponse.notes || fastResult.notes || 'تم التحليل عبر محرك القواعد المحلي',
           confidence: Math.max(0, Math.min(100, typeof nativeResponse.confidence === 'number' ? nativeResponse.confidence : fastResult.confidence)),
           canCreateOrder: Boolean(fromArea && toArea && (typeof nativeResponse.confidence === 'number' ? nativeResponse.confidence : fastResult.confidence) >= minConfidence),
           passengerDetection: passengerDet,
@@ -207,9 +208,9 @@ export async function parseWhatsAppOrderWithLocalAi(
     from: refinedFrom || fastResult.from,
     to: refinedTo || fastResult.to,
     canCreateOrder: Boolean(fastResult.canCreateOrder && refinedFrom && refinedTo && fastResult.confidence >= minConfidence),
-    aiUsed: options.forceAi || !hybridMode,
+    aiUsed: false,
     inferenceMs: elapsed,
-    parseMethod: options.forceAi ? 'local_ai' : 'fast_heuristic',
+    parseMethod: 'fast_heuristic',
   };
 }
 
@@ -256,8 +257,8 @@ export async function checkLocalAIStatus(): Promise<{
       status: res.available ? 'ready' : 'unloaded',
       detail: res.available 
         ? `نموذج Gemma 3 1B متاح محلياً على الهاتف (${res.fileSizeMb || 584} MB) ويعمل دون إنترنت مع قاعدة خرائط HERE WeGo`
-        : `ملف النموذج ${DEFAULT_LOCAL_AI_CONFIG.modelPath} مدمج في هيكل النظام، والمحرك الهجين التكيفي وقاعدة HERE WeGo تعملان بنشاط تام`,
-      architecture: 'LiteRT On-Device LLM + Native Capacitor Bridge + HERE WeGo Places',
+        : `استدلال Gemma/LiteRT-LM غير مدمج في هذه النسخة؛ تعمل قواعد التحليل المحلية وقاعدة HERE WeGo فقط.`,
+      architecture: 'قواعد محلية + جسر Android؛ استدلال LiteRT-LM غير مدمج',
     };
   } catch (err: any) {
     return {
@@ -335,12 +336,9 @@ export async function runLocalAiDiagnosticTest(
 
   const elapsed = Math.max(12, Math.round(performance.now() - start));
 
-  let engineUsed = 'Gemma 3 1B INT4 (محلي)';
-  if (parsed.parseMethod === 'cloud_ai') {
-    engineUsed = 'Gemini 3.8 Flash (سحابي)';
-  } else if (parsed.parseMethod === 'fast_heuristic') {
-    engineUsed = 'المحرك الهجين الفوري + HERE WeGo';
-  }
+  const engineUsed = parsed.aiUsed
+    ? 'نموذج محلي فعلي (تم التحقق من جاهزية الاستدلال)'
+    : 'قواعد التحليل المحلية + HERE WeGo (بدون استدلال نموذج)';
 
   steps.push({
     title: `معالجة النموذج (${engineUsed})`,
@@ -348,10 +346,8 @@ export async function runLocalAiDiagnosticTest(
     success: Boolean(parsed.from || parsed.to || parsed.price > 0),
   });
 
-  // Calculate simulated/actual token rate for Gemma 3 1B
-  const wordCount = text.split(/\s+/).length;
-  const estimatedTokens = Math.max(15, wordCount * 2);
-  const tokensPerSec = Math.round((estimatedTokens / (elapsed / 1000))) + ' tokens/sec';
+  // Do not fabricate model throughput when no model inference actually ran.
+  const tokensPerSec = parsed.aiUsed ? 'يُقاس أثناء الاستدلال الفعلي' : 'غير متاح: لم يعمل نموذج لغوي';
 
   return {
     timestamp: new Date().toLocaleTimeString('ar-BH'),
@@ -360,7 +356,7 @@ export async function runLocalAiDiagnosticTest(
     hereWeGoMatch: matchedHwg,
     engineUsed,
     inferenceMs: elapsed,
-    memoryFootprint: '584 MB (Gemma 3 1B INT4 quantized)',
+    memoryFootprint: parsed.aiUsed ? 'يُقاس أثناء الاستدلال الفعلي' : 'غير متاح: لم يعمل نموذج لغوي',
     tokensPerSec,
     executionSteps: steps,
     isPassengerFlagged: isPassenger,
