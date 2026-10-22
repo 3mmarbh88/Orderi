@@ -4,8 +4,8 @@ import android.content.Context;
 import android.os.SystemClock;
 import android.util.Log;
 
-import com.getcapacitor.ActivityCallback;
-import com.getcapacitor.ActivityResult;
+import androidx.activity.result.ActivityResult;
+import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -23,6 +23,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.json.JSONObject;
 
 @CapacitorPlugin(name = "OrderiLocalAI")
 public class OrderiLocalAIPlugin extends Plugin {
