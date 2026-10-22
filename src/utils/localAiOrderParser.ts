@@ -192,7 +192,7 @@ export async function parseWhatsAppOrderWithLocalAi(
   // Cloud parsing is strictly opt-in. For native Android builds, the backend URL
   // must be explicitly configured at build time; never guess a host or expose an API key.
   if (options.useCloudFallback === true) {
-    const configuredBase = String((import.meta as any).env?.VITE_ORDERI_API_BASE_URL || '').trim().replace(/\\/$/, '');
+  const configuredBase = String((import.meta as any).env?.VITE_ORDERI_API_BASE_URL || '').trim().replace(/\/+$/, '');
     const cloudUrl = configuredBase
       ? `${configuredBase}/api/ai/cloud-parse-order`
       : (!isAndroid ? '/api/ai/cloud-parse-order' : '');
