@@ -212,7 +212,7 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
               </span>
             </div>
             <p className="text-xs text-white/80 mt-0.5 leading-relaxed">
-              قواعد استخراج محلية وقاعدة معالم البحرين؛ استدلال Gemma غير مدمج حاليًا
+              قواعد محلية ومعالم البحرين، مع استدلال Gemma عبر LiteRT-LM بعد استيراد النموذج واجتياز فحصه
             </p>
           </div>
         </div>
@@ -266,24 +266,6 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
       </div>
 
       <div className="p-4 sm:p-5 space-y-4">
-        <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4 flex items-start gap-3">
-          <input
-            id="orderi-cloud-ai-opt-in"
-            type="checkbox"
-            checked={filter.useCloudAiFallback === true}
-            onChange={(event) => onUpdateFilter({ ...filter, useCloudAiFallback: event.target.checked })}
-            className="mt-1 h-4 w-4 accent-amber-700 shrink-0"
-          />
-          <div className="min-w-0">
-            <label htmlFor="orderi-cloud-ai-opt-in" className="text-xs sm:text-sm font-black text-amber-950 cursor-pointer">
-              تفعيل الذكاء الاصطناعي السحابي عند الحاجة (Gemini)
-            </label>
-            <p className="mt-1 text-[11px] leading-relaxed text-amber-900/80">
-              عند التفعيل، تُرسل الرسائل الملتبسة فقط إلى خادم Orderi لتحليلها. عند الإيقاف، لا يُرسل نص الرسائل إلى السحابة ويستمر التحليل المحلي.
-            </p>
-          </div>
-        </div>
-
         {/* Model File & Engine Readiness Status Card */}
         <div className="p-4 rounded-2xl bg-indigo-50/40 border border-indigo-100 space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -402,23 +384,25 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
                   الذكاء الاصطناعي السحابي عند الحاجة (Cloud AI Fallback) ☁️
                 </h4>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-violet-100 text-violet-800">
-                  غير مفعّل
+                  {filter.useCloudAiFallback === true ? 'مفعّل بموافقتك' : 'معطّل'}
                 </span>
               </div>
               <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
-                معالجة نصوص واتساب تبقى على الجهاز. لا يتوفر حاليًا مسار سحابي معتمد لتحليل هذه الرسائل، حفاظًا على الخصوصية.
+                {filter.useCloudAiFallback === true
+                  ? 'عند التفعيل، تُرسل الرسائل الملتبسة فقط إلى خادم Orderi لتحليلها عبر Gemini. يمكنك إيقاف هذا الخيار في أي وقت.'
+                  : 'عند الإيقاف، لا يُرسل نص رسائل واتساب إلى السحابة؛ يستمر التحليل المحلي على الهاتف.'}
               </p>
             </div>
 
             <label className="relative inline-flex items-center cursor-pointer select-none shrink-0">
               <input
                 type="checkbox"
-                checked={false}
-                disabled={true}
+                checked={filter.useCloudAiFallback === true}
+                onChange={(event) => onUpdateFilter({ ...filter, useCloudAiFallback: event.target.checked })}
                 className="sr-only"
               />
-              <div className={`w-9 h-5 rounded-full transition-colors ${filter.useCloudAiFallback !== false ? 'bg-violet-600' : 'bg-slate-300'}`}>
-                <span className={`inline-block w-4 h-4 transform rounded-full bg-white shadow transition ${filter.useCloudAiFallback !== false ? '-translate-x-4' : 'translate-x-0.5'} mt-0.5`} />
+              <div className={`w-9 h-5 rounded-full transition-colors ${filter.useCloudAiFallback === true ? 'bg-violet-600' : 'bg-slate-300'}`}>
+                <span className={`inline-block w-4 h-4 transform rounded-full bg-white shadow transition ${filter.useCloudAiFallback === true ? '-translate-x-4' : 'translate-x-0.5'} mt-0.5`} />
               </div>
             </label>
           </div>
