@@ -5,13 +5,17 @@ import {
   HardDrive, 
   RefreshCw,
   Check,
-  Radio
+  Radio,
+  Upload,
+  Download
 } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
 import { OrderFilter } from '../types';
 import { 
-  checkLocalAIStatus, 
-  DEFAULT_LOCAL_AI_CONFIG 
+  checkLocalAIStatus,
+  importGemmaModel,
+  loadGemmaModel,
+  DEFAULT_LOCAL_AI_CONFIG
 } from '../utils/localAiOrderParser';
 import { 
   HERE_WE_GO_BAHRAIN_PLACES, 
@@ -49,6 +53,8 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
 
   const [modelStatus, setModelStatus] = useState<any>(null);
   const [isCheckingStatus, setIsCheckingStatus] = useState(false);
+  const [modelAction, setModelAction] = useState<'import' | 'load' | null>(null);
+  const [modelActionMessage, setModelActionMessage] = useState('');
   const [readinessAudit, setReadinessAudit] = useState<ReadinessAudit | null>(null);
 
   const fetchStatus = async () => {
@@ -89,11 +95,11 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
       setModelStatus(statusRes);
       const gLatency = Math.max(2, Math.round(performance.now() - gStart));
 
-      // 4. فحص اتصال الذكاء السحابي الاحتياطي
-      // A generic server health endpoint does not prove that Cloud AI is configured.
-      // Keep message analysis disabled unless a real, explicitly enabled provider exists.
+      // 4. Cloud route configuration check only. Do not send a sample or real
+      // WhatsApp message during a readiness check; actual parsing remains opt-in.
       const cLatency = 0;
-      const cloudPassed = false;
+      const cloudEndpointConfigured = Boolean(String((import.meta as any).env?.VITE_ORDERI_API_BASE_URL || '').trim());
+      const cloudPassed = false; // No live Gemini inference was performed here.
 
       const totalElapsed = Math.round(performance.now() - t0);
       const isAndroid = Capacitor.getPlatform() === 'android';
@@ -121,20 +127,24 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
             id: 'gemma3_model',
             name: 'استدلال Gemma 3 1B INT4',
             detail: isAndroid
-              ? 'تم فحص حالة الملف فقط؛ استدلال LiteRT-LM غير مدمج، لذلك النموذج غير جاهز للاستدلال.'
-              : 'يعمل استخراج القواعد المحلية فقط؛ لا يوجد استدلال Gemma في المتصفح.',
+              ? (statusRes.modelAvailable
+                ? 'تم تحميل النموذج واجتاز اختبار استدلال فعلي.'
+                : 'لم يتأكد نجاح الاستدلال الفعلي. استورد ملف .litertlm ثم اضغط تحميل النموذج واختباره.')
+              : 'تعمل قواعد التحليل المحلية؛ استدلال Gemma غير متاح داخل المتصفح.',
             latencyMs: gLatency,
             status: 'warning',
           },
           {
             id: 'cloud_gemini',
-            name: 'تحليل رسائل واتساب عبر السحابة (معطّل للخصوصية)',
-            detail: 'معطّل عمدًا لحماية الخصوصية؛ لا يوجد مزوّد تحليل رسائل سحابي مهيأ، وفحص صحة الخادم لا يثبت جاهزية هذه الميزة.',
+            name: 'تحليل رسائل واتساب عبر السحابة (اختياري)',
+            detail: cloudEndpointConfigured
+              ? 'عنوان خادم Orderi مهيأ. لم يُرسل هذا الفحص أي رسالة إلى Gemini؛ يتم إرسال نص الرسالة فقط عند تفعيل خيار التحليل السحابي صراحةً.'
+              : 'عنوان خادم التحليل السحابي غير مهيأ لهذا البناء. لم يتم إرسال أي رسالة.',
             latencyMs: cLatency,
             status: 'warning',
           },
         ],
-        summary: `قاعدة HERE WeGo وقواعد التحليل المحلية متاحة؛ استدلال Gemma غير مدمج، والمصادقة بالوجه غير مهيأة، وتحليل رسائل واتساب السحابي معطّل للخصوصية.`, 
+        summary: `قواعد التحليل المحلية وقاعدة HERE WeGo متاحتان؛ حالة Gemma تعتمد على نجاح استيراد النموذج واختبار الاستدلال، والتحليل السحابي لا يعمل إلا عند تفعيله صراحةً.`, 
       };
 
       setReadinessAudit(audit);
@@ -142,6 +152,34 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
       console.warn('Error running readiness audit', e);
     } finally {
       setIsCheckingStatus(false);
+    }
+  };
+
+  const handleImportGemma = async () => {
+    setModelAction('import');
+    setModelActionMessage('');
+    try {
+      const result = await importGemmaModel();
+      setModelActionMessage(result.message || (result.success ? 'تم استيراد النموذج.' : 'لم يتم استيراد النموذج.'));
+      await fetchStatus();
+    } catch (error: any) {
+      setModelActionMessage(error?.message || 'تعذر استيراد ملف Gemma.');
+    } finally {
+      setModelAction(null);
+    }
+  };
+
+  const handleLoadGemma = async () => {
+    setModelAction('load');
+    setModelActionMessage('');
+    try {
+      const result = await loadGemmaModel();
+      setModelActionMessage(result.message || (result.success ? 'نجح اختبار النموذج.' : 'النموذج غير جاهز.'));
+      await fetchStatus();
+    } catch (error: any) {
+      setModelActionMessage(error?.message || 'تعذر تحميل نموذج Gemma.');
+    } finally {
+      setModelAction(null);
     }
   };
 
@@ -174,7 +212,7 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
               </span>
             </div>
             <p className="text-xs text-white/80 mt-0.5 leading-relaxed">
-              قواعد استخراج محلية وقاعدة معالم البحرين؛ استدلال Gemma غير مدمج حاليًا
+              قواعد محلية ومعالم البحرين، مع استدلال Gemma عبر LiteRT-LM بعد استيراد النموذج واجتياز فحصه
             </p>
           </div>
         </div>
@@ -228,7 +266,6 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
       </div>
 
       <div className="p-4 sm:p-5 space-y-4">
-        
         {/* Model File & Engine Readiness Status Card */}
         <div className="p-4 rounded-2xl bg-indigo-50/40 border border-indigo-100 space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -254,15 +291,35 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={handleCheckReadiness}
-              disabled={isCheckingStatus}
-              className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black flex items-center gap-2 shrink-0 transition-all shadow-xs hover:shadow-md cursor-pointer self-start sm:self-center active:scale-95"
-            >
-              <RefreshCw className={`w-4 h-4 ${isCheckingStatus ? 'animate-spin' : ''}`} />
-              <span>{isCheckingStatus ? 'جارٍ الفحص الشامل...' : 'فحص الجاهزية الآن ⚡'}</span>
-            </button>
+            <div className="flex flex-col gap-2 shrink-0 w-full sm:w-auto">
+              <button
+                type="button"
+                onClick={handleImportGemma}
+                disabled={modelAction !== null || Capacitor.getPlatform() !== 'android'}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-xs font-black flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+              >
+                <Upload className="w-4 h-4" />
+                <span>{modelAction === 'import' ? 'جارٍ استيراد الملف...' : 'استيراد ملف Gemma (.litertlm)'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleLoadGemma}
+                disabled={modelAction !== null || Capacitor.getPlatform() !== 'android' || !modelStatus?.isNativeAndroid}
+                className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-black flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+              >
+                <Download className="w-4 h-4" />
+                <span>{modelAction === 'load' ? 'جارٍ تحميل واختبار النموذج...' : 'تحميل النموذج واختباره'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleCheckReadiness}
+                disabled={isCheckingStatus || modelAction !== null}
+                className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+              >
+                <RefreshCw className={`w-4 h-4 ${isCheckingStatus ? 'animate-spin' : ''}`} />
+                <span>{isCheckingStatus ? 'جارٍ الفحص الشامل...' : 'فحص الجاهزية الآن ⚡'}</span>
+              </button>
+            </div>
           </div>
 
           {/* Readiness Audit Result Popover/Card */}
@@ -327,23 +384,25 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
                   الذكاء الاصطناعي السحابي عند الحاجة (Cloud AI Fallback) ☁️
                 </h4>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-violet-100 text-violet-800">
-                  غير مفعّل
+                  {filter.useCloudAiFallback === true ? 'مفعّل بموافقتك' : 'معطّل'}
                 </span>
               </div>
               <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
-                معالجة نصوص واتساب تبقى على الجهاز. لا يتوفر حاليًا مسار سحابي معتمد لتحليل هذه الرسائل، حفاظًا على الخصوصية.
+                {filter.useCloudAiFallback === true
+                  ? 'عند التفعيل، تُرسل الرسائل الملتبسة فقط إلى خادم Orderi لتحليلها عبر Gemini. يمكنك إيقاف هذا الخيار في أي وقت.'
+                  : 'عند الإيقاف، لا يُرسل نص رسائل واتساب إلى السحابة؛ يستمر التحليل المحلي على الهاتف.'}
               </p>
             </div>
 
             <label className="relative inline-flex items-center cursor-pointer select-none shrink-0">
               <input
                 type="checkbox"
-                checked={false}
-                disabled={true}
+                checked={filter.useCloudAiFallback === true}
+                onChange={(event) => onUpdateFilter({ ...filter, useCloudAiFallback: event.target.checked })}
                 className="sr-only"
               />
-              <div className={`w-9 h-5 rounded-full transition-colors ${filter.useCloudAiFallback !== false ? 'bg-violet-600' : 'bg-slate-300'}`}>
-                <span className={`inline-block w-4 h-4 transform rounded-full bg-white shadow transition ${filter.useCloudAiFallback !== false ? '-translate-x-4' : 'translate-x-0.5'} mt-0.5`} />
+              <div className={`w-9 h-5 rounded-full transition-colors ${filter.useCloudAiFallback === true ? 'bg-violet-600' : 'bg-slate-300'}`}>
+                <span className={`inline-block w-4 h-4 transform rounded-full bg-white shadow transition ${filter.useCloudAiFallback === true ? '-translate-x-4' : 'translate-x-0.5'} mt-0.5`} />
               </div>
             </label>
           </div>

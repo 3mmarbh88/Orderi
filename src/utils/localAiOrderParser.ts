@@ -22,10 +22,12 @@ export interface LocalAIExtractionResult {
 }
 
 interface OrderiLocalAIPluginType {
-  isModelAvailable(): Promise<{ available: boolean; modelPath?: string; fileSizeMb?: number }>;
-  loadModel(): Promise<{ success: boolean; status: string; memoryUsedMb?: number }>;
+  isModelAvailable(): Promise<{ available: boolean; filePresent?: boolean; inferenceReady?: boolean; status?: string; modelPath?: string; fileSizeMb?: number }>;
+  loadModel(): Promise<{ success: boolean; status: string; filePresent?: boolean; inferenceReady?: boolean; message?: string; memoryUsedMb?: number }>;
+  importModel(): Promise<{ success: boolean; cancelled?: boolean; filePresent?: boolean; fileSizeMb?: number; modelPath?: string; message?: string }>;
   parseOrder(options: { text: string }): Promise<{
     success: boolean;
+    inferenceReady?: boolean;
     from: string;
     to: string;
     price: number;
@@ -47,11 +49,11 @@ export const OrderiLocalAIPlugin = registerPlugin<OrderiLocalAIPluginType>('Orde
 
 export const DEFAULT_LOCAL_AI_CONFIG = {
   enabled: true,
-  modelName: 'Gemma 3 1B IT (gemma3-1b-it-int4.litertlm)',
+  modelName: 'Gemma 3 1B INT4 LiteRT-LM (import required)',
   modelPath: 'models/gemma3-1b-it-int4.litertlm',
   hybridMode: true,
   minConfidenceForFastPass: 85,
-  status: 'ready' as const,
+  status: 'unloaded' as const,
 };
 
 /**
@@ -150,7 +152,9 @@ export async function parseWhatsAppOrderWithLocalAi(
   if (isAndroid) {
     try {
       const nativeResponse = await OrderiLocalAIPlugin.parseOrder({ text: rawText });
-      if (nativeResponse && nativeResponse.success && nativeResponse.from && nativeResponse.to) {
+      // Only accept native results after LiteRT-LM has successfully generated and
+      // parsed a real model response. Rule-based native fallback is not called AI.
+      if (nativeResponse && nativeResponse.success && nativeResponse.inferenceReady === true && nativeResponse.from && nativeResponse.to) {
         const fromArea = snapToOfficialBahrainArea(nativeResponse.from) || fastResult.from;
         const toArea = snapToOfficialBahrainArea(nativeResponse.to) || fastResult.to;
         const price = (typeof nativeResponse.price === 'number' && nativeResponse.price > 0)
@@ -159,6 +163,14 @@ export async function parseWhatsAppOrderWithLocalAi(
 
         const elapsed = Math.round(performance.now() - startTime);
         const passengerDet = detectPassengerDelivery(rawText);
+        const nativeRisk = String(nativeResponse.passengerRisk || 'goods_safe');
+        if ((nativeRisk === 'confirmed_passenger' || nativeRisk === 'suspicious_passenger')
+            && passengerDet.level === 'goods_safe') {
+          passengerDet.level = nativeRisk as typeof passengerDet.level;
+          passengerDet.label = nativeRisk === 'confirmed_passenger' ? 'طلب نقل ركاب مؤكد من Gemma' : 'اشتباه بنقل ركاب من Gemma';
+          passengerDet.reason = String(nativeResponse.notes || 'تم تصنيف الرسالة كطلب ركاب بواسطة Gemma');
+          passengerDet.passengerCount = Number(nativeResponse.passengerCount) || passengerDet.passengerCount;
+        }
 
         return {
           from: fromArea,
@@ -173,7 +185,7 @@ export async function parseWhatsAppOrderWithLocalAi(
           phone: nativeResponse.phone || fastResult.phone,
           notes: nativeResponse.notes || fastResult.notes || 'تم التحليل عبر الذكاء الاصطناعي المحلي (Gemma 3 1B)',
           confidence: Math.max(0, Math.min(100, typeof nativeResponse.confidence === 'number' ? nativeResponse.confidence : fastResult.confidence)),
-          canCreateOrder: Boolean(fromArea && toArea && (typeof nativeResponse.confidence === 'number' ? nativeResponse.confidence : fastResult.confidence) >= minConfidence),
+          canCreateOrder: Boolean(fromArea && toArea && nativeRisk === 'goods_safe' && (typeof nativeResponse.confidence === 'number' ? nativeResponse.confidence : fastResult.confidence) >= minConfidence),
           passengerDetection: passengerDet,
           aiUsed: true,
           inferenceMs: elapsed,
@@ -185,8 +197,67 @@ export async function parseWhatsAppOrderWithLocalAi(
     }
   }
 
-  // Privacy guarantee: WhatsApp message text is never sent to a third-party AI endpoint.
-  // Internet access may still be used by other app features, but parsing stays on-device.
+  // Cloud parsing is strictly opt-in. For native Android builds, the backend URL
+  // must be explicitly configured at build time; never guess a host or expose an API key.
+  if (options.useCloudFallback === true) {
+  const configuredBase = String((import.meta as any).env?.VITE_ORDERI_API_BASE_URL || '').trim().replace(/\/+$/, '');
+    const cloudUrl = configuredBase
+      ? `${configuredBase}/api/ai/cloud-parse-order`
+      : (!isAndroid ? '/api/ai/cloud-parse-order' : '');
+    if (cloudUrl) {
+      try {
+        const response = await fetch(cloudUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            rawText,
+            senderName: options.senderName || '',
+            groupName: options.groupName || '',
+          }),
+          signal: AbortSignal.timeout(10000),
+        });
+        if (response.ok) {
+          const payload = await response.json();
+          const data = payload?.data;
+          if (payload?.success === true && data && typeof data === 'object') {
+            const from = snapToOfficialBahrainArea(String(data.from || '')) || fastResult.from;
+            const to = snapToOfficialBahrainArea(String(data.to || '')) || fastResult.to;
+            const price = Number.isFinite(Number(data.price)) ? Math.max(0, Number(data.price)) : fastResult.price;
+            const confidence = Math.max(0, Math.min(100, Number(data.confidence) || 0));
+            const passengerDet = detectPassengerDelivery(rawText);
+            const cloudRisk = String(data.passengerRisk || 'goods_safe');
+            if ((cloudRisk === 'confirmed_passenger' || cloudRisk === 'suspicious_passenger')
+                && passengerDet.level === 'goods_safe') {
+              passengerDet.level = cloudRisk as typeof passengerDet.level;
+              passengerDet.label = cloudRisk === 'confirmed_passenger' ? 'طلب نقل ركاب مؤكد من التحليل السحابي' : 'اشتباه بنقل ركاب من التحليل السحابي';
+              passengerDet.reason = String(data.notes || 'تم تصنيف الرسالة كطلب ركاب بواسطة Gemini');
+              passengerDet.passengerCount = Number(data.passengerCount) || passengerDet.passengerCount;
+            }
+            return {
+              ...fastResult,
+              from,
+              to,
+              price,
+              phone: String(data.phone || fastResult.phone || ''),
+              notes: String(data.notes || 'تم التحليل عبر Gemini السحابي بعد تفعيل الخيار'),
+              confidence,
+              canCreateOrder: Boolean(data.is_order === true && from && to && from !== to && confidence >= minConfidence && !data.passengerRisk?.includes?.('passenger')),
+              passengerDetection: passengerDet,
+              passengerCount: Number(data.passengerCount) || passengerDet.passengerCount,
+              aiUsed: true,
+              inferenceMs: Math.round(performance.now() - startTime),
+              parseMethod: 'cloud_ai',
+            };
+          }
+        }
+        console.warn('[Orderi Cloud AI] Endpoint returned an unavailable or invalid response; using local heuristics.');
+      } catch (error) {
+        console.warn('[Orderi Cloud AI] Request failed; using local heuristics.', error);
+      }
+    } else {
+      console.info('[Orderi Cloud AI] Opt-in is enabled but VITE_ORDERI_API_BASE_URL is not configured for Android; no message was sent.');
+    }
+  }
 
   // Step 4: Refined Heuristic engine fallback
   const elapsed = Math.round(performance.now() - startTime);
@@ -207,9 +278,11 @@ export async function parseWhatsAppOrderWithLocalAi(
     from: refinedFrom || fastResult.from,
     to: refinedTo || fastResult.to,
     canCreateOrder: Boolean(fastResult.canCreateOrder && refinedFrom && refinedTo && fastResult.confidence >= minConfidence),
-    aiUsed: options.forceAi || !hybridMode,
+    // This branch is deterministic rule parsing, not model inference, even when
+    // the caller requests a deeper analysis.
+    aiUsed: false,
     inferenceMs: elapsed,
-    parseMethod: options.forceAi ? 'local_ai' : 'fast_heuristic',
+    parseMethod: options.forceAi ? 'fallback' : 'fast_heuristic',
   };
 }
 
@@ -254,10 +327,12 @@ export async function checkLocalAIStatus(): Promise<{
       hereWeGoPlacesCount,
       hereWeGoActive: true,
       status: res.available ? 'ready' : 'unloaded',
-      detail: res.available 
-        ? `نموذج Gemma 3 1B متاح محلياً على الهاتف (${res.fileSizeMb || 584} MB) ويعمل دون إنترنت مع قاعدة خرائط HERE WeGo`
-        : `ملف النموذج ${DEFAULT_LOCAL_AI_CONFIG.modelPath} مدمج في هيكل النظام، والمحرك الهجين التكيفي وقاعدة HERE WeGo تعملان بنشاط تام`,
-      architecture: 'LiteRT On-Device LLM + Native Capacitor Bridge + HERE WeGo Places',
+      detail: res.available
+        ? `تم تحميل Gemma واختبار استدلال حقيقي بنجاح مع قاعدة خرائط HERE WeGo.`
+        : res.filePresent
+          ? `ملف Gemma موجود على الهاتف، لكن الاستدلال لم يجتز فحص الجاهزية بعد. اضغط تحميل النموذج واختبره.`
+          : `لم يتم استيراد ملف Gemma بعد. استورد ملف .litertlm من إعدادات الذكاء الاصطناعي؛ تعمل قواعد التحليل المحلية فقط حتى ذلك الحين.`,
+      architecture: res.available ? 'تحقق فعلي من جسر الاستدلال المحلي + HERE WeGo Places' : 'قواعد محلية + HERE WeGo Places؛ Gemma غير جاهز',
     };
   } catch (err: any) {
     return {
@@ -271,6 +346,28 @@ export async function checkLocalAIStatus(): Promise<{
       detail: `تعذر التحقق من جسر النموذج المحلي؛ تعمل قواعد التحليل فقط، ولا يمكن تأكيد جاهزية النموذج. (${hereWeGoPlacesCount} معلماً في قاعدة HERE WeGo)`,
       architecture: 'قواعد محلية؛ حالة نموذج Android غير مؤكدة',
     };
+  }
+}
+
+export async function importGemmaModel(): Promise<{ success: boolean; cancelled?: boolean; fileSizeMb?: number; message?: string }> {
+  if (Capacitor.getPlatform() !== 'android') {
+    return { success: false, message: 'استيراد ملف Gemma متاح داخل تطبيق Android فقط.' };
+  }
+  try {
+    return await OrderiLocalAIPlugin.importModel();
+  } catch (error: any) {
+    return { success: false, message: error?.message || 'تعذر فتح مستعرض الملفات.' };
+  }
+}
+
+export async function loadGemmaModel(): Promise<{ success: boolean; status: string; inferenceReady?: boolean; message?: string }> {
+  if (Capacitor.getPlatform() !== 'android') {
+    return { success: false, status: 'not_native', inferenceReady: false, message: 'تحميل Gemma متاح داخل تطبيق Android فقط.' };
+  }
+  try {
+    return await OrderiLocalAIPlugin.loadModel();
+  } catch (error: any) {
+    return { success: false, status: 'error', inferenceReady: false, message: error?.message || 'تعذر تحميل نموذج Gemma.' };
   }
 }
 
@@ -335,7 +432,7 @@ export async function runLocalAiDiagnosticTest(
 
   const elapsed = Math.max(12, Math.round(performance.now() - start));
 
-  let engineUsed = 'Gemma 3 1B INT4 (محلي)';
+  let engineUsed = 'قواعد محلية + HERE WeGo (استدلال Gemma غير متاح)';
   if (parsed.parseMethod === 'cloud_ai') {
     engineUsed = 'Gemini 3.8 Flash (سحابي)';
   } else if (parsed.parseMethod === 'fast_heuristic') {
@@ -348,10 +445,10 @@ export async function runLocalAiDiagnosticTest(
     success: Boolean(parsed.from || parsed.to || parsed.price > 0),
   });
 
-  // Calculate simulated/actual token rate for Gemma 3 1B
-  const wordCount = text.split(/\s+/).length;
-  const estimatedTokens = Math.max(15, wordCount * 2);
-  const tokensPerSec = Math.round((estimatedTokens / (elapsed / 1000))) + ' tokens/sec';
+  // Do not report estimated token speed or model memory as measured hardware metrics.
+  const tokensPerSec = parsed.parseMethod === 'local_ai' || parsed.parseMethod === 'cloud_ai'
+    ? 'غير مقاس في هذا التشخيص'
+    : 'لا يوجد استدلال نموذج؛ قواعد محلية فقط';
 
   return {
     timestamp: new Date().toLocaleTimeString('ar-BH'),
@@ -360,7 +457,7 @@ export async function runLocalAiDiagnosticTest(
     hereWeGoMatch: matchedHwg,
     engineUsed,
     inferenceMs: elapsed,
-    memoryFootprint: '584 MB (Gemma 3 1B INT4 quantized)',
+    memoryFootprint: parsed.parseMethod === 'local_ai' ? 'غير مقاس' : 'لم يتم تحميل Gemma؛ الذاكرة الفعلية غير متاحة',
     tokensPerSec,
     executionSteps: steps,
     isPassengerFlagged: isPassenger,

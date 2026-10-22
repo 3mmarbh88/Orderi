@@ -9,6 +9,7 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - 'capacitor.config.*'
+      - 'SPIDER_CONTINUOUS_MONITORING.md'
       - '.github/workflows/build-orderi-apk.yml'
   push:
     branches:
@@ -23,6 +24,11 @@ on:
 
 permissions:
   contents: read
+
+# Avoid wasting runners on obsolete APK builds when several commits land quickly.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-apk:
@@ -43,6 +49,9 @@ jobs:
 
       - name: Build web application
         run: npm run build
+        env:
+          # Public URL only; the Gemini API key remains on the backend.
+          VITE_ORDERI_API_BASE_URL: https://orderi-server.onrender.com
 
       - name: Set up Java 21
         uses: actions/setup-java@v5

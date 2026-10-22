@@ -373,11 +373,12 @@ function OrderiApp({
             const rawText = (event.rawText || event.bigText || event.text || event.subText || '').trim();
             if (detectAdvertisementMessage(rawText || event.title || '').isAdvertisement) {
               console.info('[Orderi] Suppressed pending service advertisement');
+              await OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] });
               continue;
             }
             const parsed = await parseWhatsAppOrderWithLocalAi(rawText || event.title || '', {
               hybridMode: filterRef.current.localAiConfig?.hybridMode !== false,
-              useCloudFallback: filterRef.current.useCloudAiFallback !== false,
+              useCloudFallback: filterRef.current.useCloudAiFallback === true,
               senderName: event.title,
               groupName,
             });
@@ -408,6 +409,9 @@ function OrderiApp({
                 passengerDetection: parsed.passengerDetection,
               }, true);
             }
+            // getPending is now non-destructive; acknowledge only after parsing and
+            // the synchronous local persistence/state handoff have completed.
+            await OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] });
           }
         }
       }
@@ -1034,7 +1038,10 @@ function OrderiApp({
         }
       }
       const rawText = (event.rawText || event.bigText || event.text || event.subText || '').trim();
-      if (!rawText && !event.title) return;
+      if (!rawText && !event.title) {
+        void OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] }).catch((error) => console.warn('[Orderi Spider] Event acknowledgement failed; it remains queued:', error));
+        return;
+      }
 
       // Smart resolution of Group Name and whether it's a group
       let detectedGroupName = '';
@@ -1070,6 +1077,7 @@ function OrderiApp({
       const advertisementCheck = detectAdvertisementMessage(rawText || event.title || '');
       if (advertisementCheck.isAdvertisement) {
         console.info('[Orderi] Suppressed service/commercial advertisement:', advertisementCheck.reason || 'advertisement');
+        void OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] }).catch((error) => console.warn('[Orderi Spider] Event acknowledgement failed; it remains queued:', error));
         return;
       }
 
@@ -1124,10 +1132,12 @@ function OrderiApp({
           if (filterRef.current.soundEnabled) {
             playAlertTone('cash_register', 90);
           }
+          void OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] }).catch((error) => console.warn('[Orderi Spider] Event acknowledgement failed; it remains queued:', error));
           return;
         } else if (replyVerdict.verdict === 'REJECTED_OR_TAKEN') {
           // Silent ignore - المعلن أفاد بأنه أخذوه أو تكنسل
           console.log('[Orderi Native] Advertiser replied taken/cancelled:', rawText);
+          void OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] }).catch((error) => console.warn('[Orderi Spider] Event acknowledgement failed; it remains queued:', error));
           return;
         }
       }
@@ -1152,6 +1162,7 @@ function OrderiApp({
         );
         if (fastClosureMatch) {
           handleAutoOrderClosure(fastClosureMatch);
+          void OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] }).catch((error) => console.warn('[Orderi Spider] Event acknowledgement failed; it remains queued:', error));
           return;
         }
 
@@ -1166,7 +1177,7 @@ function OrderiApp({
       import('./utils/localAiOrderParser').then(async ({ parseWhatsAppOrderWithLocalAi }) => {
         const parsed = await parseWhatsAppOrderWithLocalAi(rawText || event.title || '', {
           hybridMode: filterRef.current.localAiConfig?.hybridMode !== false,
-          useCloudFallback: filterRef.current.useCloudAiFallback !== false,
+          useCloudFallback: filterRef.current.useCloudAiFallback === true,
           senderName: event.title,
           groupName,
         });
@@ -1219,6 +1230,9 @@ function OrderiApp({
 
           handleProcessIncomingRawOrder(order, false);
         }
+        // Messages that are validly analyzed but do not qualify as orders are
+        // acknowledged too; transient parser errors intentionally remain queued.
+        await OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] });
       }).catch((error) => {
         console.warn('[Orderi Native] Could not parse incoming WhatsApp notification:', error);
       });
