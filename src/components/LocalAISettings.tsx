@@ -11,6 +11,7 @@ import { Capacitor } from '@capacitor/core';
 import { OrderFilter } from '../types';
 import { 
   checkLocalAIStatus, 
+  OrderiLocalAIPlugin,
   DEFAULT_LOCAL_AI_CONFIG 
 } from '../utils/localAiOrderParser';
 import { 
@@ -115,16 +116,18 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
             name: 'رادار كشف ومنع نقل الركاب',
             detail: `تم تشغيل اختبار تصنيفي تجريبي؛ يلزم اختبار حالات واقعية ولا تُضمن دقة 100%.`,
             latencyMs: pLatency,
-            status: testPlace ? 'passed' : 'warning',
+            status: testPassenger.level === 'confirmed_passenger' ? 'passed' : 'warning',
           },
           {
             id: 'gemma3_model',
-            name: 'استدلال قواعد محلية',
+            name: 'محرك LiteRT-LM المحلي',
             detail: isAndroid
-              ? 'تم فحص حالة الملف فقط؛ استدلال LiteRT-LM غير مدمج، لذلك لا يوجد نموذج لغوي يعمل.'
-              : 'يعمل استخراج القواعد المحلية فقط؛ لا يوجد استدلال نموذج لغوي في المتصفح.',
+              ? (statusRes.modelAvailable
+                  ? 'تم تحميل النموذج بنجاح؛ يلزم اختبار تحليل الرسائل الواقعية على الهاتف.'
+                  : 'محرك LiteRT-LM مدمج في التطبيق، لكن ملف Gemma غير محمّل. استورد ملف .litertlm المرخّص من Google AI Edge/Hugging Face.')
+              : 'يعمل استخراج القواعد المحلية فقط؛ استدلال LiteRT-LM متاح في نسخة Android الأصلية فقط.',
             latencyMs: gLatency,
-            status: 'warning',
+            status: isAndroid && statusRes.modelAvailable ? 'passed' : 'warning',
           },
           {
             id: 'cloud_gemini',
@@ -134,7 +137,7 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
             status: 'warning',
           },
         ],
-        summary: `قاعدة HERE WeGo وقواعد التحليل المحلية متاحة؛ استدلال Gemma غير مدمج، والمصادقة بالوجه غير مهيأة، وتحليل رسائل واتساب السحابي معطّل للخصوصية.`, 
+        summary: `قواعد التحليل المحلية وقاعدة HERE WeGo متاحة؛ استدلال Gemma يحتاج ملف نموذج مرخّصاً محمّلاً على الجهاز. تحليل رسائل واتساب السحابي معطّل للخصوصية.`, 
       };
 
       setReadinessAudit(audit);
@@ -174,7 +177,7 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
               </span>
             </div>
             <p className="text-xs text-white/80 mt-0.5 leading-relaxed">
-              قواعد استخراج محلية وقاعدة معالم البحرين؛ لا يوجد استدلال نموذج لغوي مدمج حاليًا
+              قواعد محلية + محرك LiteRT-LM اختياري على Android؛ ملف النموذج غير مضمن في APK
             </p>
           </div>
         </div>
@@ -222,7 +225,7 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
           <span className="text-[10px] text-slate-400 font-bold block">حالة الاتصال</span>
           <span className="text-xs font-black text-violet-700 flex items-center justify-center gap-1">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-            <span>محلي + سحابي تكيفي</span>
+            <span>محلي فقط؛ لا إرسال سحابي</span>
           </span>
         </div>
       </div>
@@ -240,11 +243,11 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
                 <h4 className="text-xs sm:text-sm font-black text-indigo-950 flex items-center gap-2">
                   <span>حالة المحرك ونموذج الذكاء الاصطناعي:</span>
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-800">
-                    استدلال Gemma غير مدمج
+                    {modelStatus?.modelAvailable ? 'نموذج Gemma محمّل' : 'ملف Gemma غير محمّل'}
                   </span>
                 </h4>
                 <p className="text-[11px] text-indigo-800/80 mt-0.5 leading-relaxed">
-                  {modelStatus?.detail || 'يتم استخدام قواعد محلية وقاعدة HERE WeGo؛ لا يُعتبر ملف النموذج جاهزًا قبل دمج واختبار الاستدلال.'}
+                  {modelStatus?.detail || 'محرك LiteRT-LM مدمج؛ يلزم استيراد ملف Gemma المرخّص وتحميله قبل تأكيد جاهزية الاستدلال.'}
                 </p>
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] text-indigo-600 font-semibold">
                   <span>⚡ المعمارية: {modelStatus?.architecture || 'قواعد محلية؛ تحليل رسائل واتساب يبقى على الجهاز'}</span>
@@ -253,6 +256,42 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
                 </div>
               </div>
             </div>
+
+            {Capacitor.getPlatform() === 'android' && (
+              <button
+                type="button"
+                onClick={async () => {
+                  setIsCheckingStatus(true);
+                  try {
+                    const selected = await OrderiLocalAIPlugin.chooseModelFile();
+                    if (!selected?.success) throw new Error(selected?.message || 'لم يتم استيراد ملف النموذج');
+                    const loaded = await OrderiLocalAIPlugin.loadModel();
+                    await fetchStatus();
+                    if (!loaded?.success) {
+                      setModelStatus((previous: any) => ({
+                        ...(previous || {}),
+                        detail: loaded?.message || 'تم استيراد الملف لكن تعذر تحميله. تحقق من توافق الملف وذاكرة الهاتف.',
+                        modelAvailable: false,
+                      }));
+                    }
+                  } catch (error: any) {
+                    console.warn('[Orderi] Gemma model import/load failed', error);
+                    setModelStatus((previous: any) => ({
+                      ...(previous || {}),
+                      detail: error?.message || 'تعذر اختيار أو تحميل ملف النموذج.',
+                      modelAvailable: false,
+                    }));
+                  } finally {
+                    setIsCheckingStatus(false);
+                  }
+                }}
+                disabled={isCheckingStatus}
+                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black flex items-center gap-2 shrink-0 transition-all shadow-xs cursor-pointer self-start sm:self-center active:scale-95"
+              >
+                <HardDrive className="w-4 h-4" />
+                <span>استيراد ملف Gemma وتشغيله</span>
+              </button>
+            )}
 
             <button
               type="button"

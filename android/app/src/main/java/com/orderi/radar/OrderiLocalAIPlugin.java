@@ -1,16 +1,24 @@
 package com.orderi.radar;
 
 import android.content.Context;
+import android.app.Activity;
+import android.content.Intent;
+import android.net.Uri;
 import android.os.SystemClock;
 import android.util.Log;
 
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
+import com.getcapacitor.ActivityResult;
+import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 import java.io.File;
+import java.io.InputStream;
+import java.io.FileOutputStream;
+import org.json.JSONObject;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
@@ -60,13 +68,69 @@ public class OrderiLocalAIPlugin extends Plugin {
         checkAndLocateModel();
         JSObject ret = new JSObject();
         boolean filePresent = modelFile != null && modelFile.exists();
-        // A file on disk alone cannot be used as evidence that model inference is ready.
-        ret.put("available", false);
+        boolean inferenceReady = filePresent && OrderiLiteRtRuntime.isLoaded(modelFile.getAbsolutePath());
+        ret.put("available", inferenceReady);
         ret.put("filePresent", filePresent);
-        ret.put("inferenceReady", false);
-        ret.put("status", filePresent ? "inference_not_integrated" : "model_file_missing");
+        ret.put("inferenceReady", inferenceReady);
+        ret.put("status", inferenceReady ? "ready" : (filePresent ? "model_not_loaded" : "model_file_missing"));
         ret.put("modelPath", filePresent ? modelFile.getAbsolutePath() : "models/" + MODEL_FILENAME);
         ret.put("fileSizeMb", filePresent ? modelFile.length() / (1024 * 1024) : 0);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void chooseModelFile(PluginCall call) {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        startActivityForResult(call, intent, "handleModelFileSelected");
+    }
+
+    @ActivityCallback
+    private void handleModelFileSelected(PluginCall call, ActivityResult result) {
+        if (call == null) return;
+        if (result.getResultCode() != Activity.RESULT_OK || result.getData() == null || result.getData().getData() == null) {
+            call.reject("لم يتم اختيار ملف النموذج");
+            return;
+        }
+        Uri sourceUri = result.getData().getData();
+        executor.execute(() -> {
+            File destination = new File(getContext().getFilesDir(), "models/" + MODEL_FILENAME);
+            File parent = destination.getParentFile();
+            if (parent != null && !parent.exists() && !parent.mkdirs()) {
+                call.reject("تعذر إنشاء مجلد النموذج داخل التطبيق");
+                return;
+            }
+            try (InputStream input = getContext().getContentResolver().openInputStream(sourceUri);
+                 FileOutputStream output = new FileOutputStream(destination)) {
+                if (input == null) throw new IllegalStateException("تعذر قراءة الملف المحدد");
+                byte[] buffer = new byte[1024 * 1024];
+                int read;
+                while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
+                output.getFD().sync();
+                if (destination.length() < 100L * 1024L * 1024L) {
+                    destination.delete();
+                    throw new IllegalArgumentException("الملف أصغر من حجم نموذج Gemma المتوقع؛ اختر ملف .litertlm الصحيح.");
+                }
+                modelFile = destination;
+                isModelLoaded = false;
+                retestModelFileAndResolve(call, destination);
+            } catch (Throwable error) {
+                Log.e(TAG, "Could not import local Gemma model", error);
+                destination.delete();
+                call.reject("فشل استيراد ملف النموذج: " + error.getMessage());
+            }
+        });
+    }
+
+    private void retestModelFileAndResolve(PluginCall call, File destination) {
+        JSObject ret = new JSObject();
+        ret.put("success", true);
+        ret.put("filePresent", true);
+        ret.put("inferenceReady", false);
+        ret.put("modelPath", destination.getAbsolutePath());
+        ret.put("fileSizeMb", destination.length() / (1024 * 1024));
+        ret.put("message", "تم استيراد الملف. اضغط فحص الجاهزية لتحميل المحرك واختبار النموذج.");
         call.resolve(ret);
     }
 
@@ -77,17 +141,27 @@ public class OrderiLocalAIPlugin extends Plugin {
             JSObject ret = new JSObject();
             isModelLoaded = false;
             if (modelFile != null && modelFile.exists()) {
-                ret.put("success", false);
-                ret.put("status", "inference_not_integrated");
-                ret.put("filePresent", true);
-                ret.put("inferenceReady", false);
-                ret.put("message", "The model file exists, but LiteRT-LM inference has not been integrated into this plugin.");
+                try {
+                    isModelLoaded = OrderiLiteRtRuntime.initialize(getContext(), modelFile.getAbsolutePath());
+                    ret.put("success", isModelLoaded);
+                    ret.put("status", isModelLoaded ? "ready" : "model_load_failed");
+                    ret.put("filePresent", true);
+                    ret.put("inferenceReady", isModelLoaded);
+                    ret.put("message", isModelLoaded ? "LiteRT-LM model initialized successfully." : "LiteRT-LM did not initialize.");
+                } catch (Throwable error) {
+                    Log.e(TAG, "LiteRT-LM model initialization failed", error);
+                    ret.put("success", false);
+                    ret.put("status", "model_load_failed");
+                    ret.put("filePresent", true);
+                    ret.put("inferenceReady", false);
+                    ret.put("message", "Model file exists, but LiteRT-LM initialization failed: " + error.getMessage());
+                }
             } else {
                 ret.put("success", false);
                 ret.put("status", "model_file_missing");
                 ret.put("filePresent", false);
                 ret.put("inferenceReady", false);
-                ret.put("message", "Model file gemma3-1b-it-int4.litertlm not found on device storage");
+                ret.put("message", "Model file gemma3-1b-it-int4.litertlm not found. Obtain it under the Gemma terms and place it in app-private files/models.");
             }
             call.resolve(ret);
         });
@@ -107,7 +181,41 @@ public class OrderiLocalAIPlugin extends Plugin {
         executor.execute(() -> {
             long startMs = SystemClock.elapsedRealtime();
 
-            // Extract using the local rule-based matcher only; no model inference is run.
+            // Prefer real on-device LiteRT-LM inference when a licensed model is present.
+            // Parsing always falls back to the local deterministic rules if inference fails.
+            if (modelFile != null && modelFile.exists()) {
+                try {
+                    String prompt = "أنت محلل طلبات توصيل في البحرين. استخرج فقط JSON صالحاً بالمفاتيح from وto وprice وphone وnotes وconfidence. " +
+                            "from وto أسماء مناطق بحرينية؛ price رقم بالدينار البحريني أو 0 إذا لم يذكر. لا تخمن المناطق غير المذكورة. " +
+                            "إذا لم يكن النص طلب توصيل واضحاً أعد from وto فارغين. النص: " + text;
+                    String generated = OrderiLiteRtRuntime.generate(getContext(), modelFile.getAbsolutePath(), prompt);
+                    Matcher jsonMatcher = Pattern.compile("\\{[\\s\\S]*\\}").matcher(generated == null ? "" : generated);
+                    if (jsonMatcher.find()) {
+                        JSONObject parsed = new JSONObject(jsonMatcher.group());
+                        String from = parsed.optString("from", "").trim();
+                        String to = parsed.optString("to", "").trim();
+                        if (!from.isEmpty() && !to.isEmpty() && !from.equals(to)) {
+                            JSObject result = new JSObject();
+                            result.put("success", true);
+                            result.put("from", from);
+                            result.put("to", to);
+                            result.put("price", Math.max(0, parsed.optDouble("price", 0)));
+                            result.put("phone", parsed.optString("phone", ""));
+                            result.put("notes", parsed.optString("notes", "تحليل Gemma محلي"));
+                            result.put("confidence", Math.max(0, Math.min(100, parsed.optDouble("confidence", 75))));
+                            result.put("inferenceReady", true);
+                            result.put("modelLoaded", true);
+                            result.put("inferenceTimeMs", SystemClock.elapsedRealtime() - startMs);
+                            call.resolve(result);
+                            return;
+                        }
+                    }
+                } catch (Throwable error) {
+                    Log.w(TAG, "Real LiteRT-LM inference failed; using local rule parser", error);
+                }
+            }
+
+            // Deterministic local rules are the fallback; never label them as model inference.
             String fromArea = "";
             String toArea = "";
             float price = 0.0f;
@@ -227,6 +335,7 @@ public class OrderiLocalAIPlugin extends Plugin {
             float ruleConfidence = (!fromArea.isEmpty() && !toArea.isEmpty() && !fromArea.equals(toArea)) ? 65.0f : 20.0f;
             ret.put("confidence", ruleConfidence);
             ret.put("inferenceReady", false);
+            ret.put("modelLoaded", false);
             ret.put("inferenceTimeMs", elapsedMs);
             call.resolve(ret);
         });
@@ -237,9 +346,9 @@ public class OrderiLocalAIPlugin extends Plugin {
         JSObject ret = new JSObject();
         ret.put("initialized", true);
         ret.put("modelFilePresent", modelFile != null && modelFile.exists());
-        ret.put("modelLoaded", false);
-        ret.put("inferenceReady", false);
-        ret.put("modelName", "Gemma 3 1B LiteRT (inference not integrated)");
+        ret.put("modelLoaded", modelFile != null && modelFile.exists() && OrderiLiteRtRuntime.isLoaded(modelFile.getAbsolutePath()));
+        ret.put("inferenceReady", modelFile != null && modelFile.exists() && OrderiLiteRtRuntime.isLoaded(modelFile.getAbsolutePath()));
+        ret.put("modelName", "Gemma 3 1B LiteRT-LM");
         ret.put("ramMb", 0);
         call.resolve(ret);
     }

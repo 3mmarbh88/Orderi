@@ -23,7 +23,8 @@ export interface LocalAIExtractionResult {
 
 interface OrderiLocalAIPluginType {
   isModelAvailable(): Promise<{ available: boolean; modelPath?: string; fileSizeMb?: number }>;
-  loadModel(): Promise<{ success: boolean; status: string; memoryUsedMb?: number }>;
+  chooseModelFile(): Promise<{ success: boolean; filePresent?: boolean; inferenceReady?: boolean; modelPath?: string; fileSizeMb?: number; message?: string }>;
+  loadModel(): Promise<{ success: boolean; status: string; message?: string; inferenceReady?: boolean; memoryUsedMb?: number }>;
   parseOrder(options: { text: string }): Promise<{
     success: boolean;
     inferenceReady?: boolean;
@@ -257,7 +258,7 @@ export async function checkLocalAIStatus(): Promise<{
       status: res.available ? 'ready' : 'unloaded',
       detail: res.available 
         ? `نموذج Gemma 3 1B متاح محلياً على الهاتف (${res.fileSizeMb || 584} MB) ويعمل دون إنترنت مع قاعدة خرائط HERE WeGo`
-        : `استدلال Gemma/LiteRT-LM غير مدمج في هذه النسخة؛ تعمل قواعد التحليل المحلية وقاعدة HERE WeGo فقط.`,
+        : `ملف Gemma غير محمّل؛ تعمل قواعد التحليل المحلية وقاعدة HERE WeGo فقط. استورد ملف .litertlm المرخّص من إعدادات الذكاء الاصطناعي لتحميل المحرك.`,
       architecture: 'قواعد محلية + جسر Android؛ استدلال LiteRT-LM غير مدمج',
     };
   } catch (err: any) {
