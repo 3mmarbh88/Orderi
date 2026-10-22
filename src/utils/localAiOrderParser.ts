@@ -218,6 +218,14 @@ export async function parseWhatsAppOrderWithLocalAi(
             const price = Number.isFinite(Number(data.price)) ? Math.max(0, Number(data.price)) : fastResult.price;
             const confidence = Math.max(0, Math.min(100, Number(data.confidence) || 0));
             const passengerDet = detectPassengerDelivery(rawText);
+            const cloudRisk = String(data.passengerRisk || 'goods_safe');
+            if ((cloudRisk === 'confirmed_passenger' || cloudRisk === 'suspicious_passenger')
+                && passengerDet.level === 'goods_safe') {
+              passengerDet.level = cloudRisk as typeof passengerDet.level;
+              passengerDet.label = cloudRisk === 'confirmed_passenger' ? 'طلب نقل ركاب مؤكد من التحليل السحابي' : 'اشتباه بنقل ركاب من التحليل السحابي';
+              passengerDet.reason = String(data.notes || 'تم تصنيف الرسالة كطلب ركاب بواسطة Gemini');
+              passengerDet.passengerCount = Number(data.passengerCount) || passengerDet.passengerCount;
+            }
             return {
               ...fastResult,
               from,
