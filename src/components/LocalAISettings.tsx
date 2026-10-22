@@ -95,11 +95,11 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
       setModelStatus(statusRes);
       const gLatency = Math.max(2, Math.round(performance.now() - gStart));
 
-      // 4. فحص اتصال الذكاء السحابي الاحتياطي
-      // A generic server health endpoint does not prove that Cloud AI is configured.
-      // Keep message analysis disabled unless a real, explicitly enabled provider exists.
+      // 4. Cloud route configuration check only. Do not send a sample or real
+      // WhatsApp message during a readiness check; actual parsing remains opt-in.
       const cLatency = 0;
-      const cloudPassed = false;
+      const cloudEndpointConfigured = Boolean(String((import.meta as any).env?.VITE_ORDERI_API_BASE_URL || '').trim());
+      const cloudPassed = false; // No live Gemini inference was performed here.
 
       const totalElapsed = Math.round(performance.now() - t0);
       const isAndroid = Capacitor.getPlatform() === 'android';
@@ -127,20 +127,24 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
             id: 'gemma3_model',
             name: 'استدلال Gemma 3 1B INT4',
             detail: isAndroid
-              ? 'تم فحص حالة الملف فقط؛ استدلال LiteRT-LM غير مدمج، لذلك النموذج غير جاهز للاستدلال.'
-              : 'يعمل استخراج القواعد المحلية فقط؛ لا يوجد استدلال Gemma في المتصفح.',
+              ? (statusRes.modelAvailable
+                ? 'تم تحميل النموذج واجتاز اختبار استدلال فعلي.'
+                : 'لم يتأكد نجاح الاستدلال الفعلي. استورد ملف .litertlm ثم اضغط تحميل النموذج واختباره.')
+              : 'تعمل قواعد التحليل المحلية؛ استدلال Gemma غير متاح داخل المتصفح.',
             latencyMs: gLatency,
             status: 'warning',
           },
           {
             id: 'cloud_gemini',
-            name: 'تحليل رسائل واتساب عبر السحابة (معطّل للخصوصية)',
-            detail: 'معطّل عمدًا لحماية الخصوصية؛ لا يوجد مزوّد تحليل رسائل سحابي مهيأ، وفحص صحة الخادم لا يثبت جاهزية هذه الميزة.',
+            name: 'تحليل رسائل واتساب عبر السحابة (اختياري)',
+            detail: cloudEndpointConfigured
+              ? 'عنوان خادم Orderi مهيأ. لم يُرسل هذا الفحص أي رسالة إلى Gemini؛ يتم إرسال نص الرسالة فقط عند تفعيل خيار التحليل السحابي صراحةً.'
+              : 'عنوان خادم التحليل السحابي غير مهيأ لهذا البناء. لم يتم إرسال أي رسالة.',
             latencyMs: cLatency,
             status: 'warning',
           },
         ],
-        summary: `قاعدة HERE WeGo وقواعد التحليل المحلية متاحة؛ استدلال Gemma غير مدمج، والمصادقة بالوجه غير مهيأة، وتحليل رسائل واتساب السحابي معطّل للخصوصية.`, 
+        summary: `قواعد التحليل المحلية وقاعدة HERE WeGo متاحتان؛ حالة Gemma تعتمد على نجاح استيراد النموذج واختبار الاستدلال، والتحليل السحابي لا يعمل إلا عند تفعيله صراحةً.`, 
       };
 
       setReadinessAudit(audit);
