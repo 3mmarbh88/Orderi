@@ -77,7 +77,11 @@ public class OrderiLocalAIPlugin extends Plugin {
         if (call == null) return;
         if (result == null || result.getResultCode() != android.app.Activity.RESULT_OK
                 || result.getData() == null || result.getData().getData() == null) {
-            call.resolve(new JSObject().put("success", false).put("cancelled", true).put("message", "تم إلغاء اختيار الملف"));
+            JSObject cancelled = new JSObject();
+            cancelled.put("success", false);
+            cancelled.put("cancelled", true);
+            cancelled.put("message", "تم إلغاء اختيار الملف");
+            call.resolve(cancelled);
             return;
         }
         Uri uri = result.getData().getData();
