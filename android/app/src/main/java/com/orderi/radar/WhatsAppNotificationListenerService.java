@@ -74,6 +74,18 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
     public void onListenerDisconnected() {
         if (instance == this) instance = null;
         super.onListenerDisconnected();
+
+        // Android may temporarily disconnect notification listeners. Ask the
+        // system to rebind this listener when supported; if the user revoked the
+        // notification-listener permission, Android still requires user action.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            try {
+                requestRebind(new ComponentName(this, WhatsAppNotificationListenerService.class));
+            } catch (RuntimeException error) {
+                android.util.Log.w("WhatsAppNotificationListenerService",
+                        "Could not request notification-listener rebind", error);
+            }
+        }
     }
 
     /**
