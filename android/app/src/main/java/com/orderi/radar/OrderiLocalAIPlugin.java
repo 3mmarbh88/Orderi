@@ -1,16 +1,23 @@
 package com.orderi.radar;
 
 import android.content.Context;
+import android.app.Activity;
+import android.content.Intent;
+import android.net.Uri;
 import android.os.SystemClock;
 import android.util.Log;
 
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
+import com.getcapacitor.ActivityResult;
+import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 import java.io.File;
+import java.io.InputStream;
+import java.io.FileOutputStream;
 import org.json.JSONObject;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -68,6 +75,62 @@ public class OrderiLocalAIPlugin extends Plugin {
         ret.put("status", inferenceReady ? "ready" : (filePresent ? "model_not_loaded" : "model_file_missing"));
         ret.put("modelPath", filePresent ? modelFile.getAbsolutePath() : "models/" + MODEL_FILENAME);
         ret.put("fileSizeMb", filePresent ? modelFile.length() / (1024 * 1024) : 0);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void chooseModelFile(PluginCall call) {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        startActivityForResult(call, intent, "handleModelFileSelected");
+    }
+
+    @ActivityCallback
+    private void handleModelFileSelected(PluginCall call, ActivityResult result) {
+        if (call == null) return;
+        if (result.getResultCode() != Activity.RESULT_OK || result.getData() == null || result.getData().getData() == null) {
+            call.reject("لم يتم اختيار ملف النموذج");
+            return;
+        }
+        Uri sourceUri = result.getData().getData();
+        executor.execute(() -> {
+            File destination = new File(getContext().getFilesDir(), "models/" + MODEL_FILENAME);
+            File parent = destination.getParentFile();
+            if (parent != null && !parent.exists() && !parent.mkdirs()) {
+                call.reject("تعذر إنشاء مجلد النموذج داخل التطبيق");
+                return;
+            }
+            try (InputStream input = getContext().getContentResolver().openInputStream(sourceUri);
+                 FileOutputStream output = new FileOutputStream(destination)) {
+                if (input == null) throw new IllegalStateException("تعذر قراءة الملف المحدد");
+                byte[] buffer = new byte[1024 * 1024];
+                int read;
+                while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
+                output.getFD().sync();
+                if (destination.length() < 100L * 1024L * 1024L) {
+                    destination.delete();
+                    throw new IllegalArgumentException("الملف أصغر من حجم نموذج Gemma المتوقع؛ اختر ملف .litertlm الصحيح.");
+                }
+                modelFile = destination;
+                isModelLoaded = false;
+                retestModelFileAndResolve(call, destination);
+            } catch (Throwable error) {
+                Log.e(TAG, "Could not import local Gemma model", error);
+                destination.delete();
+                call.reject("فشل استيراد ملف النموذج: " + error.getMessage(), error);
+            }
+        });
+    }
+
+    private void retestModelFileAndResolve(PluginCall call, File destination) {
+        JSObject ret = new JSObject();
+        ret.put("success", true);
+        ret.put("filePresent", true);
+        ret.put("inferenceReady", false);
+        ret.put("modelPath", destination.getAbsolutePath());
+        ret.put("fileSizeMb", destination.length() / (1024 * 1024));
+        ret.put("message", "تم استيراد الملف. اضغط فحص الجاهزية لتحميل المحرك واختبار النموذج.");
         call.resolve(ret);
     }
 
