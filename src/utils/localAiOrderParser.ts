@@ -152,9 +152,8 @@ export async function parseWhatsAppOrderWithLocalAi(
   if (isAndroid) {
     try {
       const nativeResponse = await OrderiLocalAIPlugin.parseOrder({ text: rawText });
-      // The native plugin currently exposes a rule parser, not a loaded Gemma
-      // inference engine. Never label that result as local AI unless a real model
-      // inference health check explicitly reports inferenceReady=true.
+      // Only accept native results after LiteRT-LM has successfully generated and
+      // parsed a real model response. Rule-based native fallback is not called AI.
       if (nativeResponse && nativeResponse.success && nativeResponse.inferenceReady === true && nativeResponse.from && nativeResponse.to) {
         const fromArea = snapToOfficialBahrainArea(nativeResponse.from) || fastResult.from;
         const toArea = snapToOfficialBahrainArea(nativeResponse.to) || fastResult.to;
