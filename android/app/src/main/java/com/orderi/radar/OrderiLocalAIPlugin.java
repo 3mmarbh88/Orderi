@@ -178,7 +178,7 @@ public class OrderiLocalAIPlugin extends Plugin {
             conversation = engine.getClass().getMethod("createConversation").invoke(engine);
             String prompt = "أنت محلل رسائل طلبات التوصيل في البحرين. استخرج فقط JSON صالحاً دون Markdown بهذه المفاتيح: "
                     + "{\"from\":\"منطقة الاستلام\",\"to\":\"الوجهة\",\"price\":0,
-                    + "\\\"phone\\\":\\\"\\\",\\\"confidence\\\":0,\\\"passengerRisk\\\":\\\"goods_safe\\\"}. "
+                    + "\"phone\":\"\",\"confidence\":0,\"passengerRisk\":\"goods_safe\"}. "
                     + "لا تخترع مناطق أو أسعاراً. إذا كانت المعلومة غير واضحة اتركها فارغة واجعل confidence منخفضاً. الرسالة: "
                     + rawText;
             Object response = conversation.getClass().getMethod("sendMessage", String.class).invoke(conversation, prompt);
