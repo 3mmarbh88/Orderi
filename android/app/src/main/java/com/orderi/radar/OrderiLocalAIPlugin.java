@@ -160,7 +160,7 @@ public class OrderiLocalAIPlugin extends Plugin {
     private Object defaultValue(Class<?> type) {
         if (!type.isPrimitive()) return null;
         if (type == boolean.class) return false;
-        if (type == char.class) return '\\0';
+        if (type == char.class) return (char) 0;
         if (type == byte.class) return (byte) 0;
         if (type == short.class) return (short) 0;
         if (type == int.class) return 0;
@@ -177,7 +177,7 @@ public class OrderiLocalAIPlugin extends Plugin {
             Object engine = gemmaEngine;
             conversation = engine.getClass().getMethod("createConversation").invoke(engine);
             String prompt = "أنت محلل رسائل طلبات التوصيل في البحرين. استخرج فقط JSON صالحاً دون Markdown بهذه المفاتيح: "
-                    + "{\\\"from\\\":\\\"منطقة الاستلام\\\",\\\"to\\\":\\\"الوجهة\\\",\\\"price\\\":0,"
+                    + "{\"from\":\"منطقة الاستلام\",\"to\":\"الوجهة\",\"price\":0,
                     + "\\\"phone\\\":\\\"\\\",\\\"confidence\\\":0,\\\"passengerRisk\\\":\\\"goods_safe\\\"}. "
                     + "لا تخترع مناطق أو أسعاراً. إذا كانت المعلومة غير واضحة اتركها فارغة واجعل confidence منخفضاً. الرسالة: "
                     + rawText;
