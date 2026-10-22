@@ -1274,69 +1274,37 @@ export async function authenticateWithBiometrics(mode: 'fingerprint' | 'face' = 
   user?: CaptainUser;
   error?: string;
 }> {
-  let current = getCurrentUser();
-  let profile = getProfile();
+  // Fail closed: browser WebAuthn support alone is not proof that a biometric
+  // was verified, and local profile data must never create an authenticated user.
+  const current = getCurrentUser();
+  const profile = getProfile();
 
-  // If no account exists yet, provision the verified Bahrain captain account
-  if (!current) {
-    const newCaptain: CaptainUser = {
-      id: `capt-bh-${Date.now().toString().slice(-4)}`,
-      name: mode === 'face' ? 'كابتن أحمد العالي (بصمة الوجه)' : 'كابتن أحمد العالي (بصمة الإصبع)',
-      phone: '39441122',
-      vehicleType: 'car',
-      isActivated: true,
-      licensePlan: 'Orderi Pro (مفعل بالبصمة)',
-      biometricsEnabled: true,
-      createdAt: new Date().toISOString(),
+  if (!current || !profile || !profile.biometricsEnabled || !getToken()) {
+    return {
+      success: false,
+      error: 'لا يوجد حساب موثّق وجلسة صالحة. سجّل الدخول بكلمة المرور أولاً.',
     };
-    setCurrentUser(newCaptain);
-    saveProfile({
-      name: newCaptain.name,
-      phone: newCaptain.phone,
-      vehicleType: newCaptain.vehicleType,
-      biometricsEnabled: true,
-    });
-    current = newCaptain;
-    profile = getProfile();
   }
 
-  try {
-    const credentials = (navigator as any)?.credentials;
-    if (credentials && typeof credentials.get === 'function') {
-      try {
-        await credentials.get({
-          publicKey: {
-            challenge: new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]),
-            timeout: 5000,
-            userVerification: 'preferred',
-          },
-        }).catch(() => {});
-      } catch {}
-    }
+  const credentials = typeof navigator !== 'undefined'
+    ? (navigator as any)?.credentials
+    : undefined;
 
-    // Attempt server session refresh, but gracefully fallback to local session if server is asleep
-    try {
-      const refreshed = await refreshCurrentUserFromServer();
-      if (refreshed.success && refreshed.user) {
-        return {
-          success: true,
-          user: refreshed.user,
-        };
-      }
-    } catch (e) {
-      console.warn('[Biometrics] Server refresh fallback to local:', e);
-    }
-
+  if (!credentials || typeof credentials.get !== 'function') {
     return {
-      success: true,
-      user: current,
-    };
-  } catch {
-    return {
-      success: true,
-      user: current,
+      success: false,
+      error: 'التحقق البيومتري الآمن غير متاح في هذه البيئة. استخدم كلمة المرور.',
     };
   }
+
+  // No server-issued WebAuthn challenge / registered credential flow exists in
+  // this app yet. Never use a hard-coded challenge or ignore verification errors.
+  return {
+    success: false,
+    error: mode === 'face'
+      ? 'تسجيل الدخول بالكاميرا غير جاهز: لا توجد مقارنة وجه موثّقة ومُسجّلة. استخدم كلمة المرور.'
+      : 'التحقق البيومتري غير مهيأ بمفتاح مسجّل. استخدم كلمة المرور.',
+  };
 }
 
 /*
