@@ -243,7 +243,7 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
                 <h4 className="text-xs sm:text-sm font-black text-indigo-950 flex items-center gap-2">
                   <span>حالة المحرك ونموذج الذكاء الاصطناعي:</span>
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-800">
-                    ملف Gemma غير محمّل
+                    {modelStatus?.modelAvailable ? 'نموذج Gemma محمّل' : 'ملف Gemma غير محمّل'}
                   </span>
                 </h4>
                 <p className="text-[11px] text-indigo-800/80 mt-0.5 leading-relaxed">
