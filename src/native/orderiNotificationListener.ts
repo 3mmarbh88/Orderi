@@ -2,6 +2,13 @@ import { registerPlugin, Capacitor } from '@capacitor/core';
 
 export interface WhatsAppNativeEvent {
   id: string;
+  schemaVersion?: number;
+  messageId?: string;
+  source?: string;
+  sourcePackage?: string;
+  chatId?: string;
+  sourceMessageId?: string;
+  contentHash?: string;
   packageName: string;
   title?: string;
   text?: string;
@@ -48,7 +55,10 @@ interface OrderiNotificationListenerPlugin {
     phone?: string;
     message: string;
   }): Promise<{ success: boolean; method: string }>;
+  /** Returns durable unacknowledged events without deleting them. */
   getPending(): Promise<{ events: WhatsAppNativeEvent[] }>;
+  /** Acknowledge events only after processing succeeds or a deliberate filter decision is made. */
+  acknowledgeEvents(options: { ids: string[] }): Promise<{ acknowledged: number }>;
   getClickedOrder?(): Promise<{ order?: any }>;
   showOrderNotification(options: { orderId: string; from: string; to: string; price?: number; priceDisplay?: string; rawText?: string }): Promise<void>;
   cancelOrderNotification(options: { orderId: string }): Promise<void>;
