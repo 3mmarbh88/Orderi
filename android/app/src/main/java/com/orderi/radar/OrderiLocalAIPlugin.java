@@ -118,7 +118,7 @@ public class OrderiLocalAIPlugin extends Plugin {
             } catch (Throwable error) {
                 Log.e(TAG, "Could not import local Gemma model", error);
                 destination.delete();
-                call.reject("فشل استيراد ملف النموذج: " + error.getMessage(), error);
+                call.reject("فشل استيراد ملف النموذج: " + error.getMessage());
             }
         });
     }
