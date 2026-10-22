@@ -24,6 +24,7 @@ public class OrderiLocalAIPlugin extends Plugin {
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     // A model is ready only after LiteRT-LM initializes and completes real inference.
     private volatile boolean isModelLoaded = false;
+    private volatile boolean inferenceReady = false;
     private volatile Object gemmaEngine = null;
     private File modelFile = null;
 
@@ -61,10 +62,10 @@ public class OrderiLocalAIPlugin extends Plugin {
         JSObject ret = new JSObject();
         boolean filePresent = modelFile != null && modelFile.exists();
         // A file on disk alone is not enough: the runtime must initialize successfully.
-        ret.put("available", filePresent && isModelLoaded && gemmaEngine != null);
+        ret.put("available", filePresent && inferenceReady && gemmaEngine != null);
         ret.put("filePresent", filePresent);
-        ret.put("inferenceReady", isModelLoaded && gemmaEngine != null);
-        ret.put("status", !filePresent ? "model_file_missing" : (isModelLoaded ? "ready" : "model_not_loaded"));
+        ret.put("inferenceReady", inferenceReady && gemmaEngine != null);
+        ret.put("status", !filePresent ? "model_file_missing" : (inferenceReady ? "ready" : (isModelLoaded ? "inference_not_verified" : "model_not_loaded")));
         ret.put("modelPath", filePresent ? modelFile.getAbsolutePath() : "models/" + MODEL_FILENAME);
         ret.put("fileSizeMb", filePresent ? modelFile.length() / (1024 * 1024) : 0);
         call.resolve(ret);
@@ -75,14 +76,17 @@ public class OrderiLocalAIPlugin extends Plugin {
         executor.execute(() -> {
             checkAndLocateModel();
             JSObject ret = new JSObject();
-            boolean loaded = ensureGemmaEngine();
-            ret.put("success", loaded);
-            ret.put("status", loaded ? "ready" : (modelFile == null ? "model_file_missing" : "runtime_initialization_failed"));
+            boolean initialized = ensureGemmaEngine();
+            boolean ready = initialized && runGemmaInference(
+                    "اختبار جاهزية المحرك. أعد JSON فقط بالمفاتيح from وto وprice وphone وconfidence وpassengerRisk، واترك from وto فارغتين."
+            ) != null;
+            ret.put("success", ready);
+            ret.put("status", ready ? "ready" : (modelFile == null ? "model_file_missing" : (initialized ? "inference_not_verified" : "runtime_initialization_failed")));
             ret.put("filePresent", modelFile != null && modelFile.exists());
-            ret.put("inferenceReady", loaded);
-            ret.put("message", loaded
-                    ? "Gemma model initialized successfully with LiteRT-LM."
-                    : "Could not initialize Gemma. Confirm the model file is imported and compatible; see Android logs for the runtime error.");
+            ret.put("inferenceReady", ready);
+            ret.put("message", ready
+                    ? "Gemma initialization and a real inference test succeeded."
+                    : "Gemma is not ready. Confirm the imported model is compatible and inspect Android logs.");
             call.resolve(ret);
         });
     }
@@ -186,6 +190,7 @@ public class OrderiLocalAIPlugin extends Plugin {
             if (text == null) return null;
             String output = text.toString().trim().replaceAll("^\\x60{3}(?:json)?\\s*", "").replaceAll("\\s*\\x60{3}$", "");
             JSONObject parsed = new JSONObject(output);
+            inferenceReady = true;
             parsed.put("inferenceReady", true);
             return parsed;
         } catch (Throwable error) {
@@ -366,7 +371,7 @@ public class OrderiLocalAIPlugin extends Plugin {
         ret.put("initialized", true);
         ret.put("modelFilePresent", modelFile != null && modelFile.exists());
         ret.put("modelLoaded", isModelLoaded && gemmaEngine != null);
-        ret.put("inferenceReady", isModelLoaded && gemmaEngine != null);
+        ret.put("inferenceReady", inferenceReady && gemmaEngine != null);
         ret.put("modelName", "Gemma 3 1B INT4 / LiteRT-LM");
         ret.put("ramMb", 0);
         call.resolve(ret);
