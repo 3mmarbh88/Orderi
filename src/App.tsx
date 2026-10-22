@@ -378,6 +378,7 @@ function OrderiApp({
             }
             const parsed = await parseWhatsAppOrderWithLocalAi(rawText || event.title || '', {
               hybridMode: filterRef.current.localAiConfig?.hybridMode !== false,
+              forceAi: filterRef.current.localAiConfig?.hybridMode === false,
               useCloudFallback: filterRef.current.useCloudAiFallback === true,
               senderName: event.title,
               groupName,
@@ -1177,6 +1178,7 @@ function OrderiApp({
       import('./utils/localAiOrderParser').then(async ({ parseWhatsAppOrderWithLocalAi }) => {
         const parsed = await parseWhatsAppOrderWithLocalAi(rawText || event.title || '', {
           hybridMode: filterRef.current.localAiConfig?.hybridMode !== false,
+          forceAi: filterRef.current.localAiConfig?.hybridMode === false,
           useCloudFallback: filterRef.current.useCloudAiFallback === true,
           senderName: event.title,
           groupName,

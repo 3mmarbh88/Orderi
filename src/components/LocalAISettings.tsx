@@ -374,6 +374,52 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
           )}
         </div>
 
+        {/* Spider AI-first / hybrid processing mode */}
+        <div className="p-3.5 sm:p-4 rounded-2xl bg-white border border-slate-200/90 shadow-2xs">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <Cpu className="w-4 h-4 text-indigo-600" />
+                <h4 className="text-xs sm:text-sm font-black text-slate-900">
+                  طريقة تحليل Spider للرسائل
+                </h4>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${filter.localAiConfig?.hybridMode === false ? 'bg-indigo-100 text-indigo-800' : 'bg-emerald-100 text-emerald-800'}`}>
+                  {filter.localAiConfig?.hybridMode === false ? 'الذكاء الاصطناعي أولاً' : 'الوضع الهجين السريع'}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                {filter.localAiConfig?.hybridMode === false
+                  ? 'يفحص Gemma المحلي الرسائل المرشحة أولاً. إذا لم يكن النموذج جاهزاً، يعود التطبيق إلى القواعد المحلية؛ لا يستخدم Gemini إلا إذا فعّلت الخيار السحابي أدناه.'
+                  : 'يفرز القواعد المحلية الطلبات الواضحة بسرعة، ويستدعي Gemma للرسائل الملتبسة. هذا الوضع أقل استهلاكاً للبطارية.'}
+              </p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer select-none shrink-0">
+              <input
+                type="checkbox"
+                checked={filter.localAiConfig?.hybridMode === false}
+                onChange={(event) => onUpdateFilter({
+                  ...filter,
+                  localAiConfig: {
+                    enabled: true,
+                    modelName: filter.localAiConfig?.modelName || 'Gemma 3 1B INT4',
+                    modelPath: filter.localAiConfig?.modelPath || 'models/gemma3-1b-it-int4.litertlm',
+                    hybridMode: !event.target.checked,
+                    cloudFallbackEnabled: filter.localAiConfig?.cloudFallbackEnabled,
+                    minConfidenceForFastPass: filter.localAiConfig?.minConfidenceForFastPass ?? 85,
+                    status: filter.localAiConfig?.status || 'unloaded',
+                    lastInferenceTimeMs: filter.localAiConfig?.lastInferenceTimeMs,
+                    totalInferences: filter.localAiConfig?.totalInferences,
+                  },
+                })}
+                className="sr-only"
+              />
+              <div className={`w-9 h-5 rounded-full transition-colors ${filter.localAiConfig?.hybridMode === false ? 'bg-indigo-600' : 'bg-slate-300'}`}>
+                <span className={`inline-block w-4 h-4 transform rounded-full bg-white shadow transition ${filter.localAiConfig?.hybridMode === false ? '-translate-x-4' : 'translate-x-0.5'} mt-0.5`} />
+              </div>
+            </label>
+          </div>
+        </div>
+
         {/* Cloud AI Fallback Toggle Card */}
         <div className="p-3.5 sm:p-4 rounded-2xl bg-white border border-slate-200/90 shadow-2xs">
           <div className="flex items-center justify-between gap-3">
