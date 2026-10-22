@@ -23,7 +23,8 @@ export interface LocalAIExtractionResult {
 
 interface OrderiLocalAIPluginType {
   isModelAvailable(): Promise<{ available: boolean; modelPath?: string; fileSizeMb?: number }>;
-  loadModel(): Promise<{ success: boolean; status: string; memoryUsedMb?: number }>;
+  chooseModelFile(): Promise<{ success: boolean; filePresent?: boolean; inferenceReady?: boolean; modelPath?: string; fileSizeMb?: number; message?: string }>;
+  loadModel(): Promise<{ success: boolean; status: string; message?: string; inferenceReady?: boolean; memoryUsedMb?: number }>;
   parseOrder(options: { text: string }): Promise<{
     success: boolean;
     inferenceReady?: boolean;
