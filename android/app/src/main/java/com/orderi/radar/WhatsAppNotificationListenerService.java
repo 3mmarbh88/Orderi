@@ -561,7 +561,6 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
             event.put("messageId", stableId);
             event.put("source", "whatsapp_notification");
             event.put("sourcePackage", pkg);
-            event.put("sourcePackage", pkg);
             event.put("packageName", pkg);
             event.put("chatId", safe(sbn.getKey()));
             event.put("sourceMessageId", safe(sbn.getKey()) + ":" + sbn.getPostTime());
