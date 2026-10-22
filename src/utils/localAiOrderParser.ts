@@ -262,9 +262,11 @@ export async function parseWhatsAppOrderWithLocalAi(
     from: refinedFrom || fastResult.from,
     to: refinedTo || fastResult.to,
     canCreateOrder: Boolean(fastResult.canCreateOrder && refinedFrom && refinedTo && fastResult.confidence >= minConfidence),
-    aiUsed: options.forceAi || !hybridMode,
+    // This branch is deterministic rule parsing, not model inference, even when
+    // the caller requests a deeper analysis.
+    aiUsed: false,
     inferenceMs: elapsed,
-    parseMethod: options.forceAi ? 'local_ai' : 'fast_heuristic',
+    parseMethod: options.forceAi ? 'fallback' : 'fast_heuristic',
   };
 }
 
