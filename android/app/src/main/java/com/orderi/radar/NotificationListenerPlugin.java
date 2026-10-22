@@ -285,12 +285,34 @@ public class NotificationListenerPlugin extends Plugin {
                     WhatsAppNotificationListenerService.PREFS, Context.MODE_PRIVATE);
             JSONArray events = new JSONArray(prefs.getString(
                     WhatsAppNotificationListenerService.KEY_EVENTS, "[]"));
-            for (int i = 0; i < events.length(); i++) {
-                arr.put(new JSObject(events.getJSONObject(i).toString()));
+            synchronized (WhatsAppNotificationListenerService.class) {
+                for (int i = 0; i < events.length(); i++) {
+                    arr.put(new JSObject(events.getJSONObject(i).toString()));
+                }
             }
-            prefs.edit().remove(WhatsAppNotificationListenerService.KEY_EVENTS).apply();
         } catch (Exception ignored) {}
         ret.put("events", arr);
+        call.resolve(ret);
+    }
+
+    /**
+     * Remove events only after the JS processing pipeline finishes. A crash or
+     * rejected parser promise leaves the event queued for the next app launch.
+     */
+    @PluginMethod
+    public void acknowledgeEvents(PluginCall call) {
+        com.getcapacitor.JSArray ids = call.getArray("ids");
+        java.util.HashSet<String> eventIds = new java.util.HashSet<>();
+        if (ids != null) {
+            for (int i = 0; i < ids.length(); i++) {
+                String id = ids.optString(i, "");
+                if (id != null && !id.trim().isEmpty()) eventIds.add(id.trim());
+            }
+        }
+        int acknowledged = WhatsAppNotificationListenerService.acknowledgePendingEvents(
+                getContext(), eventIds);
+        JSObject ret = new JSObject();
+        ret.put("acknowledged", acknowledged);
         call.resolve(ret);
     }
 
