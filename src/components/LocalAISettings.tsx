@@ -295,7 +295,7 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
               <button
                 type="button"
                 onClick={handleImportGemma}
-                disabled={modelAction !== null || !Capacitor.isNativePlatform()}
+                disabled={modelAction !== null || Capacitor.getPlatform() !== 'android'}
                 className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-xs font-black flex items-center justify-center gap-2 transition-all disabled:opacity-50"
               >
                 <Upload className="w-4 h-4" />
@@ -304,7 +304,7 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
               <button
                 type="button"
                 onClick={handleLoadGemma}
-                disabled={modelAction !== null || !Capacitor.isNativePlatform() || !modelStatus?.isNativeAndroid}
+                disabled={modelAction !== null || Capacitor.getPlatform() !== 'android' || !modelStatus?.isNativeAndroid}
                 className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-black flex items-center justify-center gap-2 transition-all disabled:opacity-50"
               >
                 <Download className="w-4 h-4" />
