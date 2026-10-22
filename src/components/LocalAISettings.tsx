@@ -5,13 +5,17 @@ import {
   HardDrive, 
   RefreshCw,
   Check,
-  Radio
+  Radio,
+  Upload,
+  Download
 } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
 import { OrderFilter } from '../types';
 import { 
-  checkLocalAIStatus, 
-  DEFAULT_LOCAL_AI_CONFIG 
+  checkLocalAIStatus,
+  importGemmaModel,
+  loadGemmaModel,
+  DEFAULT_LOCAL_AI_CONFIG
 } from '../utils/localAiOrderParser';
 import { 
   HERE_WE_GO_BAHRAIN_PLACES, 
@@ -49,6 +53,8 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
 
   const [modelStatus, setModelStatus] = useState<any>(null);
   const [isCheckingStatus, setIsCheckingStatus] = useState(false);
+  const [modelAction, setModelAction] = useState<'import' | 'load' | null>(null);
+  const [modelActionMessage, setModelActionMessage] = useState('');
   const [readinessAudit, setReadinessAudit] = useState<ReadinessAudit | null>(null);
 
   const fetchStatus = async () => {
@@ -142,6 +148,34 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
       console.warn('Error running readiness audit', e);
     } finally {
       setIsCheckingStatus(false);
+    }
+  };
+
+  const handleImportGemma = async () => {
+    setModelAction('import');
+    setModelActionMessage('');
+    try {
+      const result = await importGemmaModel();
+      setModelActionMessage(result.message || (result.success ? 'تم استيراد النموذج.' : 'لم يتم استيراد النموذج.'));
+      await fetchStatus();
+    } catch (error: any) {
+      setModelActionMessage(error?.message || 'تعذر استيراد ملف Gemma.');
+    } finally {
+      setModelAction(null);
+    }
+  };
+
+  const handleLoadGemma = async () => {
+    setModelAction('load');
+    setModelActionMessage('');
+    try {
+      const result = await loadGemmaModel();
+      setModelActionMessage(result.message || (result.success ? 'نجح اختبار النموذج.' : 'النموذج غير جاهز.'));
+      await fetchStatus();
+    } catch (error: any) {
+      setModelActionMessage(error?.message || 'تعذر تحميل نموذج Gemma.');
+    } finally {
+      setModelAction(null);
     }
   };
 
@@ -254,15 +288,35 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={handleCheckReadiness}
-              disabled={isCheckingStatus}
-              className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black flex items-center gap-2 shrink-0 transition-all shadow-xs hover:shadow-md cursor-pointer self-start sm:self-center active:scale-95"
-            >
-              <RefreshCw className={`w-4 h-4 ${isCheckingStatus ? 'animate-spin' : ''}`} />
-              <span>{isCheckingStatus ? 'جارٍ الفحص الشامل...' : 'فحص الجاهزية الآن ⚡'}</span>
-            </button>
+            <div className="flex flex-col gap-2 shrink-0 w-full sm:w-auto">
+              <button
+                type="button"
+                onClick={handleImportGemma}
+                disabled={modelAction !== null || !Capacitor.isNativePlatform()}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-xs font-black flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+              >
+                <Upload className="w-4 h-4" />
+                <span>{modelAction === 'import' ? 'جارٍ استيراد الملف...' : 'استيراد ملف Gemma (.litertlm)'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleLoadGemma}
+                disabled={modelAction !== null || !Capacitor.isNativePlatform() || !modelStatus?.isNativeAndroid}
+                className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-black flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+              >
+                <Download className="w-4 h-4" />
+                <span>{modelAction === 'load' ? 'جارٍ تحميل واختبار النموذج...' : 'تحميل النموذج واختباره'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleCheckReadiness}
+                disabled={isCheckingStatus || modelAction !== null}
+                className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+              >
+                <RefreshCw className={`w-4 h-4 ${isCheckingStatus ? 'animate-spin' : ''}`} />
+                <span>{isCheckingStatus ? 'جارٍ الفحص الشامل...' : 'فحص الجاهزية الآن ⚡'}</span>
+              </button>
+            </div>
           </div>
 
           {/* Readiness Audit Result Popover/Card */}
