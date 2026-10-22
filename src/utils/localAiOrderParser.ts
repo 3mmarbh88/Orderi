@@ -225,7 +225,7 @@ export async function parseWhatsAppOrderWithLocalAi(
               phone: String(data.phone || fastResult.phone || ''),
               notes: String(data.notes || 'تم التحليل عبر Gemini السحابي بعد تفعيل الخيار'),
               confidence,
-              canCreateOrder: Boolean(from && to && from !== to && confidence >= minConfidence && !data.passengerRisk?.includes?.('passenger')),
+              canCreateOrder: Boolean(data.is_order === true && from && to && from !== to && confidence >= minConfidence && !data.passengerRisk?.includes?.('passenger')),
               passengerDetection: passengerDet,
               passengerCount: Number(data.passengerCount) || passengerDet.passengerCount,
               aiUsed: true,
