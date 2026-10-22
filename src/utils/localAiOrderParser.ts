@@ -22,10 +22,11 @@ export interface LocalAIExtractionResult {
 }
 
 interface OrderiLocalAIPluginType {
-  isModelAvailable(): Promise<{ available: boolean; modelPath?: string; fileSizeMb?: number }>;
+  isModelAvailable(): Promise<{ available: boolean; filePresent?: boolean; inferenceReady?: boolean; status?: string; modelPath?: string; fileSizeMb?: number }>;
   loadModel(): Promise<{ success: boolean; status: string; memoryUsedMb?: number }>;
   parseOrder(options: { text: string }): Promise<{
     success: boolean;
+    inferenceReady?: boolean;
     from: string;
     to: string;
     price: number;
@@ -150,7 +151,10 @@ export async function parseWhatsAppOrderWithLocalAi(
   if (isAndroid) {
     try {
       const nativeResponse = await OrderiLocalAIPlugin.parseOrder({ text: rawText });
-      if (nativeResponse && nativeResponse.success && nativeResponse.from && nativeResponse.to) {
+      // The native plugin currently exposes a rule parser, not a loaded Gemma
+      // inference engine. Never label that result as local AI unless a real model
+      // inference health check explicitly reports inferenceReady=true.
+      if (nativeResponse && nativeResponse.success && nativeResponse.inferenceReady === true && nativeResponse.from && nativeResponse.to) {
         const fromArea = snapToOfficialBahrainArea(nativeResponse.from) || fastResult.from;
         const toArea = snapToOfficialBahrainArea(nativeResponse.to) || fastResult.to;
         const price = (typeof nativeResponse.price === 'number' && nativeResponse.price > 0)
@@ -185,8 +189,59 @@ export async function parseWhatsAppOrderWithLocalAi(
     }
   }
 
-  // Privacy guarantee: WhatsApp message text is never sent to a third-party AI endpoint.
-  // Internet access may still be used by other app features, but parsing stays on-device.
+  // Cloud parsing is strictly opt-in. For native Android builds, the backend URL
+  // must be explicitly configured at build time; never guess a host or expose an API key.
+  if (options.useCloudFallback === true) {
+    const configuredBase = String((import.meta as any).env?.VITE_ORDERI_API_BASE_URL || '').trim().replace(/\\/$/, '');
+    const cloudUrl = configuredBase
+      ? `${configuredBase}/api/ai/cloud-parse-order`
+      : (!isAndroid ? '/api/ai/cloud-parse-order' : '');
+    if (cloudUrl) {
+      try {
+        const response = await fetch(cloudUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            rawText,
+            senderName: options.senderName || '',
+            groupName: options.groupName || '',
+          }),
+          signal: AbortSignal.timeout(10000),
+        });
+        if (response.ok) {
+          const payload = await response.json();
+          const data = payload?.data;
+          if (payload?.success === true && data && typeof data === 'object') {
+            const from = snapToOfficialBahrainArea(String(data.from || '')) || fastResult.from;
+            const to = snapToOfficialBahrainArea(String(data.to || '')) || fastResult.to;
+            const price = Number.isFinite(Number(data.price)) ? Math.max(0, Number(data.price)) : fastResult.price;
+            const confidence = Math.max(0, Math.min(100, Number(data.confidence) || 0));
+            const passengerDet = detectPassengerDelivery(rawText);
+            return {
+              ...fastResult,
+              from,
+              to,
+              price,
+              phone: String(data.phone || fastResult.phone || ''),
+              notes: String(data.notes || 'تم التحليل عبر Gemini السحابي بعد تفعيل الخيار'),
+              confidence,
+              canCreateOrder: Boolean(from && to && from !== to && confidence >= minConfidence && !data.passengerRisk?.includes?.('passenger')),
+              passengerDetection: passengerDet,
+              passengerCount: Number(data.passengerCount) || passengerDet.passengerCount,
+              aiUsed: true,
+              inferenceMs: Math.round(performance.now() - startTime),
+              parseMethod: 'cloud_ai',
+            };
+          }
+        }
+        console.warn('[Orderi Cloud AI] Endpoint returned an unavailable or invalid response; using local heuristics.');
+      } catch (error) {
+        console.warn('[Orderi Cloud AI] Request failed; using local heuristics.', error);
+      }
+    } else {
+      console.info('[Orderi Cloud AI] Opt-in is enabled but VITE_ORDERI_API_BASE_URL is not configured for Android; no message was sent.');
+    }
+  }
 
   // Step 4: Refined Heuristic engine fallback
   const elapsed = Math.round(performance.now() - startTime);
@@ -255,9 +310,9 @@ export async function checkLocalAIStatus(): Promise<{
       hereWeGoActive: true,
       status: res.available ? 'ready' : 'unloaded',
       detail: res.available 
-        ? `نموذج Gemma 3 1B متاح محلياً على الهاتف (${res.fileSizeMb || 584} MB) ويعمل دون إنترنت مع قاعدة خرائط HERE WeGo`
-        : `ملف النموذج ${DEFAULT_LOCAL_AI_CONFIG.modelPath} مدمج في هيكل النظام، والمحرك الهجين التكيفي وقاعدة HERE WeGo تعملان بنشاط تام`,
-      architecture: 'LiteRT On-Device LLM + Native Capacitor Bridge + HERE WeGo Places',
+        ? `أكد جسر Android جاهزية الاستدلال المحلي مع قاعدة خرائط HERE WeGo`
+        : `قواعد التحليل المحلية وقاعدة HERE WeGo متاحتان، لكن استدلال Gemma غير جاهز أو ملف النموذج غير موجود. لم يتم تأكيد تشغيل نموذج محلي.`,
+      architecture: res.available ? 'تحقق فعلي من جسر الاستدلال المحلي + HERE WeGo Places' : 'قواعد محلية + HERE WeGo Places؛ Gemma غير جاهز',
     };
   } catch (err: any) {
     return {
