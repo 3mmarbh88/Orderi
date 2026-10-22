@@ -31,8 +31,19 @@ public class BackgroundRadarService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        // MainActivity sets the persisted flag to true before starting this service.
-        return START_NOT_STICKY;
+        // MainActivity persists this flag before starting the service. START_STICKY
+        // lets Android recreate the foreground service if the process is reclaimed.
+        // A deliberate swipe-away sets the flag to false in onTaskRemoved(), so a
+        // stale/recreated service must never resume after the user dismisses Orderi.
+        boolean enabled = getSharedPreferences(PREFS, MODE_PRIVATE)
+                .getBoolean(KEY_ENABLED, false);
+        if (!enabled) {
+            Log.i(TAG, "Radar is disabled; refusing to restart background monitoring");
+            stopForeground(true);
+            stopSelf(startId);
+            return START_NOT_STICKY;
+        }
+        return START_STICKY;
     }
 
     @Override
