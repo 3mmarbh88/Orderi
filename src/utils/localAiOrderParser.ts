@@ -312,9 +312,11 @@ export async function checkLocalAIStatus(): Promise<{
       hereWeGoPlacesCount,
       hereWeGoActive: true,
       status: res.available ? 'ready' : 'unloaded',
-      detail: res.available 
-        ? `أكد جسر Android جاهزية الاستدلال المحلي مع قاعدة خرائط HERE WeGo`
-        : `قواعد التحليل المحلية وقاعدة HERE WeGo متاحتان، لكن استدلال Gemma غير جاهز أو ملف النموذج غير موجود. لم يتم تأكيد تشغيل نموذج محلي.`,
+      detail: res.available
+        ? `تم تحميل Gemma واختبار استدلال حقيقي بنجاح مع قاعدة خرائط HERE WeGo.`
+        : res.filePresent
+          ? `ملف Gemma موجود على الهاتف، لكن الاستدلال لم يجتز فحص الجاهزية بعد. اضغط تحميل النموذج واختبره.`
+          : `لم يتم استيراد ملف Gemma بعد. استورد ملف .litertlm من إعدادات الذكاء الاصطناعي؛ تعمل قواعد التحليل المحلية فقط حتى ذلك الحين.`,
       architecture: res.available ? 'تحقق فعلي من جسر الاستدلال المحلي + HERE WeGo Places' : 'قواعد محلية + HERE WeGo Places؛ Gemma غير جاهز',
     };
   } catch (err: any) {
@@ -329,6 +331,28 @@ export async function checkLocalAIStatus(): Promise<{
       detail: `تعذر التحقق من جسر النموذج المحلي؛ تعمل قواعد التحليل فقط، ولا يمكن تأكيد جاهزية النموذج. (${hereWeGoPlacesCount} معلماً في قاعدة HERE WeGo)`,
       architecture: 'قواعد محلية؛ حالة نموذج Android غير مؤكدة',
     };
+  }
+}
+
+export async function importGemmaModel(): Promise<{ success: boolean; cancelled?: boolean; fileSizeMb?: number; message?: string }> {
+  if (Capacitor.getPlatform() !== 'android') {
+    return { success: false, message: 'استيراد ملف Gemma متاح داخل تطبيق Android فقط.' };
+  }
+  try {
+    return await OrderiLocalAIPlugin.importModel();
+  } catch (error: any) {
+    return { success: false, message: error?.message || 'تعذر فتح مستعرض الملفات.' };
+  }
+}
+
+export async function loadGemmaModel(): Promise<{ success: boolean; status: string; inferenceReady?: boolean; message?: string }> {
+  if (Capacitor.getPlatform() !== 'android') {
+    return { success: false, status: 'not_native', inferenceReady: false, message: 'تحميل Gemma متاح داخل تطبيق Android فقط.' };
+  }
+  try {
+    return await OrderiLocalAIPlugin.loadModel();
+  } catch (error: any) {
+    return { success: false, status: 'error', inferenceReady: false, message: error?.message || 'تعذر تحميل نموذج Gemma.' };
   }
 }
 
