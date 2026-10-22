@@ -83,7 +83,7 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
       const testPassenger = detectPassengerDelivery('توصيل شخصين من المنامة إلى سار');
       const pLatency = Math.max(1, Math.round(performance.now() - pStart));
 
-      // 3. فحص نموذج Gemma 3 1B INT4
+      // 3. فحص نموذج قواعد محلية
       const gStart = performance.now();
       const statusRes = await checkLocalAIStatus();
       setModelStatus(statusRes);
@@ -115,14 +115,14 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
             name: 'رادار كشف ومنع نقل الركاب',
             detail: `تم تشغيل اختبار تصنيفي تجريبي؛ يلزم اختبار حالات واقعية ولا تُضمن دقة 100%.`,
             latencyMs: pLatency,
-            status: 'passed',
+            status: testPlace ? 'passed' : 'warning',
           },
           {
             id: 'gemma3_model',
-            name: 'استدلال Gemma 3 1B INT4',
+            name: 'استدلال قواعد محلية',
             detail: isAndroid
-              ? 'تم فحص حالة الملف فقط؛ استدلال LiteRT-LM غير مدمج، لذلك النموذج غير جاهز للاستدلال.'
-              : 'يعمل استخراج القواعد المحلية فقط؛ لا يوجد استدلال Gemma في المتصفح.',
+              ? 'تم فحص حالة الملف فقط؛ استدلال LiteRT-LM غير مدمج، لذلك لا يوجد نموذج لغوي يعمل.'
+              : 'يعمل استخراج القواعد المحلية فقط؛ لا يوجد استدلال نموذج لغوي في المتصفح.',
             latencyMs: gLatency,
             status: 'warning',
           },
@@ -167,14 +167,14 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <h3 className="text-base sm:text-lg font-black tracking-tight">
-                محرك التحليل المحلي + HERE WeGo 🧠
+                محرك القواعد المحلية + HERE WeGo 🧠
               </h3>
               <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-white/20 text-white border border-white/30">
-                {isEnabled ? 'مفعّل وشغال ⚡' : 'معطّل'}
+                {isEnabled ? 'القواعد المحلية مفعّلة' : 'معطّل'}
               </span>
             </div>
             <p className="text-xs text-white/80 mt-0.5 leading-relaxed">
-              قواعد استخراج محلية وقاعدة معالم البحرين؛ استدلال Gemma غير مدمج حاليًا
+              قواعد استخراج محلية وقاعدة معالم البحرين؛ لا يوجد استدلال نموذج لغوي مدمج حاليًا
             </p>
           </div>
         </div>
@@ -205,8 +205,8 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
       {/* Compact Diagnostics Strip */}
       <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-x-reverse divide-slate-100 bg-slate-50/70 border-b border-slate-100 text-center text-xs">
         <div className="p-3">
-          <span className="text-[10px] text-slate-400 font-bold block">النموذج المدمج</span>
-          <span className="text-xs font-black text-slate-800">Gemma 3 1B INT4</span>
+          <span className="text-[10px] text-slate-400 font-bold block">المحرك الحالي</span>
+          <span className="text-xs font-black text-slate-800">قواعد محلية</span>
         </div>
         <div className="p-3">
           <span className="text-[10px] text-slate-400 font-bold block">خريطة HERE WeGo</span>
@@ -240,7 +240,7 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
                 <h4 className="text-xs sm:text-sm font-black text-indigo-950 flex items-center gap-2">
                   <span>حالة المحرك ونموذج الذكاء الاصطناعي:</span>
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-800">
-                    gemma3-1b-it-int4.litertlm (584 MB)
+                    استدلال Gemma غير مدمج
                   </span>
                 </h4>
                 <p className="text-[11px] text-indigo-800/80 mt-0.5 leading-relaxed">
