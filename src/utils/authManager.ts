@@ -606,52 +606,9 @@ export async function checkServerSubscription(): Promise<{
  */
 
 export function isProgramActivated(
-  user?: CaptainUser | null
+  _user?: CaptainUser | null
 ): boolean {
-  const current =
-    user || getCurrentUser();
-
-  if (!current) return false;
-
-  // 1. Check trial status if marked as trial
-  if (current.isTrial) {
-    if (!current.trialExpiresAt) return false;
-    const isExpired =
-      new Date(current.trialExpiresAt).getTime() <= Date.now();
-    if (isExpired) {
-      return false;
-    }
-    return true;
-  }
-
-  // 2. Check trial registry for phone
-  if (current.phone) {
-    const trial = getTrialRecordForPhone(current.phone);
-    if (trial) {
-      const isExpired =
-        new Date(trial.expiresAt).getTime() <= Date.now();
-      if (isExpired && !current.activationCode) {
-        return false;
-      }
-      if (!isExpired && current.licensePlan?.includes('تجريبية')) {
-        return true;
-      }
-    }
-  }
-
-  // 3. Regular license check
-  if (!current.isActivated) {
-    return false;
-  }
-
-  if (
-    current.expiresAt &&
-    new Date(current.expiresAt).getTime() <=
-      Date.now()
-  ) {
-    return false;
-  }
-
+  // البرنامج مفعل بالكامل وبشكل دائم لجميع الكباتن بدون قيود تجريبية
   return true;
 }
 

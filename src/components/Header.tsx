@@ -32,7 +32,8 @@ import {
   CheckCheck,
   RefreshCw,
   Scan,
-  Camera
+  Camera,
+  Bot
 } from 'lucide-react';
 import { MatcherLocation } from '../utils/matcher';
 import { CaptainUser } from '../types';
@@ -77,6 +78,7 @@ interface HeaderProps {
   onMarkAllWhatsAppAsRead?: () => void;
   onOpenFaceLogin?: () => void;
   onShowSplash?: () => void;
+  onOpenSpider?: () => void;
 }
 
 export function Header({
@@ -115,6 +117,7 @@ export function Header({
   onMarkAllWhatsAppAsRead,
   onOpenFaceLogin,
   onShowSplash,
+  onOpenSpider,
 }: HeaderProps) {
   const [timeStr, setTimeStr] = useState('');
   const [isExitConfirmOpen, setIsExitConfirmOpen] = useState(false);
@@ -454,6 +457,18 @@ export function Header({
                 >
                   <LinkIcon className="w-3.5 h-3.5 text-emerald-600" />
                   <span>القروبات</span>
+                </button>
+              )}
+
+              {/* Orderi Spider Button */}
+              {onOpenSpider && (
+                <button
+                  onClick={onOpenSpider}
+                  title="عنكبوت الأوردرات الذكي (Orderi Spider) - زحف وفهرسة مجموعات الواتساب تلقائياً بالذكاء الاصطناعي الهجين"
+                  className="h-9 sm:h-10 flex items-center gap-1.5 px-2.5 sm:px-3 rounded-xl text-xs font-black transition-all bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-xs border border-emerald-500 cursor-pointer active:scale-95 shrink-0"
+                >
+                  <Bot className="w-3.5 h-3.5 text-emerald-200 animate-pulse" />
+                  <span>عنكبوت القروبات 🕷️</span>
                 </button>
               )}
 

@@ -59,6 +59,56 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
   return Notification.permission || 'denied';
 }
 
+// Shared AudioContext for background audio playback priming
+let backgroundAudioCtx: AudioContext | null = null;
+let heartbeatTimer: any = null;
+
+/**
+ * Primes and unlocks Web Audio for background execution
+ * Required by mobile browsers so chimes continue to play even when backgrounded
+ */
+export function primeBackgroundAudio(): void {
+  try {
+    if (typeof window === 'undefined') return;
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) return;
+
+    if (!backgroundAudioCtx) {
+      backgroundAudioCtx = new AudioContextClass();
+    }
+
+    if (backgroundAudioCtx.state === 'suspended') {
+      backgroundAudioCtx.resume().catch(() => {});
+    }
+
+    // Play ultra-short silent buffer to unlock browser audio gate
+    const buffer = backgroundAudioCtx.createBuffer(1, 1, 22050);
+    const source = backgroundAudioCtx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(backgroundAudioCtx.destination);
+    source.start(0);
+  } catch (err) {
+    console.warn('[Orderi] AudioContext background priming notice:', err);
+  }
+}
+
+/**
+ * Starts a background heartbeat to keep Web Worker / SSE active while minimized
+ */
+export function startBackgroundHeartbeat(): void {
+  if (heartbeatTimer || typeof window === 'undefined') return;
+  try {
+    // Keep a lightweight periodic interval that pings
+    heartbeatTimer = setInterval(() => {
+      if (document.visibilityState === 'hidden') {
+        if (backgroundAudioCtx && backgroundAudioCtx.state === 'suspended') {
+          backgroundAudioCtx.resume().catch(() => {});
+        }
+      }
+    }, 15000);
+  } catch {}
+}
+
 /**
  * Dispatches a native OS system notification for a matched order
  * Formatted exactly like native WhatsApp notifications with group/sender name, WhatsApp icon and sound
@@ -66,6 +116,11 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
 export function sendBackgroundOrderNotification(order: ParsedOrder, filter?: OrderFilter): void {
   if (!isNotificationSupported()) return;
   if (Notification.permission !== 'granted') return;
+
+  // استبعاد إعلاناتي الشخصية من إرسال أي إشعار بالنظام في الخلفية
+  if (order.isOwnAd || order.isFromMe) {
+    return;
+  }
 
   // حجب كامل للإشعارات في الخلفية للطلبات غير المطابقة لشروط الكابتن
   if (filter?.ignoreNonMatching) {
@@ -82,16 +137,28 @@ export function sendBackgroundOrderNotification(order: ParsedOrder, filter?: Ord
   try {
     const isVip = order.contactStatus === 'vip';
     const isPassenger = order.passengerDetection?.level === 'confirmed_passenger';
-    const count = order.passengerCount || order.passengerDetection?.passengerCount;
+    const isVoice = order.isVoiceNote || (order.rawText && order.rawText.includes('🎙️'));
     
     const priceText = (!order.price || order.price <= 0 || order.isPriceUnspecified)
       ? ''
       : ` ${Number.isInteger(order.price) ? order.price.toFixed(0) : order.price.toFixed(1)} دينار`;
-    // Keep the system notification concise and consistent: area ← area + optional price.
+    
+    // Concise notification route text
     const routeText = `${order.from} ← ${order.to}${priceText}`;
-    const isBlockedPassenger = isPassenger && filter.blockPassengerDeliveries !== false;
-    const title = isBlockedPassenger ? `🚨 نقل ركاب • ${routeText} • تحذير 🚫` : routeText;
-    const body = routeText;
+    const isBlockedPassenger = isPassenger && filter?.blockPassengerDeliveries !== false;
+    
+    let title = routeText;
+    if (isBlockedPassenger) {
+      title = `🚨 نقل ركاب • ${routeText} • تحذير 🚫`;
+    } else if (isVoice) {
+      title = `🎙️ تسجيل صوتي (واتساب) • ${routeText}`;
+    } else if (isVip) {
+      title = `⭐ VIP • ${routeText}`;
+    }
+
+    const body = isVoice && order.voiceTranscript
+      ? `🎙️ "${order.voiceTranscript.slice(0, 70)}..." (${order.groupName || 'واتساب'})`
+      : `${routeText} (${order.groupName || 'واتساب'})`;
 
     const options: any = {
       body,
@@ -100,7 +167,7 @@ export function sendBackgroundOrderNotification(order: ParsedOrder, filter?: Ord
       tag: `orderi-order-${order.id}`,
       renotify: true,
       silent: false,
-      vibrate: [150, 75, 150], // Signature pulse
+      vibrate: [200, 100, 200, 100, 200], // Professional tactile vibration
       actions: [
         {
           action: 'open_order',

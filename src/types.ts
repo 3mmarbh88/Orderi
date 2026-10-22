@@ -81,6 +81,7 @@ export interface OrderFilter {
   autoCloseAmbiguousAction?: 'flag' | 'ignore';
   excludeMyOwnAds?: boolean; // استبعاد إعلاناتي الشخصية من الرادار
   captainPhone?: string;     // رقم هاتف الكابتن الشخصي للتعرف على إعلاناته
+  captainCustomSignatures?: string[]; // كلمات وتوقيعات الكابتن المخصصة لاستبعاد إعلاناته
   desiredPickupAreas?: string[];     // مناطق استلام مرغوبة يراقبها صائد الوجهات
   desiredDeliveryAreas?: string[];   // وجهات تسليم مرغوبة يراقبها صائد الوجهات
   desiredRoutes?: { from: string; to: string }[]; // مسارات مرغوبة يراقبها صائد الوجهات
@@ -204,6 +205,12 @@ export interface ParsedOrder {
   };
   outreachStatus?: OutreachDeliveryStatus;
   outreachDetails?: OutreachAttemptDetails;
+  isOwnAd?: boolean;                // إعلان شخصي يخص الكابتن
+  ownAdReason?: string;             // سبب التمييز كإعلان شخصي
+  isVoiceNote?: boolean;            // طلب وارد عبر تسجيل صوتي (ريكورد واتساب)
+  voiceTranscript?: string;         // النص الصوتي المفرغ بواسطة الذكاء الاصطناعي
+  voiceAudioUrl?: string;           // رابط أو بيانات المقطع الصوتي إن توفرت
+  voiceDurationSeconds?: number;    // مدة التسجيل الصوتي بالثواني
 }
 
 export type OutreachDeliveryStatus = 

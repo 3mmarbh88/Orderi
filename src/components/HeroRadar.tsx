@@ -13,7 +13,11 @@ import {
   ChevronUp,
   Car,
   RefreshCw,
-  CalendarDays
+  CalendarDays,
+  Bot,
+  Cpu,
+  Mic,
+  ShieldCheck
 } from 'lucide-react';
 import { OrderFilter } from '../types';
 import { MatcherLocation } from '../utils/matcher';
@@ -34,6 +38,8 @@ interface HeroRadarProps {
   onOpenBackgroundModal?: () => void;
   onRunInBackground?: () => Promise<void> | void;
   onOpenAutoSyncModal?: () => void;
+  onOpenVoiceModal?: () => void;
+  excludedOwnAdsCount?: number;
   onToggleRadar?: () => void;
   isStreamConnected?: boolean;
   isWhatsAppConnected?: boolean;
@@ -48,6 +54,7 @@ interface HeroRadarProps {
   activeTab?: string;
   feedFilter?: 'all' | 'matched' | 'vip' | 'trusted_vip' | 'passengers' | 'closed';
   onSelectFilterCategory?: (category: 'monitored' | 'matched' | 'vip' | 'earnings') => void;
+  onOpenSpider?: () => void;
 }
 
 export function HeroRadar({
@@ -66,6 +73,8 @@ export function HeroRadar({
   onOpenBackgroundModal,
   onRunInBackground,
   onOpenAutoSyncModal,
+  onOpenVoiceModal,
+  excludedOwnAdsCount = 0,
   onToggleRadar,
   isStreamConnected = false,
   isWhatsAppConnected = false,
@@ -80,6 +89,7 @@ export function HeroRadar({
   activeTab = 'radar',
   feedFilter = 'all',
   onSelectFilterCategory,
+  onOpenSpider,
 }: HeroRadarProps) {
   const pullStartY = useRef<number | null>(null);
   const pullDistance = useRef(0);
@@ -166,6 +176,25 @@ export function HeroRadar({
                   >
                     {liveRadarActive ? '● نشط' : '○ متوقف'}
                   </button>
+                  <button
+                    type="button"
+                    onClick={onOpenSettings}
+                    title="محرك الذكاء الاصطناعي الهجين (Gemma 3 1B INT4 + معالم HERE WeGo مدمجة 100%)"
+                    className="hidden sm:inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-violet-500/20 text-violet-300 border border-violet-400/30 hover:bg-violet-500/30 transition-all cursor-pointer"
+                  >
+                    <Cpu className="w-3 h-3 text-violet-300" />
+                    <span>Gemma 3 + HERE WeGo 🧠</span>
+                  </button>
+                  {excludedOwnAdsCount > 0 && (
+                    <span 
+                      onClick={onOpenSettings}
+                      title={`تم استبعاد ${excludedOwnAdsCount} إعلان شخصي خاص بك من الرادار والتنبيهات`}
+                      className="hidden sm:inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-400/30 hover:bg-purple-500/30 transition-all cursor-pointer"
+                    >
+                      <ShieldCheck className="w-3 h-3 text-purple-300" />
+                      <span>استبعاد {excludedOwnAdsCount} إعلان شخصي 🛡️</span>
+                    </span>
+                  )}
                 </div>
                 <p className="hidden sm:block mt-0.5 text-[11px] sm:text-xs text-slate-400 max-w-xl leading-relaxed">
                   مراقبة فورية لطلبات التوصيل في قروبات الواتساب وتصفيتها تلقائياً وفق موقعك وشروطك المالية.
@@ -214,6 +243,18 @@ export function HeroRadar({
               </button>
             )}
 
+            {/* 3. Voice Note Modal Trigger - التقاط وتحليل ريكوردات الواتساب */}
+            {onOpenVoiceModal && (
+              <button
+                onClick={onOpenVoiceModal}
+                className="flex-1 sm:flex-none min-h-[44px] flex items-center justify-center gap-1.5 px-3 py-2.5 sm:px-3.5 rounded-xl bg-gradient-to-r from-purple-600/30 to-indigo-600/30 hover:from-purple-600/40 hover:to-indigo-600/40 text-purple-200 border border-purple-500/40 font-black text-xs transition-all active:scale-[0.98] cursor-pointer shadow-xs"
+                title="تفريغ وتحليل الفويس نوت والتسجيلات الصوتية في قروبات الواتساب بالذكاء الاصطناعي"
+              >
+                <Mic className="w-3.5 h-3.5 text-purple-300 shrink-0" />
+                <span className="truncate">فويس نوت 🎙️</span>
+              </button>
+            )}
+
             {/* 3. Monthly Recurring Commitments & School Runs (الارتباط بالتوصيلات الشهرية) */}
             {onOpenCommitments && (
               <button
@@ -228,6 +269,18 @@ export function HeroRadar({
                     {commitmentsCount}
                   </span>
                 )}
+              </button>
+            )}
+
+            {/* Orderi Spider Button */}
+            {onOpenSpider && (
+              <button
+                onClick={onOpenSpider}
+                className="flex-1 sm:flex-none min-h-[44px] flex items-center justify-center gap-1.5 px-3 py-2.5 sm:px-3.5 rounded-xl bg-gradient-to-r from-emerald-600/30 to-teal-600/30 hover:from-emerald-600/40 hover:to-teal-600/40 text-emerald-300 border border-emerald-500/50 font-black text-xs transition-all active:scale-[0.98] cursor-pointer shadow-xs"
+                title="عنكبوت الأوردرات الذكي - زحف وفهرسة مجموعات الواتساب تلقائياً بالذكاء الاصطناعي الهجين"
+              >
+                <Bot className="w-4 h-4 text-emerald-400 shrink-0 animate-pulse" />
+                <span className="truncate">عنكبوت القروبات 🕷️</span>
               </button>
             )}
 

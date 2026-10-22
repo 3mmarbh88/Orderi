@@ -26,7 +26,8 @@ import {
   AlertCircle,
   CheckCircle2,
   MoveHorizontal,
-  Target
+  Target,
+  Volume2
 } from 'lucide-react';
 import { ParsedOrder } from '../types';
 import { MatcherLocation } from '../utils/matcher';
@@ -537,6 +538,16 @@ export function OrderCard({
                     <span>إعلاني الخاص</span>
                   </span>
                 )}
+                {order.isOwnAd && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-purple-100 text-purple-900 border border-purple-300">
+                    <span>📢 إعلاني الشخصي</span>
+                  </span>
+                )}
+                {(order.isVoiceNote || (order.rawText && order.rawText.includes('🎙️'))) && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-2xs">
+                    <span>🎙️ تسجيل صوتي (ريكورد)</span>
+                  </span>
+                )}
                 {order.source === 'webhook_auto' && (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-900 border border-emerald-300">
                     <Zap className="w-3 h-3 text-emerald-600 fill-emerald-500" />
@@ -651,6 +662,24 @@ export function OrderCard({
         {/* Route Details Box */}
         <div className="p-4 sm:p-5 space-y-4">
           
+          {/* Voice Note Transcription Quote Box */}
+          {(order.isVoiceNote || (order.rawText && order.rawText.includes('🎙️'))) && (
+            <div className="p-3.5 rounded-2xl bg-gradient-to-r from-purple-50 via-indigo-50/60 to-purple-50/40 border border-purple-200 text-right space-y-1.5 shadow-2xs">
+              <div className="flex items-center justify-between text-[11px] font-black text-purple-950">
+                <span className="flex items-center gap-1.5">
+                  <Volume2 className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+                  <span>تفريغ الفويس نوت بواسطة الذكاء الاصطناعي 🧠:</span>
+                </span>
+                <span className="text-[10px] bg-purple-200/80 px-2.5 py-0.5 rounded-full text-purple-950 font-black border border-purple-300">
+                  تسجيل صوتي (واتساب) 🎙️
+                </span>
+              </div>
+              <p className="text-xs font-bold text-slate-800 italic leading-relaxed bg-white/90 p-2.5 rounded-xl border border-purple-100">
+                "{order.voiceTranscript || order.rawText.replace(/🎙️\s*تسجيل صوتي.*?:/g, '').replace(/["']/g, '').trim()}"
+              </p>
+            </div>
+          )}
+
           <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/70">
             <div className="flex items-center justify-between gap-3">
               

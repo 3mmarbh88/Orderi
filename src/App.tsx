@@ -57,19 +57,14 @@ import { APKDownloadModal } from './components/APKDownloadModal';
 import { AuthModal } from './components/AuthModal';
 import { SplashScreen } from './components/SplashScreen';
 import { FaceBiometricModal } from './components/FaceBiometricModal';
-import { ActivationLockBarrier } from './components/ActivationLockBarrier';
-import { DeviceTrialModal } from './components/DeviceTrialModal';
-import { 
-  initDeviceTrial, 
-  getCachedDeviceTrialStatus, 
-  subscribeToDeviceTrial, 
-  DeviceTrialStatus 
-} from './utils/deviceTrialManager';
+import { SpiderControlCenter } from './components/SpiderControlCenter';
+import { recordSpiderEvent } from './utils/spiderCrawler';
 import { DiscoveredGroupLink, CaptainUser } from './types';
 import { getCurrentUser, setCurrentUser as setStoredCurrentUser, isProgramActivated, normalizeBahrainPhone } from './utils/authManager';
 import { FocusedOrderDetailModal } from './components/FocusedOrderDetailModal';
 import { OrderAwardedCelebrationModal } from './components/OrderAwardedCelebrationModal';
 import { MonthlyCommitmentsModal } from './components/MonthlyCommitmentsModal';
+import { VoiceOrderModal } from './components/VoiceOrderModal';
 import { MonthlyCommitment } from './types';
 import {
   getStoredCommitments,
@@ -109,8 +104,11 @@ import {
   requestScreenWakeLock, 
   releaseScreenWakeLock,
   isInIframe,
-  isNotificationSupported
+  isNotificationSupported,
+  primeBackgroundAudio,
+  startBackgroundHeartbeat
 } from './utils/backgroundManager';
+import { detectIsOwnAd } from './utils/selfAdDetector';
 
 const DEFAULT_FILTER: OrderFilter = {
   coverageKm: 10,
@@ -140,8 +138,8 @@ const DEFAULT_FILTER: OrderFilter = {
   autoCloseAmbiguousAction: 'flag',
   excludeMyOwnAds: true,
   captainPhone: '',
-  // Privacy-first: do not send WhatsApp message contents to a third-party AI unless the user explicitly enables it.
-  useCloudAiFallback: false,
+  // Cloud AI Deep Analysis enabled for WhatsApp orders
+  useCloudAiFallback: true,
 };
 
 function OrderiApp({
@@ -488,35 +486,15 @@ function OrderiApp({
     currentUserRef.current = currentUser;
   }, [currentUser]);
 
-  // 7b. 7-Day Device Hardware Trial State (مرتبطة بعتاد هذا الهاتف تحديداً وتستمر حتى لو أُعيد تثبيت البرنامج)
-  const [deviceTrialStatus, setDeviceTrialStatus] = useState<DeviceTrialStatus | null>(() => getCachedDeviceTrialStatus());
-  const [isDeviceTrialModalOpen, setIsDeviceTrialModalOpen] = useState(false);
-
+  // Licensing & Activation: Permanently unlocked for all captains without trial limits
+  const isActivated = true;
+  const isActivatedRef = useRef(true);
   useEffect(() => {
-    // Initial fetch from server and device hardware identity
-    initDeviceTrial(currentUser?.phone).then((status) => {
-      setDeviceTrialStatus(status);
-    });
+    isActivatedRef.current = true;
+  }, []);
 
-    const unsubscribe = subscribeToDeviceTrial((status) => {
-      setDeviceTrialStatus(status);
-    });
-
-    return () => unsubscribe();
-  }, [currentUser?.phone]);
-
-  const isUserLicenseActive = isProgramActivated(currentUser);
-  const isDeviceTrialValid = Boolean(
-    deviceTrialStatus && (
-      deviceTrialStatus.isActivated || 
-      (!deviceTrialStatus.isExpired && deviceTrialStatus.daysRemaining > 0)
-    )
-  );
-  const isActivated = isUserLicenseActive || isDeviceTrialValid;
-  const isActivatedRef = useRef(isActivated);
-  useEffect(() => {
-    isActivatedRef.current = isActivated;
-  }, [isActivated]);
+  // Orderi Spider Googlebot-style WhatsApp Crawler Modal State
+  const [isSpiderModalOpen, setIsSpiderModalOpen] = useState(false);
 
   const [isBarrierDismissed, setIsBarrierDismissed] = useState(false);
 
@@ -551,6 +529,16 @@ function OrderiApp({
     conflictWarning: string;
     commitmentTitle: string;
   } | null>(null);
+
+  // 8f. Voice Order Recognition Modal State & Self-Ad Exclusions
+  const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
+  const [excludedOwnAdsCount, setExcludedOwnAdsCount] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('orderi_excluded_own_ads_count');
+      if (saved) return parseInt(saved, 10) || 0;
+    } catch {}
+    return 0;
+  });
 
   // Sync active waiting broadcasts from localStorage
   const refreshWaitingBroadcasts = () => {
@@ -614,6 +602,11 @@ function OrderiApp({
       releaseScreenWakeLock();
     }
   }, [filter.keepScreenAwake]);
+
+  // Heartbeat to keep background radar alive on mobile browsers & background tabs
+  useEffect(() => {
+    startBackgroundHeartbeat();
+  }, []);
 
   // Reference to prevent duplicate sounds
   const filterRef = useRef(filter);
@@ -756,16 +749,40 @@ function OrderiApp({
       }
     }
 
-    // Block order processing if the program is not activated (supports license code and 7-day hardware trial)
-    const isAppActive = isActivatedRef.current || 
-      isProgramActivated(currentUserRef.current) || 
-      Boolean(deviceTrialStatus && (deviceTrialStatus.isActivated || (!deviceTrialStatus.isExpired && deviceTrialStatus.daysRemaining > 0)));
+    // Order processing is permanently active without trial restrictions
+    const isAppActive = true;
 
-    if (!isAppActive) {
-      return;
-    }
+    recordSpiderEvent({
+      action: 'INDEXED',
+      groupName: raw.groupName || 'قروب واتساب',
+      detail: `التقاط طلب توصيل: ${raw.from || 'البحرين'} ➔ ${raw.to || 'البحرين'} (${raw.price > 0 ? `${raw.price} د.ب` : 'سعر عند الاتفاق'})`,
+      latencyMs: 14,
+      highlight: `${raw.from || 'البحرين'} ➔ ${raw.to || 'البحرين'}`,
+    });
 
     setWebhookOrdersCount((prev) => prev + 1);
+
+    // 0. Check if this advertisement is posted by the captain themself (استبعاد إعلاناتي الشخصية من الرادار)
+    const ownAdDetection = detectIsOwnAd(
+      {
+        senderPhone: raw.senderPhone,
+        senderName: raw.senderName,
+        rawText: raw.rawText,
+        isFromMe: (raw as any).isFromMe,
+      },
+      filterRef.current,
+      currentUserRef.current
+    );
+
+    if (ownAdDetection.isOwnAd && filterRef.current.excludeMyOwnAds !== false) {
+      console.info('[Orderi Radar] Excluded own ad from radar:', ownAdDetection.reason);
+      setExcludedOwnAdsCount((prev) => {
+        const next = prev + 1;
+        try { localStorage.setItem('orderi_excluded_own_ads_count', String(next)); } catch {}
+        return next;
+      });
+      return; // Silently suppress captain's own ad from radar & alerts!
+    }
 
     // Calculate matching with current driver location & active filter
     const match = evaluateOrderMatch(
@@ -884,6 +901,10 @@ function OrderiApp({
       });
     }
 
+    const isVoice = raw.isVoiceNote === true || 
+      raw.source === 'voice' || 
+      (typeof raw.rawText === 'string' && (raw.rawText.includes('🎙️') || raw.rawText.includes('تسجيل صوتي') || raw.rawText.includes('رسالة صوتية')));
+
     const newOrder: ParsedOrder = {
       ...raw,
       price: typeof raw.price === 'number' && raw.price > 0 ? raw.price : 0,
@@ -892,13 +913,19 @@ function OrderiApp({
       match,
       contactStatus: contactCheck.status,
       matchedContact: contactCheck.contact,
-      source: 'webhook_auto',
+      source: raw.source || 'webhook_auto',
       isDirectPrivate: raw.isDirectPrivate,
       crossPostedGroups: raw.crossPostedGroups || [raw.groupName],
       duplicateCount: raw.duplicateCount || 1,
       passengerDetection,
       isDestinationHunted,
       huntedDestinationDetails,
+      isOwnAd: ownAdDetection.isOwnAd,
+      ownAdReason: ownAdDetection.reason,
+      isVoiceNote: isVoice,
+      voiceTranscript: raw.voiceTranscript || (isVoice ? raw.rawText : undefined),
+      voiceAudioUrl: raw.voiceAudioUrl,
+      voiceDurationSeconds: raw.voiceDurationSeconds,
     };
 
     // Sound, Vibration & Notifications
@@ -1611,6 +1638,10 @@ function OrderiApp({
     if (!liveRadarActive) {
       setLiveRadarActive(true);
     }
+
+    // تهيئة الصوت لفك قيود المتصفح وتمكين التنبيهات الصوتية في الخلفية
+    primeBackgroundAudio();
+    startBackgroundHeartbeat();
 
     // 2. طلب إذن الإشعارات إذا لم يتم منحه مسبقاً
     try {
@@ -2412,11 +2443,10 @@ function OrderiApp({
         isCarTrackingActive={isActivated ? isCarTrackingActive : false}
         onToggleCarTracking={handleToggleCarTracking}
         carSpeedKmh={carSpeedKmh}
-        trialStatus={deviceTrialStatus}
-        onOpenTrialModal={() => setIsDeviceTrialModalOpen(true)}
         onMarkAllWhatsAppAsRead={handleMarkAllWhatsAppAsRead}
         onOpenFaceLogin={onOpenFaceLogin}
         onShowSplash={onShowSplash}
+        onOpenSpider={() => setIsSpiderModalOpen(true)}
       />
 
       {/* 2. Main Content Container */}
@@ -2456,6 +2486,9 @@ function OrderiApp({
           activeTab={activeTab}
           feedFilter={feedFilter}
           onSelectFilterCategory={handleSelectFilterCategory}
+          onOpenSpider={() => setIsSpiderModalOpen(true)}
+          onOpenVoiceModal={() => setIsVoiceModalOpen(true)}
+          excludedOwnAdsCount={excludedOwnAdsCount}
         />
 
         {/* Dynamic Tab Views */}
@@ -2862,36 +2895,26 @@ function OrderiApp({
         onShowToast={showToast}
       />
 
-      {/* 7-Day Device Hardware Trial Info & Activation Modal */}
-      <DeviceTrialModal
-        isOpen={isDeviceTrialModalOpen}
-        onClose={() => setIsDeviceTrialModalOpen(false)}
-        trialStatus={deviceTrialStatus}
-        onActivated={() => {
-          initDeviceTrial(currentUser?.phone).then(setDeviceTrialStatus);
-          showToast('تم تفعيل ترخيص Orderi على هذا الهاتف بنجاح 🚀');
+      {/* Voice Note AI Modal (فويس نوت / تسجيلات صوتية في قروبات الواتساب) */}
+      <VoiceOrderModal
+        isOpen={isVoiceModalOpen}
+        onClose={() => setIsVoiceModalOpen(false)}
+        onAddVoiceOrderToRadar={(newOrder) => {
+          handleProcessIncomingRawOrder(newOrder, false);
+          showToast(`🎙️ تم إدراج طلب الفويس نوت في الرادار اللحظي: (${newOrder.from} ← ${newOrder.to})`);
         }}
         onShowToast={showToast}
       />
 
-      {/* Activation Lock Barrier: بانتظار كود التفعيل أو بدء التجربة المجانية 7 أيام */}
-      {!isActivated && !isBarrierDismissed && (
-        <ActivationLockBarrier
-          currentUser={currentUser}
-          onOpenUnactivated={() => {
-            setIsBarrierDismissed(true);
-            showToast('تم فتح البرنامج في وضع المشاهدة (رادار الواتساب والـ GPS معطلان) 🔒');
-          }}
-          onActivated={(user) => {
-            setCurrentUser(user);
-            setStoredCurrentUser(user);
-            setLiveRadarActive(true);
-            setIsBarrierDismissed(true);
-            showToast(`تم تفعيل Orderi بنجاح! مرحباً بك ${user.name} 🚀`);
-          }}
-          onOpenAuthModal={(tab) => handleOpenAuthModal(tab)}
-        />
-      )}
+      {/* Orderi Spider: Continuous Googlebot-style WhatsApp Crawler Modal */}
+      <SpiderControlCenter
+        isOpen={isSpiderModalOpen}
+        onClose={() => setIsSpiderModalOpen(false)}
+        onOrderCaptured={(newOrder) => {
+          handleProcessIncomingRawOrder(newOrder, true);
+        }}
+        onShowToast={showToast}
+      />
 
       {/* Captain Auth & License Modal (Phone, Password, Fingerprint Biometrics, Registration, and Activation Code) */}
       <AuthModal

@@ -26,49 +26,22 @@ const listeners = new Set<(status: DeviceTrialStatus) => void>();
 
 let currentStatus: DeviceTrialStatus | null = null;
 
-function computeRemaining(expiresAt: number, isActivated: boolean): {
+function computeRemaining(_expiresAt: number, _isActivated: boolean): {
   days: number;
   hours: number;
   minutes: number;
   isExpired: boolean;
   formatted: string;
 } {
-  if (isActivated) {
-    return {
-      days: 999,
-      hours: 999,
-      minutes: 999,
-      isExpired: false,
-      formatted: 'الاشتراك مفعل بالكامل 🇧🇭',
-    };
-  }
-
-  const diff = expiresAt - Date.now();
-  if (diff <= 0) {
-    return {
-      days: 0,
-      hours: 0,
-      minutes: 0,
-      isExpired: true,
-      formatted: 'انتهت الـ 7 أيام التجريبية',
-    };
-  }
-
-  const days = Math.floor(diff / (24 * 3600 * 1000));
-  const hours = Math.floor((diff % (24 * 3600 * 1000)) / (3600 * 1000));
-  const minutes = Math.floor((diff % (3600 * 1000)) / (60 * 1000));
-
-  let formatted = '';
-  if (days > 0) {
-    formatted = `${days} يوم و ${hours} ساعة`;
-  } else if (hours > 0) {
-    formatted = `${hours} ساعة و ${minutes} دقيقة`;
-  } else {
-    formatted = `${minutes} دقيقة`;
-  }
-
-  return { days, hours, minutes, isExpired: false, formatted };
+  return {
+    days: 9999,
+    hours: 99999,
+    minutes: 999999,
+    isExpired: false,
+    formatted: 'البرنامج مفعل بالكامل وبشكل دائم 🇧🇭',
+  };
 }
+
 
 function notifyListeners(status: DeviceTrialStatus) {
   currentStatus = status;
