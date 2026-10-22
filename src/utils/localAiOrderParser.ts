@@ -48,11 +48,11 @@ export const OrderiLocalAIPlugin = registerPlugin<OrderiLocalAIPluginType>('Orde
 
 export const DEFAULT_LOCAL_AI_CONFIG = {
   enabled: true,
-  modelName: 'Gemma 3 1B IT (gemma3-1b-it-int4.litertlm)',
+  modelName: 'Gemma 3 1B IT (runtime not integrated)',
   modelPath: 'models/gemma3-1b-it-int4.litertlm',
   hybridMode: true,
   minConfidenceForFastPass: 85,
-  status: 'ready' as const,
+  status: 'unloaded' as const,
 };
 
 /**
@@ -390,7 +390,7 @@ export async function runLocalAiDiagnosticTest(
 
   const elapsed = Math.max(12, Math.round(performance.now() - start));
 
-  let engineUsed = 'Gemma 3 1B INT4 (محلي)';
+  let engineUsed = 'قواعد محلية + HERE WeGo (استدلال Gemma غير متاح)';
   if (parsed.parseMethod === 'cloud_ai') {
     engineUsed = 'Gemini 3.8 Flash (سحابي)';
   } else if (parsed.parseMethod === 'fast_heuristic') {
@@ -403,10 +403,10 @@ export async function runLocalAiDiagnosticTest(
     success: Boolean(parsed.from || parsed.to || parsed.price > 0),
   });
 
-  // Calculate simulated/actual token rate for Gemma 3 1B
-  const wordCount = text.split(/\s+/).length;
-  const estimatedTokens = Math.max(15, wordCount * 2);
-  const tokensPerSec = Math.round((estimatedTokens / (elapsed / 1000))) + ' tokens/sec';
+  // Do not report estimated token speed or model memory as measured hardware metrics.
+  const tokensPerSec = parsed.parseMethod === 'local_ai' || parsed.parseMethod === 'cloud_ai'
+    ? 'غير مقاس في هذا التشخيص'
+    : 'لا يوجد استدلال نموذج؛ قواعد محلية فقط';
 
   return {
     timestamp: new Date().toLocaleTimeString('ar-BH'),
@@ -415,7 +415,7 @@ export async function runLocalAiDiagnosticTest(
     hereWeGoMatch: matchedHwg,
     engineUsed,
     inferenceMs: elapsed,
-    memoryFootprint: '584 MB (Gemma 3 1B INT4 quantized)',
+    memoryFootprint: parsed.parseMethod === 'local_ai' ? 'غير مقاس' : 'لم يتم تحميل Gemma؛ الذاكرة الفعلية غير متاحة',
     tokensPerSec,
     executionSteps: steps,
     isPassengerFlagged: isPassenger,
