@@ -38,7 +38,8 @@ public class OrderiLocalAIPlugin extends Plugin {
     @Override
     public void load() {
         super.load();
-        checkAndLocateModel();
+        // Copying a bundled model can take hundreds of MB; never do it on the UI thread.
+        executor.execute(this::checkAndLocateModel);
     }
 
     private void checkAndLocateModel() {
@@ -60,22 +61,71 @@ public class OrderiLocalAIPlugin extends Plugin {
                 return;
             }
         }
-        Log.i(TAG, "Local model file (" + MODEL_FILENAME + ") not found in app directories yet. Fast hybrid parser active.");
+        // Bundled-model path: binary expected at android/app/src/main/assets/models/
+        // and copied once into app-private storage before LiteRT-LM opens it.
+        File bundledCopy = copyBundledModel(ctx);
+        if (bundledCopy != null) {
+            modelFile = bundledCopy;
+            Log.i(TAG, "Copied bundled Gemma model into app-private storage (" +
+                    (bundledCopy.length() / (1024 * 1024)) + " MB)");
+            return;
+        }
+        Log.i(TAG, "Local model file (" + MODEL_FILENAME + ") not found in app directories or bundled assets. Fast hybrid parser active.");
+    }
+
+    private File copyBundledModel(Context ctx) {
+        File destination = new File(ctx.getFilesDir(), "models/" + MODEL_FILENAME);
+        if (destination.exists() && destination.length() >= 100L * 1024L * 1024L) return destination;
+        File parent = destination.getParentFile();
+        if (parent == null || (!parent.exists() && !parent.mkdirs())) {
+            Log.w(TAG, "Could not create private model directory");
+            return null;
+        }
+        File temporary = new File(parent, MODEL_FILENAME + ".tmp");
+        try (InputStream input = ctx.getAssets().open("models/" + MODEL_FILENAME);
+             FileOutputStream output = new FileOutputStream(temporary)) {
+            byte[] buffer = new byte[1024 * 1024];
+            int read;
+            while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
+            output.getFD().sync();
+            if (temporary.length() < 100L * 1024L * 1024L) {
+                temporary.delete();
+                Log.w(TAG, "Bundled model asset is missing or too small");
+                return null;
+            }
+            if (destination.exists() && !destination.delete()) {
+                temporary.delete();
+                return null;
+            }
+            if (!temporary.renameTo(destination)) {
+                temporary.delete();
+                Log.w(TAG, "Could not move bundled model into app-private storage");
+                return null;
+            }
+            return destination;
+        } catch (Exception error) {
+            temporary.delete();
+            // Expected until the licensed .litertlm binary is added to the assets folder.
+            Log.i(TAG, "No bundled Gemma asset found yet: " + error.getMessage());
+            return null;
+        }
     }
 
     @PluginMethod
     public void isModelAvailable(PluginCall call) {
-        checkAndLocateModel();
-        JSObject ret = new JSObject();
-        boolean filePresent = modelFile != null && modelFile.exists();
-        boolean inferenceReady = filePresent && OrderiLiteRtRuntime.isLoaded(modelFile.getAbsolutePath());
-        ret.put("available", inferenceReady);
-        ret.put("filePresent", filePresent);
-        ret.put("inferenceReady", inferenceReady);
-        ret.put("status", inferenceReady ? "ready" : (filePresent ? "model_not_loaded" : "model_file_missing"));
-        ret.put("modelPath", filePresent ? modelFile.getAbsolutePath() : "models/" + MODEL_FILENAME);
-        ret.put("fileSizeMb", filePresent ? modelFile.length() / (1024 * 1024) : 0);
-        call.resolve(ret);
+        executor.execute(() -> {
+            checkAndLocateModel();
+            JSObject ret = new JSObject();
+            boolean filePresent = modelFile != null && modelFile.exists();
+            boolean inferenceReady = filePresent && OrderiLiteRtRuntime.isLoaded(modelFile.getAbsolutePath());
+            ret.put("available", inferenceReady);
+            ret.put("filePresent", filePresent);
+            ret.put("inferenceReady", inferenceReady);
+            ret.put("status", inferenceReady ? "ready" : (filePresent ? "model_not_loaded" : "model_file_missing"));
+            ret.put("modelPath", filePresent ? modelFile.getAbsolutePath() : "assets/models/" + MODEL_FILENAME);
+            ret.put("fileSizeMb", filePresent ? modelFile.length() / (1024 * 1024) : 0);
+            call.resolve(ret);
+        });
     }
 
     @PluginMethod

@@ -17,6 +17,11 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    androidResources {
+        // LiteRT-LM models are large binary assets; keep the model extension uncompressed
+        // in the APK so first-run copying does not pay an extra decompression cost.
+        noCompress += ['litertlm']
+    }
     buildTypes {
         release {
             minifyEnabled false
