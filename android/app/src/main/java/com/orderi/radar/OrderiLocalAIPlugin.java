@@ -4,6 +4,8 @@ import android.content.Context;
 import android.os.SystemClock;
 import android.util.Log;
 
+import com.getcapacitor.ActivityCallback;
+import com.getcapacitor.ActivityResult;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -11,6 +13,12 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+import android.database.Cursor;
+import android.net.Uri;
+import android.provider.OpenableColumns;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
@@ -54,6 +62,105 @@ public class OrderiLocalAIPlugin extends Plugin {
             }
         }
         Log.i(TAG, "Local model file (" + MODEL_FILENAME + ") not found in app directories yet. Fast hybrid parser active.");
+    }
+
+    @PluginMethod
+    public void importModel(PluginCall call) {
+        android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(android.content.Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        startActivityForResult(call, intent, "handleModelImportResult");
+    }
+
+    @ActivityCallback
+    private void handleModelImportResult(PluginCall call, ActivityResult result) {
+        if (call == null) return;
+        if (result == null || result.getResultCode() != android.app.Activity.RESULT_OK
+                || result.getData() == null || result.getData().getData() == null) {
+            call.resolve(new JSObject().put("success", false).put("cancelled", true).put("message", "تم إلغاء اختيار الملف"));
+            return;
+        }
+        Uri uri = result.getData().getData();
+        executor.execute(() -> {
+            File temp = null;
+            try {
+                String displayName = queryDisplayName(uri);
+                if (displayName == null || !displayName.toLowerCase(java.util.Locale.ROOT).endsWith(".litertlm")) {
+                    JSObject ret = new JSObject();
+                    ret.put("success", false);
+                    ret.put("message", "اختر ملف نموذج ينتهي امتداده بـ .litertlm");
+                    call.resolve(ret);
+                    return;
+                }
+
+                File modelsDir = new File(getContext().getFilesDir(), "models");
+                if (!modelsDir.exists() && !modelsDir.mkdirs()) {
+                    throw new java.io.IOException("Unable to create private model directory");
+                }
+                File target = new File(modelsDir, MODEL_FILENAME);
+                temp = new File(modelsDir, MODEL_FILENAME + ".importing");
+                long copied = 0L;
+                try (InputStream input = getContext().getContentResolver().openInputStream(uri);
+                     OutputStream output = new FileOutputStream(temp, false)) {
+                    if (input == null) throw new java.io.IOException("Unable to open selected model file");
+                    byte[] buffer = new byte[1024 * 1024];
+                    int read;
+                    while ((read = input.read(buffer)) != -1) {
+                        copied += read;
+                        if (copied > 2L * 1024L * 1024L * 1024L) {
+                            throw new java.io.IOException("Model file exceeds 2 GB limit");
+                        }
+                        output.write(buffer, 0, read);
+                    }
+                    output.flush();
+                }
+                if (copied < 1024L * 1024L) throw new java.io.IOException("Selected model file is too small");
+                if (target.exists() && !target.delete()) throw new java.io.IOException("Unable to replace existing model");
+                if (!temp.renameTo(target)) throw new java.io.IOException("Unable to finalize imported model file");
+
+                synchronized (this) {
+                    if (gemmaEngine != null) {
+                        try { gemmaEngine.getClass().getMethod("close").invoke(gemmaEngine); } catch (Exception ignored) {}
+                    }
+                    gemmaEngine = null;
+                    isModelLoaded = false;
+                    inferenceReady = false;
+                    modelFile = target;
+                }
+
+                JSObject ret = new JSObject();
+                ret.put("success", true);
+                ret.put("filePresent", true);
+                ret.put("fileSizeMb", copied / (1024 * 1024));
+                ret.put("modelPath", target.getAbsolutePath());
+                ret.put("message", "تم استيراد ملف Gemma. اضغط «تحميل النموذج» لاختبار الاستدلال المحلي.");
+                call.resolve(ret);
+            } catch (Exception error) {
+                if (temp != null && temp.exists()) temp.delete();
+                Log.e(TAG, "Model import failed", error);
+                JSObject ret = new JSObject();
+                ret.put("success", false);
+                ret.put("message", "فشل استيراد ملف النموذج: " + error.getMessage());
+                call.resolve(ret);
+            }
+        });
+    }
+
+    private String queryDisplayName(Uri uri) {
+        Cursor cursor = null;
+        try {
+            cursor = getContext().getContentResolver().query(uri,
+                    new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null);
+            if (cursor != null && cursor.moveToFirst()) {
+                int index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                if (index >= 0) return cursor.getString(index);
+            }
+        } catch (Exception error) {
+            Log.w(TAG, "Could not read selected model filename", error);
+        } finally {
+            if (cursor != null) cursor.close();
+        }
+        return null;
     }
 
     @PluginMethod
