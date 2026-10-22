@@ -49,7 +49,8 @@ object OrderiLiteRtRuntime {
         val activeEngine = engine ?: throw IllegalStateException("LiteRT-LM engine is not loaded")
         val conversation = activeEngine.createConversation()
         return try {
-            conversation.sendMessage(prompt)
+            // LiteRT-LM returns a Message; its toString() renders the message contents.
+            conversation.sendMessage(prompt).toString()
         } finally {
             conversation.close()
         }
