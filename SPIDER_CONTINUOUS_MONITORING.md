@@ -70,3 +70,18 @@ Track local and cloud engines independently:
 
 ## Scope and limitations
 Spider can process only notification content Android exposes. It cannot guarantee access to every WhatsApp message, hidden/old messages, or full conversation history. Force-stop, revoked permissions, OEM task killers, and OS restrictions may interrupt monitoring.
+
+
+## Durable queue and acknowledgement implementation
+- Native notification events are persisted before the app broadcast is sent.
+- Event IDs are deterministic for a notification key, visible text, package, and Android post time. A bounded 24-hour native ledger prevents duplicate re-enqueueing across process restarts.
+- `getPending()` is non-destructive. The JavaScript pipeline calls `acknowledgeEvents({ ids })` only after a message is parsed and handed to the local order-processing path, or after an intentional filter/closure decision. Parser errors leave the event pending for retry.
+- The queue is bounded to 500 events to protect device storage. If it fills, the oldest unacknowledged event is dropped and an error is logged; this is a bounded offline queue, not an unlimited durable database.
+- The UI's in-memory duplicate guard complements native idempotency; it is not the source of persistence.
+
+## AI routing and privacy
+- Local heuristic parsing and HERE WeGo place matching remain available offline.
+- Gemma is reported as ready only when the Android bridge confirms real model inference readiness. The current native plugin reports inference as not integrated, so a model file alone is not reported as a working Gemma model.
+- Cloud parsing is strictly opt-in (`useCloudAiFallback === true`). Web builds may use the same-origin `/api/ai/cloud-parse-order` route. Native Android builds require `VITE_ORDERI_API_BASE_URL` to be set to the deployed Orderi backend base URL at build time. If it is absent or the endpoint fails, no cloud request is made and local parsing continues.
+- The backend must be deployed with `GEMINI_API_KEY` configured. The API key must remain on the server and must never be embedded in the Android app.
+- CI build success validates compilation only; notification behavior, cloud reachability, model inference, and OEM background execution still require device/backend tests.
