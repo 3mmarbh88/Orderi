@@ -266,7 +266,24 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
       </div>
 
       <div className="p-4 sm:p-5 space-y-4">
-        
+        <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4 flex items-start gap-3">
+          <input
+            id="orderi-cloud-ai-opt-in"
+            type="checkbox"
+            checked={filter.useCloudAiFallback === true}
+            onChange={(event) => onUpdateFilter({ ...filter, useCloudAiFallback: event.target.checked })}
+            className="mt-1 h-4 w-4 accent-amber-700 shrink-0"
+          />
+          <div className="min-w-0">
+            <label htmlFor="orderi-cloud-ai-opt-in" className="text-xs sm:text-sm font-black text-amber-950 cursor-pointer">
+              تفعيل الذكاء الاصطناعي السحابي عند الحاجة (Gemini)
+            </label>
+            <p className="mt-1 text-[11px] leading-relaxed text-amber-900/80">
+              عند التفعيل، تُرسل الرسائل الملتبسة فقط إلى خادم Orderi لتحليلها. عند الإيقاف، لا يُرسل نص الرسائل إلى السحابة ويستمر التحليل المحلي.
+            </p>
+          </div>
+        </div>
+
         {/* Model File & Engine Readiness Status Card */}
         <div className="p-4 rounded-2xl bg-indigo-50/40 border border-indigo-100 space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
