@@ -281,11 +281,11 @@ public class NotificationListenerPlugin extends Plugin {
         JSObject ret = new JSObject();
         JSArray arr = new JSArray();
         try {
-            android.content.SharedPreferences prefs = getContext().getSharedPreferences(
-                    WhatsAppNotificationListenerService.PREFS, Context.MODE_PRIVATE);
-            JSONArray events = new JSONArray(prefs.getString(
-                    WhatsAppNotificationListenerService.KEY_EVENTS, "[]"));
             synchronized (WhatsAppNotificationListenerService.class) {
+                android.content.SharedPreferences prefs = getContext().getSharedPreferences(
+                        WhatsAppNotificationListenerService.PREFS, Context.MODE_PRIVATE);
+                JSONArray events = new JSONArray(prefs.getString(
+                        WhatsAppNotificationListenerService.KEY_EVENTS, "[]"));
                 for (int i = 0; i < events.length(); i++) {
                     arr.put(new JSObject(events.getJSONObject(i).toString()));
                 }
