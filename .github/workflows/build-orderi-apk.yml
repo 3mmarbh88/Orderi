@@ -9,6 +9,7 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - 'capacitor.config.*'
+      - 'SPIDER_CONTINUOUS_MONITORING.md'
       - '.github/workflows/build-orderi-apk.yml'
   push:
     branches:
