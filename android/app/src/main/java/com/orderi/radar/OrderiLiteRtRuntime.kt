@@ -7,7 +7,7 @@ import com.google.ai.edge.litertlm.EngineConfig
 
 /**
  * Optional on-device Gemma runtime. The model must be legally obtained and placed
- * in app-private storage; the APK does not contain the 584 MB gated model asset.
+ * in app-private storage; the APK does not contain the gated model asset.
  * All calls are made by OrderiLocalAIPlugin's background executor.
  */
 object OrderiLiteRtRuntime {
@@ -32,7 +32,7 @@ object OrderiLiteRtRuntime {
             loadedPath = modelPath
             true
         } catch (error: Throwable) {
-            try { candidate.close() } catch (_: Throwable) {}
+            // Engine.close() is not safe after initialize() itself failed.
             engine = null
             loadedPath = null
             throw error
@@ -45,12 +45,13 @@ object OrderiLiteRtRuntime {
     @Synchronized
     @JvmStatic
     fun generate(context: Context, modelPath: String, prompt: String): String {
-        if (!initialize(context, modelPath)) {
-            throw IllegalStateException("LiteRT-LM engine failed to initialize")
-        }
+        initialize(context, modelPath)
         val activeEngine = engine ?: throw IllegalStateException("LiteRT-LM engine is not loaded")
-        return activeEngine.createConversation().use { conversation ->
-            conversation.sendMessage(prompt).text
+        val conversation = activeEngine.createConversation()
+        return try {
+            conversation.sendMessage(prompt)
+        } finally {
+            conversation.close()
         }
     }
 
