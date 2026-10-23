@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
   Mic, 
   MicOff, 
@@ -89,15 +89,7 @@ export const VoiceOrderModal: React.FC<VoiceOrderModalProps> = ({
   const audioChunksRef = useRef<Blob[]>([]);
   const timerIntervalRef = useRef<any>(null);
 
-  useEffect(() => {
-    if (!isOpen) {
-      handleReset();
-    }
-  }, [isOpen]);
-
-  if (!isOpen) return null;
-
-  const handleReset = () => {
+  const handleReset = useCallback(() => {
     if (mediaRecorderRef.current && isRecording) {
       try {
         mediaRecorderRef.current.stop();
@@ -111,7 +103,13 @@ export const VoiceOrderModal: React.FC<VoiceOrderModalProps> = ({
     setAudioBlobUrl(null);
     setAudioBase64(null);
     setErrorMessage(null);
-  };
+  }, [isRecording]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      handleReset();
+    }
+  }, [isOpen, handleReset]);
 
   const startRecording = async () => {
     setErrorMessage(null);
@@ -314,6 +312,8 @@ export const VoiceOrderModal: React.FC<VoiceOrderModalProps> = ({
     onShowToast(`✅ تم إدراج طلب الفويس نوت في الرادار بنجاح: (${fullOrder.from} ← ${fullOrder.to})`);
     onClose();
   };
+
+  if (!isOpen) return null;
 
   return (
     <div 
