@@ -39,7 +39,8 @@ import {
   executePrivateAdvertiserOutreach, 
   AdvertiserContactResolution, 
   formatAdvertiserPrivateMessage,
-  resolveAdvertiserContact
+  resolveAdvertiserContact,
+  openRegularWhatsAppPrivateChat
 } from '../utils/whatsappPrivateOutreach';
 import { AdvertiserOutreachModal } from './AdvertiserOutreachModal';
 
@@ -310,16 +311,60 @@ export function OrderCard({
     }
   };
 
-  const handleAdvertiserNameClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (isMyBroadcast) return;
-    const res = resolveAdvertiserContact(order);
-    setOutreachResolution(res);
-    if (effectivePhone && effectivePhone !== '97300000000') {
-      handleQuickAutoReply();
-    } else {
-      setShowOutreachModal(true);
+  const handleOpenDirectWhatsAppChat = (e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
     }
+    if (isMyBroadcast) {
+      handleQuickAutoReply();
+      return;
+    }
+
+    const res = resolveAdvertiserContact(order);
+    const targetPhone = (effectivePhone && effectivePhone !== '97300000000') 
+      ? effectivePhone 
+      : (res.phone && res.phone !== '97300000000') 
+      ? res.phone 
+      : null;
+
+    if (targetPhone) {
+      // 1. Copy message as instant backup
+      if (typeof navigator !== 'undefined' && navigator.clipboard) {
+        try {
+          navigator.clipboard.writeText(fullWhatsAppMessage);
+        } catch {}
+      }
+
+      // 2. Open private WhatsApp chat with advertiser directly (any method: whatsapp:// + wa.me)
+      openRegularWhatsAppPrivateChat(targetPhone, fullWhatsAppMessage);
+
+      // 3. Mark as accepted in order radar
+      onAccept({
+        ...order,
+        status: 'accepted',
+        outreachStatus: 'chat_opened_pending_send',
+        outreachDetails: {
+          status: 'chat_opened_pending_send',
+          phoneUsed: targetPhone,
+          advertiserName: res.name || order.senderName,
+          attemptedAt: new Date().toISOString(),
+          message: fullWhatsAppMessage,
+          deliveryMethod: 'direct_whatsapp_url',
+          verifiedAdvertiser: true,
+        },
+      });
+      setShowAcceptDialog(false);
+    } else {
+      // Phone is missing or ambiguous -> open outreach modal so user can pick/enter phone and launch WhatsApp immediately
+      setOutreachResolution(res);
+      setShowOutreachModal(true);
+      setShowAcceptDialog(false);
+    }
+  };
+
+  const handleAdvertiserNameClick = (e: React.MouseEvent) => {
+    handleOpenDirectWhatsAppChat(e);
   };
 
   const timeAgo = (date: Date) => {
@@ -808,19 +853,27 @@ export function OrderCard({
                   <button
                     type="button"
                     onClick={handleAdvertiserNameClick}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-950 border border-indigo-200 transition-colors font-bold cursor-pointer text-right group"
-                    title="انقر لمراسلة صاحب الإعلان في الخاص بالخلفية دون فتح واتساب أو روابط"
+                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-950 border border-emerald-300 hover:border-emerald-400 transition-all font-bold cursor-pointer text-right group shadow-xs active:scale-95"
+                    title="انقر لفتح محادثة واتساب خاصة مباشرة مع صاحب الإعلان"
                   >
-                    <span className="text-slate-500 font-normal">المعلن:</span>
-                    <strong className="underline decoration-indigo-400 group-hover:text-indigo-700">{order.senderName || 'صاحب الإعلان'}</strong>
-                    <span className="text-[10px] bg-indigo-200 text-indigo-900 px-1.5 py-0.5 rounded-full font-black">
-                      مراسلة خاصة بالخلفية 👤⚡
+                    <MessageCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span className="text-slate-600 font-normal">المعلن:</span>
+                    <strong className="underline decoration-emerald-500 group-hover:text-emerald-700">{order.senderName || 'صاحب الإعلان'}</strong>
+                    <span className="text-[10px] bg-emerald-600 text-white px-2 py-0.5 rounded-full font-black flex items-center gap-1">
+                      خاص واتساب 💬
                     </span>
                   </button>
                   {order.senderPhone && (
-                    <span dir="ltr" className="font-mono text-blue-600 font-bold bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                    <button
+                      type="button"
+                      onClick={handleAdvertiserNameClick}
+                      dir="ltr"
+                      className="font-mono text-emerald-700 hover:text-emerald-800 font-bold bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg border border-emerald-300 cursor-pointer transition-all active:scale-95 flex items-center gap-1"
+                      title="مراسلة واتساب خاصة مع هذا الرقم"
+                    >
+                      <Phone className="w-3 h-3 text-emerald-600" />
                       +{order.senderPhone}
-                    </span>
+                    </button>
                   )}
                 </div>
 
@@ -941,7 +994,7 @@ export function OrderCard({
               ) : (
                 <button
                   type="button"
-                  onClick={handleQuickAutoReply}
+                  onClick={isMyBroadcast ? handleQuickAutoReply : handleOpenDirectWhatsAppChat}
                   disabled={isAutoReplying}
                   className={`flex-1 min-h-[48px] flex items-center justify-center gap-2 py-3 px-3.5 sm:px-4 rounded-xl sm:rounded-2xl text-white font-black text-xs sm:text-sm shadow-md transition-all active:scale-[0.98] cursor-pointer ${
                     isMyBroadcast 
@@ -1007,17 +1060,15 @@ export function OrderCard({
             {/* Secondary Touch Actions Row */}
             <div className="flex items-center gap-1 sm:gap-2">
               {/* Direct WhatsApp chat with advertiser in Private */}
-              {effectivePhone && (
-                <button
-                  type="button"
-                  onClick={handleQuickAutoReply}
-                  title="فتح المحادثة الخاصة في واتساب مباشرة مع صاحب الإعلان"
-                  className="min-h-[44px] flex-1 flex items-center justify-center gap-1 py-2 px-1.5 sm:px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[11px] sm:text-xs font-bold border border-emerald-200 transition-all active:scale-95 cursor-pointer whitespace-nowrap"
-                >
-                  <MessageCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-600 shrink-0" />
-                  <span>خاص واتساب</span>
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={handleOpenDirectWhatsAppChat}
+                title="فتح المحادثة الخاصة في واتساب مباشرة مع صاحب الإعلان"
+                className="min-h-[44px] flex-1 flex items-center justify-center gap-1.5 py-2 px-1.5 sm:px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[11px] sm:text-xs font-bold border border-emerald-300 hover:border-emerald-400 transition-all active:scale-95 cursor-pointer whitespace-nowrap shadow-xs"
+              >
+                <MessageCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-600 shrink-0" />
+                <span>خاص واتساب</span>
+              </button>
 
               {/* Quick Copy Response */}
               <button

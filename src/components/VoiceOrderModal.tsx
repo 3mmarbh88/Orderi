@@ -15,7 +15,9 @@ import {
   Coins, 
   Phone, 
   RefreshCw,
-  AlertCircle
+  AlertCircle,
+  ShieldCheck,
+  Check
 } from 'lucide-react';
 import { ParsedOrder } from '../types';
 
@@ -26,56 +28,13 @@ interface VoiceOrderModalProps {
   onShowToast: (msg: string) => void;
 }
 
-const PRESET_BAHRAIN_VOICE_SAMPLES = [
-  {
-    id: 'sample-1',
-    title: 'طلب فوري من العدلية للرفاع (2.5 د.ب)',
-    transcript: 'السلام عليكم، بغيت مندوب من العدلية للرفاع بدينارين ونص، الطلب جاهز للاستلام الحين.',
-    from: 'العدلية',
-    to: 'الرفاع',
-    price: 2.5,
-    senderName: 'متجر العدلية للهدايا 🎁',
-    senderPhone: '97339124455',
-  },
-  {
-    id: 'sample-2',
-    title: 'طلب كيكة من مجمع السيف لعراد (3.0 د.ب)',
-    transcript: 'مرحبا كباتن، أبي مندوب يوصل كيكة ومستند من مجمع السيف لعراد بـ 3 دينار وبنفت فوري.',
-    from: 'السيف',
-    to: 'عراد',
-    price: 3.0,
-    senderName: 'حلويات السيف الفاخرة 🎂',
-    senderPhone: '97336881122',
-  },
-  {
-    id: 'sample-3',
-    title: 'طلب عطور من توبلي لمدينة عيسى (2.0 د.ب)',
-    transcript: 'سلام، عندي أوردر عطور من توبلي لمدينة عيسى بدينارين، الدفع بنفت عند الاستلام.',
-    from: 'توبلي',
-    to: 'مدينة عيسى',
-    price: 2.0,
-    senderName: 'عطورات توبلي 🌸',
-    senderPhone: '97338445566',
-  },
-  {
-    id: 'sample-4',
-    title: 'طلب مستعجل من الجفير للبديع (3.5 د.ب)',
-    transcript: 'بغيت دريول أو مندوب ضروري جداً الحين من الجفير للبديع بـ 3 دينار ونصف كاش.',
-    from: 'الجفير',
-    to: 'البديع',
-    price: 3.5,
-    senderName: 'زبون مباشر (الجفير) 📍',
-    senderPhone: '97333221199',
-  },
-];
-
 export const VoiceOrderModal: React.FC<VoiceOrderModalProps> = ({
   isOpen,
   onClose,
   onAddVoiceOrderToRadar,
   onShowToast,
 }) => {
-  const [activeTab, setActiveTab] = useState<'record' | 'upload' | 'samples'>('samples');
+  const [activeTab, setActiveTab] = useState<'record' | 'upload'>('record');
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -84,10 +43,30 @@ export const VoiceOrderModal: React.FC<VoiceOrderModalProps> = ({
   const [audioBase64, setAudioBase64] = useState<string | null>(null);
   const [audioMimeType, setAudioMimeType] = useState<string>('audio/webm');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [micPermissionState, setMicPermissionState] = useState<'prompt' | 'granted' | 'denied'>('prompt');
+  const [isRequestingPermission, setIsRequestingPermission] = useState(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const timerIntervalRef = useRef<any>(null);
+
+  // Check initial microphone permission if supported
+  useEffect(() => {
+    if (!isOpen) return;
+
+    if (navigator.permissions && navigator.permissions.query) {
+      navigator.permissions.query({ name: 'microphone' as any })
+        .then((permissionStatus) => {
+          setMicPermissionState(permissionStatus.state as any);
+          permissionStatus.onchange = () => {
+            setMicPermissionState(permissionStatus.state as any);
+          };
+        })
+        .catch(() => {
+          // Fallback: will test via getUserMedia
+        });
+    }
+  }, [isOpen]);
 
   const handleReset = useCallback(() => {
     if (mediaRecorderRef.current && isRecording) {
@@ -111,6 +90,32 @@ export const VoiceOrderModal: React.FC<VoiceOrderModalProps> = ({
     }
   }, [isOpen, handleReset]);
 
+  // Explicit permission grant flow
+  const requestMicPermission = async () => {
+    setIsRequestingPermission(true);
+    setErrorMessage(null);
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('الميكروفون غير مدعوم في هذا المتصفح');
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Successfully granted; stop tracks for now
+      stream.getTracks().forEach((track) => track.stop());
+      setMicPermissionState('granted');
+      onShowToast('✅ تم منح إذن الميكروفون بنجاح!');
+    } catch (err: any) {
+      console.warn('Microphone permission request error:', err);
+      setMicPermissionState('denied');
+      setErrorMessage(
+        err?.name === 'NotAllowedError'
+          ? 'تم رفض إذن الميكروفون من إعدادات المتصفح. يرجى الضغط على أيقونة القفل 🔒 في شريط العنوان وتفعيل الميكروفون.'
+          : 'تعذر الوصول للميكروفون على هذا الجهاز.'
+      );
+    } finally {
+      setIsRequestingPermission(false);
+    }
+  };
+
   const startRecording = async () => {
     setErrorMessage(null);
     setAnalyzedOrder(null);
@@ -118,11 +123,13 @@ export const VoiceOrderModal: React.FC<VoiceOrderModalProps> = ({
 
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        setErrorMessage('الميكروفون غير مدعوم في هذا المتصفح أو يتطلب فتح التطبيق عبر HTTPS أو مستقل.');
+        setErrorMessage('الميكروفون غير مدعوم في هذا المتصفح أو يتطلب بيئة آمنة HTTPS.');
         return;
       }
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      setMicPermissionState('granted');
+
       const mime = MediaRecorder.isTypeSupported('audio/webm') 
         ? 'audio/webm' 
         : MediaRecorder.isTypeSupported('audio/ogg') 
@@ -172,7 +179,12 @@ export const VoiceOrderModal: React.FC<VoiceOrderModalProps> = ({
       }, 1000);
     } catch (err: any) {
       console.error('Microphone error:', err);
-      setErrorMessage(err?.name === 'NotAllowedError' ? 'تم رفض إذن الميكروفون. يرجى السماح بالوصول من المتصفح.' : 'تعذر تشغيل الميكروفون.');
+      setMicPermissionState('denied');
+      setErrorMessage(
+        err?.name === 'NotAllowedError' 
+          ? 'تم رفض إذن الميكروفون. انقر على زر "منح الإذن" لتفعيله.' 
+          : 'تعذر تشغيل الميكروفون.'
+      );
     }
   };
 
@@ -238,41 +250,6 @@ export const VoiceOrderModal: React.FC<VoiceOrderModalProps> = ({
     reader.readAsDataURL(file);
   };
 
-  const handleRunSampleSimulation = async (sample: typeof PRESET_BAHRAIN_VOICE_SAMPLES[0]) => {
-    setIsAnalyzing(true);
-    setErrorMessage(null);
-    try {
-      const res = await fetch('/api/voice-order', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          transcript: sample.transcript,
-          groupName: 'قروبات واتساب البحرين 🎙️',
-          senderName: sample.senderName,
-          broadcastToRadar: false,
-        }),
-      });
-
-      const json = await res.json();
-      if (json.success && json.data) {
-        const enriched = {
-          ...json.data,
-          from: sample.from,
-          to: sample.to,
-          price: sample.price,
-          senderName: sample.senderName,
-          senderPhone: sample.senderPhone,
-        };
-        setAnalyzedOrder(enriched);
-        onShowToast(`🎙️ تم محاكاة وتحليل فويس نوت: "${sample.title}"`);
-      }
-    } catch (e) {
-      setErrorMessage('تعذر معالجة نموذج التسجيل الصوتي');
-    } finally {
-      setIsAnalyzing(false);
-    }
-  };
-
   const handleConfirmAddToRadar = () => {
     if (!analyzedOrder) return;
 
@@ -282,9 +259,9 @@ export const VoiceOrderModal: React.FC<VoiceOrderModalProps> = ({
       to: analyzedOrder.to || 'الرفاع',
       price: analyzedOrder.price || 2.5,
       isPriceUnspecified: !analyzedOrder.price || analyzedOrder.price <= 0,
-      rawText: analyzedOrder.rawText || `🎙️ تسجيل صوتي: ${analyzedOrder.voiceTranscript || ''}`,
-      groupName: analyzedOrder.groupName || 'قروب واتساب (تسجيل صوتي) 🎙️',
-      senderName: analyzedOrder.senderName || 'معلن واتساب 🎙️',
+      rawText: analyzedOrder.rawText || `🎙️ تسجيل صوتي للمعلن: ${analyzedOrder.voiceTranscript || ''}`,
+      groupName: analyzedOrder.groupName || 'تسجيل صوتي مباشر 🎙️',
+      senderName: analyzedOrder.senderName || 'معلن صوتي مباشر 🎙️',
       senderPhone: analyzedOrder.senderPhone || '97339123456',
       receivedAt: new Date(),
       confidence: 96,
@@ -336,14 +313,14 @@ export const VoiceOrderModal: React.FC<VoiceOrderModalProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-base sm:text-lg font-black text-slate-900">
-                  ذكاء تفريغ الفويس نوت والتسجيلات الصوتية 🎙️
+                  ذكاء تفريغ الفويس نوت واستخراج الطلبات 🎙️
                 </h2>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-purple-100 text-purple-900 border border-purple-200">
                   Gemini + Bahrain Dialect 🇧🇭
                 </span>
               </div>
               <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">
-                التقاط ريكوردات المعلنين في قروبات الواتساب ("بغيت مندوب من...") واستخراج بيانات التوصيل فوراً
+                سجل بصوتك كمعلن أو ارفع ريكورد واتساب واستخرج تفاصيل الطلب فوراً
               </p>
             </div>
           </div>
@@ -356,95 +333,98 @@ export const VoiceOrderModal: React.FC<VoiceOrderModalProps> = ({
           </button>
         </div>
 
-        {/* Mode Selector Tabs */}
+        {/* Permissions Banner & Quick Grant */}
+        <div className={`p-3 rounded-2xl border flex items-center justify-between gap-2.5 transition-all ${
+          micPermissionState === 'granted'
+            ? 'bg-emerald-50/80 border-emerald-200 text-emerald-950'
+            : micPermissionState === 'denied'
+            ? 'bg-rose-50 border-rose-200 text-rose-950'
+            : 'bg-purple-50/80 border-purple-200 text-purple-950'
+        }`}>
+          <div className="flex items-center gap-2 min-w-0">
+            <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+              micPermissionState === 'granted' 
+                ? 'bg-emerald-600 text-white' 
+                : micPermissionState === 'denied'
+                ? 'bg-rose-600 text-white'
+                : 'bg-purple-600 text-white'
+            }`}>
+              {micPermissionState === 'granted' ? (
+                <Check className="w-4 h-4" />
+              ) : (
+                <Mic className="w-4 h-4" />
+              )}
+            </div>
+            <div className="min-w-0">
+              <span className="text-xs font-black block truncate">
+                {micPermissionState === 'granted'
+                  ? 'تم منح إذن الميكروفون والتسجيل بنجاح ✅'
+                  : micPermissionState === 'denied'
+                  ? 'إذن الميكروفون معطل في المتصفح'
+                  : 'مطلوب إذن الميكروفون لتسجيل صوت المعلن'}
+              </span>
+              <span className="text-[10px] text-slate-500 block truncate">
+                {micPermissionState === 'granted'
+                  ? 'جاهز للاستماع وتحليل اللهجة البحرينية بدقة عالية'
+                  : 'انقر لمنح البرنامج إذن الميكروفون وكافة أذونات الصوت'}
+              </span>
+            </div>
+          </div>
+
+          {micPermissionState !== 'granted' && (
+            <button
+              type="button"
+              onClick={requestMicPermission}
+              disabled={isRequestingPermission}
+              className="py-1.5 px-3 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-black text-xs shrink-0 flex items-center gap-1.5 shadow-xs cursor-pointer active:scale-95 disabled:opacity-50"
+            >
+              {isRequestingPermission ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <ShieldCheck className="w-3.5 h-3.5" />
+              )}
+              <span>منح الإذن 🎙️</span>
+            </button>
+          )}
+        </div>
+
+        {/* Mode Selector Tabs (Samples Tab Purged) */}
         <div className="flex rounded-2xl bg-slate-100 p-1 border border-slate-200/80 gap-1">
           <button
             type="button"
-            onClick={() => setActiveTab('samples')}
-            className={`flex-1 py-2 px-3 rounded-xl text-xs font-black transition-all cursor-pointer ${
-              activeTab === 'samples'
-                ? 'bg-white text-purple-900 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            نماذج بحرينية جاهزة ⚡
-          </button>
-          <button
-            type="button"
             onClick={() => setActiveTab('record')}
-            className={`flex-1 py-2 px-3 rounded-xl text-xs font-black transition-all cursor-pointer ${
+            className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
               activeTab === 'record'
                 ? 'bg-white text-purple-900 shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            تسجيل صوتي مباشر 🎙️
+            <Mic className="w-4 h-4 text-purple-600" />
+            <span>تسجيل بصوتك كمعلن 🎙️</span>
           </button>
           <button
             type="button"
             onClick={() => setActiveTab('upload')}
-            className={`flex-1 py-2 px-3 rounded-xl text-xs font-black transition-all cursor-pointer ${
+            className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
               activeTab === 'upload'
                 ? 'bg-white text-purple-900 shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            رفع ملف صوتي 📁
+            <Upload className="w-4 h-4 text-indigo-600" />
+            <span>رفع ريكورد واتساب 📁</span>
           </button>
         </div>
 
-        {/* Tab 1: Bahrain Voice Samples */}
-        {activeTab === 'samples' && (
-          <div className="space-y-3">
-            <div className="p-3 rounded-2xl bg-purple-50/70 border border-purple-200 text-xs font-bold text-purple-950 flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-purple-600 shrink-0" />
-              <span>جرب محاكاة نصوص وريكوردات حقيقية من لهجة قروبات واتساب البحرين بنقرة واحدة:</span>
-            </div>
-
-            <div className="space-y-2">
-              {PRESET_BAHRAIN_VOICE_SAMPLES.map((sample) => (
-                <div
-                  key={sample.id}
-                  className="p-3.5 rounded-2xl border border-slate-200 hover:border-purple-300 bg-white hover:bg-purple-50/20 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs"
-                >
-                  <div className="space-y-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-purple-600 shrink-0" />
-                      <span className="text-xs font-black text-slate-900">{sample.title}</span>
-                    </div>
-                    <p className="text-[11px] text-slate-600 italic bg-slate-50 p-2 rounded-xl border border-slate-100">
-                      "{sample.transcript}"
-                    </p>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => handleRunSampleSimulation(sample)}
-                    disabled={isAnalyzing}
-                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white text-xs font-black shrink-0 flex items-center justify-center gap-1.5 shadow-xs cursor-pointer active:scale-95 disabled:opacity-50"
-                  >
-                    {isAnalyzing ? (
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <Play className="w-3.5 h-3.5" />
-                    )}
-                    <span>تحليل بالذكاء الاصطناعي 🧠</span>
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Tab 2: Live Recording */}
+        {/* Tab 1: Live Recording as Advertiser */}
         {activeTab === 'record' && (
           <div className="p-5 sm:p-6 rounded-3xl bg-slate-50 border border-slate-200 text-center space-y-4">
             <div className="space-y-1">
               <h3 className="text-sm font-black text-slate-900">
-                تسجيل بصوتك كمعلن أو زبون في واتساب
+                تسجيل صوتي مباشر كمعلن أو زبون في واتساب
               </h3>
               <p className="text-xs text-slate-500">
-                تحدث بحرية باللهجة البحرينية (مثلاً: "بغيت مندوب من المحرق للسلمانية بدينارين")
+                تحدث بحرية باللهجة البحرينية (مثال: "مطلوب مندوب استلام فوري من سيتي سنتر للرفاع بدينارين ونص")
               </p>
             </div>
 
@@ -453,13 +433,14 @@ export const VoiceOrderModal: React.FC<VoiceOrderModalProps> = ({
                 type="button"
                 onClick={isRecording ? stopRecording : startRecording}
                 disabled={isAnalyzing}
-                className={`w-20 h-20 rounded-full flex items-center justify-center text-white transition-all transform active:scale-90 shadow-xl cursor-pointer ${
+                className={`w-22 h-22 rounded-full flex items-center justify-center text-white transition-all transform active:scale-90 shadow-xl cursor-pointer ${
                   isRecording
                     ? 'bg-rose-600 hover:bg-rose-700 animate-pulse ring-8 ring-rose-200'
-                    : 'bg-gradient-to-br from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 ring-4 ring-purple-100'
+                    : 'bg-gradient-to-br from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 ring-4 ring-purple-100 hover:shadow-purple-500/30'
                 }`}
+                title={isRecording ? 'إيقاف التسجيل' : 'بدء التسجيل الصوتي'}
               >
-                {isRecording ? <Square className="w-8 h-8 fill-white" /> : <Mic className="w-8 h-8" />}
+                {isRecording ? <Square className="w-8 h-8 fill-white" /> : <Mic className="w-9 h-9" />}
               </button>
 
               <div className="text-xs font-black">
@@ -469,7 +450,7 @@ export const VoiceOrderModal: React.FC<VoiceOrderModalProps> = ({
                     جاري الاستماع والتسجيل ({recordingSeconds} ثانية) — اضغط للإيقاف
                   </span>
                 ) : (
-                  <span className="text-slate-600">اضغط على الميكروفون لبدء التسجيل</span>
+                  <span className="text-slate-600">اضغط على الميكروفون لبدء التسجيل كمعلن</span>
                 )}
               </div>
             </div>
@@ -482,7 +463,7 @@ export const VoiceOrderModal: React.FC<VoiceOrderModalProps> = ({
           </div>
         )}
 
-        {/* Tab 3: Upload Audio File */}
+        {/* Tab 2: Upload Audio File */}
         {activeTab === 'upload' && (
           <div className="p-6 rounded-3xl bg-slate-50 border-2 border-dashed border-slate-200 text-center space-y-4">
             <div className="w-12 h-12 rounded-2xl bg-purple-100 text-purple-700 mx-auto flex items-center justify-center">
@@ -490,7 +471,7 @@ export const VoiceOrderModal: React.FC<VoiceOrderModalProps> = ({
             </div>
             <div className="space-y-1">
               <h3 className="text-sm font-black text-slate-900">
-                اختر ملف تسجيل صوتي من واتساب
+                اختر ملف تسجيل صوتي أو فويس نوت من واتساب
               </h3>
               <p className="text-xs text-slate-500">
                 يدعم صيغ واتساب الصوتية (.opus, .ogg, .mp3, .m4a, .wav)

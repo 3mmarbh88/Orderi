@@ -24,7 +24,8 @@ import {
   formatAdvertiserPrivateMessage, 
   normalizeBahrainPhone,
   formatDisplayPhone,
-  CandidatePhoneDetail
+  CandidatePhoneDetail,
+  openRegularWhatsAppPrivateChat
 } from '../utils/whatsappPrivateOutreach';
 import { openWhatsAppAccessibilitySettings } from '../native/whatsappListener';
 import { isNativeAndroid, OrderiNotificationListener } from '../native/orderiNotificationListener';
@@ -116,9 +117,12 @@ export function AdvertiserOutreachModal({
         }).catch(() => {});
       } catch {}
 
-      // 4. Confirm accept in order radar
+      // 4. Open regular private WhatsApp chat with the advertiser
+      openRegularWhatsAppPrivateChat(cleanInputPhone, editedMessage);
+
+      // 5. Confirm accept in order radar
       onConfirmAccept(order, cleanInputPhone);
-      onToast(`✅ تم إرسال رسالة القبول بالخاص للمعلن (${formatDisplayPhone(cleanInputPhone)}) في الخلفية بنجاح 👤⚡`);
+      onToast(`💬 تم فتح محادثة واتساب الخاصة مع المعلن (${formatDisplayPhone(cleanInputPhone)})`);
       onClose();
     } finally {
       setIsSubmitting(false);

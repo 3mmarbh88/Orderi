@@ -22,12 +22,8 @@ public class MainActivity extends BridgeActivity {
         // checks this persisted flag so it can stop processing after task dismissal.
         getSharedPreferences(BackgroundRadarService.PREFS, MODE_PRIVATE)
                 .edit().putBoolean(BackgroundRadarService.KEY_ENABLED, true).apply();
-        Intent radarIntent = new Intent(this, BackgroundRadarService.class);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(radarIntent);
-        } else {
-            startService(radarIntent);
-        }
+        // The user explicitly requested not to show the persistent "الرادار يعمل حتى إزالة التطبيق" notification.
+        // WhatsAppNotificationListenerService runs independently via Android's NotificationListenerService.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
                 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 9001);

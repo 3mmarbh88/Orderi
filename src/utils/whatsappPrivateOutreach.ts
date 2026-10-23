@@ -377,38 +377,47 @@ export function formatAdvertiserPrivateMessage(order: ParsedOrder): string {
  * يُمنع كتابة أي رد في القروب قطيعاً، وبدون فتح نوافذ أو روابط منبثقة
  */
 export function openRegularWhatsAppPrivateChat(phone: string, message: string): boolean {
-  const cleaned = phone.replace(/\D/g, '');
+  const cleaned = normalizeBahrainPhone(phone);
   if (!cleaned) return false;
 
-  const encoded = encodeURIComponent(message);
-  const isAndroid = typeof navigator !== 'undefined' && /android/i.test(navigator.userAgent);
+  const encoded = encodeURIComponent(message || '');
+  const waMeUrl = `https://wa.me/${cleaned}${encoded ? `?text=${encoded}` : ''}`;
+  const whatsappScheme = `whatsapp://send?phone=${cleaned}${encoded ? `&text=${encoded}` : ''}`;
 
-  if (isAndroid) {
+  if (typeof navigator !== 'undefined' && navigator.clipboard) {
     try {
-      // 1. Direct app URI scheme (opens WhatsApp app directly without opening Chrome or browser tabs)
-      window.location.href = `whatsapp://send?phone=${cleaned}&text=${encoded}`;
+      navigator.clipboard.writeText(message);
+    } catch {}
+  }
+
+  if (typeof window === 'undefined') return false;
+
+  const isMobile = typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+  if (isMobile) {
+    try {
+      window.location.href = whatsappScheme;
+      setTimeout(() => {
+        try {
+          window.location.href = waMeUrl;
+        } catch {}
+      }, 500);
       return true;
     } catch {
-      try {
-        const intentUrl = `intent://send?phone=${cleaned}&text=${encoded}#Intent;scheme=whatsapp;package=com.whatsapp;end`;
-        window.location.href = intentUrl;
-        return true;
-      } catch {}
+      window.location.href = waMeUrl;
+      return true;
     }
   }
 
-  // Universal WhatsApp deep-link scheme without opening new windows/tabs
-  if (typeof window !== 'undefined') {
-    try {
-      window.location.href = `whatsapp://send?phone=${cleaned}&text=${encoded}`;
-      return true;
-    } catch {
-      window.location.href = `https://wa.me/${cleaned}?text=${encoded}`;
-      return true;
+  try {
+    const win = window.open(waMeUrl, '_blank');
+    if (!win) {
+      window.location.href = waMeUrl;
     }
+    return true;
+  } catch {
+    window.location.href = waMeUrl;
+    return true;
   }
-
-  return false;
 }
 
 /**
