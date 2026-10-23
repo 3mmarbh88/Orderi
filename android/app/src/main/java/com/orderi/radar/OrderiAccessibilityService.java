@@ -337,33 +337,9 @@ public class OrderiAccessibilityService extends AccessibilityService {
      * Returns true only when the service is connected and WhatsApp can be launched.
      */
     public static boolean requestMarkArchivedChatsRead(Context context) {
-        if (context == null || !isAccessibilityEnabled(context) || instance == null) {
-            return false;
-        }
-
-        Intent launchIntent = context.getPackageManager().getLaunchIntentForPackage(PACKAGE_WHATSAPP);
-        if (launchIntent == null) {
-            return false;
-        }
-
-        OrderiAccessibilityService service = instance;
-        service.archivedSectionOpened = false;
-        service.waitingForChatToClose = false;
-        service.archivedReadEventRetries = 0;
-        service.archivedChatsVisited = 0;
-        service.archivedUnreadChatsVisited.clear();
-        markArchivedChatsRequested = true;
-
-        try {
-            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            context.startActivity(launchIntent);
-            Log.i(TAG, "Started archived-chat read pass");
-            return true;
-        } catch (Exception e) {
-            markArchivedChatsRequested = false;
-            Log.w(TAG, "Could not launch WhatsApp for archived-chat read pass", e);
-            return false;
-        }
+        // Strictly avoid launching WhatsApp or opening windows to preserve background operation
+        markArchivedChatsRequested = false;
+        return false;
     }
 
     @Override

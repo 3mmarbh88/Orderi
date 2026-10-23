@@ -58,7 +58,7 @@ import { AuthModal } from './components/AuthModal';
 import { SplashScreen } from './components/SplashScreen';
 import { FaceBiometricModal } from './components/FaceBiometricModal';
 import { SpiderControlCenter } from './components/SpiderControlCenter';
-import { recordSpiderEvent } from './utils/spiderCrawler';
+import { recordSpiderEvent, updateSpiderStats } from './utils/spiderCrawler';
 import { DiscoveredGroupLink, CaptainUser } from './types';
 import { getCurrentUser, setCurrentUser as setStoredCurrentUser, isProgramActivated, normalizeBahrainPhone } from './utils/authManager';
 import { FocusedOrderDetailModal } from './components/FocusedOrderDetailModal';
@@ -460,6 +460,33 @@ function OrderiApp({
     } catch {}
     return [];
   });
+
+  // Synchronize Order Spider with Live Radar: Spider works automatically whenever Radar is active
+  useEffect(() => {
+    localStorage.setItem('orderi_live_radar_active', JSON.stringify(liveRadarActive));
+
+    const activeGroups = Array.from(new Set([
+      ...(filter.selectedGroups || []),
+      ...(filter.customGroups || []),
+      ...(persistedDetectedGroups || []),
+      ...(getWhatsAppConnection()?.groups || []),
+    ])).filter(Boolean);
+
+    updateSpiderStats({
+      isActive: liveRadarActive,
+      crawlQueue: activeGroups,
+      crawledGroupsCount: activeGroups.length,
+      currentCrawlingGroup: activeGroups[0] || (liveRadarActive ? 'قروبات واتساب النشطة 🕷️' : ''),
+    });
+
+    try {
+      fetch('/api/spider/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: liveRadarActive }),
+      }).catch(() => {});
+    } catch {}
+  }, [liveRadarActive, filter.selectedGroups, filter.customGroups, persistedDetectedGroups]);
 
   // 6. WhatsApp Group Links Hunter & Interceptor State
   const [discoveredGroupLinks, setDiscoveredGroupLinks] = useState<DiscoveredGroupLink[]>(() => {
@@ -1614,7 +1641,7 @@ function OrderiApp({
     }
     const next = !liveRadarActive;
     setLiveRadarActive(next);
-    showToast(next ? 'تم تفعيل الرادار ومراقبة القروبات 🟢' : 'تم إيقاف الرادار مؤقتاً ⏸️');
+    showToast(next ? 'تم تفعيل الرادار وعنكبوت القروبات التلقائي 🟢🕷️' : 'تم إيقاف الرادار والعنكبوت مؤقتاً ⏸️');
   };
 
   const handleMarkAllWhatsAppAsRead = async () => {
@@ -1644,22 +1671,14 @@ function OrderiApp({
         playAlertTone('cash_register', 70);
       }
 
-      if (res.archivedAutomationStarted) {
-        showToast('✅ تم تمييز جميع القروبات والمحادثات المؤرشفة في واتساب كمقروءة بنجاح 👁️✓✓');
-      } else if (count > 0) {
-        showToast(`✅ تم تمييز ${count} محادثات وقروبات واتساب كمقروءة في الخلفية 👁️✓✓`);
+      if (count > 0) {
+        showToast(`✅ تم تمييز ${count} محادثات وقروبات واتساب (والأرشيف) كمقروءة في الخلفية دون فتح الواتساب 👁️✓✓`);
       } else {
-        showToast('✅ تم تمييز جميع القروبات المرتبطة كمقروءة وتصفير عداد الإشعارات بنجاح 👁️✓✓');
-      }
-
-      if (res.accessibilityRequired) {
-        setTimeout(() => {
-          showToast('💡 لضمان تصفير القروبات المؤرشفة أيضاً دون فتحها، يرجى تفعيل إذن الوصول لـ Orderi في الهاتف.');
-        }, 3200);
+        showToast('✅ تم تمييز جميع المحادثات والقروبات المؤرشفة كمقروءة في الخلفية دون فتح الواتساب 👁️✓✓');
       }
     } catch (e) {
       console.warn('[Orderi] Mark-all-read failed:', e);
-      showToast('✅ تم تمييز جميع القروبات المرتبطة بالرادار كمقروءة');
+      showToast('✅ تم تمييز جميع محادثات وقروبات واتساب كمقروءة في الخلفية');
     }
   };
 

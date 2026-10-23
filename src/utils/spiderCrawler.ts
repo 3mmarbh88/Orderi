@@ -75,6 +75,13 @@ export function recordSpiderEvent(event: Omit<SpiderLogEvent, 'id' | 'timestamp'
   spiderLogs.unshift(newLog);
   if (spiderLogs.length > 50) spiderLogs.pop();
   currentStats.lastCrawlTimestamp = Date.now();
+  if (event.groupName) {
+    currentStats.currentCrawlingGroup = event.groupName;
+  }
+  if (event.action === 'INDEXED') {
+    currentStats.ordersCapturedCount += 1;
+    currentStats.messagesCrawledCount += 1;
+  }
   notify();
 }
 
