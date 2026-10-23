@@ -30,38 +30,22 @@ export interface SpiderStats {
 }
 
 // Bounded in-memory event registry for the Spider
-const spiderLogs: SpiderLogEvent[] = [
-  {
-    id: 'init-spider-1',
-    timestamp: new Date().toLocaleTimeString('ar-BH'),
-    action: 'SYSTEM',
-    groupName: 'محرك عنكبوت الرادار 🕷️',
-    detail: 'تشغيل محرك الزحف الذكي المستمر على قروبات الواتساب عبر الذكاء الاصطناعي الهجين (Gemma 3 + Gemini 3.8)',
-    latencyMs: 8,
-  },
-];
+const spiderLogs: SpiderLogEvent[] = [];
 
 const spiderListeners = new Set<(stats: SpiderStats, logs: SpiderLogEvent[]) => void>();
 
 let currentStats: SpiderStats = {
   isActive: true,
   crawlSpeedMs: 3000,
-  crawledGroupsCount: 16,
-  messagesCrawledCount: 168,
-  ordersCapturedCount: 22,
-  groupLinksDiscoveredCount: 8,
-  spamFilteredCount: 41,
-  passengersFilteredCount: 15,
-  currentCrawlingGroup: 'قروب مناديب البحرين 🇧🇭',
+  crawledGroupsCount: 0,
+  messagesCrawledCount: 0,
+  ordersCapturedCount: 0,
+  groupLinksDiscoveredCount: 0,
+  spamFilteredCount: 0,
+  passengersFilteredCount: 0,
+  currentCrawlingGroup: '',
   lastCrawlTimestamp: Date.now(),
-  crawlQueue: [
-    'قروب مناديب البحرين 🇧🇭',
-    'طلبات المنامة والرفاع 📦',
-    'كباتن المحرق والحد 🚗',
-    'توصيل مدينة عيسى وسند ⚡',
-    'طلبات سار والجنبية 📍',
-    'شبكة توصيل المحافظة الشمالية 🛵',
-  ],
+  crawlQueue: [],
 };
 
 function notify() {
@@ -223,66 +207,42 @@ export async function triggerSpiderCrawlPass(
   onOrderFound?: (order: any) => void
 ): Promise<{ success: boolean; crawledGroup: string; itemsIndexed: number }> {
   const groups = currentStats.crawlQueue;
-  const pickedGroup = groups[Math.floor(Math.random() * groups.length)];
-
-  const sampleTemplates = [
-    {
-      text: 'مطلوب مندوب استلام فوري من سيتي سنتر السيف الى الرفاع الشرقي دينارين ونص',
-      from: 'السيف',
-      to: 'الرفاع',
-      price: 2.5,
-    },
-    {
-      text: 'اوردر جاهز الحين من مجمع الإنماء بالرفاع الى مدينة حمد دوار 7 دينارين كاش',
-      from: 'الرفاع',
-      to: 'مدينة حمد',
-      price: 2.0,
-    },
-    {
-      text: 'طلب عطور من المحرق سوق القيصرية الى توبلي 3 دينار مستعجل',
-      from: 'المحرق',
-      to: 'توبلي',
-      price: 3.0,
-    },
-    {
-      text: 'مطلوب كابتن استلام كيك من سار الى الجفير 2.5 دينار الدفع بنفت',
-      from: 'سار',
-      to: 'الجفير',
-      price: 2.5,
-    },
-    {
-      text: 'اوردر حلويات من سلماباد الى البسيتين 2.5 د.ب جاهز للاستلام',
-      from: 'سلماباد',
-      to: 'البسيتين',
-      price: 2.5,
-    },
-  ];
-
-  const sample = sampleTemplates[Math.floor(Math.random() * sampleTemplates.length)];
-
-  const result = await spiderIngestMessage(
-    sample.text,
-    pickedGroup,
-    'تاجر واتساب نشط',
-    '97339887766'
-  );
-
-  if (result.order && onOrderFound) {
-    onOrderFound(result.order);
+  if (!groups || groups.length === 0) {
+    return {
+      success: true,
+      crawledGroup: '',
+      itemsIndexed: 0,
+    };
   }
 
-  // Also hit server endpoint to synchronize
+  const pickedGroup = groups[Math.floor(Math.random() * groups.length)];
+  currentStats.currentCrawlingGroup = pickedGroup;
+  currentStats.lastCrawlTimestamp = Date.now();
+  notify();
+
+  // Hit server endpoint to synchronize active crawler queue
   try {
-    await fetch('/api/spider/crawl-now', {
+    const res = await fetch('/api/spider/crawl-now', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ groupName: pickedGroup }),
     });
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.order && onOrderFound) {
+        onOrderFound(data.order);
+        return {
+          success: true,
+          crawledGroup: pickedGroup,
+          itemsIndexed: 1,
+        };
+      }
+    }
   } catch {}
 
   return {
     success: true,
     crawledGroup: pickedGroup,
-    itemsIndexed: result.order ? 1 : 0,
+    itemsIndexed: 0,
   };
 }

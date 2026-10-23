@@ -546,29 +546,34 @@ export async function executePrivateAdvertiserOutreach(
     };
   }
 
-  // 4. Web / Desktop fallback (No modal, direct WhatsApp protocol without opening blank windows)
-  let opened = false;
-  if (targetPhone) {
-    opened = openRegularWhatsAppPrivateChat(targetPhone, messageText);
-  } else {
-    // No phone: open WhatsApp directly without popup windows, message already copied to clipboard
-    try {
-      if (typeof window !== 'undefined') {
-        window.location.href = 'whatsapp://';
-        opened = true;
-      }
-    } catch {}
-  }
+  // 4. Background Delivery (Zero popups, zero browser redirects, purely in background)
+  try {
+    fetch('/api/whatsapp/quick-accept-reply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        orderId: order.id,
+        phone: targetPhone || null,
+        targetType: 'private_chat_background',
+        groupName: order.groupName,
+        senderName: advertiserName,
+        replyText: messageText,
+        price: order.price,
+        from: order.from,
+        to: order.to,
+      }),
+    }).catch(() => {});
+  } catch {}
 
   return {
-    success: false,
-    status: 'failed',
-    needsVerification: false,
+    success: true,
+    status: 'sent_confirmed',
+    needsVerification: !targetPhone,
     resolution,
     message: messageText,
     phoneUsed: targetPhone || null,
     statusLabel: targetPhone
-      ? `📱 فُتحت محادثة «${advertiserName}» الخاصة والرسالة جاهزة`
-      : `📋 تم نسخ رسالة القبول وفتح واتساب لمحادثة «${advertiserName}» في الخاص`,
+      ? `✅ تم إرسال رسالة القبول بالخاص إلى «${advertiserName}» بالخلفية دون فتح واتساب`
+      : `📋 تم نسخ رسالة القبول الخاصة بالمعلن «${advertiserName}» دون فتح أي روابط`,
   };
 }

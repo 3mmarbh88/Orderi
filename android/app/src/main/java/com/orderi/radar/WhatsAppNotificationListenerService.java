@@ -192,6 +192,12 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                                                                   actTitle.contains("gelesen") ||
                                                                   actTitle.contains("lu");
 
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                                            if (act.getSemanticAction() == Notification.Action.SEMANTIC_ACTION_MARK_AS_READ) {
+                                                isMarkReadTitle = true;
+                                            }
+                                        }
+
                                         if (isMarkReadTitle) {
                                             try {
                                                 if (!sentIntents.contains(act.actionIntent)) {

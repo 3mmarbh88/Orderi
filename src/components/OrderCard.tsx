@@ -38,7 +38,8 @@ import { detectPassengerDelivery } from '../utils/passengerClassifier';
 import { 
   executePrivateAdvertiserOutreach, 
   AdvertiserContactResolution, 
-  formatAdvertiserPrivateMessage 
+  formatAdvertiserPrivateMessage,
+  resolveAdvertiserContact
 } from '../utils/whatsappPrivateOutreach';
 import { AdvertiserOutreachModal } from './AdvertiserOutreachModal';
 
@@ -274,8 +275,17 @@ export function OrderCard({
         return;
       }
 
-      // Execute private outreach engine (WhatsApp regular, direct private chat, strictly no group!)
-      const outreachResult = await executePrivateAdvertiserOutreach(order);
+      // Check if phone number is missing or ambiguous
+      const resolution = resolveAdvertiserContact(order);
+      if (!resolution.phone && (!effectivePhone || effectivePhone === '97300000000')) {
+        setOutreachResolution(resolution);
+        setShowOutreachModal(true);
+        setShowAcceptDialog(false);
+        return;
+      }
+
+      // Execute private outreach engine (WhatsApp regular, direct private chat in background, strictly no group!)
+      const outreachResult = await executePrivateAdvertiserOutreach(order, effectivePhone);
 
       // Accepted and message pre-filled in private WhatsApp chat without opening intrusive popups
       onAccept({
@@ -288,7 +298,7 @@ export function OrderCard({
           advertiserName: outreachResult.resolution.name,
           attemptedAt: new Date().toISOString(),
           message: outreachResult.message,
-          deliveryMethod: 'direct_whatsapp_url',
+          deliveryMethod: 'background_private_chat',
           verifiedAdvertiser: true,
         },
       });
@@ -297,6 +307,18 @@ export function OrderCard({
       console.warn('[Orderi] Quick auto-reply error:', err);
     } finally {
       setIsAutoReplying(false);
+    }
+  };
+
+  const handleAdvertiserNameClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isMyBroadcast) return;
+    const res = resolveAdvertiserContact(order);
+    setOutreachResolution(res);
+    if (effectivePhone && effectivePhone !== '97300000000') {
+      handleQuickAutoReply();
+    } else {
+      setShowOutreachModal(true);
     }
   };
 
@@ -782,10 +804,21 @@ export function OrderCard({
                 <p className="text-xs text-slate-700 font-mono leading-relaxed whitespace-pre-wrap bg-white p-3 rounded-lg border border-slate-200/60">
                   {order.rawText}
                 </p>
-                <div className="mt-2 flex flex-wrap items-center justify-between text-[11px] text-slate-500">
-                  <span>المعلن: <strong>{order.senderName || 'غير معروف'}</strong></span>
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
+                  <button
+                    type="button"
+                    onClick={handleAdvertiserNameClick}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-950 border border-indigo-200 transition-colors font-bold cursor-pointer text-right group"
+                    title="انقر لمراسلة صاحب الإعلان في الخاص بالخلفية دون فتح واتساب أو روابط"
+                  >
+                    <span className="text-slate-500 font-normal">المعلن:</span>
+                    <strong className="underline decoration-indigo-400 group-hover:text-indigo-700">{order.senderName || 'صاحب الإعلان'}</strong>
+                    <span className="text-[10px] bg-indigo-200 text-indigo-900 px-1.5 py-0.5 rounded-full font-black">
+                      مراسلة خاصة بالخلفية 👤⚡
+                    </span>
+                  </button>
                   {order.senderPhone && (
-                    <span dir="ltr" className="font-mono text-blue-600 font-bold">
+                    <span dir="ltr" className="font-mono text-blue-600 font-bold bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
                       +{order.senderPhone}
                     </span>
                   )}

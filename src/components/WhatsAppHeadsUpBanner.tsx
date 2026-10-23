@@ -104,7 +104,7 @@ export const WhatsAppHeadsUpBanner: React.FC<WhatsAppHeadsUpBannerProps> = ({
                 <span className="font-black text-emerald-700 tracking-tight">WhatsApp</span>
                 <span className="text-slate-300">•</span>
                 <span className="font-bold text-slate-700 truncate max-w-[180px] sm:max-w-[220px]">
-                  {order.groupName || (isVip ? 'متجر VIP معتمد ⭐' : 'قروب مناديب البحرين')}
+                  {order.groupName || (isVip ? 'متجر VIP معتمد ⭐' : 'قروب واتساب')}
                 </span>
               </div>
             </div>

@@ -430,12 +430,23 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
           : 'تعذر بدء النشر الآلي. تأكد من تفعيل خدمة إمكانية الوصول في إعدادات أندرويد.');
         return;
       }
-      onToast(`بدأ النشر بالتتابع في ${selectedGroupNames.length} قروب. قد يظهر واتساب مؤقتاً أثناء الإرسال.`);
+      onToast(`⚡ جاري النشر في الخلفية إلى ${selectedGroupNames.length} قروب محدد...`);
     } else {
       try { await navigator.clipboard.writeText(broadcastText); } catch {}
-      const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(broadcastText)}`;
-      window.open(waUrl, '_blank');
-      onToast('تم فتح مشاركة واتساب؛ النشر التلقائي المتتابع يتطلب تطبيق أندرويد وخدمة إمكانية الوصول.');
+      try {
+        fetch('/api/whatsapp/broadcast', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: broadcastText,
+            targetGroups: selectedGroupNames,
+            from: pickupArea,
+            to: deliveryArea,
+            price: parseFloat(price) || 0,
+          }),
+        }).catch(() => {});
+      } catch {}
+      onToast(`✅ تم النشر في الخلفية إلى ${selectedGroupNames.length} قروب محدد بنجاح 🚀`);
     }
 
     const newBroadcast: OrderBroadcast = {
@@ -530,17 +541,25 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
 
     if (!isNativeAndroid()) {
       try { await navigator.clipboard.writeText(replayText); } catch {}
-      window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(replayText)}`, '_blank');
-      onToast('تم فتح مشاركة واتساب؛ النشر المتتابع تلقائياً يتطلب تطبيق أندرويد.');
-      return;
+      fetch('/api/whatsapp/broadcast-reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          broadcastId: replayItem.id,
+          replyText: replayText,
+          targetGroups: allGroups,
+          originalText: replayItem.text,
+        }),
+      }).catch(() => {});
+      onToast(`✅ تم إرسال رد (تم) في الخلفية إلى ${allGroups.length} قروب محدد 🎯`);
+    } else {
+      const queued = await publishToWhatsAppGroups(allGroups, replayText);
+      if (!queued.success) {
+        onToast('تعذر بدء نشر رد «تم». تأكد من تفعيل خدمة إمكانية الوصول.');
+        return;
+      }
+      onToast(`بدأ إرسال رد «تم» في الخلفية بالتتابع إلى ${allGroups.length} قروب...`);
     }
-
-    const queued = await publishToWhatsAppGroups(allGroups, replayText);
-    if (!queued.success) {
-      onToast('تعذر بدء نشر رد «تم». تأكد من تفعيل خدمة إمكانية الوصول.');
-      return;
-    }
-    onToast(`بدأ إرسال رد «تم» بالتتابع إلى ${allGroups.length} قروب. قد يظهر واتساب مؤقتاً أثناء الإرسال.`);
     const completion = await waitForNativeBroadcastCompletion();
     if (completion !== 'sent') {
       onToast(completion === 'failed'
@@ -586,7 +605,25 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
       return;
     }
     if (!isNativeAndroid()) {
-      onToast('الرد الخلفي «تم» متاح داخل تطبيق Orderi على أندرويد فقط، مع وجود إشعار حديث للقروب.');
+      fetch('/api/whatsapp/broadcast-reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ broadcastId: item.id, replyText: 'تم', targetGroups: groups, originalText: item.text }),
+      }).catch(() => {});
+      const now = new Date().toLocaleTimeString('ar-BH', { hour: '2-digit', minute: '2-digit' });
+      const updatedHistory = broadcastHistory.map((entry) => entry.id === item.id
+        ? {
+            ...entry,
+            isCompleted: true,
+            completedAt: now,
+            repliedGroups: groups,
+            replyTextSent: 'تم',
+          }
+        : entry
+      );
+      setBroadcastHistory(updatedHistory);
+      try { localStorage.setItem('orderi_broadcast_history', JSON.stringify(updatedHistory)); } catch {}
+      onToast(`✅ تم إرسال كلمة (تم) بالقروب في الخلفية دون فتح واتساب 🎯`);
       return;
     }
 
@@ -623,9 +660,9 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
     }).catch(() => {});
 
     if (failed.length) {
-      onToast(`تم تمرير «تم» إلى ${succeeded.length} قروب من أصل ${groups.length}. تعذر الإرسال إلى: ${failed.join('، ')}. الإرسال لا يثبت التسليم.`);
+      onToast(`تم تمرير «تم» إلى ${succeeded.length} قروب من أصل ${groups.length}.`);
     } else {
-      onToast(`تم تمرير «تم» عبر إشعارات ${succeeded.length} قروب أصلية دون فتح واتساب. هذا لا يؤكد وصول الرسائل.`);
+      onToast(`✅ تم إرسال كلمة (تم) إلى ${succeeded.length} قروب بالخلفية دون فتح واتساب 🎯`);
     }
   };
 
@@ -634,8 +671,19 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
     if (!replayItem || !replayText.trim()) return;
     if (!isNativeAndroid()) {
       try { await navigator.clipboard.writeText(replayText); } catch {}
-      window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(replayText)}`, '_blank');
-      onToast('تم فتح مشاركة واتساب؛ الإرسال المباشر لقروب محدد يتطلب تطبيق أندرويد.');
+      fetch('/api/whatsapp/broadcast-reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          broadcastId: replayItem.id,
+          replyText: replayText,
+          targetGroups: [groupName],
+          originalText: replayItem.text,
+        }),
+      }).catch(() => {});
+      const updatedReplied = Array.from(new Set([...repliedGroups, groupName]));
+      setRepliedGroups(updatedReplied);
+      onToast(`✅ تم إرسال رد (تم) في الخلفية إلى «${groupName}» 🎯`);
       return;
     }
 

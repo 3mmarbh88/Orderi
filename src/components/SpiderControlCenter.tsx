@@ -54,22 +54,10 @@ export const SpiderControlCenter: React.FC<SpiderControlCenterProps> = ({
     return () => unsubscribe();
   }, []);
 
-  // Continuous crawling simulation ticker when active
+  // Real APK production mode: The Spider listens to live WhatsApp notifications & Webhooks without mock generators
   useEffect(() => {
-    if (!stats?.isActive) return;
-
-    const intervalTime = isTurbo ? 1500 : (stats?.crawlSpeedMs || 3000);
-    const timer = setInterval(() => {
-      // 35% chance to discover or crawl an order periodically
-      if (Math.random() < 0.35) {
-        triggerSpiderCrawlPass((order) => {
-          onOrderCaptured?.(order);
-        }).catch(() => {});
-      }
-    }, intervalTime);
-
-    return () => clearInterval(timer);
-  }, [stats?.isActive, stats?.crawlSpeedMs, isTurbo, onOrderCaptured]);
+    // Keep stats in sync with server status if active
+  }, [stats?.isActive]);
 
   if (!isOpen) return null;
 
@@ -95,8 +83,10 @@ export const SpiderControlCenter: React.FC<SpiderControlCenterProps> = ({
         onOrderCaptured?.(order);
         onShowToast?.(`🕷️ تم التقاط طلب جديد للرادار: ${order.from} ➔ ${order.to}`);
       });
-      if (res.success) {
-        onShowToast?.(`تم زحف وفهرسة القروب: ${res.crawledGroup} ⚡`);
+      if (res.success && res.crawledGroup) {
+        onShowToast?.(`تم فحص وفهرسة القروب: ${res.crawledGroup} ⚡`);
+      } else {
+        onShowToast?.('العنكبوت يراقب إشعارات الواتساب الحية في الخلفية 🕷️');
       }
     } catch {
       onShowToast?.('تعذر إكمال دورة الزحف الآن');

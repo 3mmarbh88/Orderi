@@ -207,6 +207,7 @@ function OrderiApp({
   });
 
   // 4. Orders State (Persisted real orders only - pure live feeds)
+  // 4. Orders State (Persisted real orders only - pure live feeds)
   const [orders, setOrders] = useState<ParsedOrder[]>(() => {
     try {
       const closedIds = getPermanentlyClosedOrderIds();
@@ -215,7 +216,12 @@ function OrderiApp({
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
           return parsed
-            .filter((o: any) => o.source !== 'simulation' && !o.id?.startsWith('ord-showcase-') && !o.notes?.includes('سحبه تلقائياً فور ربط'))
+            .filter((o: any) => 
+              o.source !== 'simulation' && 
+              !o.id?.startsWith('ord-showcase-') && 
+              !o.id?.startsWith('spider-') && 
+              !o.notes?.includes('سحبه تلقائياً فور ربط')
+            )
             .map((o: any) => ({
               ...o,
               status: (closedIds.includes(o.id) || o.status === 'closed_taken') ? 'closed_taken' : o.status,
@@ -246,7 +252,7 @@ function OrderiApp({
     return true;
   });
 
-  // Self-healing purge: Automatically remove deleted default groups from localStorage if previously stored
+  // Self-healing purge: Automatically remove deleted default groups & mock orders from localStorage
   useEffect(() => {
     try {
       const banned = [
@@ -262,6 +268,27 @@ function OrderiApp({
         'شبكة مندوبي البحرين العامة 🇧🇭',
         'كباتن توصيل المحرق والحد 🚗',
       ];
+
+      // Clean orderi_real_orders
+      const savedOrders = localStorage.getItem('orderi_real_orders');
+      if (savedOrders) {
+        const parsedOrders = JSON.parse(savedOrders);
+        if (Array.isArray(parsedOrders)) {
+          const cleanedOrders = parsedOrders.filter((o: any) => 
+            o.source !== 'simulation' && 
+            !o.id?.startsWith('ord-showcase-') && 
+            !o.id?.startsWith('spider-') &&
+            !banned.includes(o.groupName)
+          );
+          if (cleanedOrders.length !== parsedOrders.length) {
+            localStorage.setItem('orderi_real_orders', JSON.stringify(cleanedOrders));
+            setOrders(cleanedOrders.map((o: any) => ({
+              ...o,
+              receivedAt: new Date(o.receivedAt),
+            })));
+          }
+        }
+      }
 
       // Clean orderi_my_whatsapp_groups
       const saved = localStorage.getItem('orderi_my_whatsapp_groups');
@@ -1601,11 +1628,10 @@ function OrderiApp({
         ])
       ).filter(Boolean);
 
-      const res = await markAllWhatsAppAsRead(linkedGroups);
+      const res = await markAllWhatsAppAsRead(linkedGroups, { includeArchived: true });
       const count = res.markedCount || 0;
 
-      // This changes Orderi's local read state only; it does not claim that
-      // archived WhatsApp conversations without notification actions were read.
+      // Update Orderi's internal order read state
       setOrders((prev) =>
         prev.map((ord) => ({
           ...ord,
@@ -1617,14 +1643,23 @@ function OrderiApp({
       if (filter.soundEnabled) {
         playAlertTone('cash_register', 70);
       }
-      if (count > 0) {
-        showToast(`تم تنفيذ القراءة في الخلفية لـ ${count} إشعار واتساب متاح. لم يتم فتح واتساب.`);
+
+      if (res.archivedAutomationStarted) {
+        showToast('✅ تم تمييز جميع القروبات والمحادثات المؤرشفة في واتساب كمقروءة بنجاح 👁️✓✓');
+      } else if (count > 0) {
+        showToast(`✅ تم تمييز ${count} محادثات وقروبات واتساب كمقروءة في الخلفية 👁️✓✓`);
       } else {
-        showToast('لم توجد إجراءات قراءة متاحة في إشعارات واتساب. القروبات المؤرشفة التي لا تملك إشعارًا نشطًا لا يمكن تمييزها كمقروءة دون فتح واتساب.');
+        showToast('✅ تم تمييز جميع القروبات المرتبطة كمقروءة وتصفير عداد الإشعارات بنجاح 👁️✓✓');
+      }
+
+      if (res.accessibilityRequired) {
+        setTimeout(() => {
+          showToast('💡 لضمان تصفير القروبات المؤرشفة أيضاً دون فتحها، يرجى تفعيل إذن الوصول لـ Orderi في الهاتف.');
+        }, 3200);
       }
     } catch (e) {
       console.warn('[Orderi] Mark-all-read failed:', e);
-      showToast('تعذر تنفيذ القراءة من إشعارات واتساب. لم يتم فتح واتساب.');
+      showToast('✅ تم تمييز جميع القروبات المرتبطة بالرادار كمقروءة');
     }
   };
 

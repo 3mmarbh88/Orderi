@@ -226,7 +226,7 @@ export interface OutreachAttemptDetails {
   advertiserName?: string;
   attemptedAt: string;
   message: string;
-  deliveryMethod: 'direct_whatsapp_url' | 'native_private_intent' | 'verified_gateway';
+  deliveryMethod: 'direct_whatsapp_url' | 'native_private_intent' | 'verified_gateway' | 'background_private_chat';
   verifiedAdvertiser: boolean;
 }
 

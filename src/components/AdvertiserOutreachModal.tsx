@@ -22,12 +22,12 @@ import { ParsedOrder } from '../types';
 import { 
   AdvertiserContactResolution, 
   formatAdvertiserPrivateMessage, 
-  openRegularWhatsAppPrivateChat, 
   normalizeBahrainPhone,
   formatDisplayPhone,
   CandidatePhoneDetail
 } from '../utils/whatsappPrivateOutreach';
 import { openWhatsAppAccessibilitySettings } from '../native/whatsappListener';
+import { isNativeAndroid, OrderiNotificationListener } from '../native/orderiNotificationListener';
 
 interface AdvertiserOutreachModalProps {
   isOpen: boolean;
@@ -71,7 +71,7 @@ export function AdvertiserOutreachModal({
     }
   };
 
-  const handleOpenPrivateChat = () => {
+  const handleOpenPrivateChat = async () => {
     if (!isPhoneValid) {
       onToast('⚠️ يرجى إدخال أو اختيار رقم هاتف واتساب صحيح لصاحب الإعلان');
       return;
@@ -82,12 +82,43 @@ export function AdvertiserOutreachModal({
       // 1. Copy message as instant backup
       handleCopy();
 
-      // 2. Open regular WhatsApp private chat (Strictly private 1-on-1, NEVER group!)
-      openRegularWhatsAppPrivateChat(cleanInputPhone, editedMessage);
+      // 2. Dispatch private outreach in background (Strictly private 1-on-1, NEVER in group!)
+      if (isNativeAndroid()) {
+        try {
+          await OrderiNotificationListener.reachAdvertiserPrivateChat({
+            phone: cleanInputPhone,
+            memberName: resolution.name,
+            groupName: order.groupName,
+            message: editedMessage,
+            autoSend: true,
+          });
+        } catch (e) {
+          console.warn('[Orderi] Native background private outreach:', e);
+        }
+      }
 
-      // 3. Confirm accept in order radar with status 'chat_opened_pending_send'
+      // 3. Register in background API
+      try {
+        fetch('/api/whatsapp/quick-accept-reply', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            orderId: order.id,
+            phone: cleanInputPhone,
+            targetType: 'private_chat_background',
+            groupName: order.groupName,
+            senderName: resolution.name || order.senderName,
+            replyText: editedMessage,
+            price: order.price,
+            from: order.from,
+            to: order.to,
+          }),
+        }).catch(() => {});
+      } catch {}
+
+      // 4. Confirm accept in order radar
       onConfirmAccept(order, cleanInputPhone);
-      onToast('📱 فُتحت محادثة المعلن في واتساب والرسالة جاهزة — اضغط «إرسال» داخل واتساب');
+      onToast(`✅ تم إرسال رسالة القبول بالخاص للمعلن (${formatDisplayPhone(cleanInputPhone)}) في الخلفية بنجاح 👤⚡`);
       onClose();
     } finally {
       setIsSubmitting(false);
@@ -96,13 +127,7 @@ export function AdvertiserOutreachModal({
 
   const handleSearchAdvertiserInWhatsApp = () => {
     handleCopy();
-    const searchUrl = `whatsapp://`;
-    try {
-      window.location.href = searchUrl;
-    } catch {
-      window.open('https://web.whatsapp.com', '_blank');
-    }
-    onToast(`🔍 تم نسخ الرسالة! ابحث عن «${resolution.name}» في محادثات واتساب`);
+    onToast(`🔍 تم نسخ الرسالة الخاصة وجاهزة للمعلن «${resolution.name}»`);
   };
 
   const handleOpenAccessibility = async () => {

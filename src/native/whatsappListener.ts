@@ -78,12 +78,25 @@ export async function reachNativeAdvertiserPrivateChat(options: {
  * In Android Native: executes the native Notification.Action PendingIntents to mark WhatsApp chats as read on the device.
  * Also synchronizes and clears orders across the backend and client state.
  */
-export async function markAllWhatsAppAsRead(groupNames?: string[]): Promise<{ success: boolean; markedCount: number; archivedAutomationStarted?: boolean; accessibilityRequired?: boolean }> {
+export async function markAllWhatsAppAsRead(
+  groupNames?: string[],
+  options?: { includeArchived?: boolean }
+): Promise<{ success: boolean; markedCount: number; archivedAutomationStarted?: boolean; accessibilityRequired?: boolean; whatsAppOpened?: boolean }> {
   let markedCount = 0;
+  let archivedAutomationStarted = false;
+  let accessibilityRequired = false;
+  let whatsAppOpened = false;
+
   if (isNativeAndroid()) {
     try {
-      const res = await OrderiNotificationListener.markAllAsRead({ groupNames: groupNames || [] });
+      const res = await OrderiNotificationListener.markAllAsRead({
+        groupNames: groupNames || [],
+        includeArchived: options?.includeArchived !== false,
+      });
       markedCount = res.markedCount || 0;
+      archivedAutomationStarted = !!res.archivedAutomationStarted;
+      accessibilityRequired = !!res.accessibilityRequired;
+      whatsAppOpened = !!res.whatsAppOpened;
     } catch (err) {
       console.warn('Native markAllAsRead error:', err);
     }
@@ -99,7 +112,13 @@ export async function markAllWhatsAppAsRead(groupNames?: string[]): Promise<{ su
     });
   } catch {}
 
-  return { success: true, markedCount, archivedAutomationStarted: false, accessibilityRequired: false };
+  return {
+    success: true,
+    markedCount,
+    archivedAutomationStarted,
+    accessibilityRequired,
+    whatsAppOpened,
+  };
 }
 
 

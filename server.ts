@@ -612,64 +612,22 @@ interface OrderiSpiderMetrics {
   }>;
 }
 
-const defaultSpiderGroups = [
-  "قروب مناديب البحرين 🇧🇭",
-  "طلبات المنامة والرفاع 📦",
-  "كباتن المحرق والحد 🚗",
-  "توصيل مدينة عيسى وسند ⚡",
-  "طلبات سار والجنبية 📍",
-  "شبكة توصيل المحافظة الشمالية 🛵",
-  "قروب كباتن سترة والمعامير ⚓",
-  "توصيل ديليفرات البحرين السريع 🚀"
-];
+const defaultSpiderGroups: string[] = [];
 
 const spiderMetrics: OrderiSpiderMetrics = {
   isActive: true,
   crawlSpeedMs: 2500,
-  crawledGroupsCount: defaultSpiderGroups.length,
-  messagesCrawledCount: 142,
-  ordersCapturedCount: 19,
-  groupLinksDiscoveredCount: 7,
-  spamFilteredCount: 38,
-  passengersFilteredCount: 12,
+  crawledGroupsCount: 0,
+  messagesCrawledCount: 0,
+  ordersCapturedCount: 0,
+  groupLinksDiscoveredCount: 0,
+  spamFilteredCount: 0,
+  passengersFilteredCount: 0,
   lastCrawlAt: new Date().toISOString(),
-  activeThreads: 4,
-  currentCrawlingGroup: defaultSpiderGroups[0],
-  crawlQueue: defaultSpiderGroups,
-  recentLogs: [
-    {
-      id: `log-${Date.now()}-1`,
-      timestamp: new Date(Date.now() - 15000).toLocaleTimeString("ar-BH"),
-      action: "CRAWLING",
-      group: "قروب مناديب البحرين 🇧🇭",
-      detail: "بدء الزحف الدوري على رسائل المجموعة عبر المحرك الهجين (Gemma 3 + Heuristics)",
-      latencyMs: 14,
-    },
-    {
-      id: `log-${Date.now()}-2`,
-      timestamp: new Date(Date.now() - 12000).toLocaleTimeString("ar-BH"),
-      action: "INDEXED",
-      group: "طلبات المنامة والرفاع 📦",
-      detail: "فهرسة طلب صالح: السيف ➔ الرفاع (2.5 د.ب) ومطابقة مع معالم HERE WeGo",
-      latencyMs: 18,
-    },
-    {
-      id: `log-${Date.now()}-3`,
-      timestamp: new Date(Date.now() - 8000).toLocaleTimeString("ar-BH"),
-      action: "DISCOVERED_LINK",
-      group: "كباتن المحرق والحد 🚗",
-      detail: "اكتشاف رابط دعوة قروب جديد وإضافته لطابور الزحف التلقائي للمراقبة",
-      latencyMs: 6,
-    },
-    {
-      id: `log-${Date.now()}-4`,
-      timestamp: new Date(Date.now() - 3000).toLocaleTimeString("ar-BH"),
-      action: "FILTERED_PASSENGER",
-      group: "توصيل مدينة عيسى وسند ⚡",
-      detail: "رصد واستبعاد طلب نقل ركاب (مشوار شخصي) لحماية السائق",
-      latencyMs: 8,
-    }
-  ]
+  activeThreads: 0,
+  currentCrawlingGroup: "بانتظار وصول رسائل القروبات الحقيقية 📡",
+  crawlQueue: [],
+  recentLogs: []
 };
 
 // Log helper for Spider
@@ -741,6 +699,32 @@ app.post("/api/spider/crawl-now", (req, res) => {
     message: `تم زحف وفهرسة القروب "${targetGroup}" بنجاح`,
     spider: spiderMetrics,
   });
+});
+
+// 4b-2. Background Broadcast to WhatsApp Groups
+app.post("/api/whatsapp/broadcast", (req, res) => {
+  try {
+    const { message, targetGroups = [], from = "", to = "", price = 0 } = req.body || {};
+    const bcastPayload = {
+      type: "BROADCAST_PUBLISHED",
+      broadcast: {
+        id: `bcast-${Date.now()}`,
+        text: message,
+        targetGroups: Array.isArray(targetGroups) ? targetGroups : [targetGroups],
+        from,
+        to,
+        price,
+        publishedAt: new Date().toISOString(),
+      }
+    };
+    const sseEvent = `data: ${JSON.stringify(bcastPayload)}\n\n`;
+    sseClients.forEach((client) => {
+      try { client.write(sseEvent); } catch { sseClients.delete(client); }
+    });
+    return res.json({ success: true, message: "تم نشر الإعلان في الخلفية بنجاح" });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message });
+  }
 });
 
 // 4c. Broadcast Replay / "تم" to WhatsApp Groups
