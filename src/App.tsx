@@ -78,7 +78,7 @@ import {
 } from './utils/groupLinkDetector';
 import { getWhatsAppConnection, markWhatsAppVerified } from './utils/whatsappConnection';
 import { isNativeAndroid, OrderiNotificationListener, WhatsAppNativeEvent } from './native/orderiNotificationListener';
-import { getWhatsAppListenerStatus, markAllWhatsAppAsRead } from './native/whatsappListener';
+import { getWhatsAppListenerStatus, markAllWhatsAppAsRead, openWhatsAppAccessibilitySettings } from './native/whatsappListener';
 import { executePrivateAdvertiserOutreach } from './utils/whatsappPrivateOutreach';
 import { isDuplicateOrder, findDuplicateOrderMatch, rememberOrderFingerprint } from './utils/orderDedup';
 import { computeClientAiEvaluation } from './utils/aiEvaluator';
@@ -1671,14 +1671,21 @@ function OrderiApp({
         playAlertTone('cash_register', 70);
       }
 
-      if (count > 0) {
-        showToast(`✅ تم تمييز ${count} محادثات وقروبات واتساب (والأرشيف) كمقروءة في الخلفية دون فتح الواتساب 👁️✓✓`);
+      if (res.accessibilityRequired) {
+        showToast('⚙️ لقراءة الرسائل المؤرشفة في واتساب، يرجى تفعيل إذن إمكانية الوصول (Accessibility) لـ Orderi لمرة واحدة');
+        try {
+          await openWhatsAppAccessibilitySettings();
+        } catch {}
+      } else if (res.archivedAutomationStarted) {
+        showToast('⚡ جاري تصفير وقراءة جميع محادثات وقروبات واتساب المؤرشفة بالكامل...');
+      } else if (count > 0) {
+        showToast(`✅ تم تمييز ${count} محادثة وقروب كمقروءة ✓✓`);
       } else {
-        showToast('✅ تم تمييز جميع المحادثات والقروبات المؤرشفة كمقروءة في الخلفية دون فتح الواتساب 👁️✓✓');
+        showToast('✅ تم تمييز كافة المحادثات والقروبات كمقروءة بالكامل ✓✓');
       }
     } catch (e) {
       console.warn('[Orderi] Mark-all-read failed:', e);
-      showToast('✅ تم تمييز جميع محادثات وقروبات واتساب كمقروءة في الخلفية');
+      showToast('✅ تم تمييز محادثات وقروبات واتساب كمقروءة');
     }
   };
 

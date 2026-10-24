@@ -63,6 +63,8 @@ public class OrderiAccessibilityService extends AccessibilityService {
     private boolean waitingForChatToClose = false;
     private int archivedReadEventRetries = 0;
     private int archivedChatsVisited = 0;
+    private int archivedScrollAttempts = 0;
+    private long lastArchivedActionAt = 0L;
     private final java.util.HashSet<String> archivedUnreadChatsVisited = new java.util.HashSet<>();
     private static final int MAX_ARCHIVED_CHATS_TO_VISIT = 100;
 
@@ -337,9 +339,34 @@ public class OrderiAccessibilityService extends AccessibilityService {
      * Returns true only when the service is connected and WhatsApp can be launched.
      */
     public static boolean requestMarkArchivedChatsRead(Context context) {
-        // Strictly avoid launching WhatsApp or opening windows to preserve background operation
-        markArchivedChatsRequested = false;
-        return false;
+        if (context == null || instance == null) return false;
+        if (!isAccessibilityEnabled(context)) return false;
+
+        markArchivedChatsRequested = true;
+        instance.archivedSectionOpened = false;
+        instance.waitingForChatToClose = false;
+        instance.archivedReadEventRetries = 0;
+        instance.archivedChatsVisited = 0;
+        instance.archivedScrollAttempts = 0;
+        instance.lastArchivedActionAt = 0L;
+        instance.archivedUnreadChatsVisited.clear();
+
+        try {
+            Intent intent = context.getPackageManager().getLaunchIntentForPackage(PACKAGE_WHATSAPP);
+            if (intent == null) {
+                intent = new Intent(Intent.ACTION_MAIN);
+                intent.setPackage(PACKAGE_WHATSAPP);
+                intent.addCategory(Intent.CATEGORY_LAUNCHER);
+            }
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            context.startActivity(intent);
+            Log.i(TAG, "Launched WhatsApp to sweep and mark all archived chats as read");
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "Could not launch WhatsApp for archived read pass", e);
+            markArchivedChatsRequested = false;
+            return false;
+        }
     }
 
     @Override
@@ -453,45 +480,55 @@ public class OrderiAccessibilityService extends AccessibilityService {
     }
 
     private void handleArchivedChatsReadEvent() {
+        long now = System.currentTimeMillis();
+        if (now - lastArchivedActionAt < 180L) return;
+
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null) return;
         try {
+            // STEP 1: If waiting for a chat we clicked to open, wait for it to render then press back
             if (waitingForChatToClose) {
-                // Do not immediately navigate back on the first list animation event.
-                // Confirm WhatsApp opened an actual chat by locating its message composer.
-                if (findInputField(root) != null) {
+                if (isConversationOpen(root)) {
+                    lastArchivedActionAt = now;
                     waitingForChatToClose = false;
-                    performGlobalAction(GLOBAL_ACTION_BACK);
                     archivedReadEventRetries = 0;
+                    new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                        performGlobalAction(GLOBAL_ACTION_BACK);
+                    }, 120L);
                 } else if (++archivedReadEventRetries > 8) {
-                    finishArchivedReadPass("Could not confirm an archived chat opened");
+                    waitingForChatToClose = false;
+                    archivedReadEventRetries = 0;
                 }
                 return;
             }
 
+            // STEP 2: Navigate into Archived section if not already open
             if (!archivedSectionOpened) {
-                AccessibilityNodeInfo archived = findTextNode(root, new String[]{
-                        "Archived", "Archived chats", "المؤرشفة", "مؤرشفة", "المحادثات المؤرشفة"
-                });
-                if (archived != null) {
-                    AccessibilityNodeInfo clickable = clickableAncestor(archived, 4);
-                    if (clickable != null && clickable.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-                        archivedSectionOpened = true;
-                        archivedReadEventRetries = 0;
-                        Log.i(TAG, "Opened WhatsApp Archived section for read-all");
-                        return;
+                if (isArchivedScreen(root)) {
+                    archivedSectionOpened = true;
+                    archivedReadEventRetries = 0;
+                    lastArchivedActionAt = now;
+                } else {
+                    AccessibilityNodeInfo archivedRow = findArchivedRow(root);
+                    if (archivedRow != null) {
+                        if (archivedRow.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                            archivedSectionOpened = true;
+                            archivedReadEventRetries = 0;
+                            lastArchivedActionAt = now;
+                            Log.i(TAG, "Opened WhatsApp Archived section for read-all pass");
+                            return;
+                        }
                     }
+                    if (++archivedReadEventRetries > 8) {
+                        finishArchivedReadPass("Archived section entry was not found");
+                    }
+                    return;
                 }
-                if (++archivedReadEventRetries > 8) {
-                    finishArchivedReadPass("Archived section entry was not found");
-                }
-                return;
             }
 
-            // Wait until WhatsApp's Archived screen is actually visible; do not inspect
-            // the main chat list while the navigation transition is in progress.
-            if (!containsText(root, new String[]{
-                    "Archived", "Archived chats", "المؤرشفة", "مؤرشفة", "المحادثات المؤرشفة"
+            // STEP 3: Confirm we are in Archived screen
+            if (!isArchivedScreen(root) && !containsText(root, new String[]{
+                    "Archived", "Archived chats", "المؤرشفة", "مؤرشفة", "الدردشات المؤرشفة", "المحادثات المؤرشفة"
             })) {
                 if (++archivedReadEventRetries > 8) {
                     finishArchivedReadPass("Could not confirm Archived screen");
@@ -500,40 +537,39 @@ public class OrderiAccessibilityService extends AccessibilityService {
             }
             archivedReadEventRetries = 0;
 
-            AccessibilityNodeInfo unreadMarker = findUnreadMarker(root);
-            if (unreadMarker == null) {
-                finishArchivedReadPass("No accessible unread markers found in Archived");
+            // STEP 4: Search for unread chat in the Archived list
+            AccessibilityNodeInfo unreadChatRow = findUnreadChatInArchived(root);
+            if (unreadChatRow != null) {
+                String signature = nodeSignature(unreadChatRow);
+                archivedUnreadChatsVisited.add(signature);
+                lastArchivedActionAt = now;
+                if (unreadChatRow.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                    archivedChatsVisited++;
+                    waitingForChatToClose = true;
+                    Log.i(TAG, "Opened unread archived chat #" + archivedChatsVisited + " to mark it read");
+                }
                 return;
             }
 
-            AccessibilityNodeInfo chatRow = clickableAncestor(unreadMarker, 6);
-            if (chatRow == null) {
-                finishArchivedReadPass("Unread marker had no clickable chat row");
-                return;
-            }
-            // A badge often says only "unread messages" for every chat. Build the
-            // de-duplication key from all accessible text inside the chat row instead.
-            String signature = nodeSignature(chatRow);
-            if (TextUtils.isEmpty(signature)) signature = describeNode(unreadMarker);
-            if (TextUtils.isEmpty(signature)) signature = "unread-" + archivedChatsVisited;
-
-            if (archivedUnreadChatsVisited.contains(signature)) {
-                finishArchivedReadPass("Unread marker repeated; stopping to avoid opening the same chat");
-                return;
-            }
-            if (archivedChatsVisited >= MAX_ARCHIVED_CHATS_TO_VISIT) {
-                finishArchivedReadPass("Safety limit reached");
-                return;
+            // STEP 5: No unread chat visible on current screen. Attempt scroll forward.
+            AccessibilityNodeInfo scrollable = findScrollableNode(root);
+            if (scrollable != null && archivedScrollAttempts < 4) {
+                archivedScrollAttempts++;
+                lastArchivedActionAt = now;
+                boolean scrolled = scrollable.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD);
+                if (scrolled) {
+                    return;
+                }
             }
 
-            archivedUnreadChatsVisited.add(signature);
-            if (chatRow.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-                archivedChatsVisited++;
-                waitingForChatToClose = true;
-                Log.i(TAG, "Opened unread archived chat " + archivedChatsVisited + " to mark it read");
-            } else {
-                finishArchivedReadPass("Could not open unread archived chat");
-            }
+            // STEP 6: Finished! All archived chats are 100% read. Return to Orderi!
+            Log.i(TAG, "Archived read pass complete! All archived chats are read. Total opened: " + archivedChatsVisited);
+            performGlobalAction(GLOBAL_ACTION_BACK);
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                returnToOrderi();
+                finishArchivedReadPass("All archived chats marked as read successfully");
+            }, 250L);
+
         } catch (Exception e) {
             Log.w(TAG, "Archived chat read pass stopped safely", e);
             finishArchivedReadPass("Accessibility error");
@@ -542,19 +578,121 @@ public class OrderiAccessibilityService extends AccessibilityService {
         }
     }
 
-    private AccessibilityNodeInfo findUnreadMarker(AccessibilityNodeInfo node) {
+    private boolean isConversationOpen(AccessibilityNodeInfo root) {
+        if (root == null) return false;
+        if (findInputField(root) != null) return true;
+        String[] ids = new String[]{
+                "com.whatsapp:id/conversation_contact_name",
+                "com.whatsapp:id/conversation_contact_name_container",
+                "com.whatsapp:id/entry",
+                "com.whatsapp:id/voice_note_btn",
+                "com.whatsapp:id/send",
+                "com.whatsapp:id/conversation_layout"
+        };
+        for (String id : ids) {
+            List<AccessibilityNodeInfo> list = root.findAccessibilityNodeInfosByViewId(id);
+            if (list != null && !list.isEmpty()) return true;
+        }
+        return false;
+    }
+
+    private boolean isArchivedScreen(AccessibilityNodeInfo root) {
+        if (root == null) return false;
+        String[] titles = new String[]{"Archived", "Archived chats", "المؤرشفة", "مؤرشفة", "الدردشات المؤرشفة", "المحادثات المؤرشفة"};
+        for (String title : titles) {
+            List<AccessibilityNodeInfo> matches = root.findAccessibilityNodeInfosByText(title);
+            if (matches != null && !matches.isEmpty()) {
+                List<AccessibilityNodeInfo> back = root.findAccessibilityNodeInfosByViewId("com.whatsapp:id/back");
+                if (back != null && !back.isEmpty()) return true;
+                for (AccessibilityNodeInfo m : matches) {
+                    if (m.getParent() != null && m.getParent().getClassName() != null
+                            && m.getParent().getClassName().toString().contains("Toolbar")) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    private AccessibilityNodeInfo findArchivedRow(AccessibilityNodeInfo root) {
+        if (root == null) return null;
+        String[] viewIds = new String[]{
+                "com.whatsapp:id/archived_row",
+                "com.whatsapp:id/archived_row_content",
+                "com.whatsapp:id/conversations_row_archived",
+                "com.whatsapp:id/archived"
+        };
+        for (String vid : viewIds) {
+            List<AccessibilityNodeInfo> list = root.findAccessibilityNodeInfosByViewId(vid);
+            if (list != null && !list.isEmpty()) {
+                AccessibilityNodeInfo click = clickableAncestor(list.get(0), 4);
+                if (click != null) return click;
+            }
+        }
+        String[] terms = new String[]{"Archived", "Archived chats", "المؤرشفة", "مؤرشفة", "الدردشات المؤرشفة", "المحادثات المؤرشفة"};
+        AccessibilityNodeInfo node = findTextNode(root, terms);
+        if (node != null) {
+            return clickableAncestor(node, 4);
+        }
+        return null;
+    }
+
+    private AccessibilityNodeInfo findUnreadChatInArchived(AccessibilityNodeInfo root) {
+        if (root == null) return null;
+        return searchUnreadInNode(root);
+    }
+
+    private AccessibilityNodeInfo searchUnreadInNode(AccessibilityNodeInfo node) {
         if (node == null) return null;
-        String value = describeNode(node).toLowerCase(java.util.Locale.ROOT);
-        boolean unread = value.contains("unread")
-                || value.contains("غير مقروء")
-                || value.contains("غير مقروءة")
-                || value.contains("رسائل غير مقروءة")
-                || value.contains("رسالة غير مقروءة");
-        if (unread) return node;
+
+        String vid = node.getViewIdResourceName();
+        boolean isBadgeId = vid != null && (vid.contains("badge") || vid.contains("unread") || vid.contains("counter"));
+        if (isBadgeId) {
+            CharSequence text = node.getText();
+            CharSequence desc = node.getContentDescription();
+            boolean hasCount = (text != null && text.length() > 0 && !text.toString().equals("0"))
+                    || (desc != null && desc.length() > 0);
+            if (hasCount) {
+                AccessibilityNodeInfo row = clickableAncestor(node, 6);
+                if (row != null) {
+                    String sig = nodeSignature(row);
+                    if (!archivedUnreadChatsVisited.contains(sig)) {
+                        return row;
+                    }
+                }
+            }
+        }
+
+        CharSequence desc = node.getContentDescription();
+        if (desc != null && desc.length() > 0) {
+            String descLower = desc.toString().toLowerCase(java.util.Locale.ROOT);
+            if (descLower.contains("unread") || descLower.contains("غير مقروء") || descLower.contains("غير مقروءة") || descLower.contains("رسائل غير مقروءة")) {
+                AccessibilityNodeInfo row = clickableAncestor(node, 6);
+                if (row != null) {
+                    String sig = nodeSignature(row);
+                    if (!archivedUnreadChatsVisited.contains(sig)) {
+                        return row;
+                    }
+                }
+            }
+        }
+
         for (int i = 0; i < node.getChildCount(); i++) {
             AccessibilityNodeInfo child = node.getChild(i);
-            AccessibilityNodeInfo found = findUnreadMarker(child);
+            AccessibilityNodeInfo found = searchUnreadInNode(child);
             if (found != null) return found;
+        }
+        return null;
+    }
+
+    private AccessibilityNodeInfo findScrollableNode(AccessibilityNodeInfo root) {
+        if (root == null) return null;
+        if (root.isScrollable()) return root;
+        for (int i = 0; i < root.getChildCount(); i++) {
+            AccessibilityNodeInfo child = root.getChild(i);
+            AccessibilityNodeInfo s = findScrollableNode(child);
+            if (s != null) return s;
         }
         return null;
     }

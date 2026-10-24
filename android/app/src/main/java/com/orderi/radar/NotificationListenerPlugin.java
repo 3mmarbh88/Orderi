@@ -611,16 +611,28 @@ public class NotificationListenerPlugin extends Plugin {
                 }
             }
 
-            // 1. Execute Android notification Mark As Read actions for ALL WhatsApp conversations (active and archived) in background
-            // Passing null sweeps all active and cached WhatsApp chats/groups without launching WhatsApp or opening links
+            // 1. Execute Android notification Mark As Read actions for active status bar WhatsApp notifications
             int count = WhatsAppNotificationListenerService.markAllWhatsAppAsRead(getContext(), null);
+
+            // 2. Clear archived chats via Accessibility automation so when user opens WhatsApp, ALL archived chats are 100% read
+            boolean includeArchived = call.getBoolean("includeArchived", true);
+            boolean archivedAutomationStarted = false;
+            boolean accessibilityRequired = false;
+
+            if (includeArchived) {
+                if (OrderiAccessibilityService.isAccessibilityEnabled(getContext())) {
+                    archivedAutomationStarted = OrderiAccessibilityService.requestMarkArchivedChatsRead(getContext());
+                } else {
+                    accessibilityRequired = true;
+                }
+            }
 
             JSObject ret = new JSObject();
             ret.put("success", true);
             ret.put("markedCount", count);
-            ret.put("archivedAutomationStarted", false);
-            ret.put("accessibilityRequired", false);
-            ret.put("whatsAppOpened", false);
+            ret.put("archivedAutomationStarted", archivedAutomationStarted);
+            ret.put("accessibilityRequired", accessibilityRequired);
+            ret.put("whatsAppOpened", archivedAutomationStarted);
             call.resolve(ret);
         } catch (Exception e) {
             call.reject("Failed to mark WhatsApp groups as read", e);
