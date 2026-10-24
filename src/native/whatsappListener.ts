@@ -31,14 +31,24 @@ export async function openWhatsAppAccessibilitySettings(): Promise<void> {
 }
 
 export async function openWhatsAppGroupConversation(groupName: string): Promise<{ success: boolean; method: string }> {
-  if (!isNativeAndroid()) {
-    return { success: false, method: 'not_native' };
+  const name = (groupName || '').trim();
+  if (isNativeAndroid()) {
+    try {
+      const res = await OrderiNotificationListener.openWhatsAppGroupConversation({ groupName: name || 'واتساب' });
+      if (res && res.success) return res;
+    } catch {}
   }
-  try {
-    return await OrderiNotificationListener.openWhatsAppGroupConversation({ groupName });
-  } catch {
-    return { success: false, method: 'error' };
+  // Web fallback: open WhatsApp Web or app scheme
+  if (typeof window !== 'undefined') {
+    try {
+      window.open('https://web.whatsapp.com', '_blank');
+      return { success: true, method: 'web_whatsapp' };
+    } catch {
+      window.location.href = 'https://web.whatsapp.com';
+      return { success: true, method: 'web_location' };
+    }
   }
+  return { success: false, method: 'not_supported' };
 }
 
 export async function sendNativeQuickReply(options: {

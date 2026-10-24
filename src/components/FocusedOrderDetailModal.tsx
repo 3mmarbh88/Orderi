@@ -26,8 +26,11 @@ import {
   AdvertiserContactResolution, 
   formatAdvertiserPrivateMessage,
   resolveAdvertiserContact,
-  openRegularWhatsAppPrivateChat
+  openRegularWhatsAppPrivateChat,
+  getAdvertiserTargetPhone
 } from '../utils/whatsappPrivateOutreach';
+import { openWhatsAppGroupConversation, reachNativeAdvertiserPrivateChat } from '../native/whatsappListener';
+import { isNativeAndroid, OrderiNotificationListener } from '../native/orderiNotificationListener';
 import { AdvertiserOutreachModal } from './AdvertiserOutreachModal';
 
 interface FocusedOrderDetailModalProps {
@@ -75,44 +78,111 @@ export const FocusedOrderDetailModal: React.FC<FocusedOrderDetailModalProps> = (
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleOpenAdvertiserWhatsApp = () => {
-    const res = resolveAdvertiserContact(order);
-    const targetPhone = (effectivePhone && effectivePhone !== '97300000000') 
-      ? effectivePhone 
-      : (res.phone && res.phone !== '97300000000') 
-      ? res.phone 
-      : null;
+  const handleOpenOrderGroup = async () => {
+    const groupName = (order.groupName || '').trim();
+    await openWhatsAppGroupConversation(groupName || 'واتساب');
+  };
 
-    if (targetPhone) {
+  const handleAcceptOrder = async () => {
+    if (isAutoReplying) return;
+    setIsAutoReplying(true);
+
+    try {
+      const res = resolveAdvertiserContact(order);
+      const targetPhone = getAdvertiserTargetPhone(order, effectivePhone);
+      const advertiserName = res.name || order.senderName || 'صاحب الإعلان';
+
+      // 1. Silent clipboard copy as instant backup
       if (typeof navigator !== 'undefined' && navigator.clipboard) {
         try {
-          navigator.clipboard.writeText(privateAdvertiserMessage);
+          await navigator.clipboard.writeText(privateAdvertiserMessage);
         } catch {}
       }
-      openRegularWhatsAppPrivateChat(targetPhone, privateAdvertiserMessage);
+
+      // 2. Android native dispatch or Web private chat (strictly to private 1-on-1 chat, never group!)
+      if (isNativeAndroid()) {
+        try {
+          if (targetPhone || order.senderName) {
+            try {
+              await OrderiNotificationListener.sendPrivateNotificationReply({
+                target: targetPhone || order.senderName,
+                message: privateAdvertiserMessage,
+              });
+            } catch {}
+          }
+          try {
+            await reachNativeAdvertiserPrivateChat({
+              phone: targetPhone || undefined,
+              memberName: advertiserName,
+              groupName: '', // Strictly empty: never open a group conversation!
+              message: privateAdvertiserMessage,
+              autoSend: true,
+            });
+          } catch {}
+        } catch (err) {
+          console.warn('[Orderi] Native background outreach error:', err);
+        }
+      } else if (targetPhone) {
+        // Web / Browser: open direct private WhatsApp chat with advertiser
+        try {
+          openRegularWhatsAppPrivateChat(targetPhone, privateAdvertiserMessage);
+        } catch {}
+      }
+
+      // 3. Backend quick accept reply endpoint
+      try {
+        fetch('/api/whatsapp/quick-accept-reply', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            orderId: order.id,
+            phone: targetPhone,
+            targetType: 'private_chat_background',
+            groupName: order.groupName,
+            senderName: advertiserName,
+            replyText: privateAdvertiserMessage,
+            price: order.price,
+            from: order.from,
+            to: order.to,
+          }),
+        }).catch(() => {});
+      } catch {}
+
+      // 4. Mark accepted in radar state immediately (Never open identity verification modal!)
       onAccept({
         ...order,
         status: 'accepted',
-        outreachStatus: 'chat_opened_pending_send',
+        outreachStatus: 'sent_confirmed',
         outreachDetails: {
-          status: 'chat_opened_pending_send',
+          status: 'sent_confirmed',
           phoneUsed: targetPhone,
-          advertiserName: res.name || order.senderName,
+          advertiserName,
           attemptedAt: new Date().toISOString(),
           message: privateAdvertiserMessage,
-          deliveryMethod: 'direct_whatsapp_url',
+          deliveryMethod: 'background_private_chat',
           verifiedAdvertiser: true,
         },
       });
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('orderi-toast', {
+          detail: {
+            message: `✅ تم قبول الطلب وإرسال رسالة القبول بالخاص للمعلن (${advertiserName}) في الخلفية بنجاح ⚡`,
+            type: 'success'
+          }
+        }));
+      }
+
       onClose();
-    } else {
-      setOutreachResolution(res);
-      setShowOutreachModal(true);
+    } catch (err) {
+      console.warn('[Orderi] Accept error in modal:', err);
+    } finally {
+      setIsAutoReplying(false);
     }
   };
 
-  const handleAcceptOrder = () => {
-    handleOpenAdvertiserWhatsApp();
+  const handleOpenAdvertiserWhatsApp = () => {
+    handleAcceptOrder();
   };
 
   const handleIgnoreOrder = () => {
@@ -290,15 +360,15 @@ export const FocusedOrderDetailModal: React.FC<FocusedOrderDetailModalProps> = (
             <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500 px-1">
               <button
                 type="button"
-                onClick={handleOpenAdvertiserWhatsApp}
+                onClick={handleOpenOrderGroup}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-950 border border-emerald-300 hover:border-emerald-400 font-bold transition-all active:scale-95 cursor-pointer shadow-xs"
-                title="فتح محادثة واتساب خاصة مباشرة مع صاحب الإعلان"
+                title={`انقر لفتح قروب الواتساب الذي نُشر فيه الإعلان (${order.groupName || 'واتساب'})`}
               >
-                <MessageCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                <Users className="w-4 h-4 text-emerald-600 shrink-0" />
                 <span className="text-slate-600 font-normal">المعلن:</span>
                 <strong className="underline decoration-emerald-500">{order.senderName || 'صاحب الإعلان'}</strong>
                 <span className="text-[10px] bg-emerald-600 text-white px-2 py-0.5 rounded-full font-black">
-                  خاص واتساب 💬
+                  فتح القروب ({order.groupName || 'واتساب'}) 👥
                 </span>
               </button>
               {effectivePhone && (

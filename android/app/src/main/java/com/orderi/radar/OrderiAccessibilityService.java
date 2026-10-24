@@ -108,9 +108,8 @@ public class OrderiAccessibilityService extends AccessibilityService {
      * reply action are reported as skipped rather than opening WhatsApp as a fallback.
      */
     public static boolean queueGroupBroadcast(Context context, List<String> groupNames, String message) {
-        if (context == null || instance == null || !isAccessibilityEnabled(context)
-                || groupNames == null || groupNames.isEmpty() || TextUtils.isEmpty(message)) {
-            writeOutreachStatus("failed", "تعذر النشر بالخلفية: تحقق من تفعيل خدمة إمكانية الوصول وإشعارات واتساب");
+        if (context == null || groupNames == null || groupNames.isEmpty() || TextUtils.isEmpty(message)) {
+            writeOutreachStatus("failed", "لم يتم تحديد أي قروب أو رسالة للنشر");
             return false;
         }
 

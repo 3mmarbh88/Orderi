@@ -128,7 +128,7 @@ export async function spiderIngestMessage(
     recordSpiderEvent({
       action: 'CLOSED_ORDER',
       groupName,
-      detail: `رصد كلمة إغلاق طلب بالقروب (${matchedText}) وأرشفة الطلب في الرادار`,
+      detail: `رصد بالذكاء الاصطناعي: معلن بالقروب حصل على مندوب (${matchedText}) وحذف الطلب من الرادار والإشعارات فوراً`,
       latencyMs: Math.max(1, Math.round(performance.now() - startTime)),
     });
     return { action: 'CLOSED_ORDER', reason: matchedText };

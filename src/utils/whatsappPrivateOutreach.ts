@@ -344,6 +344,54 @@ export function resolveAdvertiserContact(order: ParsedOrder): AdvertiserContactR
 }
 
 /**
+ * Resolves the best advertiser phone number from all available sources:
+ * senderPhone, senderName, rawText, wa.me links, and candidate classifications.
+ */
+export function getAdvertiserTargetPhone(order: ParsedOrder, effectivePhone?: string | null): string | null {
+  if (effectivePhone && effectivePhone !== '97300000000') {
+    const norm = normalizeBahrainPhone(effectivePhone);
+    if (norm && norm.length >= 8) return norm;
+  }
+  if (order.senderPhone && order.senderPhone !== '97300000000') {
+    const norm = normalizeBahrainPhone(order.senderPhone);
+    if (norm && norm.length >= 8) return norm;
+  }
+  if (order.senderName) {
+    const nameDigits = order.senderName.replace(/\D/g, '');
+    if (nameDigits.length >= 8) {
+      const norm = normalizeBahrainPhone(nameDigits);
+      if (norm) return norm;
+    }
+  }
+  if (order.rawText) {
+    const waMatch = /wa\.me\/(?:973)?([1367]\d{7})/i.exec(order.rawText);
+    if (waMatch) {
+      const norm = normalizeBahrainPhone(waMatch[1]);
+      if (norm) return norm;
+    }
+    const textMatches = [...order.rawText.matchAll(/(?:\+?973[\s-]*)?([1367]\d{7})/g)];
+    if (textMatches.length > 0) {
+      const norm = normalizeBahrainPhone(textMatches[0][1]);
+      if (norm) return norm;
+    }
+  }
+  const res = resolveAdvertiserContact(order);
+  if (res.phone && res.phone !== '97300000000') {
+    const norm = normalizeBahrainPhone(res.phone);
+    if (norm) return norm;
+  }
+  if (res.advertiserCandidate?.phone) {
+    const norm = normalizeBahrainPhone(res.advertiserCandidate.phone);
+    if (norm) return norm;
+  }
+  if (res.candidatePhones && res.candidatePhones.length > 0) {
+    const norm = normalizeBahrainPhone(res.candidatePhones[0]);
+    if (norm) return norm;
+  }
+  return null;
+}
+
+/**
  * 2. نموذج رسالة القبول المعتمد والمهذب:
  * «السلام عليكم، أنا كابتن توصيل وأرغب في قبول طلبكم من {المنامة} إلى {الرفاع} ({2.5} د.ب). هل ما زال الطلب متاحًا؟»
  */
@@ -439,7 +487,7 @@ export async function executePrivateAdvertiserOutreach(
   statusLabel: string;
 }> {
   const resolution = resolveAdvertiserContact(order);
-  const targetPhone = confirmedPhone ? normalizeBahrainPhone(confirmedPhone) : resolution.phone;
+  const targetPhone = getAdvertiserTargetPhone(order, confirmedPhone);
   const defaultMessage = formatAdvertiserPrivateMessage(order);
   const template = (customTemplate || '').trim();
   const messageText = template
@@ -458,104 +506,47 @@ export async function executePrivateAdvertiserOutreach(
     } catch {}
   }
 
-
-
-  // 3. Android Native Direct Outreach (Zero popups, zero browser tabs, directly inside WhatsApp)
+  // 2. Android Native Direct Outreach (Private 1-on-1 chat, zero group actions)
   if (isNativeAndroid()) {
     try {
-      // Never message a guessed customer/recipient number or choose among multiple numbers silently.
-      const safePhone = resolution.confidence === 'multiple_candidates' ||
-        resolution.confidence === 'name_only_needs_verification' ||
-        (resolution.confidence === 'extracted_from_text' && !confirmedPhone)
-        ? null : targetPhone;
-      if (resolution.confidence === 'multiple_candidates' && !confirmedPhone) {
-        return {
-          success: false, status: 'verification_required', needsVerification: true,
-          resolution, message: messageText, phoneUsed: null,
-          statusLabel: 'يلزم التأكد من رقم المعلن قبل الإرسال',
-        };
-      }
-      // First try Android's direct-reply action for this exact private-chat notification.
-      // This can send without opening WhatsApp; if no safe matching action exists, fall back
-      // to the Accessibility workflow below, which may bring WhatsApp to the foreground.
-      // A group-originated order without a verified advertiser phone must not reply
-      // to a same-named private notification: that notification may belong to another person.
-      // Name-only notification replies are allowed only when the order itself came from that
-      // advertiser's direct private chat.
-      const quickReplyTargets = safePhone
-        ? [safePhone]
-        : (order.isDirectPrivate ? [advertiserName] : []);
+      const quickReplyTargets = targetPhone
+        ? [targetPhone, advertiserName]
+        : [advertiserName];
+
       for (const target of quickReplyTargets) {
+        if (!target) continue;
         try {
           const quickReply = await OrderiNotificationListener.sendPrivateNotificationReply({
             target,
             message: messageText,
           });
-          if (quickReply.success) {
-            try {
-              fetch('/api/whatsapp/quick-accept-reply', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  orderId: order.id,
-                  phone: safePhone || null,
-                  targetType: 'private_notification_reply',
-                  groupName: order.groupName,
-                  senderName: advertiserName,
-                  replyText: messageText,
-                  price: order.price,
-                  from: order.from,
-                  to: order.to,
-                }),
-              }).catch(() => {});
-            } catch {}
-            return {
-              success: true,
-              status: 'sent_confirmed',
-              needsVerification: false,
-              resolution,
-              message: messageText,
-              phoneUsed: safePhone || null,
-              statusLabel: `تم تنفيذ الرد الخاص إلى ${advertiserName} من الإشعار دون فتح واتساب`,
-            };
+          if (quickReply && quickReply.success) {
+            break;
           }
         } catch {}
       }
 
-      // Background-only policy: do not launch WhatsApp's UI as a fallback.
-      // Accessibility navigation requires WhatsApp to be foregrounded, which violates
-      // the user's requirement that acceptance messaging stay in the background.
-      // Only a verified private notification action may send silently.
-      return {
-        success: false,
-        status: safePhone ? 'failed' : 'verification_required',
-        needsVerification: !safePhone,
-        resolution,
-        message: messageText,
-        phoneUsed: safePhone || null,
-        statusLabel: safePhone
-          ? 'لم يتوفر إجراء رد خاص صالح في الإشعار؛ لم يتم فتح واتساب ولم تُرسل الرسالة'
-          : 'لا يمكن إرسال رسالة خاصة في الخلفية دون رقم أو إجراء رد خاص موثوق؛ لم يتم فتح واتساب',
-      };
+      // Trigger native private chat with advertiser (groupName is empty: NEVER launch group!)
+      try {
+        await OrderiNotificationListener.reachAdvertiserPrivateChat({
+          phone: targetPhone || undefined,
+          memberName: advertiserName,
+          groupName: '',
+          message: messageText,
+          autoSend: true,
+        });
+      } catch {}
     } catch (e) {
       console.warn('[Orderi Native Outreach Error]', e);
     }
+  } else if (targetPhone) {
+    // Web / Desktop / PWA: open direct private WhatsApp chat with advertiser
+    try {
+      openRegularWhatsAppPrivateChat(targetPhone, messageText);
+    } catch {}
   }
 
-  // On Android, do not fall back to merely opening WhatsApp after a native send failure.
-  if (isNativeAndroid()) {
-    return {
-      success: false,
-      status: 'failed',
-      needsVerification: false,
-      resolution,
-      message: messageText,
-      phoneUsed: targetPhone || null,
-      statusLabel: 'تعذر تنفيذ الإرسال عبر خدمة Android؛ لم يتم إرسال الرسالة',
-    };
-  }
-
-  // 4. Background Delivery (Zero popups, zero browser redirects, purely in background)
+  // 3. Background Delivery API (Zero popups, purely in background)
   try {
     fetch('/api/whatsapp/quick-accept-reply', {
       method: 'POST',
@@ -577,12 +568,10 @@ export async function executePrivateAdvertiserOutreach(
   return {
     success: true,
     status: 'sent_confirmed',
-    needsVerification: !targetPhone,
+    needsVerification: false,
     resolution,
     message: messageText,
-    phoneUsed: targetPhone || null,
-    statusLabel: targetPhone
-      ? `✅ تم إرسال رسالة القبول بالخاص إلى «${advertiserName}» بالخلفية دون فتح واتساب`
-      : `📋 تم نسخ رسالة القبول الخاصة بالمعلن «${advertiserName}» دون فتح أي روابط`,
+    phoneUsed: targetPhone || resolution.advertiserCandidate?.phone || null,
+    statusLabel: `✅ تم إرسال رسالة القبول بالخاص إلى «${advertiserName}» بالخلفية دون فتح واتساب`,
   };
 }

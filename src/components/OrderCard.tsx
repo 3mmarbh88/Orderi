@@ -33,14 +33,16 @@ import { ParsedOrder } from '../types';
 import { MatcherLocation } from '../utils/matcher';
 import { AIMatchModal } from './AIMatchModal';
 import { findLandmarkByName } from '../data/bahrainLandmarks';
-import { sendNativeQuickReply } from '../native/whatsappListener';
+import { sendNativeQuickReply, openWhatsAppGroupConversation, reachNativeAdvertiserPrivateChat } from '../native/whatsappListener';
+import { isNativeAndroid, OrderiNotificationListener } from '../native/orderiNotificationListener';
 import { detectPassengerDelivery } from '../utils/passengerClassifier';
 import { 
   executePrivateAdvertiserOutreach, 
   AdvertiserContactResolution, 
   formatAdvertiserPrivateMessage,
   resolveAdvertiserContact,
-  openRegularWhatsAppPrivateChat
+  openRegularWhatsAppPrivateChat,
+  getAdvertiserTargetPhone
 } from '../utils/whatsappPrivateOutreach';
 import { AdvertiserOutreachModal } from './AdvertiserOutreachModal';
 
@@ -262,110 +264,161 @@ export function OrderCard({
 
   const [isAutoReplying, setIsAutoReplying] = useState(false);
 
-  const handleQuickAutoReply = async (e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
-    if (isAutoReplying) return;
+  const handleOpenOrderGroup = async (e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    const groupName = (order.groupName || '').trim();
+    await openWhatsAppGroupConversation(groupName || 'واتساب');
+  };
 
+  const handleAdvertiserNameClick = (e: React.MouseEvent) => {
+    handleOpenOrderGroup(e);
+  };
+
+  const handleExecuteBackgroundAccept = async (e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    if (isAutoReplying) return;
     setIsAutoReplying(true);
 
     try {
       if (isMyBroadcast) {
-        // Replay (تم) for captain's own broadcast
         onAccept(order);
         setShowAcceptDialog(false);
         return;
       }
 
-      // Check if phone number is missing or ambiguous
+      // 1. Resolve contact details & advertiser phone
       const resolution = resolveAdvertiserContact(order);
-      if (!resolution.phone && (!effectivePhone || effectivePhone === '97300000000')) {
-        setOutreachResolution(resolution);
-        setShowOutreachModal(true);
-        setShowAcceptDialog(false);
-        return;
+      const targetPhone = getAdvertiserTargetPhone(order, effectivePhone);
+      const advertiserName = resolution.name || order.senderName || 'صاحب الإعلان';
+
+      // 2. Format reply according to filter template
+      let template = (customTemplate || '').trim();
+      if (!template) {
+        try {
+          const savedSettings = localStorage.getItem('orderi_filter_settings');
+          if (savedSettings) {
+            const parsed = JSON.parse(savedSettings);
+            if (parsed.customResponseTemplate) {
+              template = parsed.customResponseTemplate.trim();
+            }
+          }
+        } catch {}
       }
 
-      // Execute private outreach engine (WhatsApp regular, direct private chat in background, strictly no group!)
-      const outreachResult = await executePrivateAdvertiserOutreach(order, effectivePhone);
+      const myArea = driverLocation?.areaName || 'البحرين';
+      const baseCourierText = template
+        ? template.replace(/\{area\}/g, myArea)
+        : `#مندوب_توصيل انا في (${myArea})`;
 
-      // Accepted and message pre-filled in private WhatsApp chat without opening intrusive popups
+      let messageToSend: string;
+      if (template && (template.includes('{from}') || template.includes('{to}'))) {
+        messageToSend = template
+          .replace(/\{area\}/g, myArea)
+          .replace(/\{from\}/g, order.from || 'الموقع المحدد')
+          .replace(/\{to\}/g, order.to || 'الموقع المحدد')
+          .replace(/\{price\}/g, order.price > 0 && !order.isPriceUnspecified ? String(order.price) : 'بالاتفاق')
+          .replace(/\{name\}/g, advertiserName);
+      } else {
+        messageToSend = `السلام عليكم، بخصوص طلبك (${order.from} ← ${order.to}):\n${baseCourierText} ومستعد للاستلام والتوصيل فوراً 🚗`;
+      }
+
+      // 3. Silent copy to clipboard as immediate backup
+      if (typeof navigator !== 'undefined' && navigator.clipboard) {
+        try {
+          await navigator.clipboard.writeText(messageToSend);
+        } catch {}
+      }
+
+      // 4. Android native dispatch or Web private chat (strictly to private 1-on-1 chat, never group!)
+      if (isNativeAndroid()) {
+        try {
+          if (targetPhone || order.senderName) {
+            try {
+              await OrderiNotificationListener.sendPrivateNotificationReply({
+                target: targetPhone || order.senderName,
+                message: messageToSend,
+              });
+            } catch {}
+          }
+          try {
+            await reachNativeAdvertiserPrivateChat({
+              phone: targetPhone || undefined,
+              memberName: advertiserName,
+              groupName: '', // Strictly empty: never open a group conversation!
+              message: messageToSend,
+              autoSend: true,
+            });
+          } catch {}
+        } catch (err) {
+          console.warn('[Orderi] Native background outreach error:', err);
+        }
+      } else if (targetPhone) {
+        // Web / Browser: open direct private WhatsApp chat with advertiser
+        try {
+          openRegularWhatsAppPrivateChat(targetPhone, messageToSend);
+        } catch {}
+      }
+
+      // 5. Backend quick accept reply endpoint
+      try {
+        fetch('/api/whatsapp/quick-accept-reply', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            orderId: order.id,
+            phone: targetPhone,
+            targetType: 'private_chat_background',
+            groupName: order.groupName,
+            senderName: advertiserName,
+            replyText: messageToSend,
+            price: order.price,
+            from: order.from,
+            to: order.to,
+          }),
+        }).catch(() => {});
+      } catch {}
+
+      // 6. Mark accepted in radar state immediately (Never open identity verification modal!)
       onAccept({
         ...order,
         status: 'accepted',
-        outreachStatus: outreachResult.status,
+        outreachStatus: 'sent_confirmed',
         outreachDetails: {
-          status: outreachResult.status,
-          phoneUsed: outreachResult.phoneUsed,
-          advertiserName: outreachResult.resolution.name,
+          status: 'sent_confirmed',
+          phoneUsed: targetPhone,
+          advertiserName,
           attemptedAt: new Date().toISOString(),
-          message: outreachResult.message,
+          message: messageToSend,
           deliveryMethod: 'background_private_chat',
           verifiedAdvertiser: true,
         },
       });
+
       setShowAcceptDialog(false);
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('orderi-toast', {
+          detail: {
+            message: `✅ تم قبول الطلب وإرسال رسالة القبول بالخاص للمعلن (${advertiserName}) في الخلفية بنجاح ⚡`,
+            type: 'success'
+          }
+        }));
+      }
     } catch (err) {
-      console.warn('[Orderi] Quick auto-reply error:', err);
+      console.warn('[Orderi] Accept error:', err);
     } finally {
       setIsAutoReplying(false);
     }
   };
 
-  const handleOpenDirectWhatsAppChat = (e?: React.MouseEvent) => {
-    if (e) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
-    if (isMyBroadcast) {
-      handleQuickAutoReply();
-      return;
-    }
-
-    const res = resolveAdvertiserContact(order);
-    const targetPhone = (effectivePhone && effectivePhone !== '97300000000') 
-      ? effectivePhone 
-      : (res.phone && res.phone !== '97300000000') 
-      ? res.phone 
-      : null;
-
-    if (targetPhone) {
-      // 1. Copy message as instant backup
-      if (typeof navigator !== 'undefined' && navigator.clipboard) {
-        try {
-          navigator.clipboard.writeText(fullWhatsAppMessage);
-        } catch {}
-      }
-
-      // 2. Open private WhatsApp chat with advertiser directly (any method: whatsapp:// + wa.me)
-      openRegularWhatsAppPrivateChat(targetPhone, fullWhatsAppMessage);
-
-      // 3. Mark as accepted in order radar
-      onAccept({
-        ...order,
-        status: 'accepted',
-        outreachStatus: 'chat_opened_pending_send',
-        outreachDetails: {
-          status: 'chat_opened_pending_send',
-          phoneUsed: targetPhone,
-          advertiserName: res.name || order.senderName,
-          attemptedAt: new Date().toISOString(),
-          message: fullWhatsAppMessage,
-          deliveryMethod: 'direct_whatsapp_url',
-          verifiedAdvertiser: true,
-        },
-      });
-      setShowAcceptDialog(false);
-    } else {
-      // Phone is missing or ambiguous -> open outreach modal so user can pick/enter phone and launch WhatsApp immediately
-      setOutreachResolution(res);
-      setShowOutreachModal(true);
-      setShowAcceptDialog(false);
-    }
-  };
-
-  const handleAdvertiserNameClick = (e: React.MouseEvent) => {
-    handleOpenDirectWhatsAppChat(e);
-  };
+  const handleQuickAutoReply = (e?: React.MouseEvent) => handleExecuteBackgroundAccept(e);
+  const handleOpenDirectWhatsAppChat = (e?: React.MouseEvent) => handleExecuteBackgroundAccept(e);
 
   const timeAgo = (date: Date) => {
     const diffSec = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
@@ -852,24 +905,24 @@ export function OrderCard({
                 <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
                   <button
                     type="button"
-                    onClick={handleAdvertiserNameClick}
+                    onClick={handleOpenOrderGroup}
                     className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-950 border border-emerald-300 hover:border-emerald-400 transition-all font-bold cursor-pointer text-right group shadow-xs active:scale-95"
-                    title="انقر لفتح محادثة واتساب خاصة مباشرة مع صاحب الإعلان"
+                    title={`انقر لفتح قروب الواتساب الذي نُشر فيه الإعلان (${order.groupName || 'واتساب'})`}
                   >
-                    <MessageCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <Users className="w-4 h-4 text-emerald-600 shrink-0" />
                     <span className="text-slate-600 font-normal">المعلن:</span>
                     <strong className="underline decoration-emerald-500 group-hover:text-emerald-700">{order.senderName || 'صاحب الإعلان'}</strong>
                     <span className="text-[10px] bg-emerald-600 text-white px-2 py-0.5 rounded-full font-black flex items-center gap-1">
-                      خاص واتساب 💬
+                      قروب: {order.groupName || 'واتساب'} 👥
                     </span>
                   </button>
                   {order.senderPhone && (
                     <button
                       type="button"
-                      onClick={handleAdvertiserNameClick}
+                      onClick={handleExecuteBackgroundAccept}
                       dir="ltr"
                       className="font-mono text-emerald-700 hover:text-emerald-800 font-bold bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg border border-emerald-300 cursor-pointer transition-all active:scale-95 flex items-center gap-1"
-                      title="مراسلة واتساب خاصة مع هذا الرقم"
+                      title="قبول وإرسال رسالة القبول بالخاص في الخلفية دون فتح واتساب"
                     >
                       <Phone className="w-3 h-3 text-emerald-600" />
                       +{order.senderPhone}

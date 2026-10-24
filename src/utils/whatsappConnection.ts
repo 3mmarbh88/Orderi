@@ -124,6 +124,46 @@ export function disconnectWhatsApp(): WhatsAppConnection | null {
   return save({ ...previous, status: 'disconnected' });
 }
 
+/**
+ * Automatically syncs WhatsApp reader phone number with captain's registered account phone
+ */
+export function syncWhatsAppPhoneWithAccount(accountPhone: string): WhatsAppConnection {
+  const phone = normalizeWhatsAppPhone(accountPhone);
+  const previous = getWhatsAppConnection();
+  const now = new Date().toISOString();
+  return save({
+    phoneNumber: phone,
+    deviceId: previous?.deviceId || getDeviceId(),
+    status: previous?.status === 'disconnected' ? 'connected' : (previous?.status || 'connected'),
+    connectedAt: previous?.connectedAt || now,
+    lastSeenAt: now,
+    groups: previous?.groups || [],
+  });
+}
+
+/**
+ * Automatically link and adopt all detected groups from phone notifications into the user's account
+ */
+export function autoAdoptDetectedGroups(incomingGroups: string[]): WhatsAppConnection {
+  const previous = getWhatsAppConnection();
+  const existingGroups = new Set(previous?.groups || []);
+  for (const g of incomingGroups) {
+    const trimmed = (g || '').trim();
+    if (trimmed && trimmed !== 'محادثة خاصة 👤' && !trimmed.includes('محادثة خاصة')) {
+      existingGroups.add(trimmed);
+    }
+  }
+  const mergedGroups = Array.from(existingGroups);
+  return save({
+    phoneNumber: previous?.phoneNumber || '',
+    deviceId: previous?.deviceId || getDeviceId(),
+    status: previous?.status || 'connected',
+    connectedAt: previous?.connectedAt || new Date().toISOString(),
+    lastSeenAt: new Date().toISOString(),
+    groups: mergedGroups,
+  });
+}
+
 export function clearWhatsAppConnection(): void {
   try {
     localStorage.removeItem(STORAGE_KEY);

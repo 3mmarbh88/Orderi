@@ -29,7 +29,14 @@ import {
 } from 'lucide-react';
 import { CaptainUser } from '../types';
 import { getWhatsAppListenerStatus, openWhatsAppListenerSettings, markAllWhatsAppAsRead } from '../native/whatsappListener';
-import { getWhatsAppConnection, registerWhatsAppNumber, disconnectWhatsApp, normalizeWhatsAppPhone } from '../utils/whatsappConnection';
+import { 
+  getWhatsAppConnection, 
+  registerWhatsAppNumber, 
+  disconnectWhatsApp, 
+  normalizeWhatsAppPhone,
+  syncWhatsAppPhoneWithAccount,
+  autoAdoptDetectedGroups
+} from '../utils/whatsappConnection';
 
 export interface WhatsAppSessionData {
   status: 'disconnected' | 'qr_ready' | 'connecting' | 'connected';
@@ -120,7 +127,9 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
 
   useEffect(() => {
     if (currentUser?.phone) {
-      setPhoneNumberInput(currentUser.phone.startsWith('+') ? currentUser.phone : `+973 ${currentUser.phone}`);
+      const normalized = currentUser.phone.startsWith('+') ? currentUser.phone : `+973 ${currentUser.phone}`;
+      setPhoneNumberInput(normalized);
+      syncWhatsAppPhoneWithAccount(currentUser.phone);
     }
   }, [currentUser?.phone]);
 
@@ -157,16 +166,21 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
     }
   }, [propMyGroups]);
 
-  // If internal groups are empty but phone notifications detected groups, auto-bind them
+  // Automatically link and adopt ALL detected groups from phone notifications into user's account
   useEffect(() => {
-    if (internalMyGroups.length === 0 && detectedIncomingGroups && detectedIncomingGroups.length > 0) {
-      setInternalMyGroups(detectedIncomingGroups);
-      try {
-        localStorage.setItem('orderi_my_whatsapp_groups', JSON.stringify(detectedIncomingGroups));
-      } catch {}
-      if (onUpdateMyGroups) onUpdateMyGroups(detectedIncomingGroups);
+    if (detectedIncomingGroups && detectedIncomingGroups.length > 0) {
+      const unlinked = detectedIncomingGroups.filter((g) => !internalMyGroups.includes(g));
+      if (unlinked.length > 0) {
+        const merged = Array.from(new Set([...internalMyGroups, ...detectedIncomingGroups]));
+        setInternalMyGroups(merged);
+        try {
+          localStorage.setItem('orderi_my_whatsapp_groups', JSON.stringify(merged));
+        } catch {}
+        autoAdoptDetectedGroups(detectedIncomingGroups);
+        if (onUpdateMyGroups) onUpdateMyGroups(merged);
+      }
     }
-  }, [detectedIncomingGroups]);
+  }, [detectedIncomingGroups, internalMyGroups, onUpdateMyGroups]);
 
   const handleLinkAllDetectedToWhatsApp = () => {
     if (!detectedIncomingGroups || detectedIncomingGroups.length === 0) return;
@@ -175,8 +189,9 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
     try {
       localStorage.setItem('orderi_my_whatsapp_groups', JSON.stringify(merged));
     } catch {}
+    autoAdoptDetectedGroups(detectedIncomingGroups);
     if (onUpdateMyGroups) onUpdateMyGroups(merged);
-    onShowToast(`✅ تم ربط ${detectedIncomingGroups.length} قروبات مرصودة من هاتفك برقم واتسابك بنجاح!`);
+    onShowToast(`✅ تم ربط واعتماد كافة القروبات المرصودة (${detectedIncomingGroups.length}) بحسابك أوتوماتيكياً!`);
   };
 
   const [isManagingGroups, setIsManagingGroups] = useState<boolean>(false);
@@ -437,7 +452,12 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
                 {/* كارت مدمج لحفظ وربط الرقم وتفعيل الصلاحية مباشرة بدون حشو شروحات */}
                 <div className="p-4 rounded-2xl bg-white border border-emerald-300 shadow-sm space-y-3">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-black text-slate-900">رقم WhatsApp وقراءة الإشعارات</span>
+                    <div>
+                      <span className="text-xs font-black text-slate-900 block">رقم WhatsApp وقراءة الإشعارات</span>
+                      <span className="text-[10px] text-emerald-700 font-bold block mt-0.5">
+                        🔒 متطابق ومربوط تلقائياً بالرقم المسجل به في البرنامج
+                      </span>
+                    </div>
                     <span
                       className={`px-2.5 py-0.5 rounded-full text-[10px] font-black ${
                         nativeListenerEnabled && savedConnection?.status === 'connected'
@@ -569,15 +589,21 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
                     </button>
                   </div>
 
-                  {/* Quick Link detected phone notification groups if not already linked */}
-                  {detectedIncomingGroups && detectedIncomingGroups.some(g => !internalMyGroups.includes(g)) && (
-                    <button
-                      type="button"
-                      onClick={handleLinkAllDetectedToWhatsApp}
-                      className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-blue-50 to-indigo-50 hover:from-blue-100 hover:to-indigo-100 border border-blue-200 text-blue-800 text-xs font-black flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-2xs"
-                    >
-                      <span>⚡ ربط كافة القروبات المرصودة من إشعارات هاتفك مؤخراً ({detectedIncomingGroups.length})</span>
-                    </button>
+                  {/* Automatic Link & Adoption of detected phone notification groups */}
+                  {detectedIncomingGroups && detectedIncomingGroups.length > 0 && (
+                    <div className="p-2.5 rounded-xl bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200/90 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="text-[11px] font-bold text-blue-950 flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                        <span>تم اعتماد وربط كافة القروبات المرصودة مؤخراً ({detectedIncomingGroups.length} قروب) بحسابك أوتوماتيكياً</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleLinkAllDetectedToWhatsApp}
+                        className="py-1 px-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-[10px] font-black shrink-0 shadow-2xs transition-all cursor-pointer self-end sm:self-auto"
+                      >
+                        ⚡ إعادة المزامنة والاعتماد
+                      </button>
+                    </div>
                   )}
 
                   {(savedConnection?.groups || internalMyGroups).length === 0 ? (

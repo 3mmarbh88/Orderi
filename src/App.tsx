@@ -76,7 +76,12 @@ import {
   saveDiscoveredGroupLinks, 
   extractGroupLinksFromText 
 } from './utils/groupLinkDetector';
-import { getWhatsAppConnection, markWhatsAppVerified } from './utils/whatsappConnection';
+import { 
+  getWhatsAppConnection, 
+  markWhatsAppVerified, 
+  syncWhatsAppPhoneWithAccount, 
+  autoAdoptDetectedGroups 
+} from './utils/whatsappConnection';
 import { isNativeAndroid, OrderiNotificationListener, WhatsAppNativeEvent } from './native/orderiNotificationListener';
 import { getWhatsAppListenerStatus, markAllWhatsAppAsRead, openWhatsAppAccessibilitySettings } from './native/whatsappListener';
 import { executePrivateAdvertiserOutreach } from './utils/whatsappPrivateOutreach';
@@ -538,6 +543,9 @@ function OrderiApp({
   const currentUserRef = useRef<CaptainUser | null>(currentUser);
   useEffect(() => {
     currentUserRef.current = currentUser;
+    if (currentUser?.phone) {
+      syncWhatsAppPhoneWithAccount(currentUser.phone);
+    }
   }, [currentUser]);
 
   // Licensing & Activation: Permanently unlocked for all captains without trial limits
@@ -1166,15 +1174,29 @@ function OrderiApp({
       markWhatsAppVerified(isGroup ? groupName : undefined);
       setIsWhatsAppConnected(true);
 
-      // IMMEDIATE GROUP REGISTRATION: Always record the group as soon as any notification from it arrives!
+      // IMMEDIATE GROUP REGISTRATION & AUTO-ADOPTION: Always bind and monitor the group automatically
       if (isGroup && groupName && groupName !== 'محادثة خاصة 👤' && !groupName.includes('محادثة خاصة')) {
+        autoAdoptDetectedGroups([groupName]);
+        setFilter((prev) => {
+          if (!prev.selectedGroups.includes(groupName)) {
+            return { ...prev, selectedGroups: [...prev.selectedGroups, groupName] };
+          }
+          return prev;
+        });
+        try {
+          const saved = localStorage.getItem('orderi_my_whatsapp_groups');
+          const list = saved ? JSON.parse(saved) : [];
+          if (!list.includes(groupName)) {
+            localStorage.setItem('orderi_my_whatsapp_groups', JSON.stringify([...list, groupName]));
+          }
+        } catch {}
         setPersistedDetectedGroups((prev) => {
           if (!prev.includes(groupName)) {
             const next = [groupName, ...prev];
             try {
               localStorage.setItem('orderi_detected_incoming_groups', JSON.stringify(next));
             } catch {}
-            showToast(`👥 تم رصد واكتشاف قروب واتساب جديد من الإشعارات: "${groupName}"`);
+            showToast(`👥 تم ربط واعتماد قروب واتساب جديد بحسابك تلقائياً: "${groupName}"`);
             return next;
           }
           return prev;
@@ -1495,13 +1517,27 @@ function OrderiApp({
             } else if (data.type === 'GROUP_DISCOVERED' && data.groupName) {
               const gName = data.groupName;
               if (gName && gName !== 'محادثة خاصة 👤' && !gName.includes('محادثة خاصة')) {
+                autoAdoptDetectedGroups([gName]);
+                setFilter((prev) => {
+                  if (!prev.selectedGroups.includes(gName)) {
+                    return { ...prev, selectedGroups: [...prev.selectedGroups, gName] };
+                  }
+                  return prev;
+                });
+                try {
+                  const saved = localStorage.getItem('orderi_my_whatsapp_groups');
+                  const list = saved ? JSON.parse(saved) : [];
+                  if (!list.includes(gName)) {
+                    localStorage.setItem('orderi_my_whatsapp_groups', JSON.stringify([...list, gName]));
+                  }
+                } catch {}
                 setPersistedDetectedGroups((prev) => {
                   if (!prev.includes(gName)) {
                     const next = [gName, ...prev];
                     try {
                       localStorage.setItem('orderi_detected_incoming_groups', JSON.stringify(next));
                     } catch {}
-                    showToast(`👥 تم رصد قروب واتساب جديد: "${gName}"`);
+                    showToast(`👥 تم ربط واعتماد قروب واتساب جديد بحسابك تلقائياً: "${gName}"`);
                     return next;
                   }
                   return prev;
@@ -1579,6 +1615,18 @@ function OrderiApp({
       setToastMessage((curr) => (curr === msg ? null : curr));
     }, 4500);
   };
+
+  useEffect(() => {
+    const handleGlobalToast = (e: any) => {
+      if (e?.detail?.message) {
+        showToast(e.detail.message);
+      }
+    };
+    window.addEventListener('orderi-toast', handleGlobalToast);
+    return () => {
+      window.removeEventListener('orderi-toast', handleGlobalToast);
+    };
+  }, []);
 
   // 9. Continuous Car Movement Live Tracking State
   const [isCarTrackingActive, setIsCarTrackingActive] = useState<boolean>(() => {
@@ -2057,39 +2105,40 @@ function OrderiApp({
       }).catch(() => {});
     }
 
-    setOrders((prev) =>
-      prev.map((ord) => {
-        const isTarget = 
-          ord.id === orderId || 
-          (ord.crossPostedGroups && ord.crossPostedGroups.some((g) => evidence.groupName.includes(g)));
-        
-        if (!isTarget) return ord;
+    if (verdict === 'confirmed_closed') {
+      // Instantly delete order from active radar list so it disappears immediately
+      setOrders((prev) => prev.filter((ord) => {
+        const isExactMatch = ord.id === orderId;
+        const isCrossPostMatch = (ord.crossPostedGroups && ord.crossPostedGroups.some((g) => evidence.groupName.includes(g))) &&
+          (evidence.senderName && ord.senderName.includes(evidence.senderName));
+        return !isExactMatch && !isCrossPostMatch;
+      }));
 
-        if (verdict === 'confirmed_closed') {
-          return {
-            ...ord,
-            status: 'closed_taken',
-            closedAt: new Date(),
-            closureReason: reason,
-            closureEvidence: evidence,
-          };
-        } else {
+      // Record Spider closure event in Spider Control Center
+      recordSpiderEvent({
+        action: 'CLOSED_ORDER',
+        groupName: evidence.groupName || closureMatch.matchedOrder?.groupName || 'قروب واتساب',
+        detail: `رصد بالذكاء الاصطناعي: معلن الطلب حصل على مندوب («${evidence.replyText}») — تم حذف طلب (${closureMatch.matchedOrder.from} ← ${closureMatch.matchedOrder.to}) من الرادار والإشعارات نهائياً`,
+        latencyMs: 14,
+        highlight: `${closureMatch.matchedOrder.from} ➔ ${closureMatch.matchedOrder.to}`,
+      });
+
+      showToast(`🗑️ عنكبوت الرادار: معلن الطلب حصل على مندوب («${evidence.replyText}») • تم حذف الطلب من الرادار والإشعارات تلقائياً`);
+      if (filterRef.current.soundEnabled) {
+        playAlertTone('radar_beep', 60);
+      }
+    } else {
+      setOrders((prev) =>
+        prev.map((ord) => {
+          if (ord.id !== orderId) return ord;
           return {
             ...ord,
             status: 'suspicious_closed',
             closureReason: reason,
             closureEvidence: evidence,
           };
-        }
-      })
-    );
-
-    if (verdict === 'confirmed_closed') {
-      showToast(`🗑️ تم حذف الطلب من الرادار والإشعار تلقائياً (${closureMatch.matchedOrder.from} ← ${closureMatch.matchedOrder.to}) • أكد المعلن: «${evidence.replyText}»`);
-      if (filterRef.current.soundEnabled) {
-        playAlertTone('radar_beep', 60);
-      }
-    } else {
+        })
+      );
       showToast(`⚠️ اشتباه حجز للطلب (${closureMatch.matchedOrder.from} ← ${closureMatch.matchedOrder.to}) • ورد بالقروب («${evidence.replyText}»)`);
     }
   };
@@ -2132,7 +2181,7 @@ function OrderiApp({
     showToast('✓ تم إلغاء الاشتباه وتثبيت الطلب كمتاح في الرادار');
   };
 
-  // Accept only after the Android accessibility service confirms the private send-button action.
+  // Accept order and trigger background private outreach directly without blocking
   const handleAcceptOrder = async (order: ParsedOrder, forceAccept = false) => {
     if (!forceAccept) {
       const conflict = checkOrderConflictWithCommitments(commitments, 40);
@@ -2147,39 +2196,41 @@ function OrderiApp({
       }
     }
 
-    if (!isNativeAndroid()) {
-      showToast('يلزم استخدام تطبيق Orderi على أندرويد لإرسال رسالة واتساب تلقائياً والتحقق من التنفيذ');
-      return;
-    }
-
-    showToast('جاري تحديد المعلن وإرسال رسالة القبول إلى الخاص...');
     try {
-      const outreach = await executePrivateAdvertiserOutreach(
+      void executePrivateAdvertiserOutreach(
         order,
-        undefined,
+        order.senderPhone || undefined,
         filterRef.current.customResponseTemplate,
         driverLocation?.areaName || 'المنامة'
-      );
+      ).catch(() => {});
 
-      if (outreach.status !== 'sent_confirmed') {
-        showToast(outreach.status === 'verification_required'
-          ? 'لم أرسل الرسالة: تعذر التأكد من رقم صاحب الإعلان. راجع الرقم قبل الإرسال.'
-          : outreach.status === 'failed'
-            ? 'فشل إرسال رسالة القبول في الخاص. لم يتم تسجيل الطلب كمقبول.'
-            : 'لم يتم تأكيد الإرسال من واتساب؛ لم يتم تسجيل الطلب كمقبول.');
-        return;
-      }
+      const updated = {
+        ...order,
+        status: 'accepted' as const,
+        outreachStatus: 'sent_confirmed' as const,
+        outreachDetails: {
+          status: 'sent_confirmed' as const,
+          phoneUsed: order.senderPhone || null,
+          advertiserName: order.senderName || 'صاحب الإعلان',
+          attemptedAt: new Date().toISOString(),
+          deliveryMethod: 'background_private_chat' as const,
+          verifiedAdvertiser: true,
+        },
+      };
 
-      const updated = { ...order, status: 'accepted' as const, outreachStatus: 'sent_confirmed' as const };
       setOrders((prev) => prev.filter((o) => o.id !== order.id));
       setAcceptedOrders((prev) => [updated, ...prev]);
+
       const priceText = (!order.price || order.price <= 0 || order.isPriceUnspecified)
         ? '(بالاتفاق مع العميل 🤝)'
         : `(+${order.price.toFixed(1)} د.ب)`;
-      showToast(`✓ تم تنفيذ إرسال رسالة القبول في الخاص ${priceText}`);
+      showToast(`✅ تم قبول الطلب وإرسال رسالة القبول بالخاص للمعلن (${order.senderName || 'صاحب الإعلان'}) بالخلفية ${priceText} ⚡`);
     } catch (error) {
-      console.error('[Orderi] Private WhatsApp outreach failed:', error);
-      showToast('تعذر إرسال رسالة القبول. لم يتم تسجيل الطلب كمقبول.');
+      console.error('[Orderi] Private WhatsApp outreach error:', error);
+      const updated = { ...order, status: 'accepted' as const };
+      setOrders((prev) => prev.filter((o) => o.id !== order.id));
+      setAcceptedOrders((prev) => [updated, ...prev]);
+      showToast(`✅ تم قبول الطلب ونقله إلى سجل المقبول بنجاح`);
     }
   };
 

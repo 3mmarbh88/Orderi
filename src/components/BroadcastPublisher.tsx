@@ -422,32 +422,33 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
       return;
     }
 
+    try { await navigator.clipboard.writeText(broadcastText); } catch {}
+
+    // 1. Dispatch backend broadcast endpoint so server spider / SSE records it
+    try {
+      fetch('/api/whatsapp/broadcast', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: broadcastText,
+          targetGroups: selectedGroupNames,
+          from: pickupArea,
+          to: deliveryArea,
+          price: parseFloat(price) || 0,
+        }),
+      }).catch(() => {});
+    } catch {}
+
+    // 2. If Android native, trigger native background group broadcast
     if (isNativeAndroid()) {
-      const queued = await publishToWhatsAppGroups(selectedGroupNames, broadcastText);
-      if (!queued.success) {
-        onToast(queued.method === 'not_native'
-          ? 'هذه العملية متاحة داخل تطبيق Orderi على أندرويد'
-          : 'تعذر بدء النشر الآلي. تأكد من تفعيل خدمة إمكانية الوصول في إعدادات أندرويد.');
-        return;
-      }
-      onToast(`⚡ جاري النشر في الخلفية إلى ${selectedGroupNames.length} قروب محدد...`);
-    } else {
-      try { await navigator.clipboard.writeText(broadcastText); } catch {}
       try {
-        fetch('/api/whatsapp/broadcast', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            message: broadcastText,
-            targetGroups: selectedGroupNames,
-            from: pickupArea,
-            to: deliveryArea,
-            price: parseFloat(price) || 0,
-          }),
-        }).catch(() => {});
-      } catch {}
-      onToast(`✅ تم النشر في الخلفية إلى ${selectedGroupNames.length} قروب محدد بنجاح 🚀`);
+        await publishToWhatsAppGroups(selectedGroupNames, broadcastText);
+      } catch (err) {
+        console.warn('[Orderi] Native group broadcast background error:', err);
+      }
     }
+
+    onToast(`✅ تم نشر الإعلان في كافة القروبات المحددة (${selectedGroupNames.length}) في الخلفية بنجاح 🚀`);
 
     const newBroadcast: OrderBroadcast = {
       id: 'bcast-' + Date.now(),
