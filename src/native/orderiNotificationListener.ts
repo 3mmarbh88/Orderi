@@ -16,6 +16,8 @@ export interface WhatsAppNativeEvent {
   senderName?: string;
   summaryText?: string;
   category?: string;
+  /** True only when Android's visible notification text explicitly identifies a sticker. */
+  isSticker?: boolean;
 }
 
 interface OrderiNotificationListenerPlugin {
