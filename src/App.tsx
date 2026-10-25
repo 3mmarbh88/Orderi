@@ -371,6 +371,37 @@ function OrderiApp({
           for (const event of pending.events.slice(-30)) {
             const groupName = (event.conversationTitle || event.title || '').trim() || 'محادثة خاصة 👤';
             const rawText = (event.rawText || event.bigText || event.text || event.subText || '').trim();
+
+            // Re-run the same closure detector on queued events recovered after Orderi
+            // resumes. Otherwise a delayed "تم"/sticker could be parsed as a new order.
+            if (filterRef.current.autoCloseOrdersEnabled !== false) {
+              const closureMessageData = {
+                text: event.isSticker ? 'sticker' : (rawText || event.title || ''),
+                isSticker: event.isSticker,
+                senderName: event.senderName || (event.isGroup ? '' : event.title) || '',
+                groupName,
+                timestamp: event.receivedAt || Date.now(),
+                rawQuotedText: (event as any).rawQuotedText || (event as any).quotedText || '',
+                messageId: event.id,
+              };
+              const fastClosureMatch = checkIncomingMessageForClosure(
+                closureMessageData,
+                ordersRef.current
+              );
+              if (fastClosureMatch) {
+                handleAutoOrderClosure(fastClosureMatch);
+                continue;
+              }
+              const aiClosureMatch = await checkIncomingMessageForClosureWithAI(
+                closureMessageData,
+                ordersRef.current
+              ).catch(() => null);
+              if (aiClosureMatch) {
+                handleAutoOrderClosure(aiClosureMatch);
+                continue;
+              }
+            }
+
             if (detectAdvertisementMessage(rawText || event.title || '').isAdvertisement) {
               console.info('[Orderi] Suppressed pending service advertisement');
               continue;
@@ -1135,7 +1166,10 @@ function OrderiApp({
       // Check for Smart Order Closure (الكشف الذكي عن الطلبات المحجوزة أو المنتهية)
       if (filterRef.current.autoCloseOrdersEnabled !== false) {
         const closureMessageData = {
-          text: rawText || event.title || '',
+          // If Android explicitly labels this notification as a sticker, preserve that
+          // signal instead of accidentally treating the group title as message text.
+          text: event.isSticker ? 'sticker' : (rawText || event.title || ''),
+          isSticker: event.isSticker,
           // In group notifications title is often the GROUP name. Prefer the actual
           // sender extracted from Android MessagingStyle so "تم"/stickers can be
           // safely linked to the advertiser who posted the original order.

@@ -192,6 +192,12 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                                                                   actTitle.contains("gelesen") ||
                                                                   actTitle.contains("lu");
 
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                                            if (act.getSemanticAction() == Notification.Action.SEMANTIC_ACTION_MARK_AS_READ) {
+                                                isMarkReadTitle = true;
+                                            }
+                                        }
+
                                         if (isMarkReadTitle) {
                                             try {
                                                 if (!sentIntents.contains(act.actionIntent)) {
@@ -474,14 +480,26 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         if (TextUtils.isEmpty(detectedGroupName) && !TextUtils.isEmpty(title)
                 && (title.contains("قروب") || title.contains("جروب") || title.contains("مجموعة")
                 || title.contains("مندوب") || title.contains("توصيل") || title.contains("كباتن")
-                || title.contains("طلبات") || title.contains("بحرين"))) {
+                || title.contains("طلبات") || title.contains("بحرين") || title.contains("مؤرشف")
+                || title.contains("أرشيف") || title.contains("ارشيف") || title.toLowerCase(java.util.Locale.ROOT).contains("archive")
+                || title.contains("سوق") || title.contains("تجار") || title.contains("متجر"))) {
             detectedGroupName = title.trim();
         }
 
         if (TextUtils.isEmpty(detectedGroupName) && !TextUtils.isEmpty(summaryText)
                 && (summaryText.contains("قروب") || summaryText.contains("مجموعة")
-                || summaryText.contains("توصيل") || summaryText.contains("كباتن"))) {
+                || summaryText.contains("توصيل") || summaryText.contains("كباتن")
+                || summaryText.contains("مؤرشف") || summaryText.toLowerCase(java.util.Locale.ROOT).contains("archive"))) {
             detectedGroupName = summaryText.trim();
+        }
+
+        // If visible text has explicit delivery order patterns (pickup to destination or price) and detectedGroupName is empty,
+        // treat chat as a delivery group so it reaches Radar even if archived
+        if (TextUtils.isEmpty(detectedGroupName) && !TextUtils.isEmpty(title) && !TextUtils.isEmpty(combinedVisibleText)) {
+            String normVis = combinedVisibleText.toLowerCase(java.util.Locale.ROOT);
+            if ((normVis.contains("من ") || normVis.contains("استلام")) && (normVis.contains("إلى") || normVis.contains("الى") || normVis.contains("توصيل") || normVis.contains("دينار") || normVis.contains("د.ب"))) {
+                detectedGroupName = title.trim();
+            }
         }
 
         // MessagingStyle can expose the actual sender separately from the visible title.
@@ -548,13 +566,30 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                 }
             } catch (Exception ignored) {}
         }
+        // Detect only an explicit sticker label exposed by Android/WhatsApp. Do not
+        // infer a sticker from an empty body or the group title: that could close an
+        // unrelated order. The actual sticker image may not be available to this API.
+        boolean isSticker = isExplicitStickerLabel(rawText)
+                || isExplicitStickerLabel(text)
+                || isExplicitStickerLabel(bigText)
+                || isExplicitStickerLabel(subText);
         if (TextUtils.isEmpty(rawText) && !TextUtils.isEmpty(title)) rawText = title;
         if (TextUtils.isEmpty(rawText) && TextUtils.isEmpty(title)) return;
 
         JSONObject event = new JSONObject();
         try {
-            event.put("id", UUID.randomUUID().toString());
+            // Stable identity: the same Android notification update can be delivered more than once.
+            String stableIdentity = pkg + "|" + safe(sbn.getKey()) + "|" + rawText + "|" + sbn.getPostTime();
+            String stableId = UUID.nameUUIDFromBytes(stableIdentity.getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
+            event.put("schemaVersion", 1);
+            event.put("id", stableId);
+            event.put("messageId", stableId);
+            event.put("source", "whatsapp_notification");
+            event.put("sourcePackage", pkg);
             event.put("packageName", pkg);
+            event.put("chatId", safe(sbn.getKey()));
+            event.put("sourceMessageId", safe(sbn.getKey()) + ":" + sbn.getPostTime());
+            event.put("contentHash", java.util.UUID.nameUUIDFromBytes(rawText.getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString());
             event.put("title", resolvedTitle);
             event.put("groupName", detectedGroupName);
             event.put("senderName", detectedSenderName);
@@ -568,6 +603,7 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
             event.put("conversationTitle", conversationTitle);
             event.put("category", category);
             event.put("isGroup", looksLikeGroup);
+            event.put("isSticker", isSticker);
 
             // Cache WhatsApp direct reply action from notification if present
             if (n.actions != null) {
@@ -632,12 +668,14 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
             // WebView is backgrounded or suspended.
             // Raw WhatsApp text must not generate Orderi alerts before Radar validation.
 
-            appendEvent(event);
-
-            Intent broadcast = new Intent(ACTION_EVENT);
-            broadcast.setPackage(getPackageName());
-            broadcast.putExtra("event", event.toString());
-            sendBroadcast(broadcast);
+            // Persist before broadcasting. If the WebView is suspended, startup can
+            // resume the same event from the queue without losing it.
+            if (appendEvent(event)) {
+                Intent broadcast = new Intent(ACTION_EVENT);
+                broadcast.setPackage(getPackageName());
+                broadcast.putExtra("event", event.toString());
+                sendBroadcast(broadcast);
+            }
         } catch (Exception ignored) {
         }
     }
@@ -883,26 +921,153 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         manager.createNotificationChannel(channel);
     }
 
-    private void appendEvent(JSONObject event) {
-        SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
-        JSONArray existing;
-        try {
-            existing = new JSONArray(prefs.getString(KEY_EVENTS, "[]"));
-        } catch (Exception e) {
-            existing = new JSONArray();
+    private boolean appendEvent(JSONObject event) {
+        synchronized (WhatsAppNotificationListenerService.class) {
+            SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+            SharedPreferences dedupPrefs = getSharedPreferences(DEDUP_PREFS, MODE_PRIVATE);
+            String eventId = event.optString("id", "");
+            if (TextUtils.isEmpty(eventId)) return false;
+
+            long now = System.currentTimeMillis();
+            JSONObject seen;
+            try { seen = new JSONObject(dedupPrefs.getString("seen_ids", "{}")); }
+            catch (Exception ignored) { seen = new JSONObject(); }
+
+            // Keep a bounded 24-hour idempotency ledger across process restarts.
+            java.util.Iterator<String> seenKeys = seen.keys();
+            while (seenKeys.hasNext()) {
+                String key = seenKeys.next();
+                if (seen.optLong(key, 0L) <= now) seenKeys.remove();
+            }
+            if (seen.optLong(eventId, 0L) > now) return false;
+
+            JSONArray existing;
+            try { existing = new JSONArray(prefs.getString(KEY_EVENTS, "[]")); }
+            catch (Exception ignored) { existing = new JSONArray(); }
+            for (int i = 0; i < existing.length(); i++) {
+                JSONObject queued = existing.optJSONObject(i);
+                if (queued != null && eventId.equals(queued.optString("id"))) return false;
+            }
+
+            // Keep oldest unacknowledged events when possible; the queue is bounded
+            // to protect device storage. Queue overflow is explicitly logged.
+            if (existing.length() >= 500) {
+                android.util.Log.e("OrderiSpider", "Persistent notification queue full; dropping oldest unacknowledged event");
+                JSONArray trimmed = new JSONArray();
+                for (int i = 1; i < existing.length(); i++) {
+                    JSONObject queued = existing.optJSONObject(i);
+                    if (queued != null) trimmed.put(queued);
+                }
+                existing = trimmed;
+            }
+            existing.put(event);
+            boolean persisted = prefs.edit().putString(KEY_EVENTS, existing.toString()).commit();
+            if (!persisted) {
+                android.util.Log.e("OrderiSpider", "Could not persist WhatsApp notification event");
+                return false;
+            }
+            try { seen.put(eventId, now + 24L * 60L * 60L * 1000L); }
+            catch (Exception ignored) {}
+            dedupPrefs.edit().putString("seen_ids", seen.toString()).commit();
+            return true;
         }
-        // Keep only a small local queue so the service remains lightweight.
-        JSONArray next = new JSONArray();
-        int start = Math.max(0, existing.length() - 99);
-        for (int i = start; i < existing.length(); i++) {
-            try { next.put(existing.get(i)); } catch (Exception ignored) {}
+    }
+
+    /** Acknowledge only events the JavaScript pipeline finished handling. */
+    public static int acknowledgePendingEvents(android.content.Context context, java.util.Set<String> ids) {
+        if (context == null || ids == null || ids.isEmpty()) return 0;
+        synchronized (WhatsAppNotificationListenerService.class) {
+            SharedPreferences prefs = context.getSharedPreferences(PREFS, MODE_PRIVATE);
+            JSONArray existing;
+            try { existing = new JSONArray(prefs.getString(KEY_EVENTS, "[]")); }
+            catch (Exception ignored) { existing = new JSONArray(); }
+            JSONArray remaining = new JSONArray();
+            int removed = 0;
+            for (int i = 0; i < existing.length(); i++) {
+                JSONObject event = existing.optJSONObject(i);
+                if (event == null) continue;
+                if (ids.contains(event.optString("id", ""))) removed++;
+                else remaining.put(event);
+            }
+            prefs.edit().putString(KEY_EVENTS, remaining.toString()).commit();
+            return removed;
         }
-        next.put(event);
-        prefs.edit().putString(KEY_EVENTS, next.toString()).apply();
     }
 
     private String safe(CharSequence value) {
         return value == null ? "" : value.toString();
+    }
+
+    /**
+     * Dispatch an event discovered from archived chats or accessibility scraping directly to Orderi pipeline
+     */
+    public static boolean dispatchCustomWhatsAppEvent(android.content.Context context, String groupName, String senderName, String rawText, boolean isGroup) {
+        if (context == null || TextUtils.isEmpty(rawText)) return false;
+        try {
+            String stableIdentity = "archived_scraper|" + groupName + "|" + rawText + "|" + System.currentTimeMillis();
+            String stableId = UUID.nameUUIDFromBytes(stableIdentity.getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
+
+            JSONObject event = new JSONObject();
+            event.put("schemaVersion", 1);
+            event.put("id", stableId);
+            event.put("messageId", stableId);
+            event.put("source", "whatsapp_archived_scraper");
+            event.put("sourcePackage", PACKAGE_WHATSAPP);
+            event.put("packageName", PACKAGE_WHATSAPP);
+            event.put("chatId", groupName);
+            event.put("sourceMessageId", stableId);
+            event.put("contentHash", UUID.nameUUIDFromBytes(rawText.getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString());
+            event.put("title", groupName);
+            event.put("groupName", groupName);
+            event.put("senderName", senderName);
+            event.put("text", rawText);
+            event.put("bigText", rawText);
+            event.put("subText", "مؤرشف 📦");
+            event.put("summaryText", groupName);
+            event.put("rawText", rawText);
+            event.put("receivedAt", System.currentTimeMillis());
+            event.put("key", stableId);
+            event.put("conversationTitle", groupName);
+            event.put("category", "msg");
+            event.put("isGroup", isGroup);
+
+            synchronized (WhatsAppNotificationListenerService.class) {
+                SharedPreferences prefs = context.getSharedPreferences(PREFS, MODE_PRIVATE);
+                JSONArray existing;
+                try { existing = new JSONArray(prefs.getString(KEY_EVENTS, "[]")); }
+                catch (Exception ignored) { existing = new JSONArray(); }
+                existing.put(event);
+                prefs.edit().putString(KEY_EVENTS, existing.toString()).commit();
+            }
+
+            Intent broadcast = new Intent(ACTION_EVENT);
+            broadcast.setPackage(context.getPackageName());
+            broadcast.putExtra("event", event.toString());
+            context.sendBroadcast(broadcast);
+            return true;
+        } catch (Exception e) {
+            android.util.Log.w("WhatsAppNotificationListenerService", "Could not dispatch custom WhatsApp event", e);
+            return false;
+        }
+    }
+
+    /**
+     * Returns true only when the visible notification text explicitly labels a sticker.
+     * Empty notification bodies are deliberately not treated as stickers because Android
+     * does not reliably expose sticker-image metadata to NotificationListenerService.
+     */
+    private boolean isExplicitStickerLabel(String value) {
+        if (TextUtils.isEmpty(value)) return false;
+        String normalized = value
+                .replaceAll("[\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069]", "")
+                .replaceAll("\\s+", " ")
+                .trim()
+                .toLowerCase(java.util.Locale.ROOT);
+        return normalized.equals("sticker")
+                || normalized.equals("ملصق")
+                || normalized.equals("صورة ملصق")
+                || normalized.equals("صوره ملصق")
+                || normalized.matches("^[^:]{1,60}:\\s*(?:sticker|ملصق)$");
     }
 
     public static boolean isEnabled(android.content.Context context) {
