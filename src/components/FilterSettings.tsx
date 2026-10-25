@@ -835,35 +835,99 @@ export function FilterSettings({
         </div>
 
         {/* Toggle: رصد قروبات الواتساب المؤرشفة */}
-        <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-50/80 via-orange-50/50 to-amber-50/80 border border-amber-200/90 shadow-2xs flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-amber-500/15 text-amber-700 flex items-center justify-center shrink-0 border border-amber-300/60 shadow-2xs">
-              <Archive className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs sm:text-sm font-black text-slate-900 block">
-                  رصد قروبات الواتساب المؤرشفة 📦
-                </span>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-900 border border-amber-200">
-                  شغال بالخلفية ⚡
+        <div className="rounded-2xl bg-gradient-to-r from-amber-50/90 via-orange-50/60 to-amber-50/90 border border-amber-200/90 shadow-2xs overflow-hidden transition-all">
+          <div className="p-4 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-amber-500/15 text-amber-700 flex items-center justify-center shrink-0 border border-amber-300/60 shadow-2xs">
+                <Archive className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs sm:text-sm font-black text-slate-900 block">
+                    رصد قروبات الواتساب المؤرشفة 📦
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-900 border border-amber-200">
+                    رصد آلي ومستمر ⚡
+                  </span>
+                </div>
+                <span className="text-[11px] text-slate-600 block mt-0.5">
+                  جلب واستخراج طلبات التوصيل من القروبات النشطة الموجودة بأرشيف واتساب تلقائياً دون الحاجة لإلغاء أرشفتها
                 </span>
               </div>
-              <span className="text-[11px] text-slate-600 block mt-0.5">
-                جلب واستخراج طلبات التوصيل وإشعارات القروبات النشطة الموضوعة في أرشيف واتساب تلقائياً دون الحاجة لإلغاء أرشفتها
-              </span>
             </div>
+
+            <label className="relative inline-flex items-center cursor-pointer shrink-0">
+              <input
+                type="checkbox"
+                checked={localFilter.monitorArchivedGroups !== false}
+                onChange={(e) => setLocalFilter({ ...localFilter, monitorArchivedGroups: e.target.checked })}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-slate-200 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
+            </label>
           </div>
 
-          <label className="relative inline-flex items-center cursor-pointer shrink-0">
-            <input
-              type="checkbox"
-              checked={localFilter.monitorArchivedGroups !== false}
-              onChange={(e) => setLocalFilter({ ...localFilter, monitorArchivedGroups: e.target.checked })}
-              className="sr-only peer"
-            />
-            <div className="w-11 h-6 bg-slate-200 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
-          </label>
+          {localFilter.monitorArchivedGroups !== false && (
+            <div className="px-4 pb-4 pt-1 space-y-3 border-t border-amber-200/60 bg-amber-50/40">
+              {/* WhatsApp System Explanation Card */}
+              <div className="p-3.5 rounded-xl bg-white/95 border border-amber-300/80 shadow-2xs space-y-2">
+                <div className="flex items-center gap-2 text-xs font-black text-amber-950">
+                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                  <span>💡 سر استقبال طلبات الأرشيف فوراً بلحظتها (0 ثانية) دون الضغط على «قراءة الكل»:</span>
+                </div>
+                <p className="text-[11px] text-slate-700 leading-relaxed">
+                  <strong className="text-amber-950 font-black">السبب:</strong> تطبيق واتساب الرسمي يقوم بكتم إشعارات المحادثات المؤرشفة تماماً عند تفعيل خيار <em>«إبقاء الدردشات مؤرشفة»</em> في إعدادات واتساب، لذلك لا يرسل واتساب أي إشعار لهاتفك حتى تضغط زر «قراءة الكل» ليقوم المساعد بفتح الأرشيف واستخراجها.
+                </p>
+                <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-[11px] text-emerald-950 space-y-1">
+                  <div className="font-black text-emerald-800 flex items-center gap-1.5">
+                    <span>⚡ خطوة واحدة للرصد الفوري التلقائي بلحظتها:</span>
+                  </div>
+                  <p className="leading-relaxed">
+                    افتح واتساب ➔ <strong>الإعدادات</strong> ➔ <strong>الدردشات</strong> ➔ <strong>أوقف تفعيل خيار «إبقاء الدردشات مؤرشفة»</strong> (Keep chats archived).
+                  </p>
+                  <p className="text-[10px] text-emerald-700 font-bold">
+                    ✓ النتيجة: ستبقى القروبات منظمة، وستصلك طلبات كافة القروبات المؤرشفة بالرادار والسبايدر فور كتابتها بلحظتها دون الحاجة لأي نقرة!
+                  </p>
+                </div>
+              </div>
+
+              {/* Automated Background Polling Controls */}
+              <div className="p-3 rounded-xl bg-white/90 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                <div>
+                  <span className="text-xs font-black text-slate-900 block">
+                    المسح والتحديث الدوري التلقائي للأرشيف 🔄
+                  </span>
+                  <span className="text-[11px] text-slate-500 block">
+                    يقوم البرنامج بالمسح الدوري التلقائي للأرشيف وفحص الرسائل الجديدة بالخلفية دون الحاجة لضغط زر قراءة الكل
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2 self-end sm:self-auto">
+                  <select
+                    value={localFilter.archivedPollingIntervalMinutes || 2}
+                    onChange={(e) => setLocalFilter({ ...localFilter, archivedPollingIntervalMinutes: Number(e.target.value) })}
+                    disabled={localFilter.autoArchivedChatsPolling === false}
+                    aria-label="فاصل المسح الدوري للأرشيف"
+                    className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-xs font-bold text-slate-800 focus:outline-none focus:ring-1 focus:ring-amber-500 disabled:opacity-50"
+                  >
+                    <option value={1}>كل دقيقة ⚡</option>
+                    <option value={2}>كل دقيقتين ⏱️</option>
+                    <option value={5}>كل 5 دقائق 🕒</option>
+                  </select>
+
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={localFilter.autoArchivedChatsPolling !== false}
+                      onChange={(e) => setLocalFilter({ ...localFilter, autoArchivedChatsPolling: e.target.checked })}
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-slate-200 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                  </label>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Mode Selector */}

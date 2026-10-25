@@ -1747,11 +1747,11 @@ function OrderiApp({
           await openWhatsAppAccessibilitySettings();
         } catch {}
       } else if (res.archivedAutomationStarted) {
-        showToast('⚡ جاري تصفير وقراءة جميع محادثات وقروبات واتساب المؤرشفة بالكامل...');
+        showToast('⚡ جاري فحص قروبات واتساب المؤرشفة، سحب الإعلانات الجديدة، وتمييزها كمقروءة...');
       } else if (count > 0) {
-        showToast(`✅ تم تمييز ${count} محادثة وقروب كمقروءة ✓✓`);
+        showToast(`✅ تم استخراج الطلبات وتمييز ${count} محادثة وقروب كمقروءة ✓✓`);
       } else {
-        showToast('✅ تم تمييز كافة المحادثات والقروبات كمقروءة بالكامل ✓✓');
+        showToast('✅ تم فحص المحادثات والقروبات المؤرشفة وجلب أحدث الطلبات كمقروءة ✓✓');
       }
     } catch (e) {
       console.warn('[Orderi] Mark-all-read failed:', e);

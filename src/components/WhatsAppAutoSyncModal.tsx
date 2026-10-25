@@ -575,8 +575,11 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
                     <div className="space-y-0.5 min-w-0">
                       <div className="flex items-center gap-1.5 text-xs font-black text-emerald-950">
                         <CheckCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                        <span>تمييز جميع القروبات كمقروءة (Mark as Read)</span>
+                        <span>تمييز جميع القروبات كمقروءة (Mark as Read) وجلب الأرشيف</span>
                       </div>
+                      <p className="text-[10px] text-slate-600">
+                        لتصفير عدادات الإشعارات وسحب طلبات القروبات المؤرشفة تلقائياً
+                      </p>
                     </div>
                     <button
                       type="button"
@@ -587,6 +590,17 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
                       <CheckCheck className={`w-4 h-4 ${isMarkingRead ? 'animate-bounce' : ''}`} />
                       <span>{isMarkingRead ? 'جاري التنفيذ...' : 'تنفيذ Mark as Read الآن 👁️'}</span>
                     </button>
+                  </div>
+
+                  {/* Archived Groups Pro-Tip for Instant 0s Capture */}
+                  <div className="p-3 rounded-xl bg-amber-50/70 border border-amber-200 text-[11px] text-amber-950 space-y-1">
+                    <div className="flex items-center gap-1.5 font-black text-amber-900">
+                      <span>💡 هل تضع قروبات الواتساب في الأرشيف؟</span>
+                    </div>
+                    <p className="text-[10px] text-slate-700 leading-relaxed">
+                      لاستقبال طلبات القروبات المؤرشفة في الرادار فوراً بلحظتها (0 ثانية) دون الحاجة للضغط على «قراءة الكل»:
+                      افتح <strong>واتساب ➔ الإعدادات ➔ الدردشات ➔ أوقف خيار «إبقاء الدردشات مؤرشفة»</strong>.
+                    </p>
                   </div>
 
                   {/* Automatic Link & Adoption of detected phone notification groups */}

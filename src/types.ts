@@ -80,6 +80,8 @@ export interface OrderFilter {
   autoCloseOrdersEnabled?: boolean;
   autoCloseAmbiguousAction?: 'flag' | 'ignore';
   monitorArchivedGroups?: boolean; // رصد ومراقبة قروبات الواتساب المؤرشفة تلقائياً
+  autoArchivedChatsPolling?: boolean; // المسح والتحديث التلقائي لرسائل الأرشيف بالخلفية
+  archivedPollingIntervalMinutes?: number; // فاصل المسح الدوري للأرشيف بالدقائق (افتراضياً 2)
   excludeMyOwnAds?: boolean; // استبعاد إعلاناتي الشخصية من الرادار
   captainPhone?: string;     // رقم هاتف الكابتن الشخصي للتعرف على إعلاناته
   captainCustomSignatures?: string[]; // كلمات وتوقيعات الكابتن المخصصة لاستبعاد إعلاناته
