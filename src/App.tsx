@@ -1135,7 +1135,10 @@ function OrderiApp({
       // Check for Smart Order Closure (الكشف الذكي عن الطلبات المحجوزة أو المنتهية)
       if (filterRef.current.autoCloseOrdersEnabled !== false) {
         const closureMessageData = {
-          text: rawText || event.title || '',
+          // If Android explicitly labels this notification as a sticker, preserve that
+          // signal instead of accidentally treating the group title as message text.
+          text: event.isSticker ? 'sticker' : (rawText || event.title || ''),
+          isSticker: event.isSticker,
           // In group notifications title is often the GROUP name. Prefer the actual
           // sender extracted from Android MessagingStyle so "تم"/stickers can be
           // safely linked to the advertiser who posted the original order.
