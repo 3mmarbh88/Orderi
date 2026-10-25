@@ -124,10 +124,11 @@ export function checkIncomingMessageForClosure(
     timestamp?: Date | number;
     rawQuotedText?: string;
     messageId?: string;
+    isSticker?: boolean;
   },
   activeOrders: ParsedOrder[]
 ): ClosureMatchResult | null {
-  const rawText = (message.text || '').trim();
+  const rawText = (message.text || (message.isSticker ? 'sticker' : '')).trim();
   if (!rawText) return null;
 
   // منع التكرار ومعالجة الإشعارات المكررة
@@ -281,6 +282,7 @@ export async function checkIncomingMessageForClosureWithAI(
     timestamp?: Date | number;
     rawQuotedText?: string;
     messageId?: string;
+    isSticker?: boolean;
   },
   activeOrders: ParsedOrder[]
 ): Promise<ClosureMatchResult | null> {
@@ -288,7 +290,7 @@ export async function checkIncomingMessageForClosureWithAI(
   const fastResult = checkIncomingMessageForClosure(message, activeOrders);
   if (fastResult) return fastResult;
 
-  const rawText = (message.text || '').trim();
+  const rawText = (message.text || (message.isSticker ? 'sticker' : '')).trim();
   if (!rawText) return null;
 
   const msgGroup = (message.groupName || '').trim();
@@ -304,8 +306,15 @@ export async function checkIncomingMessageForClosureWithAI(
       (order.crossPostedGroups && order.crossPostedGroups.some((g) => g.includes(msgGroup) || msgGroup.includes(g)));
     // A closure confirmation must be tied to a known matching group as well as sender.
     if (!msgGroup || !inSameGroup) return false;
-    return isAdvertiserSenderMatch(msgSender, msgPhone, order.senderName, order.senderPhone);
-  });
+    if (!isAdvertiserSenderMatch(msgSender, msgPhone, order.senderName, order.senderPhone)) return false;
+
+    // Only consider ads posted before this confirmation, within the same 3.5-hour
+    // context window used by the local detector. This prevents a later ad from
+    // being closed by an earlier message and supports any number of interleaved ads.
+    const orderTime = new Date(order.receivedAt).getTime();
+    const ageMs = msgTime - orderTime;
+    return Number.isFinite(orderTime) && ageMs >= 0 && ageMs <= 3.5 * 60 * 60 * 1000;
+  }).sort((a, b) => new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime());
 
   if (advertiserOrders.length === 0) return null;
 
@@ -320,6 +329,9 @@ export async function checkIncomingMessageForClosureWithAI(
     });
 
     if (aiAnalysis.isClosureIntent && (aiAnalysis.verdict === 'taken' || aiAnalysis.verdict === 'completion' || aiAnalysis.verdict === 'emoji')) {
+      const dedupeKey = message.messageId || `${msgGroup}::${msgSender}::${msgTime}::${rawText.slice(0, 30)}`;
+      if (processedMessageHashes.has(dedupeKey)) return null;
+      processedMessageHashes.add(dedupeKey);
       markOrderPermanentlyClosed(orderCandidate.id);
       return {
         isMatch: true,
