@@ -548,6 +548,13 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                 }
             } catch (Exception ignored) {}
         }
+        // Detect only an explicit sticker label exposed by Android/WhatsApp. Do not
+        // infer a sticker from an empty body or the group title: that could close an
+        // unrelated order. The actual sticker image may not be available to this API.
+        boolean isSticker = isExplicitStickerLabel(rawText)
+                || isExplicitStickerLabel(text)
+                || isExplicitStickerLabel(bigText)
+                || isExplicitStickerLabel(subText);
         if (TextUtils.isEmpty(rawText) && !TextUtils.isEmpty(title)) rawText = title;
         if (TextUtils.isEmpty(rawText) && TextUtils.isEmpty(title)) return;
 
@@ -568,6 +575,7 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
             event.put("conversationTitle", conversationTitle);
             event.put("category", category);
             event.put("isGroup", looksLikeGroup);
+            event.put("isSticker", isSticker);
 
             // Cache WhatsApp direct reply action from notification if present
             if (n.actions != null) {
@@ -903,6 +911,25 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
 
     private String safe(CharSequence value) {
         return value == null ? "" : value.toString();
+    }
+
+    /**
+     * Returns true only when the visible notification text explicitly labels a sticker.
+     * Empty notification bodies are deliberately not treated as stickers because Android
+     * does not reliably expose sticker-image metadata to NotificationListenerService.
+     */
+    private boolean isExplicitStickerLabel(String value) {
+        if (TextUtils.isEmpty(value)) return false;
+        String normalized = value
+                .replaceAll("[\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069]", "")
+                .replaceAll("\\s+", " ")
+                .trim()
+                .toLowerCase(java.util.Locale.ROOT);
+        return normalized.equals("sticker")
+                || normalized.equals("ملصق")
+                || normalized.equals("صورة ملصق")
+                || normalized.equals("صوره ملصق")
+                || normalized.matches("^[^:]{1,60}:\\s*(?:sticker|ملصق)$");
     }
 
     public static boolean isEnabled(android.content.Context context) {
