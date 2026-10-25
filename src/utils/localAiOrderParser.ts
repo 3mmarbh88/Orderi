@@ -138,6 +138,16 @@ export async function parseWhatsAppOrderWithLocalAi(
     return { ...fastResult, aiUsed: false, inferenceMs: Math.round(performance.now() - startTime), parseMethod: 'fast_heuristic' };
   }
 
+  // Voice note recordings from WhatsApp advertisers: fast-track so they are immediately recognized
+  if (fastResult.isVoiceNote && fastResult.canCreateOrder) {
+    return {
+      ...fastResult,
+      aiUsed: false,
+      inferenceMs: Math.round(performance.now() - startTime),
+      parseMethod: 'fast_heuristic',
+    };
+  }
+
   // If Fast Pass is highly confident and complete, return immediately (Zero lag for simple orders)
   if (hybridMode && !options.forceAi && fastResult.canCreateOrder && fastResult.confidence >= minConfidence && fastResult.from && fastResult.to) {
     const elapsed = Math.round(performance.now() - startTime);

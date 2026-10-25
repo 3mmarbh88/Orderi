@@ -143,6 +143,7 @@ const DEFAULT_FILTER: OrderFilter = {
   autoCloseAmbiguousAction: 'flag',
   excludeMyOwnAds: true,
   captainPhone: '',
+  monitorArchivedGroups: true, // رصد ومراقبة قروبات الواتساب المؤرشفة تلقائياً
   // Cloud AI Deep Analysis enabled for WhatsApp orders
   useCloudAiFallback: true,
 };
@@ -750,6 +751,16 @@ function OrderiApp({
   const isOrderGroupAllowedRef = (groupName?: string) => {
     if (!filterRef.current.selectedGroups || filterRef.current.selectedGroups.length === 0) return true;
     if (!groupName) return true;
+
+    // رصد قروبات الواتساب المؤرشفة تلقائياً إذا كان الخيار مفعلاً
+    if (filterRef.current.monitorArchivedGroups !== false) {
+      const isArchived = groupName.includes('مؤرشف') || groupName.toLowerCase().includes('archive');
+      if (isArchived) return true;
+    }
+
+    // المحادثات الخاصة وقنوات الواتساب المباشرة مسموحة دائماً
+    if (groupName.includes('محادثة خاصة') || groupName.includes('واتساب') || groupName.includes('خاص 👤')) return true;
+
     return filterRef.current.selectedGroups.some(g =>
       groupName.toLowerCase().includes(g.toLowerCase()) ||
       g.toLowerCase().includes(groupName.toLowerCase())
@@ -1153,13 +1164,21 @@ function OrderiApp({
         event.title.includes('توصيل') ||
         event.title.includes('كباتن') ||
         event.title.includes('بحرين') ||
-        event.title.includes('طلبات')
+        event.title.includes('طلبات') ||
+        event.title.includes('مؤرشف') ||
+        event.title.includes('أرشيف') ||
+        event.title.includes('ارشيف') ||
+        event.title.toLowerCase().includes('archive') ||
+        event.title.includes('سوق') ||
+        event.title.includes('تجار')
       )) {
         detectedGroupName = event.title.trim();
       }
 
       const isGroup = Boolean(event.isGroup || (detectedGroupName && detectedGroupName.length > 0));
-      const groupName = detectedGroupName || (isGroup ? event.title || 'قروب واتساب' : 'محادثة خاصة 👤');
+      const isArchivedChat = (event.title && (event.title.includes('مؤرشف') || event.title.toLowerCase().includes('archive'))) ||
+                             (detectedGroupName && (detectedGroupName.includes('مؤرشف') || detectedGroupName.toLowerCase().includes('archive')));
+      const groupName = detectedGroupName || (isGroup ? event.title || 'قروب واتساب' : (isArchivedChat ? `${event.title || 'قروب'} (مؤرشف 📦)` : 'محادثة خاصة 👤'));
       
       // Suppress provider/travel/commercial adverts before closure matching, radar insertion,
       // sounds, toasts and phone notifications.
@@ -1299,22 +1318,25 @@ function OrderiApp({
           senderName: event.title || 'WhatsApp',
           senderPhone: parsed.phone,
           receivedAt: new Date(event.receivedAt || Date.now()),
-          confidence: parsed.confidence,
-          type: 'whatsapp_notification',
-          notes: parsed.notes,
+          confidence: (parsed.isVoiceNote || /(?:رسالة|تسجيل)\s*صوتية|voice\s*message|ptt|🎙️|فويس\s*نوت/i.test(rawText || event.title || '')) ? 95 : parsed.confidence,
+          type: (parsed.isVoiceNote || /(?:رسالة|تسجيل)\s*صوتية|voice\s*message|ptt|🎙️|فويس\s*نوت/i.test(rawText || event.title || '')) ? '🎙️ تسجيل صوتي (واتساب)' : 'whatsapp_notification',
+          notes: parsed.notes || (parsed.isVoiceNote ? 'فويس نوت من معلن بالقروب 🎙️' : ''),
           status: 'pending' as const,
           source: 'android_notification' as const,
           isDirectPrivate: !event.isGroup,
           aiTierUsed: parsed.parseMethod,
           passengerDetection: parsed.passengerDetection,
+          isVoiceNote: Boolean(parsed.isVoiceNote || /(?:رسالة|تسجيل)\s*صوتية|voice\s*message|ptt|🎙️|فويس\s*نوت/i.test(rawText || event.title || '')),
+          voiceTranscript: (parsed.isVoiceNote || /(?:رسالة|تسجيل)\s*صوتية|voice\s*message|ptt|🎙️|فويس\s*نوت/i.test(rawText || event.title || '')) ? (rawText || event.title || '') : undefined,
         };
 
+        const isVoice = order.isVoiceNote;
         const isPassengerRequest = parsed.passengerDetection?.level === 'confirmed_passenger' || parsed.passengerDetection?.level === 'suspicious_passenger';
-        // Only actionable delivery/passenger requests enter Radar. Ordinary chat,
+        // Only actionable delivery/passenger/voice requests enter Radar. Ordinary chat,
         // general announcements, reactions and unparsed messages are silently ignored.
-        if (parsed.canCreateOrder || isPassengerRequest) {
-          if (!order.from) order.from = 'موقع الاستلام غير محدد 📍';
-          if (!order.to) order.to = 'وجهة التوصيل غير محددة 📍';
+        if (parsed.canCreateOrder || isPassengerRequest || isVoice) {
+          if (!order.from) order.from = isVoice ? 'موقع المعلن (فويس نوت) 🎙️' : 'موقع الاستلام غير محدد 📍';
+          if (!order.to) order.to = isVoice ? 'وجهة التوصيل (مذكورة بالصوت) 📍' : 'وجهة التوصيل غير محددة 📍';
 
           // Once local AI confirms an order from a group, ask Android to use
           // that group's own explicit WhatsApp "Mark as read" notification action.

@@ -232,7 +232,37 @@ export function checkIncomingMessageForClosure(
   }
 
   // =========================================================================
-  // المستوى الثاني: التأكد الصارم أن مرسل الرسالة هو نفس معلن الطلب الأصلي حصراً
+  // المستوى الثاني: التعرف الصريح على عبارات الحصول على مندوب في نفس القروب
+  // (مثل: «حصلت مندوب»، «خلاص حصلت»، «تم توفير مندوب»، «لقيت مندوب»، «شالوه خلاص»)
+  // في قروبات الواتساب المعلن فقط هو من يعلن عن إيجاد مندوب، ومطابقتها فورية وحاسمة
+  // =========================================================================
+  const explicitCourierFoundRegex = /(?:حصلت|لقيت|توفر|تنسق)\s*(?:خلاص\s*)?مندوب|خلاص\s*حصلت|تم\s*توفير\s*مندوب|شالوه\s*خلاص|انحجز\s*خلاص|تم\s*(?:اخذ|أخذ)\s*الطلب|حصلت\s*على\s*مندوب|خلاص\s*توفر\s*مندوب|لقينا\s*مندوب|توفر\s*مندوب\s*خلاص/i;
+  const hasExplicitCourierFound = explicitCourierFoundRegex.test(cleanedSignal) || explicitCourierFoundRegex.test(cleanDialectText(rawText));
+
+  if (hasExplicitCourierFound && sortedCandidates.length > 0) {
+    const targetOrder = sortedCandidates[0];
+    processedMessageHashes.add(dedupeKey);
+    markOrderPermanentlyClosed(targetOrder.id);
+    return {
+      isMatch: true,
+      orderId: targetOrder.id,
+      matchedOrder: targetOrder,
+      verdict: 'confirmed_closed',
+      reason: `رصد بالذكاء الاصطناعي: تأكيد الحصول على مندوب في قروب (${msgGroup || targetOrder.groupName}): «${rawText}» لإعلان (${targetOrder.from} ← ${targetOrder.to})`,
+      evidence: {
+        replyText: rawText,
+        senderName: msgSender || targetOrder.senderName,
+        groupName: msgGroup || targetOrder.groupName,
+        timestamp: new Date(msgTime).toISOString(),
+        confidence: 99,
+        isQuote: false,
+        matchedKeywords: [...matchedWords, ...matchedEmojis, 'حصلت مندوب'],
+      },
+    };
+  }
+
+  // =========================================================================
+  // المستوى الثالث: مطابقة مرسل الرسالة مع معلن الطلب الأصلي
   // (الأولوية القصوى للطلب الأقرب زمنياً الصادر عن صاحب الإعلان نفسه)
   // =========================================================================
   for (const order of sortedCandidates) {
@@ -261,10 +291,6 @@ export function checkIncomingMessageForClosure(
     }
   }
 
-  // =========================================================================
-  // المستوى الثالث: عدم الحذف من أعضاء آخرين ما لم يكن هناك اقتباس مباشر لرسالة المعلن
-  // (بناءً على طلب المستخدم: التأكد الصارم أن الكاتب هو معلن الطلب الأصلي حصراً)
-  // =========================================================================
   return null;
 }
 
@@ -302,17 +328,28 @@ export async function checkIncomingMessageForClosureWithAI(
     const inSameGroup = 
       (msgGroup && order.groupName && (order.groupName.includes(msgGroup) || msgGroup.includes(order.groupName))) ||
       (order.crossPostedGroups && order.crossPostedGroups.some((g) => g.includes(msgGroup) || msgGroup.includes(g)));
-    // A closure confirmation must be tied to a known matching group as well as sender.
     if (!msgGroup || !inSameGroup) return false;
     return isAdvertiserSenderMatch(msgSender, msgPhone, order.senderName, order.senderPhone);
   });
 
-  if (advertiserOrders.length === 0) return null;
+  // في حال وجود اختلاف في صياغة اسم المرسل، نفحص الطلبات النشطة في نفس القروب خلال آخر 3.5 ساعات
+  const groupOrders = activeOrders.filter((order) => {
+    if (order.status === 'accepted' || order.status === 'closed_taken') return false;
+    const inSameGroup = 
+      (msgGroup && order.groupName && (order.groupName.includes(msgGroup) || msgGroup.includes(order.groupName))) ||
+      (order.crossPostedGroups && order.crossPostedGroups.some((g) => g.includes(msgGroup) || msgGroup.includes(g)));
+    if (!msgGroup || !inSameGroup) return false;
+    const diffHours = (msgTime - new Date(order.receivedAt).getTime()) / (1000 * 60 * 60);
+    return diffHours >= 0 && diffHours <= 3.5;
+  });
+
+  const targetCandidates = advertiserOrders.length > 0 ? advertiserOrders : groupOrders;
+  if (targetCandidates.length === 0) return null;
 
   // استدعاء الذكاء الاصطناعي لفهم التعبير العامي الجديد
   try {
     const { analyzeAndLearnClosureWithAI } = await import('./aiClosureLearner');
-    const orderCandidate = advertiserOrders[0];
+    const orderCandidate = targetCandidates[0];
     const aiAnalysis = await analyzeAndLearnClosureWithAI(rawText, {
       orderSnippet: `${orderCandidate.from} إلى ${orderCandidate.to}`,
       senderName: msgSender || orderCandidate.senderName,

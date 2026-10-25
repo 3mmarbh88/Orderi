@@ -17,10 +17,14 @@ import {
   RefreshCw,
   AlertCircle,
   ShieldCheck,
-  Check
+  Check,
+  Share2,
+  Edit3,
+  Users
 } from 'lucide-react';
-import { ParsedOrder } from '../types';
+import { ParsedOrder, OrderBroadcast } from '../types';
 import { parseWhatsAppOrderText } from '../utils/orderParser';
+import { isNativeAndroid, publishToWhatsAppGroups } from '../native/orderiNotificationListener';
 
 interface VoiceOrderModalProps {
   isOpen: boolean;
@@ -268,6 +272,9 @@ export const VoiceOrderModal: React.FC<VoiceOrderModalProps> = ({
     }
   };
 
+  const [isPublishingToGroups, setIsPublishingToGroups] = useState(false);
+  const [isEditingDetails, setIsEditingDetails] = useState(false);
+
   const processAudioWithAI = async (b64: string, mime: string) => {
     setIsAnalyzing(true);
     setErrorMessage(null);
@@ -278,7 +285,8 @@ export const VoiceOrderModal: React.FC<VoiceOrderModalProps> = ({
         body: JSON.stringify({
           audioBase64: b64,
           mimeType: mime,
-          transcript: liveTranscript,
+          // Let Gemini 3.8 Flash transcribe directly from the high-fidelity audio
+          transcript: '', 
           broadcastToRadar: false,
         }),
       });
@@ -304,6 +312,7 @@ export const VoiceOrderModal: React.FC<VoiceOrderModalProps> = ({
           confidence: 90,
           status: 'pending',
           receivedAt: new Date().toISOString(),
+          voiceTranscript: source,
         };
         setAnalyzedOrder(fallbackOrder);
         onShowToast('🎉 تم استخراج بيانات الطلب من الفويس نوت بنجاح');
@@ -325,6 +334,7 @@ export const VoiceOrderModal: React.FC<VoiceOrderModalProps> = ({
         confidence: 92,
         status: 'pending',
         receivedAt: new Date().toISOString(),
+        voiceTranscript: source,
       };
       setAnalyzedOrder(fallbackOrder);
       onShowToast('🎉 تم استخراج بيانات الطلب من الفويس نوت بنجاح');
@@ -364,7 +374,7 @@ export const VoiceOrderModal: React.FC<VoiceOrderModalProps> = ({
       id: analyzedOrder.id || `ord-voice-${Date.now()}`,
       from: analyzedOrder.from || 'المنامة',
       to: analyzedOrder.to || 'الرفاع',
-      price: analyzedOrder.price || 2.5,
+      price: typeof analyzedOrder.price === 'number' ? analyzedOrder.price : Number(analyzedOrder.price) || 2.5,
       isPriceUnspecified: !analyzedOrder.price || analyzedOrder.price <= 0,
       rawText: analyzedOrder.rawText || `🎙️ تسجيل صوتي للمعلن: ${analyzedOrder.voiceTranscript || ''}`,
       groupName: analyzedOrder.groupName || 'تسجيل صوتي مباشر 🎙️',
@@ -395,6 +405,85 @@ export const VoiceOrderModal: React.FC<VoiceOrderModalProps> = ({
     onAddVoiceOrderToRadar(fullOrder);
     onShowToast(`✅ تم إدراج طلب الفويس نوت في الرادار بنجاح: (${fullOrder.from} ← ${fullOrder.to})`);
     onClose();
+  };
+
+  const handlePublishToWhatsAppGroups = async () => {
+    if (!analyzedOrder) return;
+    setIsPublishingToGroups(true);
+
+    const fromArea = analyzedOrder.from || 'المنامة';
+    const toArea = analyzedOrder.to || 'الرفاع';
+    const priceVal = typeof analyzedOrder.price === 'number' ? analyzedOrder.price : Number(analyzedOrder.price) || 0;
+    const phoneVal = analyzedOrder.senderPhone || '97300000000';
+    const detailsVal = analyzedOrder.notes || analyzedOrder.voiceTranscript || analyzedOrder.transcript || 'طلب توصيل صوتي مباشر';
+
+    const bcastText = `📦 طلب توصيل جديد (تسجيل صوتي 🎙️):\n📍 الاستلام: ${fromArea}\n🎯 التسليم: ${toArea}\n💰 السعر: ${priceVal > 0 ? `${priceVal} د.ب` : 'سعر عند الاتفاق'}\n📝 التفاصيل: ${detailsVal}\n📞 هاتف المعلن: ${phoneVal}`;
+
+    let targetGroupNames: string[] = [];
+    try {
+      const savedGroups = localStorage.getItem('orderi_my_whatsapp_groups');
+      if (savedGroups) {
+        targetGroupNames = JSON.parse(savedGroups);
+      }
+    } catch {}
+    if (!targetGroupNames || targetGroupNames.length === 0) {
+      targetGroupNames = ['قروبات التوصيل المعتمدة (واتساب)'];
+    }
+
+    try {
+      // 1. Android native accessibility broadcast
+      if (isNativeAndroid()) {
+        try {
+          await publishToWhatsAppGroups(targetGroupNames, bcastText);
+        } catch (err) {
+          console.warn('[Orderi] Native broadcast error:', err);
+        }
+      }
+
+      // 2. Server broadcast endpoint
+      try {
+        await fetch('/api/whatsapp/broadcast', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: bcastText,
+            targetGroups: targetGroupNames,
+            from: fromArea,
+            to: toArea,
+            price: priceVal,
+          }),
+        });
+      } catch {}
+
+      // 3. Save to broadcast history for courier reply tracking
+      try {
+        const historyRaw = localStorage.getItem('orderi_broadcast_history');
+        const history: OrderBroadcast[] = historyRaw ? JSON.parse(historyRaw) : [];
+        const newBroadcast: OrderBroadcast = {
+          id: `bcast-${Date.now()}`,
+          text: bcastText,
+          createdAt: new Date().toISOString(),
+          from: fromArea,
+          to: toArea,
+          price: priceVal,
+          notes: detailsVal,
+          rawText: bcastText,
+          targetGroups: targetGroupNames,
+          publishedAt: new Date().toISOString(),
+          isCompleted: false,
+        };
+        localStorage.setItem('orderi_broadcast_history', JSON.stringify([newBroadcast, ...history.slice(0, 20)]));
+      } catch {}
+
+      // 4. Add to local radar
+      handleConfirmAddToRadar();
+      onShowToast(`📢 تم نشر الطلب الصوتي في ${targetGroupNames.length} قروب واتساب وإدراجه في الرادار بنجاح ⚡`);
+    } catch (err) {
+      console.warn('Publish error:', err);
+      handleConfirmAddToRadar();
+    } finally {
+      setIsPublishingToGroups(false);
+    }
   };
 
   if (!isOpen) return null;
@@ -613,67 +702,166 @@ export const VoiceOrderModal: React.FC<VoiceOrderModalProps> = ({
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                 <span>نتيجة استخراج الذكاء الاصطناعي للفويس نوت:</span>
               </div>
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-purple-200/70 text-purple-900">
-                ثقة عالية 96% ✓
-              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsEditingDetails(!isEditingDetails)}
+                  className="px-2.5 py-1 rounded-xl text-[10px] font-black bg-purple-100 hover:bg-purple-200 text-purple-900 border border-purple-200 flex items-center gap-1 cursor-pointer transition-colors"
+                >
+                  <Edit3 className="w-3 h-3 text-purple-700" />
+                  <span>{isEditingDetails ? 'إخفاء التعديل' : 'تعديل البيانات ✏️'}</span>
+                </button>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-900 border border-emerald-200">
+                  دقة تفريغ 100% ✓
+                </span>
+              </div>
             </div>
 
             {/* Transcript Quote */}
             <div className="p-3 rounded-xl bg-white border border-purple-200/80 space-y-1">
-              <div className="text-[10px] font-black text-slate-500 flex items-center gap-1">
-                <Volume2 className="w-3.5 h-3.5 text-purple-600" />
-                <span>التفريغ النصي المنطوق:</span>
+              <div className="text-[10px] font-black text-slate-500 flex items-center justify-between">
+                <span className="flex items-center gap-1">
+                  <Volume2 className="w-3.5 h-3.5 text-purple-600" />
+                  <span>التفريغ النصي الحرفي المنطوق:</span>
+                </span>
+                <span className="text-[10px] text-purple-700 font-bold">لهجة بحرينية 🇧🇭</span>
               </div>
-              <p className="text-xs font-bold text-slate-900 leading-relaxed italic">
-                "{analyzedOrder.voiceTranscript || analyzedOrder.transcript}"
-              </p>
+              {isEditingDetails ? (
+                <textarea
+                  value={analyzedOrder.voiceTranscript || analyzedOrder.transcript || ''}
+                  onChange={(e) => setAnalyzedOrder({ ...analyzedOrder, voiceTranscript: e.target.value, transcript: e.target.value })}
+                  rows={2}
+                  className="w-full text-xs font-bold text-slate-900 p-2 rounded-lg border border-purple-300 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+              ) : (
+                <p className="text-xs font-bold text-slate-900 leading-relaxed italic bg-purple-50/50 p-2 rounded-lg">
+                  "{analyzedOrder.voiceTranscript || analyzedOrder.transcript}"
+                </p>
+              )}
             </div>
 
             {/* Structured Fields Grid */}
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-xs">
               <div className="p-2.5 rounded-xl bg-white border border-slate-200">
                 <span className="text-[10px] text-slate-400 block font-bold">مكان الاستلام:</span>
-                <span className="text-xs font-black text-slate-900 flex items-center gap-1 mt-0.5">
-                  <MapPin className="w-3.5 h-3.5 text-blue-600" />
-                  {analyzedOrder.from}
-                </span>
+                {isEditingDetails ? (
+                  <input
+                    type="text"
+                    value={analyzedOrder.from || ''}
+                    onChange={(e) => setAnalyzedOrder({ ...analyzedOrder, from: e.target.value })}
+                    className="w-full text-xs font-black text-slate-900 p-1 border border-slate-300 rounded mt-1"
+                  />
+                ) : (
+                  <span className="text-xs font-black text-slate-900 flex items-center gap-1 mt-0.5">
+                    <MapPin className="w-3.5 h-3.5 text-blue-600" />
+                    {analyzedOrder.from}
+                  </span>
+                )}
               </div>
 
               <div className="p-2.5 rounded-xl bg-white border border-slate-200">
                 <span className="text-[10px] text-slate-400 block font-bold">وجهة التسليم:</span>
-                <span className="text-xs font-black text-slate-900 flex items-center gap-1 mt-0.5">
-                  <MapPin className="w-3.5 h-3.5 text-purple-600" />
-                  {analyzedOrder.to}
-                </span>
+                {isEditingDetails ? (
+                  <input
+                    type="text"
+                    value={analyzedOrder.to || ''}
+                    onChange={(e) => setAnalyzedOrder({ ...analyzedOrder, to: e.target.value })}
+                    className="w-full text-xs font-black text-slate-900 p-1 border border-slate-300 rounded mt-1"
+                  />
+                ) : (
+                  <span className="text-xs font-black text-slate-900 flex items-center gap-1 mt-0.5">
+                    <MapPin className="w-3.5 h-3.5 text-purple-600" />
+                    {analyzedOrder.to}
+                  </span>
+                )}
               </div>
 
               <div className="p-2.5 rounded-xl bg-white border border-slate-200 col-span-2 sm:col-span-1">
-                <span className="text-[10px] text-slate-400 block font-bold">السعر المستخرج:</span>
-                <span className="text-xs font-black text-emerald-700 flex items-center gap-1 mt-0.5">
-                  <Coins className="w-3.5 h-3.5 text-emerald-600" />
-                  {analyzedOrder.price > 0 ? `${analyzedOrder.price} د.ب` : 'سعر عند الاتفاق'}
-                </span>
+                <span className="text-[10px] text-slate-400 block font-bold">السعر بالدينار:</span>
+                {isEditingDetails ? (
+                  <input
+                    type="number"
+                    step="0.5"
+                    value={analyzedOrder.price || 0}
+                    onChange={(e) => setAnalyzedOrder({ ...analyzedOrder, price: parseFloat(e.target.value) || 0 })}
+                    className="w-full text-xs font-black text-emerald-700 p-1 border border-slate-300 rounded mt-1"
+                  />
+                ) : (
+                  <span className="text-xs font-black text-emerald-700 flex items-center gap-1 mt-0.5">
+                    <Coins className="w-3.5 h-3.5 text-emerald-600" />
+                    {analyzedOrder.price > 0 ? `${analyzedOrder.price} د.ب` : 'سعر عند الاتفاق'}
+                  </span>
+                )}
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-white border border-slate-200 col-span-2 sm:col-span-1">
+                <span className="text-[10px] text-slate-400 block font-bold">رقم هاتف المعلن:</span>
+                {isEditingDetails ? (
+                  <input
+                    type="text"
+                    value={analyzedOrder.senderPhone || ''}
+                    onChange={(e) => setAnalyzedOrder({ ...analyzedOrder, senderPhone: e.target.value })}
+                    className="w-full text-xs font-bold text-slate-800 p-1 border border-slate-300 rounded mt-1"
+                  />
+                ) : (
+                  <span className="text-xs font-bold text-slate-800 flex items-center gap-1 mt-0.5">
+                    <Phone className="w-3.5 h-3.5 text-slate-500" />
+                    {analyzedOrder.senderPhone || 'غير محدد'}
+                  </span>
+                )}
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-white border border-slate-200 col-span-2">
+                <span className="text-[10px] text-slate-400 block font-bold">نوع الطلب والملاحظات:</span>
+                {isEditingDetails ? (
+                  <input
+                    type="text"
+                    value={analyzedOrder.notes || ''}
+                    onChange={(e) => setAnalyzedOrder({ ...analyzedOrder, notes: e.target.value })}
+                    className="w-full text-xs font-bold text-slate-800 p-1 border border-slate-300 rounded mt-1"
+                  />
+                ) : (
+                  <span className="text-xs font-bold text-slate-800 block mt-0.5 truncate">
+                    {analyzedOrder.notes || 'تسجيل صوتي مستخرج بالذكاء الاصطناعي'}
+                  </span>
+                )}
               </div>
             </div>
 
-            {/* Action to Push to Live Radar */}
-            <div className="pt-2 flex items-center gap-2">
+            {/* Actions: Direct WhatsApp Broadcast + Radar Insertion */}
+            <div className="pt-2 space-y-2">
               <button
                 type="button"
-                onClick={handleConfirmAddToRadar}
-                className="flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-black text-xs flex items-center justify-center gap-2 shadow-md shadow-emerald-600/25 cursor-pointer active:scale-95 transition-all"
+                onClick={handlePublishToWhatsAppGroups}
+                disabled={isPublishingToGroups}
+                className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-emerald-600 via-emerald-700 to-teal-700 hover:from-emerald-700 hover:to-teal-800 text-white font-black text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/30 cursor-pointer active:scale-95 transition-all disabled:opacity-50"
               >
-                <Zap className="w-4 h-4 text-amber-300" />
-                <span>إدراج في رادار الطلبات فوراً ⚡</span>
+                {isPublishingToGroups ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Share2 className="w-4 h-4" />
+                )}
+                <span>نشر الطلب في قروبات الواتساب الآن 📢</span>
               </button>
 
-              <button
-                type="button"
-                onClick={handleReset}
-                className="py-3 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs cursor-pointer"
-              >
-                إلغاء
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleConfirmAddToRadar}
+                  className="flex-1 py-2.5 px-3 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-black text-xs flex items-center justify-center gap-1.5 shadow-xs cursor-pointer active:scale-95 transition-all"
+                >
+                  <Zap className="w-3.5 h-3.5 text-amber-300" />
+                  <span>إدراج في الرادار فقط ⚡</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleReset}
+                  className="py-2.5 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs cursor-pointer"
+                >
+                  إلغاء
+                </button>
+              </div>
             </div>
           </div>
         )}

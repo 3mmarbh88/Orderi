@@ -1,4 +1,5 @@
 import { ParsedOrder, OrderFilter } from '../types';
+import { OrderiNotificationListener, isNativeAndroid } from '../native/orderiNotificationListener';
 
 let wakeLockSentinel: any = null;
 let isWakeLockRequested = false;
@@ -220,6 +221,13 @@ export function dismissBackgroundOrderNotification(orderId: string): void {
   window.dispatchEvent(new CustomEvent('orderi:dismiss_notification', {
     detail: { orderId, tag: targetTag }
   }));
+
+  // 3. If running on native Android, cancel OS status-bar notification directly
+  if (isNativeAndroid()) {
+    try {
+      OrderiNotificationListener.cancelOrderNotification({ orderId }).catch(() => {});
+    } catch {}
+  }
 }
 
 function createWindowNotification(title: string, options: any, order?: ParsedOrder) {

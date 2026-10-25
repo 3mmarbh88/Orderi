@@ -485,15 +485,19 @@ public class OrderiAccessibilityService extends AccessibilityService {
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null) return;
         try {
-            // STEP 1: If waiting for a chat we clicked to open, wait for it to render then press back
+            // STEP 1: If waiting for a chat we clicked to open, wait for it to render, scrape recent orders, then press back
             if (waitingForChatToClose) {
                 if (isConversationOpen(root)) {
                     lastArchivedActionAt = now;
                     waitingForChatToClose = false;
                     archivedReadEventRetries = 0;
+
+                    // Scrape conversation title & ad messages from archived chat before closing
+                    scrapeAndDispatchArchivedConversation(root);
+
                     new Handler(Looper.getMainLooper()).postDelayed(() -> {
                         performGlobalAction(GLOBAL_ACTION_BACK);
-                    }, 120L);
+                    }, 140L);
                 } else if (++archivedReadEventRetries > 8) {
                     waitingForChatToClose = false;
                     archivedReadEventRetries = 0;
@@ -574,6 +578,62 @@ public class OrderiAccessibilityService extends AccessibilityService {
             finishArchivedReadPass("Accessibility error");
         } finally {
             root.recycle();
+        }
+    }
+
+    private void scrapeAndDispatchArchivedConversation(AccessibilityNodeInfo root) {
+        if (root == null) return;
+        try {
+            String convName = "";
+            String[] headerIds = new String[]{
+                    "com.whatsapp:id/conversation_contact_name",
+                    "com.whatsapp:id/conversation_contact_name_container"
+            };
+            for (String hId : headerIds) {
+                List<AccessibilityNodeInfo> list = root.findAccessibilityNodeInfosByViewId(hId);
+                if (list != null && !list.isEmpty()) {
+                    convName = describeNode(list.get(0)).trim();
+                    if (!TextUtils.isEmpty(convName)) break;
+                }
+            }
+            if (TextUtils.isEmpty(convName)) {
+                convName = "قروب واتساب (مؤرشف 📦)";
+            }
+
+            // Extract visible message text nodes
+            String[] msgViewIds = new String[]{
+                    "com.whatsapp:id/message_text",
+                    "com.whatsapp:id/caption",
+                    "com.whatsapp:id/text_and_date"
+            };
+            ArrayList<String> messagesFound = new ArrayList<>();
+            for (String mId : msgViewIds) {
+                List<AccessibilityNodeInfo> msgs = root.findAccessibilityNodeInfosByViewId(mId);
+                if (msgs != null) {
+                    for (AccessibilityNodeInfo mNode : msgs) {
+                        String t = describeNode(mNode).trim();
+                        if (!TextUtils.isEmpty(t) && t.length() > 5 && !messagesFound.contains(t)) {
+                            messagesFound.add(t);
+                        }
+                    }
+                }
+            }
+
+            // Dispatch last recent messages to Orderi notification pipeline
+            int start = Math.max(0, messagesFound.size() - 3);
+            for (int i = start; i < messagesFound.size(); i++) {
+                String msgText = messagesFound.get(i);
+                WhatsAppNotificationListenerService.dispatchCustomWhatsAppEvent(
+                        this,
+                        convName,
+                        "معلن بالقروب المؤرشف",
+                        msgText,
+                        true
+                );
+                Log.i(TAG, "Scraped and dispatched order from archived group: " + convName + " -> " + msgText);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Error scraping archived conversation", e);
         }
     }
 

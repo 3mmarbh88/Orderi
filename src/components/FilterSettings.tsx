@@ -52,6 +52,7 @@ import {
   Target,
   Tag,
   Cpu,
+  Archive,
   LogOut
 } from 'lucide-react';
 import { DestinationHunterCard } from './DestinationHunterCard';
@@ -831,6 +832,38 @@ export function FilterSettings({
               </button>
             )}
           </div>
+        </div>
+
+        {/* Toggle: رصد قروبات الواتساب المؤرشفة */}
+        <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-50/80 via-orange-50/50 to-amber-50/80 border border-amber-200/90 shadow-2xs flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-amber-500/15 text-amber-700 flex items-center justify-center shrink-0 border border-amber-300/60 shadow-2xs">
+              <Archive className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs sm:text-sm font-black text-slate-900 block">
+                  رصد قروبات الواتساب المؤرشفة 📦
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-900 border border-amber-200">
+                  شغال بالخلفية ⚡
+                </span>
+              </div>
+              <span className="text-[11px] text-slate-600 block mt-0.5">
+                جلب واستخراج طلبات التوصيل وإشعارات القروبات النشطة الموضوعة في أرشيف واتساب تلقائياً دون الحاجة لإلغاء أرشفتها
+              </span>
+            </div>
+          </div>
+
+          <label className="relative inline-flex items-center cursor-pointer shrink-0">
+            <input
+              type="checkbox"
+              checked={localFilter.monitorArchivedGroups !== false}
+              onChange={(e) => setLocalFilter({ ...localFilter, monitorArchivedGroups: e.target.checked })}
+              className="sr-only peer"
+            />
+            <div className="w-11 h-6 bg-slate-200 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
+          </label>
         </div>
 
         {/* Mode Selector */}

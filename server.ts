@@ -432,6 +432,18 @@ const handleIncomingWebhook = (req: express.Request, res: express.Response) => {
     // Parse order delivery attributes (pickup area, destination area, price, phone, notes)
     const parsed = parseWhatsAppOrderText(rawText);
 
+    // Detect if this incoming message is a voice note / voice recording from an advertiser
+    const isVoiceMessage = /(?:رسالة|تسجيل)\s*صوتية|voice\s*message|ptt|🎙️|فويس\s*نوت|تسجيل\s*صوتي|مقطع\s*صوتي/i.test(rawText) ||
+      Boolean(req.body?.audioBase64) ||
+      Boolean(req.body?.isVoiceNote);
+
+    if (isVoiceMessage) {
+      if (!parsed.from) parsed.from = 'موقع المعلن (فويس نوت) 🎙️';
+      if (!parsed.to) parsed.to = 'وجهة التوصيل (مذكورة بالصوت) 📍';
+      parsed.isVoiceNote = true;
+      if (!parsed.notes) parsed.notes = 'رسالة صوتية مرسلة من معلن بالقروب - استمع أو افتح للتواصل المباشر 🎙️';
+    }
+
     // If message is purely a group invite announcement without an actual delivery order
     if (capturedGroupLinks && capturedGroupLinks.length > 0 && !parsed.from && !parsed.to) {
       return res.json({
@@ -442,8 +454,8 @@ const handleIncomingWebhook = (req: express.Request, res: express.Response) => {
       });
     }
 
-    // If message has no pickup/destination area and zero price, it's just general chat - don't create false delivery order
-    if (!parsed.from && !parsed.to && (!parsed.price || parsed.price === 0)) {
+    // If message has no pickup/destination area and zero price, and NOT a voice message, it's just general chat
+    if (!parsed.from && !parsed.to && (!parsed.price || parsed.price === 0) && !isVoiceMessage) {
       return res.json({
         success: true,
         message: "رسالة محادثة عامة بدون تفاصيل طلب توصيل، تم استبعادها بأمان",
@@ -518,17 +530,23 @@ const handleIncomingWebhook = (req: express.Request, res: express.Response) => {
       senderName: sender,
       senderPhone: phone || parsed.phone || "97300000000",
       receivedAt: new Date().toISOString(),
-      confidence: parsed.confidence || 90,
-      type: isDirectChat ? "طلب مباشر (خاص)" : "طلب قروب واتساب",
+      confidence: (isVoiceMessage || parsed.isVoiceNote) ? 95 : (parsed.confidence || 90),
+      type: (isVoiceMessage || parsed.isVoiceNote) ? "🎙️ تسجيل صوتي (واتساب)" : (isDirectChat ? "طلب مباشر (خاص)" : "طلب قروب واتساب"),
       notes: parsed.notes || (isDirectChat ? "وارد في المحادثة الخاصة دايركت" : "وارد من قروب واتساب"),
       status: "pending",
       source: "webhook_real",
       isDirectPrivate: isDirectChat,
+      isVoiceNote: Boolean(isVoiceMessage || parsed.isVoiceNote),
+      voiceTranscript: (isVoiceMessage || parsed.isVoiceNote) ? rawText.trim() : undefined,
       crossPostedGroups: [groupDisplayName],
       duplicateCount: 1,
       passengerCount: parsed.passengerCount,
       passengerDetection: parsed.passengerDetection,
     };
+
+    if (order.isVoiceNote) {
+      addSpiderLog("INDEXED", groupDisplayName, `التقاط فويس نوت لمعلن بالقروب وترجمتها بالذكاء الاصطناعي 🎙️`, 18);
+    }
 
     // Keep up to 50 recent orders in memory
     recentWebhookOrders.unshift(order);
@@ -895,13 +913,14 @@ app.post("/api/orders/close", (req, res) => {
     }
 
     markedReadOrderIds.add(orderId);
-    const target = recentWebhookOrders.find((o) => o.id === orderId);
-    if (target) {
-      target.status = "closed_taken";
-      target.closedAt = new Date().toISOString();
-      target.closureReason = reason || "أفاد المعلن بأنه حصل على مندوب";
-      target.closureEvidence = evidence;
+    let groupName = evidence?.groupName || "قروب واتساب";
+    const idx = recentWebhookOrders.findIndex((o) => o.id === orderId);
+    if (idx !== -1) {
+      groupName = recentWebhookOrders[idx].groupName || groupName;
+      recentWebhookOrders.splice(idx, 1);
     }
+
+    addSpiderLog("CLOSED_ORDER", groupName, `رصد بالذكاء الاصطناعي: حذف الطلب نهائياً بعد حصول المعلن على مندوب («${evidence?.replyText || 'حصلت مندوب'}»)`);
 
     const payload = `data: ${JSON.stringify({
       type: "ORDER_CLOSED",
@@ -1321,7 +1340,17 @@ app.get("/api/android/listener-config", (req, res) => {
 // Feature 5: Voice Notes to Order (تفريغ وتحليل التسجيلات الصوتية لطلبات التوصيل)
 app.post("/api/voice-order", async (req, res) => {
   try {
-    const { audioBase64, mimeType, transcript: providedTranscript, groupName, senderName, broadcastToRadar } = req.body || {};
+    const { 
+      audioBase64, 
+      mimeType, 
+      transcript: providedTranscript, 
+      groupName, 
+      senderName, 
+      senderPhone: inputPhone,
+      broadcastToRadar,
+      publishToWhatsApp,
+      targetGroups,
+    } = req.body || {};
 
     if (!audioBase64 && !providedTranscript) {
       return res.status(400).json({ 
@@ -1339,18 +1368,44 @@ app.post("/api/voice-order", async (req, res) => {
         const cleanMime = (mimeType || "audio/mp3").split(";")[0].trim();
 
         const prompt = `أنت خبير ذكاء اصطناعي لوجستي متخصص لكباتن ومناديب التوصيل في مملكة البحرين 🇧🇭.
-المرفق هو تسجيل صوتي لطلب أو إعلان توصيل من واتساب باللهجة البحرينية الدارجة.
-مهمتك: الاستماع وتفريغ الصوت المنطوق واستخراج بيانات طلب التوصيل بدقة فائقة.
+المرفق هو تسجيل صوتي (فويس نوت / PTT) لطلب أو إعلان توصيل من واتساب باللهجة البحرينية والخليجية الدارجة.
+مهمتك الأساسية: تفريغ الكلام المنطوق نصياً بدقة 100% حرفياً (Verbatim Transcription)، ثم استخراج بيانات مسار التوصيل والأسعار والملاحظات.
 
-أجب فقط بكائن JSON صالح مطابق للهيكل:
+قواعد اللهجة البحرينية وأسماء المناطق والأسعار:
+1. التفريغ النصي الحرفي (transcript):
+   - اكتب كل كلمة نطقها المتحدث بدقة كاملة دون تحريف أو اختصار (مثال: "السلام عليكم أبي مندوب الحين من سيتي سنتر لي الرفاع بدينارين ونص").
+2. منطقة الاستلام (from):
+   - حدد منطقة الانطلاق في البحرين (المنامة، الرفاع الشرقي/الغربي، المحرق، الحد، قلالي، البسيتين، عراد، مدينة عيسى، مدينة حمد بالدوارات، سار، الجنبية، البديع، توبلي، سند، عالي، بوري، سلماباد، السيف، السنابس، الزنج، الجفير، العدلية، كرباباد، درة البحرين، الزلاق، إلخ).
+   - إذا ذُكر مجمع أو معلم (سيتي سنتر، السيف مول، الأفنيوز، مجمع الدانة، مجمع العالي، سوق واقف، مجمع الرملي)، استخرجه بدقة.
+3. وجهة التسليم (to):
+   - حدد منطقة التسليم في البحرين.
+4. السعر بالدينار البحريني (price):
+   - تعابير الأسعار البحرينية:
+     * "دينار" = 1.0
+     * "دينارين" = 2.0
+     * "دينار ونص" = 1.5
+     * "دينارين ونص" = 2.5
+     * "دينار وربع" = 1.25
+     * "دينارين وربع" = 2.25
+     * "دينار وثمان" / "دينار و ٨٠٠" = 1.8
+     * "ثلاثة دنانير" / "ثلاثة" = 3.0
+     * "ثلاثة ونص" = 3.5
+     * "أربعة دنانير" = 4.0
+     * "نص دينار" / "خمسمائة فلس" = 0.5
+     * "ربيتين" = 0.2 (أو 2.0)
+     * إذا لم يذكر سعراً أو قال "بالاتفاق" أو "سعركم" = 0
+5. رقم الهاتف (senderPhone): رقم المعلن إن ذُكر، وإلا اتركه فارغاً.
+6. الملاحظات والسلعة (notes): نوع الطلب (عطور، عبايات، كيك، حلويات، ورد، أكل، مستندات، شحنة، هدايا) وحالة التسليم (فوري، الحين، جاهز للاستلام).
+
+أجب فقط بصيغة كائن JSON صالح:
 {
-  "transcript": "النص الكامل المنطوق بالتسجيل الصوتي بدقة",
-  "from": "منطقة الاستلام في البحرين (مثلاً: المنامة، الرفاع، المحرق، السيف، سار، توبلي، مدينة عيسى، البسيتين)",
+  "transcript": "التفريغ الحرفي الدقيق 100% للكلام المنطوق بالصوت",
+  "from": "منطقة الاستلام في البحرين",
   "to": "منطقة التسليم في البحرين",
-  "price": سعر التوصيل بالدينار البحريني كرقم (مثلاً: 2.5 أو 3 أو 1.5، أو 0 إذا لم يذكر),
-  "senderPhone": "رقم هاتف المعلن إن ذُكر",
-  "senderName": "اسم المتجر أو الزبون إن ذُكر",
-  "notes": "نوع الطلب (عطور، حلويات، أكل، ورد) وأي ملاحظات"
+  "price": 2.5,
+  "senderPhone": "رقم الهاتف",
+  "senderName": "اسم المتجر أو المعلن",
+  "notes": "نوع الطلب وملاحظات التوصيل"
 }`;
 
         const response = await ai.models.generateContent({
@@ -1379,12 +1434,14 @@ app.post("/api/voice-order", async (req, res) => {
       }
     }
 
-    // 2. If providedTranscript is present and extracted didn't succeed, parse via Gemini text or local dialect parser
+    // 2. If providedTranscript is present and audio extracted didn't succeed, parse via Gemini text
     if ((!extracted || !extracted.from || !extracted.to) && providedTranscript) {
       try {
         const ai = getGenAI();
         const textPrompt = `استخرج بيانات طلب التوصيل في البحرين من النص التالي المفرغ من صوت معلن بالواتساب:
 "${providedTranscript}"
+
+قواعد الأسعار البحرينية: دينارين ونص = 2.5، دينار ونص = 1.5، دينار وثمان = 1.8، ثلاثة = 3.0.
 
 أجب فقط بكائن JSON:
 {
@@ -1394,7 +1451,7 @@ app.post("/api/voice-order", async (req, res) => {
   "price": سعر التوصيل بالدينار البحريني كرقم,
   "senderPhone": "رقم الهاتف",
   "senderName": "اسم المتجر أو المعلن",
-  "notes": "ملاحظات الطلب"
+  "notes": "ملاحظات الطلب ونوع السلعة"
 }`;
         const resText = await ai.models.generateContent({
           model: "gemini-3.8-flash",
@@ -1419,7 +1476,7 @@ app.post("/api/voice-order", async (req, res) => {
         from: extracted?.from || parsedHeuristic.from || "المنامة",
         to: extracted?.to || parsedHeuristic.to || "الرفاع",
         price: extracted?.price || parsedHeuristic.price || 2.5,
-        senderPhone: extracted?.senderPhone || parsedHeuristic.phone || "97339123456",
+        senderPhone: extracted?.senderPhone || inputPhone || parsedHeuristic.phone || "97339123456",
         senderName: extracted?.senderName || senderName || "معلن واتساب (صوتي) 🎙️",
         notes: extracted?.notes || parsedHeuristic.notes || "طلب صوتي تم تفريغه بالذكاء الاصطناعي",
       };
@@ -1434,7 +1491,7 @@ app.post("/api/voice-order", async (req, res) => {
       rawText: `🎙️ تسجيل صوتي (ريكورد): "${extracted.transcript || 'طلب توصيل من المعلن'}"`,
       groupName: groupName || "قروب واتساب (تسجيلات صوتية) 🎙️",
       senderName: senderName || extracted.senderName || "معلن واتساب (صوتي) 🎙️",
-      senderPhone: extracted.senderPhone ? String(extracted.senderPhone) : "97339123456",
+      senderPhone: inputPhone || (extracted.senderPhone ? String(extracted.senderPhone) : "97339123456"),
       receivedAt: new Date().toISOString(),
       confidence: 96,
       type: "🎙️ تسجيل صوتي (واتساب)",
@@ -1446,6 +1503,28 @@ app.post("/api/voice-order", async (req, res) => {
       duplicateCount: 1,
       crossPostedGroups: [groupName || "قروب واتساب 🎙️"],
     };
+
+    // If requested, publish directly to WhatsApp groups
+    if (publishToWhatsApp) {
+      const bcastPayload = {
+        type: "BROADCAST_PUBLISHED",
+        broadcast: {
+          id: `bcast-${Date.now()}`,
+          text: `📦 طلب توصيل جديد (تسجيل صوتي 🎙️):\n📍 الاستلام: ${orderData.from}\n🎯 التسليم: ${orderData.to}\n💰 السعر: ${orderData.price > 0 ? `${orderData.price} د.ب` : 'سعر عند الاتفاق'}\n📝 التفاصيل: ${orderData.notes || orderData.voiceTranscript}\n📞 هاتف المعلن: ${orderData.senderPhone}`,
+          targetGroups: Array.isArray(targetGroups) && targetGroups.length > 0 ? targetGroups : ["جميع قروبات التوصيل المعتمدة (واتساب)"],
+          from: orderData.from,
+          to: orderData.to,
+          price: orderData.price,
+          publishedAt: new Date().toISOString(),
+          isVoiceAd: true,
+        }
+      };
+      const bcastEvent = `data: ${JSON.stringify(bcastPayload)}\n\n`;
+      sseClients.forEach((client) => {
+        try { client.write(bcastEvent); } catch { sseClients.delete(client); }
+      });
+      addSpiderLog("INDEXED", "نشر في القروبات 📢", `تم نشر الإعلان الصوتي في قروبات الواتساب: ${orderData.from} ➔ ${orderData.to}`, 10);
+    }
 
     // If requested, broadcast to live radar connected SSE clients
     if (broadcastToRadar !== false) {
@@ -1464,6 +1543,7 @@ app.post("/api/voice-order", async (req, res) => {
       message: "تم تفريغ وتحليل التسجيل الصوتي واستخراج بيانات الطلب بنجاح 🎙️",
       data: orderData,
       transcript: extracted.transcript,
+      publishedToGroups: Boolean(publishToWhatsApp),
     });
   } catch (err: any) {
     console.error("Gemini voice processing handled gracefully:", err);

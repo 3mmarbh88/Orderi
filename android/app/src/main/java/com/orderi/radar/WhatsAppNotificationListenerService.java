@@ -480,14 +480,26 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         if (TextUtils.isEmpty(detectedGroupName) && !TextUtils.isEmpty(title)
                 && (title.contains("قروب") || title.contains("جروب") || title.contains("مجموعة")
                 || title.contains("مندوب") || title.contains("توصيل") || title.contains("كباتن")
-                || title.contains("طلبات") || title.contains("بحرين"))) {
+                || title.contains("طلبات") || title.contains("بحرين") || title.contains("مؤرشف")
+                || title.contains("أرشيف") || title.contains("ارشيف") || title.toLowerCase(java.util.Locale.ROOT).contains("archive")
+                || title.contains("سوق") || title.contains("تجار") || title.contains("متجر"))) {
             detectedGroupName = title.trim();
         }
 
         if (TextUtils.isEmpty(detectedGroupName) && !TextUtils.isEmpty(summaryText)
                 && (summaryText.contains("قروب") || summaryText.contains("مجموعة")
-                || summaryText.contains("توصيل") || summaryText.contains("كباتن"))) {
+                || summaryText.contains("توصيل") || summaryText.contains("كباتن")
+                || summaryText.contains("مؤرشف") || summaryText.toLowerCase(java.util.Locale.ROOT).contains("archive"))) {
             detectedGroupName = summaryText.trim();
+        }
+
+        // If visible text has explicit delivery order patterns (pickup to destination or price) and detectedGroupName is empty,
+        // treat chat as a delivery group so it reaches Radar even if archived
+        if (TextUtils.isEmpty(detectedGroupName) && !TextUtils.isEmpty(title) && !TextUtils.isEmpty(combinedVisibleText)) {
+            String normVis = combinedVisibleText.toLowerCase(java.util.Locale.ROOT);
+            if ((normVis.contains("من ") || normVis.contains("استلام")) && (normVis.contains("إلى") || normVis.contains("الى") || normVis.contains("توصيل") || normVis.contains("دينار") || normVis.contains("د.ب"))) {
+                detectedGroupName = title.trim();
+            }
         }
 
         // MessagingStyle can expose the actual sender separately from the visible title.
@@ -976,6 +988,59 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
 
     private String safe(CharSequence value) {
         return value == null ? "" : value.toString();
+    }
+
+    /**
+     * Dispatch an event discovered from archived chats or accessibility scraping directly to Orderi pipeline
+     */
+    public static boolean dispatchCustomWhatsAppEvent(android.content.Context context, String groupName, String senderName, String rawText, boolean isGroup) {
+        if (context == null || TextUtils.isEmpty(rawText)) return false;
+        try {
+            String stableIdentity = "archived_scraper|" + groupName + "|" + rawText + "|" + System.currentTimeMillis();
+            String stableId = UUID.nameUUIDFromBytes(stableIdentity.getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
+
+            JSONObject event = new JSONObject();
+            event.put("schemaVersion", 1);
+            event.put("id", stableId);
+            event.put("messageId", stableId);
+            event.put("source", "whatsapp_archived_scraper");
+            event.put("sourcePackage", PACKAGE_WHATSAPP);
+            event.put("packageName", PACKAGE_WHATSAPP);
+            event.put("chatId", groupName);
+            event.put("sourceMessageId", stableId);
+            event.put("contentHash", UUID.nameUUIDFromBytes(rawText.getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString());
+            event.put("title", groupName);
+            event.put("groupName", groupName);
+            event.put("senderName", senderName);
+            event.put("text", rawText);
+            event.put("bigText", rawText);
+            event.put("subText", "مؤرشف 📦");
+            event.put("summaryText", groupName);
+            event.put("rawText", rawText);
+            event.put("receivedAt", System.currentTimeMillis());
+            event.put("key", stableId);
+            event.put("conversationTitle", groupName);
+            event.put("category", "msg");
+            event.put("isGroup", isGroup);
+
+            synchronized (WhatsAppNotificationListenerService.class) {
+                SharedPreferences prefs = context.getSharedPreferences(PREFS, MODE_PRIVATE);
+                JSONArray existing;
+                try { existing = new JSONArray(prefs.getString(KEY_EVENTS, "[]")); }
+                catch (Exception ignored) { existing = new JSONArray(); }
+                existing.put(event);
+                prefs.edit().putString(KEY_EVENTS, existing.toString()).commit();
+            }
+
+            Intent broadcast = new Intent(ACTION_EVENT);
+            broadcast.setPackage(context.getPackageName());
+            broadcast.putExtra("event", event.toString());
+            context.sendBroadcast(broadcast);
+            return true;
+        } catch (Exception e) {
+            android.util.Log.w("WhatsAppNotificationListenerService", "Could not dispatch custom WhatsApp event", e);
+            return false;
+        }
     }
 
     public static boolean isEnabled(android.content.Context context) {

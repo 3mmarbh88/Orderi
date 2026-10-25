@@ -26,6 +26,8 @@ export interface RawParsedResult {
   isAdvertisement?: boolean;
   advertisementReason?: string;
   passengerDetection: PassengerDetection;
+  /** True when message is an advertiser's WhatsApp voice note/message */
+  isVoiceNote?: boolean;
 }
 
 /**
@@ -500,6 +502,27 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
     /(?:ابي|ابا|ابغي|ابغى|اريد|عايز|عاوزه|محتاج|محتاجه|احتاج|نبي|نبغي|مطلوب|لو\s*سمحت|please)/i.test(normalized) ||
     /(?:اوردر|أوردر|طلب|توصيل|توصيلة|توصيله|مشوار|مشاوير|شخص|أشخاص|اشخاص|راكب|ركاب|بنت|طفل|أطفال|طالب|طالبة|موظف|موظفة|سيارة|دريول|سائق|دوام|مدرسة|جامعة)/i.test(rawText);
 
+  // 4. Notes / Package Type extraction
+  let notes = '';
+
+  // Check if message is a voice note / voice recording from WhatsApp advertiser
+  const isVoiceMessage = /(?:رسالة|تسجيل)\s*صوتية|voice\s*message|ptt|🎙️|فويس\s*نوت|تسجيل\s*صوتي|مقطع\s*صوتي/i.test(convertedText) ||
+    /(?:رسالة|تسجيل)\s*صوتية|voice\s*message|ptt|🎙️|فويس\s*نوت/i.test(rawText);
+
+  if (isVoiceMessage) {
+    if (!fromArea && !toArea) {
+      fromArea = 'موقع المعلن (فويس نوت) 🎙️';
+      toArea = 'وجهة التوصيل (مذكورة بالصوت) 📍';
+    } else if (!fromArea) {
+      fromArea = 'موقع المعلن (صوتي) 🎙️';
+    } else if (!toArea) {
+      toArea = 'وجهة التوصيل (مذكورة بالصوت) 📍';
+    }
+    if (!notes) {
+      notes = 'تسجيل صوتي من معلن واتساب بالقروب 🎙️';
+    }
+  }
+
   // If destination is missing but origin is known
   if (!toArea && fromArea && hasOrderIntent) {
     toArea = passengerDetection.level !== 'goods_safe' ? 'حسب طلب الراكب 📍' : 'حسب طلب الزبون 📍';
@@ -509,11 +532,6 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
   if (!fromArea && toArea && hasOrderIntent) {
     fromArea = 'موقع العميل / غير محدد 📍';
   }
-
-
-
-  // 4. Notes / Package Type extraction (ensuring word boundaries)
-  let notes = '';
   const noteKeywords = [
     'ورد', 'باقة', 'زهور', 'كيك', 'حلويات', 'عطور', 'هدية', 'أكل', 'مطعم',
     'وجبة', 'مستندات', 'أوراق', 'عباية', 'ملابس', 'شحنة', 'أمانات', 'كرتون'
@@ -580,6 +598,7 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
   if (toArea) confidence += 40;
   if (price > 0) confidence += 10;
   if (phone) confidence += 10;
+  if (isVoiceMessage) confidence = Math.max(confidence, 92);
   if (advertisementDetection.isAdvertisement) confidence = 0;
 
   // Service promotions must never become radar orders just because they mention routes, items or prices.
@@ -604,5 +623,6 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
     isAdvertisement: advertisementDetection.isAdvertisement,
     advertisementReason: advertisementDetection.reason,
     passengerDetection,
+    isVoiceNote: isVoiceMessage,
   };
 }

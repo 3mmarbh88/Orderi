@@ -79,6 +79,7 @@ export interface OrderFilter {
   blockPassengerDeliveries?: boolean;
   autoCloseOrdersEnabled?: boolean;
   autoCloseAmbiguousAction?: 'flag' | 'ignore';
+  monitorArchivedGroups?: boolean; // رصد ومراقبة قروبات الواتساب المؤرشفة تلقائياً
   excludeMyOwnAds?: boolean; // استبعاد إعلاناتي الشخصية من الرادار
   captainPhone?: string;     // رقم هاتف الكابتن الشخصي للتعرف على إعلاناته
   captainCustomSignatures?: string[]; // كلمات وتوقيعات الكابتن المخصصة لاستبعاد إعلاناته
@@ -259,6 +260,9 @@ export interface OrderBroadcast {
   to?: string;
   price?: number;
   phone?: string;
+  notes?: string;
+  rawText?: string;
+  publishedAt?: string;
   isCompleted?: boolean;
   completedAt?: string;
   repliedGroups?: string[];
