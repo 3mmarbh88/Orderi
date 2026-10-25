@@ -870,7 +870,7 @@ export function FilterSettings({
           {localFilter.monitorArchivedGroups !== false && (
             <div className="px-4 pb-4 pt-1 space-y-3 border-t border-amber-200/60 bg-amber-50/40">
               {/* WhatsApp System Explanation Card */}
-              <div className="p-3.5 rounded-xl bg-white/95 border border-amber-300/80 shadow-2xs space-y-2">
+              <div className="p-3.5 rounded-xl bg-white/95 border border-amber-300/80 shadow-2xs space-y-2.5">
                 <div className="flex items-center gap-2 text-xs font-black text-amber-950">
                   <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
                   <span>💡 سر استقبال طلبات الأرشيف فوراً بلحظتها (0 ثانية) دون الضغط على «قراءة الكل»:</span>
@@ -878,16 +878,58 @@ export function FilterSettings({
                 <p className="text-[11px] text-slate-700 leading-relaxed">
                   <strong className="text-amber-950 font-black">السبب:</strong> تطبيق واتساب الرسمي يقوم بكتم إشعارات المحادثات المؤرشفة تماماً عند تفعيل خيار <em>«إبقاء الدردشات مؤرشفة»</em> في إعدادات واتساب، لذلك لا يرسل واتساب أي إشعار لهاتفك حتى تضغط زر «قراءة الكل» ليقوم المساعد بفتح الأرشيف واستخراجها.
                 </p>
-                <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-[11px] text-emerald-950 space-y-1">
-                  <div className="font-black text-emerald-800 flex items-center gap-1.5">
-                    <span>⚡ خطوة واحدة للرصد الفوري التلقائي بلحظتها:</span>
+
+                {/* 4 Alternative Solutions Grid */}
+                <div className="space-y-2 pt-1 border-t border-amber-200/60">
+                  <span className="text-xs font-black text-slate-900 block">
+                    🌟 4 طرق وبدائل مريحة لاستقبال طلبات القروبات فوراً:
+                  </span>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px]">
+                    {/* Method 1: Mute without Archive (Recommended) */}
+                    <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-950 space-y-1">
+                      <div className="font-black text-emerald-800 flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-emerald-600 shrink-0" />
+                        <span>الطريقة 1 (الأسهل والأفضل): كتم القروب «دائماً» بدون أرشفته</span>
+                      </div>
+                      <p className="text-[10px] text-slate-700 leading-relaxed">
+                        اترك القروب في قائمة واتساب العادية واعمل له <strong>«كتم الإشعارات ➔ دائماً»</strong>. لن يصدر واتساب أي صوت رنين أو إزعاج، بينما يقوم Orderi بالتقاط كل طلب فوراً في <strong>0 ثانية</strong> وإطلاق نغمتك المخصصة فقط للطلبات المطابقة!
+                      </p>
+                    </div>
+
+                    {/* Method 2: Turn off Keep Chats Archived */}
+                    <div className="p-2.5 rounded-xl bg-blue-50 border border-blue-300 text-blue-950 space-y-1">
+                      <div className="font-black text-blue-800 flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-blue-600 shrink-0" />
+                        <span>الطريقة 2: إيقاف «إبقاء الدردشات مؤرشفة» في واتساب</span>
+                      </div>
+                      <p className="text-[10px] text-slate-700 leading-relaxed">
+                        من <strong>واتساب ➔ الإعدادات ➔ الدردشات ➔ أوقف خيار «إبقاء الدردشات مؤرشفة»</strong>. ستبقى القروبات في الأرشيف وستصل إشعاراتها لرادار Orderi فور نشرها دون تأخير!
+                      </p>
+                    </div>
+
+                    {/* Method 3: Android Silent Notification Channel */}
+                    <div className="p-2.5 rounded-xl bg-purple-50 border border-purple-300 text-purple-950 space-y-1">
+                      <div className="font-black text-purple-800 flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-purple-600 shrink-0" />
+                        <span>الطريقة 3: قنوات إشعارات أندرويد الصامتة (Silent Channel)</span>
+                      </div>
+                      <p className="text-[10px] text-slate-700 leading-relaxed">
+                        من إعدادات الهاتف ➔ التطبيقات ➔ WhatsApp ➔ الإشعارات ➔ إشعارات المجموعات ➔ اختر <strong>«صامت»</strong>. لن يرن الهاتف لرسائل القروبات، وسيلتقطها Orderi فورياً.
+                      </p>
+                    </div>
+
+                    {/* Method 4: Auto-Sweep & Webhook */}
+                    <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-950 space-y-1">
+                      <div className="font-black text-amber-800 flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-amber-600 shrink-0" />
+                        <span>الطريقة 4: المسح الدوري التلقائي المدمج (Auto-Sweep)</span>
+                      </div>
+                      <p className="text-[10px] text-slate-700 leading-relaxed">
+                        تفعيل خيار <strong>«المسح الدوري التلقائي للأرشيف»</strong> أدناه، ليقوم Orderi بفحص الأرشيف واستخراج الطلبات تلقائياً بالخلفية دون الحاجة لضغط زر قراءة الكل.
+                      </p>
+                    </div>
                   </div>
-                  <p className="leading-relaxed">
-                    افتح واتساب ➔ <strong>الإعدادات</strong> ➔ <strong>الدردشات</strong> ➔ <strong>أوقف تفعيل خيار «إبقاء الدردشات مؤرشفة»</strong> (Keep chats archived).
-                  </p>
-                  <p className="text-[10px] text-emerald-700 font-bold">
-                    ✓ النتيجة: ستبقى القروبات منظمة، وستصلك طلبات كافة القروبات المؤرشفة بالرادار والسبايدر فور كتابتها بلحظتها دون الحاجة لأي نقرة!
-                  </p>
                 </div>
               </div>
 

@@ -407,10 +407,28 @@ function OrderiApp({
               await OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] });
               continue;
             }
+            // Check for order closure in pending batch (e.g. advertiser posted "تم"/sticker while app paused)
+            if (filterRef.current.autoCloseOrdersEnabled !== false) {
+              const closureData = {
+                text: rawText || event.title || '',
+                senderName: (event.senderName && event.senderName.trim()) ? event.senderName.trim() : (event.isGroup ? '' : event.title) || '',
+                groupName,
+                timestamp: event.receivedAt || Date.now(),
+                rawQuotedText: (event as any).rawQuotedText || '',
+                messageId: event.id,
+              };
+              const closureMatch = checkIncomingMessageForClosure(closureData, ordersRef.current);
+              if (closureMatch) {
+                handleAutoOrderClosure(closureMatch);
+                await OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] });
+                continue;
+              }
+            }
+
             const parsed = await parseWhatsAppOrderWithLocalAi(rawText || event.title || '', {
               hybridMode: filterRef.current.localAiConfig?.hybridMode !== false,
               useCloudFallback: filterRef.current.useCloudAiFallback === true,
-              senderName: event.title,
+              senderName: event.senderName || event.title,
               groupName,
             });
             if (parsed.canCreateOrder) {
@@ -421,6 +439,12 @@ function OrderiApp({
                   console.warn('[Orderi Native] Could not mark source WhatsApp group as read:', error);
                 });
               }
+              const phoneFromSender = (event.senderName || '').replace(/[^\d+]/g, '');
+              const resolvedSenderName = (event.senderName && event.senderName.trim()) 
+                ? event.senderName.trim() 
+                : (parsed.advertiserName || (event.isGroup ? '' : event.title) || 'معلن بالقروب');
+              const resolvedSenderPhone = parsed.phone || (phoneFromSender.length >= 8 ? phoneFromSender : '');
+
               handleProcessIncomingRawOrder({
                 id: `android-wa-${event.id}`,
                 from: parsed.from, to: parsed.to, price: parsed.price,
@@ -430,7 +454,8 @@ function OrderiApp({
                 scheduledTimeMinutes: parsed.scheduledTimeMinutes,
                 isFutureSchedule: parsed.isFutureSchedule,
                 rawText: rawText || event.title || '', groupName,
-                senderName: event.senderName || event.title || 'WhatsApp', senderPhone: parsed.phone,
+                senderName: resolvedSenderName,
+                senderPhone: resolvedSenderPhone,
                 receivedAt: new Date(event.receivedAt || Date.now()),
                 confidence: parsed.confidence, type: 'whatsapp_notification',
                 notes: parsed.notes, status: 'pending',
@@ -670,6 +695,21 @@ function OrderiApp({
   useEffect(() => {
     startBackgroundHeartbeat();
   }, []);
+
+  // Automated background polling of pending events & radar refresh for archived groups
+  useEffect(() => {
+    if (!isNativeAndroid()) return;
+    if (filter.monitorArchivedGroups === false || filter.autoArchivedChatsPolling === false) return;
+
+    const intervalMinutes = Math.max(1, filter.archivedPollingIntervalMinutes || 2);
+    const intervalMs = intervalMinutes * 60 * 1000;
+
+    const sweepTimer = window.setInterval(() => {
+      void refreshRadar();
+    }, intervalMs);
+
+    return () => window.clearInterval(sweepTimer);
+  }, [filter.monitorArchivedGroups, filter.autoArchivedChatsPolling, filter.archivedPollingIntervalMinutes]);
 
   // Reference to prevent duplicate sounds
   const filterRef = useRef(filter);
@@ -1314,9 +1354,10 @@ function OrderiApp({
           scheduledTimeMinutes: parsed.scheduledTimeMinutes,
           isFutureSchedule: parsed.isFutureSchedule,
           rawText: rawText || event.title || '',
-          groupName,
-          senderName: event.title || 'WhatsApp',
-          senderPhone: parsed.phone,
+          senderName: (event.senderName && event.senderName.trim()) 
+            ? event.senderName.trim() 
+            : (parsed.advertiserName || (event.isGroup ? '' : event.title) || 'معلن بالقروب'),
+          senderPhone: parsed.phone || ((event.senderName || '').replace(/[^\d+]/g, '').length >= 8 ? (event.senderName || '').replace(/[^\d+]/g, '') : ''),
           receivedAt: new Date(event.receivedAt || Date.now()),
           confidence: (parsed.isVoiceNote || /(?:رسالة|تسجيل)\s*صوتية|voice\s*message|ptt|🎙️|فويس\s*نوت/i.test(rawText || event.title || '')) ? 95 : parsed.confidence,
           type: (parsed.isVoiceNote || /(?:رسالة|تسجيل)\s*صوتية|voice\s*message|ptt|🎙️|فويس\s*نوت/i.test(rawText || event.title || '')) ? '🎙️ تسجيل صوتي (واتساب)' : 'whatsapp_notification',
@@ -2111,8 +2152,17 @@ function OrderiApp({
       // 1. Permanently record closed order to prevent resurrection across reloads
       markOrderPermanentlyClosed(orderId);
 
-      // 2. Dismiss and cancel background OS notification instantly (حذف الإشعار من شريط الإشعارات)
+      // 2. Dismiss and cancel background OS notification instantly (حذف الإشعار من شريط الإشعارات فوراً)
       dismissBackgroundOrderNotification(orderId);
+      if (isNativeAndroid()) {
+        void OrderiNotificationListener.cancelOrderNotification({ orderId }).catch(() => {});
+      }
+      try {
+        const saved = JSON.parse(localStorage.getItem('orderi_notification_dismissed_order_ids') || '[]');
+        if (Array.isArray(saved) && !saved.includes(orderId)) {
+          localStorage.setItem('orderi_notification_dismissed_order_ids', JSON.stringify([...saved, orderId].slice(-500)));
+        }
+      } catch {}
 
       // 3. If focused in modal or details card, dismiss it immediately
       if (focusedOrder?.id === orderId) {

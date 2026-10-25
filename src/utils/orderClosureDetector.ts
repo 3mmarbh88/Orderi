@@ -85,27 +85,44 @@ export function extractClosureKeywords(text: string): {
 }
 
 /**
- * التحقق من تشابه اسم أو هاتف المعلن
+ * تطهير نصوص أسماء المرسلين للمقارنة الذكية
  */
-function isAdvertiserSenderMatch(
+function cleanSenderText(text: string): string {
+  if (!text) return '';
+  return cleanDialectText(text)
+    .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '') // إزالة الإيموجيات
+    .replace(/[^\p{L}\p{N}\s]/gu, '') // إزالة الرموز
+    .trim();
+}
+
+/**
+ * التحقق من تشابه اسم أو هاتف المعلن بدقة عالية
+ * يدعم هواتف البحرين والخليج (آخر 8 أرقام) والأسماء المقتطعة بدون إيموجيات
+ */
+export function isAdvertiserSenderMatch(
   msgSender: string, 
   msgPhone: string, 
   orderSenderName: string, 
   orderSenderPhone?: string
 ): boolean {
-  if (msgPhone && orderSenderPhone) {
-    const cleanMsgPhone = msgPhone.replace(/\D/g, '');
-    const cleanOrderPhone = orderSenderPhone.replace(/\D/g, '');
-    if (cleanMsgPhone && cleanOrderPhone && (cleanMsgPhone.includes(cleanOrderPhone) || cleanOrderPhone.includes(cleanMsgPhone))) {
+  // 1. مطابقة أرقام الهواتف (آخر 8 أرقام لهواتف البحرين والخليج لتجاوز مفاتيح الدول +973 و 00973 والفواصل)
+  const p1 = (msgPhone || msgSender || '').replace(/\D/g, '');
+  const p2 = (orderSenderPhone || orderSenderName || '').replace(/\D/g, '');
+
+  if (p1.length >= 8 && p2.length >= 8) {
+    if (p1.slice(-8) === p2.slice(-8)) {
       return true;
     }
   }
 
+  // 2. مطابقة الأسماء المعيارية بعد إزالة الإيموجيات وعلامات الواتساب
   if (msgSender && orderSenderName) {
-    const s1 = cleanDialectText(msgSender);
-    const s2 = cleanDialectText(orderSenderName);
-    if (s1 && s2 && (s1 === s2 || s1.includes(s2) || s2.includes(s1))) {
-      return true;
+    const s1 = cleanSenderText(msgSender);
+    const s2 = cleanSenderText(orderSenderName);
+    if (s1 && s2) {
+      if (s1 === s2) return true;
+      if (s1.length >= 3 && s2.includes(s1)) return true;
+      if (s2.length >= 3 && s1.includes(s2)) return true;
     }
   }
 
@@ -114,6 +131,8 @@ function isAdvertiserSenderMatch(
 
 /**
  * فحص الرسالة الواردة ومطابقتها سياقياً مع الطلبات النشطة لإلغاء وحذف الطلب الذي حصل على مندوب
+ * يدعم حالة وجود معلنين متعددين في نفس القروب:
+ * (معلن 1، معلن 2، معلن 3 ➔ إذا كتب معلن 1 تم أو أرسل ملصق/استيكر بريبلي أو بدون ريبلي ➔ يُحذف طلب معلن 1 فقط)
  */
 export function checkIncomingMessageForClosure(
   message: {
@@ -141,19 +160,20 @@ export function checkIncomingMessageForClosure(
     return null;
   }
 
-  // Minimal confirmations and sticker/reaction notifications are valid closure signals
-  // only when the sender can be matched to the original advertiser below. Do not
-  // discard them just because WhatsApp exposes no quoted-message text in Android notifications.
-  const cleanedSignal = cleanDialectText(rawText).replace(/[\s.,،.!؟?؛:؛]+/g, '').trim();
-  const isPureSticker = /^(?:sticker|ملصق|صورهملصق|🖼️sticker)$/i.test(cleanedSignal);
+  // رصد الملصقات والاستيكرات والرموز التعبيرية والكلمات التأكيدية
+  const cleanedSignal = cleanDialectText(rawText).replace(/[\s.,،.!؟?؛:؛\u200e\u200f]+/g, '').trim();
+  const isPureSticker = 
+    /^(?:sticker|ملصق|استيكر|ستيكر|صورهملصق|صورةملصق|🖼️sticker|📷ملصق|🖼️ملصق|ملصقمتحرك|animatedsticker)$/i.test(cleanedSignal) ||
+    /ملصق|استيكر|ستيكر|sticker/i.test(cleanedSignal);
+
   const isMinimalCompletionSignal =
     isPureSticker ||
-    /^(?:تم|تمت|حصلت|حصل|حصلنا|لقيت|لقينا|خلاص|خلص|انحجز|انحجزت|اخذت|اخذته|اخذوه|شالوه|انشال|مشكور|مشكورين|يعطيكالعافيه|👍+|👌+|🙏+|✅+|✔️+|🤝+|👏+|🎯+|💐+|🌷+|🤍+|✨+|📦+|🛵+|🚗+)$/iu.test(cleanedSignal);
+    /^(?:تم|تمت|حصلت|حصل|حصلنا|لقيت|لقينا|خلاص|خلص|انحجز|انحجزت|اخذت|اخذته|اخذوه|أخذوه|شالوه|انشال|مشكور|مشكورين|يعطيكالعافيه|يعطيكمالعافيه|تسلم|تسلمون|قواكمالله|👍+|👌+|🙏+|✅+|✔️+|🤝+|👏+|🎯+|💐+|🌷+|🤍+|✨+|📦+|🛵+|🚗+|🔒+|💯+|🎉+)$/iu.test(cleanedSignal);
 
   const { matchedWords, matchedEmojis, hasClosureIntent } = extractClosureKeywords(rawText);
   if (!hasClosureIntent && !isMinimalCompletionSignal) return null;
   if (isMinimalCompletionSignal && matchedWords.length === 0 && matchedEmojis.length === 0) {
-    matchedEmojis.push(isPureSticker ? 'ملصق/Sticker' : rawText.trim());
+    matchedEmojis.push(isPureSticker ? 'ملصق/Sticker 🖼️' : rawText.trim());
   }
 
   // 1. فحص الطلبات النشطة التي تنتمي لنفس المجموعة حصراً
@@ -165,10 +185,9 @@ export function checkIncomingMessageForClosure(
       (msgGroup && order.groupName && (order.groupName.includes(msgGroup) || msgGroup.includes(order.groupName))) ||
       (order.crossPostedGroups && order.crossPostedGroups.some((g) => g.includes(msgGroup) || msgGroup.includes(g)));
 
-    // Never let a short confirmation or sticker close an order from an unknown/different group.
     if (!msgGroup || !inSameGroup) return false;
 
-    // نافذة زمنية واقعية: خلال 3 ساعات من نشر الإعلان
+    // نافذة زمنية واقعية: خلال 3.5 ساعات من نشر الإعلان
     const orderTime = new Date(order.receivedAt).getTime();
     const diffHours = (msgTime - orderTime) / (1000 * 60 * 60);
     return diffHours >= 0 && diffHours <= 3.5;
@@ -176,22 +195,11 @@ export function checkIncomingMessageForClosure(
 
   if (candidateOrders.length === 0) return null;
 
-  // 2. ترتيب الطلبات المرشحة حسب الأولوية الزمنية وتطابق المعلن
-  const sortedCandidates = [...candidateOrders].sort((a, b) => {
-    const aSenderMatch = isAdvertiserSenderMatch(msgSender, msgPhone, a.senderName, a.senderPhone) ? 1 : 0;
-    const bSenderMatch = isAdvertiserSenderMatch(msgSender, msgPhone, b.senderName, b.senderPhone) ? 1 : 0;
-    if (aSenderMatch !== bSenderMatch) return bSenderMatch - aSenderMatch;
-
-    // الأقرب زمنياً لوقت الرسالة
-    const diffA = Math.abs(msgTime - new Date(a.receivedAt).getTime());
-    const diffB = Math.abs(msgTime - new Date(b.receivedAt).getTime());
-    return diffA - diffB;
-  });
-
   // =========================================================================
-  // المستوى الأول: اقتباس مباشر أو ذكر صريح لبيانات المسار أو السعر
+  // المسار الأول: ريبلي / رد صريح على الطلب (Quoted Reply)
+  // المعلن عمل ريبلي على رسالة طلبه وكتب تم/حصلت أو أرسل ملصق/استيكر
   // =========================================================================
-  for (const order of sortedCandidates) {
+  for (const order of candidateOrders) {
     const orderSnippet = order.rawText.substring(0, 35).trim();
     const cleanMsg = cleanDialectText(rawText);
     const fromMention = order.from && cleanMsg.includes(cleanDialectText(order.from));
@@ -199,17 +207,19 @@ export function checkIncomingMessageForClosure(
     const priceMention = order.price && order.price > 0 && cleanMsg.includes(order.price.toString());
 
     const isQuoted = 
-      (message.rawQuotedText && (message.rawQuotedText.includes(order.from) || message.rawQuotedText.includes(order.to))) ||
+      (message.rawQuotedText && (
+        (order.from && message.rawQuotedText.includes(order.from)) || 
+        (order.to && message.rawQuotedText.includes(order.to)) ||
+        message.rawQuotedText.includes(orderSnippet)
+      )) ||
       rawText.includes(`> ${orderSnippet}`) ||
-      ((fromMention || toMention || priceMention) && (matchedWords.length > 0 || matchedEmojis.length > 0));
+      rawText.includes(orderSnippet) ||
+      ((fromMention && toMention) || (fromMention && priceMention) || (toMention && priceMention));
 
-    // A quote helps identify which post is being answered, but it must still
-    // come from the original advertiser; a different group member's "تم"/sticker
-    // must not close someone else's order.
-    const quoteSenderIsAdvertiser = isAdvertiserSenderMatch(
-      msgSender, msgPhone, order.senderName, order.senderPhone
-    );
-    if (isQuoted && quoteSenderIsAdvertiser) {
+    const isSenderMatch = isAdvertiserSenderMatch(msgSender, msgPhone, order.senderName, order.senderPhone);
+
+    // إذا وُجد اقتباس للطلب، أو إذا كان ريبلي من صاحب الطلب نفسه
+    if (isQuoted && (isSenderMatch || !msgSender)) {
       processedMessageHashes.add(dedupeKey);
       markOrderPermanentlyClosed(order.id);
       return {
@@ -217,38 +227,52 @@ export function checkIncomingMessageForClosure(
         orderId: order.id,
         matchedOrder: order,
         verdict: 'confirmed_closed',
-        reason: `اقتباس أو ذكر مباشر لبيانات الطلب (${order.from} ← ${order.to}) مع تأكيد اكتماله: «${rawText}»`,
+        reason: `رد ريبلي من المعلن (${msgSender || order.senderName}) على طلبه بالقروب (${order.from} ← ${order.to}) مع تأكيد: «${rawText}»`,
         evidence: {
           replyText: rawText,
-          senderName: msgSender || 'عضو بالقروب',
+          senderName: msgSender || order.senderName,
           groupName: msgGroup || order.groupName,
           timestamp: new Date(msgTime).toISOString(),
           confidence: 99,
           isQuote: true,
-          matchedKeywords: [...matchedWords, ...matchedEmojis],
+          matchedKeywords: [...matchedWords, ...matchedEmojis, 'ريبلي على الطلب'],
         },
       };
     }
   }
 
   // =========================================================================
-  // المستوى الثاني: التعرف الصريح على عبارات الحصول على مندوب في نفس القروب
-  // (مثل: «حصلت مندوب»، «خلاص حصلت»، «تم توفير مندوب»، «لقيت مندوب»، «شالوه خلاص»)
-  // في قروبات الواتساب المعلن فقط هو من يعلن عن إيجاد مندوب، ومطابقتها فورية وحاسمة
+  // المسار الثاني: بدون ريبلي - مطابقة معلن الطلب حصراً (Sender Match)
+  // عندما يعلن معلن 1 ومعلن 2 ومعلن 3 في نفس القروب:
+  // يكتب معلن 1 (أو يرسل استيكر/ملصق) "تم" أو "حصلت" ➔ يُحذف طلب معلن 1 فقط!
+  // ويبقى طلب معلن 2 ومعلن 3 نشطين بالرادار دون أي تأثير!
   // =========================================================================
-  const explicitCourierFoundRegex = /(?:حصلت|لقيت|توفر|تنسق)\s*(?:خلاص\s*)?مندوب|خلاص\s*حصلت|تم\s*توفير\s*مندوب|شالوه\s*خلاص|انحجز\s*خلاص|تم\s*(?:اخذ|أخذ)\s*الطلب|حصلت\s*على\s*مندوب|خلاص\s*توفر\s*مندوب|لقينا\s*مندوب|توفر\s*مندوب\s*خلاص/i;
-  const hasExplicitCourierFound = explicitCourierFoundRegex.test(cleanedSignal) || explicitCourierFoundRegex.test(cleanDialectText(rawText));
+  const matchingAdvertiserOrders = candidateOrders.filter((order) =>
+    isAdvertiserSenderMatch(msgSender, msgPhone, order.senderName, order.senderPhone)
+  );
 
-  if (hasExplicitCourierFound && sortedCandidates.length > 0) {
-    const targetOrder = sortedCandidates[0];
+  if (matchingAdvertiserOrders.length > 0) {
+    // الأقرب زمنياً لوقت هذه الرسالة من إعلانات هذا المعلن حصراً
+    matchingAdvertiserOrders.sort((a, b) => {
+      const diffA = Math.abs(msgTime - new Date(a.receivedAt).getTime());
+      const diffB = Math.abs(msgTime - new Date(b.receivedAt).getTime());
+      return diffA - diffB;
+    });
+
+    const targetOrder = matchingAdvertiserOrders[0];
     processedMessageHashes.add(dedupeKey);
     markOrderPermanentlyClosed(targetOrder.id);
+
+    const signalType = isPureSticker 
+      ? 'ملصق / استيكر 🖼️' 
+      : (matchedEmojis.length > 0 ? `رمز ${matchedEmojis.join(' ')}` : `عبارة «${rawText}»`);
+
     return {
       isMatch: true,
       orderId: targetOrder.id,
       matchedOrder: targetOrder,
       verdict: 'confirmed_closed',
-      reason: `رصد بالذكاء الاصطناعي: تأكيد الحصول على مندوب في قروب (${msgGroup || targetOrder.groupName}): «${rawText}» لإعلان (${targetOrder.from} ← ${targetOrder.to})`,
+      reason: `أرسل معلن الطلب نفسه (${msgSender || targetOrder.senderName}) في القروب ${signalType} دلالة على حصوله على مندوب لإعلانه السابق (${targetOrder.from} ← ${targetOrder.to})`,
       evidence: {
         replyText: rawText,
         senderName: msgSender || targetOrder.senderName,
@@ -256,36 +280,38 @@ export function checkIncomingMessageForClosure(
         timestamp: new Date(msgTime).toISOString(),
         confidence: 99,
         isQuote: false,
-        matchedKeywords: [...matchedWords, ...matchedEmojis, 'حصلت مندوب'],
+        matchedKeywords: [...matchedWords, ...matchedEmojis],
       },
     };
   }
 
   // =========================================================================
-  // المستوى الثالث: مطابقة مرسل الرسالة مع معلن الطلب الأصلي
-  // (الأولوية القصوى للطلب الأقرب زمنياً الصادر عن صاحب الإعلان نفسه)
+  // المسار الثالث: عبارة صريحة لا تحتمل اللبس («حصلت مندوب»، «خلاص حصلت»)
+  // في حال كان في القروب طلب نشط وحيد فقط
   // =========================================================================
-  for (const order of sortedCandidates) {
-    const isAdvertiser = isAdvertiserSenderMatch(msgSender, msgPhone, order.senderName, order.senderPhone);
+  const explicitCourierFoundRegex = /(?:حصلت|لقيت|توفر|تنسق)\s*(?:خلاص\s*)?مندوب|خلاص\s*حصلت|تم\s*توفير\s*مندوب|شالوه\s*خلاص|انحجز\s*خلاص|تم\s*(?:اخذ|أخذ)\s*الطلب|حصلت\s*على\s*مندوب|خلاص\s*توفر\s*مندوب|لقينا\s*مندوب|توفر\s*مندوب\s*خلاص/i;
+  const hasExplicitCourierFound = explicitCourierFoundRegex.test(cleanedSignal) || explicitCourierFoundRegex.test(cleanDialectText(rawText));
 
-    if (isAdvertiser) {
-      // المعلن الأصلي نفسه كتب «حصلت» أو «تم» أو «حصلت مندوب» أو «شالوه» أو رمز الإنجاز
+  if (hasExplicitCourierFound) {
+    // إذا كان هناك طلب وحيد نشط في القروب
+    if (candidateOrders.length === 1) {
+      const targetOrder = candidateOrders[0];
       processedMessageHashes.add(dedupeKey);
-      markOrderPermanentlyClosed(order.id);
+      markOrderPermanentlyClosed(targetOrder.id);
       return {
         isMatch: true,
-        orderId: order.id,
-        matchedOrder: order,
+        orderId: targetOrder.id,
+        matchedOrder: targetOrder,
         verdict: 'confirmed_closed',
-        reason: `أكد معلن الطلب الأصلي نفسه (${msgSender || order.senderName}) في القروب الحصول على مندوب: «${rawText}»`,
+        reason: `رصد بالذكاء الاصطناعي: تأكيد صريح بالحصول على مندوب في قروب (${msgGroup || targetOrder.groupName}): «${rawText}» لإعلان (${targetOrder.from} ← ${targetOrder.to})`,
         evidence: {
           replyText: rawText,
-          senderName: msgSender || order.senderName,
-          groupName: msgGroup || order.groupName,
+          senderName: msgSender || targetOrder.senderName,
+          groupName: msgGroup || targetOrder.groupName,
           timestamp: new Date(msgTime).toISOString(),
-          confidence: 99,
+          confidence: 95,
           isQuote: false,
-          matchedKeywords: [...matchedWords, ...matchedEmojis],
+          matchedKeywords: [...matchedWords, ...matchedEmojis, 'حصلت مندوب'],
         },
       };
     }

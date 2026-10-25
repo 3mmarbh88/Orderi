@@ -121,14 +121,18 @@ export async function spiderIngestMessage(
     });
   }
 
-  // 2. Closure Detection
+  // 2. Closure Detection (Keywords, Stickers, Replies & Emojis)
+  const cleanedSignal = rawText.replace(/[\s.,،.!؟?؛:؛\u200e\u200f]+/g, '').trim();
+  const isSticker = /sticker|ملصق|استيكر|ستيكر/i.test(cleanedSignal);
+  const isMinimalSignal = isSticker || /^(?:تم|تمت|حصلت|حصل|حصلنا|لقيت|خلاص|خلص|انحجز|شالوه|اخذوه|أخذوه|مشكور|مشكورين|يعطيكالعافيه|👍+|👌+|🙏+|✅+|✔️+|🤝+|👏+|📦+|🚗+)$/iu.test(cleanedSignal);
   const closure = extractClosureKeywords(rawText);
-  if (closure.hasClosureIntent) {
-    const matchedText = closure.matchedWords.join(', ') || 'تم / حصلت';
+
+  if (closure.hasClosureIntent || isMinimalSignal) {
+    const matchedText = isSticker ? 'ملصق / استيكر 🖼️' : (closure.matchedWords.join(', ') || closure.matchedEmojis.join(' ') || rawText.trim());
     recordSpiderEvent({
       action: 'CLOSED_ORDER',
       groupName,
-      detail: `رصد بالذكاء الاصطناعي: معلن بالقروب حصل على مندوب (${matchedText}) وحذف الطلب من الرادار والإشعارات فوراً`,
+      detail: `رصد بالذكاء الاصطناعي: المعلن (${senderName || 'صاحب الإعلان'}) أكد الحصول على مندوب (${matchedText}) وحُذف طلبه من الرادار والإشعارات فوراً`,
       latencyMs: Math.max(1, Math.round(performance.now() - startTime)),
     });
     return { action: 'CLOSED_ORDER', reason: matchedText };
