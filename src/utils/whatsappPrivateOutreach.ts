@@ -526,7 +526,7 @@ export async function executePrivateAdvertiserOutreach(
         } catch {}
       }
 
-      // Trigger native private chat with advertiser (groupName is empty: NEVER launch group!)
+      // Trigger native private chat with advertiser in background (groupName is empty: NEVER launch group!)
       try {
         await OrderiNotificationListener.reachAdvertiserPrivateChat({
           phone: targetPhone || undefined,
@@ -539,11 +539,6 @@ export async function executePrivateAdvertiserOutreach(
     } catch (e) {
       console.warn('[Orderi Native Outreach Error]', e);
     }
-  } else if (targetPhone) {
-    // Web / Desktop / PWA: open direct private WhatsApp chat with advertiser
-    try {
-      openRegularWhatsAppPrivateChat(targetPhone, messageText);
-    } catch {}
   }
 
   // 3. Background Delivery API (Zero popups, purely in background)

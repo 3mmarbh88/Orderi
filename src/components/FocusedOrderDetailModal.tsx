@@ -122,11 +122,6 @@ export const FocusedOrderDetailModal: React.FC<FocusedOrderDetailModalProps> = (
         } catch (err) {
           console.warn('[Orderi] Native background outreach error:', err);
         }
-      } else if (targetPhone) {
-        // Web / Browser: open direct private WhatsApp chat with advertiser
-        try {
-          openRegularWhatsAppPrivateChat(targetPhone, privateAdvertiserMessage);
-        } catch {}
       }
 
       // 3. Backend quick accept reply endpoint

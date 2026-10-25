@@ -358,11 +358,6 @@ export function OrderCard({
         } catch (err) {
           console.warn('[Orderi] Native background outreach error:', err);
         }
-      } else if (targetPhone) {
-        // Web / Browser: open direct private WhatsApp chat with advertiser
-        try {
-          openRegularWhatsAppPrivateChat(targetPhone, messageToSend);
-        } catch {}
       }
 
       // 5. Backend quick accept reply endpoint

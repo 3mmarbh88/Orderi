@@ -45,6 +45,7 @@ interface OrderiNotificationListenerPlugin {
   }): Promise<{ success: boolean; method: string }>;
   replyDoneToOriginalAd(options: {
     targetGroup: string;
+    message?: string;
   }): Promise<{ success: boolean; method: string; targetGroup?: string; message?: string }>;
   publishToWhatsAppGroups(options: {
     groupNames: string[];
@@ -96,13 +97,13 @@ export const OrderiNotificationListener = registerPlugin<OrderiNotificationListe
 
 export const isNativeAndroid = () => Capacitor.getPlatform() === 'android';
 
-/** Send the literal completion reply through a recent notification action for the exact source group. */
-export async function replyDoneToOriginalAd(targetGroup: string): Promise<{ success: boolean; method: string }> {
+/** Send completion/quote reply through a recent notification action for the exact source group. */
+export async function replyDoneToOriginalAd(targetGroup: string, message?: string): Promise<{ success: boolean; method: string }> {
   if (!isNativeAndroid()) return { success: false, method: 'not_native' };
   const name = targetGroup.trim();
   if (!name) return { success: false, method: 'missing_target_group' };
   try {
-    return await OrderiNotificationListener.replyDoneToOriginalAd({ targetGroup: name });
+    return await OrderiNotificationListener.replyDoneToOriginalAd({ targetGroup: name, message: message || 'تم' });
   } catch (error: any) {
     return { success: false, method: error?.message || 'error' };
   }
