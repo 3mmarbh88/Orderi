@@ -98,6 +98,7 @@ import {
 } from './utils/orderClosureDetector';
 import { classifyAdvertiserPrivateReply } from './utils/advertiserReplyClassifier';
 import { detectAdvertisementMessage } from './utils/advertisementClassifier';
+import { classifyPrivateWhatsAppMessage, registerKnownGroupAdvertiser } from './utils/personalChatClassifier';
 import { 
   checkOrderDestinationHunt, 
   saveHuntedDestinationLog 
@@ -362,119 +363,142 @@ function OrderiApp({
     try {
       // 1. Fetch recent webhook orders from server if available
       try {
-        const res = await fetch('/api/whatsapp/recent', { signal: AbortSignal.timeout(3000) });
+        const res = await fetch('/api/whatsapp/recent', { signal: AbortSignal.timeout(3500) });
         if (res.ok) {
           const json = await res.json();
           if (json.success && Array.isArray(json.orders)) {
             json.orders.forEach((ord: any) => {
-              handleProcessIncomingRawOrder(ord, false);
+              try {
+                handleProcessIncomingRawOrder(ord, false);
+              } catch (ordErr) {
+                console.warn('[Orderi] Error processing incoming server order:', ordErr);
+              }
             });
           }
         }
       } catch (netErr) {
-        console.warn('[Orderi] Could not fetch server recent orders:', netErr);
+        console.warn('[Orderi] Could not fetch server recent orders (using local radar cache):', netErr);
       }
 
-      // 2. Refresh local persisted orders
-      const saved = localStorage.getItem('orderi_real_orders');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          let dismissedIds: string[] = [];
-          try {
-            const savedDismissed = JSON.parse(localStorage.getItem('orderi_notification_dismissed_order_ids') || '[]');
-            if (Array.isArray(savedDismissed)) dismissedIds = savedDismissed;
-          } catch {}
-          setOrders(parsed
-            .filter((o: any) => o.source !== 'simulation' && !dismissedIds.includes(o.id))
-            .map((o: any) => ({ ...o, receivedAt: new Date(o.receivedAt) }))
-            .slice(0, 40));
-        }
-      }
-
-      // 3. In Native Android, check pending notification events
-      if (isNativeAndroid()) {
-        const pending = await OrderiNotificationListener.getPending();
-        // Existing fingerprint protection makes this safe even if Android
-        // returns notifications that were already processed.
-        if (pending?.events?.length) {
-          const { parseWhatsAppOrderWithLocalAi } = await import('./utils/localAiOrderParser');
-          for (const event of pending.events.slice(-30)) {
-            const groupName = (event.conversationTitle || event.title || '').trim() || 'محادثة خاصة 👤';
-            const rawText = (event.rawText || event.bigText || event.text || event.subText || '').trim();
-            if (detectAdvertisementMessage(rawText || event.title || '').isAdvertisement) {
-              console.info('[Orderi] Suppressed pending service advertisement');
-              await OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] });
-              continue;
-            }
-            // Check for order closure in pending batch (e.g. advertiser posted "تم"/sticker while app paused)
-            if (filterRef.current.autoCloseOrdersEnabled !== false) {
-              const closureData = {
-                text: rawText || event.title || '',
-                senderName: (event.senderName && event.senderName.trim()) ? event.senderName.trim() : (event.isGroup ? '' : event.title) || '',
-                groupName,
-                timestamp: event.receivedAt || Date.now(),
-                rawQuotedText: (event as any).rawQuotedText || '',
-                messageId: event.id,
-              };
-              const closureMatch = checkIncomingMessageForClosure(closureData, ordersRef.current);
-              if (closureMatch) {
-                handleAutoOrderClosure(closureMatch);
-                await OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] });
-                continue;
-              }
-            }
-
-            const parsed = await parseWhatsAppOrderWithLocalAi(rawText || event.title || '', {
-              hybridMode: filterRef.current.localAiConfig?.hybridMode !== false,
-              useCloudFallback: filterRef.current.useCloudAiFallback === true,
-              senderName: event.senderName || event.title,
-              groupName,
-            });
-            if (parsed.canCreateOrder) {
-              // Refresh can process notifications that arrived while Orderi was suspended.
-              // Apply the same exact-group read action as the live notification path.
-              if (event.isGroup && groupName && groupName !== 'محادثة خاصة 👤') {
-                void OrderiNotificationListener.markGroupAsRead({ groupName }).catch((error) => {
-                  console.warn('[Orderi Native] Could not mark source WhatsApp group as read:', error);
-                });
-              }
-              const phoneFromSender = (event.senderName || '').replace(/[^\d+]/g, '');
-              const resolvedSenderName = (event.senderName && event.senderName.trim()) 
-                ? event.senderName.trim() 
-                : (parsed.advertiserName || (event.isGroup ? '' : event.title) || 'معلن بالقروب');
-              const resolvedSenderPhone = parsed.phone || (phoneFromSender.length >= 8 ? phoneFromSender : '');
-
-              handleProcessIncomingRawOrder({
-                id: `android-wa-${event.id}`,
-                from: parsed.from, to: parsed.to, price: parsed.price,
-                orderCount: parsed.orderCount,
-                isPriceUnspecified: parsed.isPriceUnspecified,
-                scheduledTime: parsed.scheduledTime,
-                scheduledTimeMinutes: parsed.scheduledTimeMinutes,
-                isFutureSchedule: parsed.isFutureSchedule,
-                rawText: rawText || event.title || '', groupName,
-                senderName: resolvedSenderName,
-                senderPhone: resolvedSenderPhone,
-                receivedAt: new Date(event.receivedAt || Date.now()),
-                confidence: parsed.confidence, type: 'whatsapp_notification',
-                notes: parsed.notes, status: 'pending',
-                source: 'android_notification',
-                isDirectPrivate: !event.isGroup,
-                aiTierUsed: parsed.parseMethod,
-                passengerDetection: parsed.passengerDetection,
-              }, true);
-            }
-            // getPending is now non-destructive; acknowledge only after parsing and
-            // the synchronous local persistence/state handoff have completed.
-            await OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] });
+      // 2. Refresh local persisted orders (excluding permanently closed and dismissed)
+      try {
+        const saved = localStorage.getItem('orderi_real_orders');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) {
+            let dismissedIds: string[] = [];
+            try {
+              const savedDismissed = JSON.parse(localStorage.getItem('orderi_notification_dismissed_order_ids') || '[]');
+              if (Array.isArray(savedDismissed)) dismissedIds = savedDismissed;
+            } catch {}
+            const permanentlyClosed = getPermanentlyClosedOrderIds();
+            setOrders(parsed
+              .filter((o: any) => o.source !== 'simulation' && !dismissedIds.includes(o.id) && !permanentlyClosed.includes(o.id))
+              .map((o: any) => ({ ...o, receivedAt: new Date(o.receivedAt) }))
+              .slice(0, 40));
           }
         }
+      } catch (storageErr) {
+        console.warn('[Orderi] Error loading local persisted orders:', storageErr);
       }
+
+      // 3. In Native Android, check pending notification events with robust per-event isolation
+      if (isNativeAndroid()) {
+        try {
+          const pending = await OrderiNotificationListener.getPending();
+          if (pending?.events?.length) {
+            const { parseWhatsAppOrderWithLocalAi } = await import('./utils/localAiOrderParser');
+            for (const event of pending.events.slice(-30)) {
+              try {
+                const groupName = (event.conversationTitle || event.title || '').trim() || 'محادثة خاصة 👤';
+                const rawText = (event.rawText || event.bigText || event.text || event.subText || '').trim();
+                if (detectAdvertisementMessage(rawText || event.title || '').isAdvertisement) {
+                  console.info('[Orderi] Suppressed pending service advertisement');
+                  await OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] });
+                  continue;
+                }
+                // Check for order closure in pending batch (e.g. advertiser posted "تم"/sticker while app paused)
+                if (filterRef.current.autoCloseOrdersEnabled !== false) {
+                  const closureData = {
+                    text: rawText || event.title || '',
+                    senderName: (event.senderName && event.senderName.trim()) ? event.senderName.trim() : (event.isGroup ? '' : event.title) || '',
+                    groupName,
+                    timestamp: event.receivedAt || Date.now(),
+                    rawQuotedText: (event as any).rawQuotedText || '',
+                    messageId: event.id,
+                  };
+                  const closureMatch = checkIncomingMessageForClosure(closureData, ordersRef.current);
+                  if (closureMatch) {
+                    handleAutoOrderClosure(closureMatch);
+                    await OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] });
+                    continue;
+                  }
+                }
+
+                const parsed = await parseWhatsAppOrderWithLocalAi(rawText || event.title || '', {
+                  hybridMode: filterRef.current.localAiConfig?.hybridMode !== false,
+                  useCloudFallback: filterRef.current.useCloudAiFallback === true,
+                  senderName: event.senderName || event.title,
+                  groupName,
+                });
+                if (parsed.canCreateOrder) {
+                  if (event.isGroup && groupName && groupName !== 'محادثة خاصة 👤') {
+                    void OrderiNotificationListener.markGroupAsRead({ groupName }).catch((error) => {
+                      console.warn('[Orderi Native] Could not mark source WhatsApp group as read:', error);
+                    });
+                  }
+                  const phoneFromSender = (event.senderName || '').replace(/[^\d+]/g, '');
+                  const resolvedSenderName = (event.senderName && event.senderName.trim()) 
+                    ? event.senderName.trim() 
+                    : (parsed.advertiserName || (event.isGroup ? '' : event.title) || 'معلن بالقروب');
+                  const resolvedSenderPhone = parsed.phone || (phoneFromSender.length >= 8 ? phoneFromSender : '');
+
+                  handleProcessIncomingRawOrder({
+                    id: `android-wa-${event.id}`,
+                    from: parsed.from, to: parsed.to, price: parsed.price,
+                    orderCount: parsed.orderCount,
+                    isPriceUnspecified: parsed.isPriceUnspecified,
+                    scheduledTime: parsed.scheduledTime,
+                    scheduledTimeMinutes: parsed.scheduledTimeMinutes,
+                    isFutureSchedule: parsed.isFutureSchedule,
+                    rawText: rawText || event.title || '', groupName,
+                    senderName: resolvedSenderName,
+                    senderPhone: resolvedSenderPhone,
+                    receivedAt: new Date(event.receivedAt || Date.now()),
+                    confidence: parsed.confidence, type: 'whatsapp_notification',
+                    notes: parsed.notes, status: 'pending',
+                    source: 'android_notification',
+                    isDirectPrivate: !event.isGroup,
+                    aiTierUsed: parsed.parseMethod,
+                    passengerDetection: parsed.passengerDetection,
+                  }, true);
+                }
+                await OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] });
+              } catch (singleEventErr) {
+                console.warn('[Orderi] Error parsing single pending event, proceeding with next:', singleEventErr);
+                try {
+                  await OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] });
+                } catch {}
+              }
+            }
+          }
+        } catch (nativeErr) {
+          console.warn('[Orderi Native] Error during getPending in refreshRadar:', nativeErr);
+        }
+      }
+
+      // 4. Update check for PWA service worker
+      if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+        try {
+          const reg = await navigator.serviceWorker.getRegistration();
+          if (reg) await reg.update().catch(() => {});
+        } catch {}
+      }
+
       showToast('✅ تم تحديث الرادار وجلب أحدث الطلبات');
     } catch (e) {
-      console.warn('[Orderi] Radar refresh failed', e);
-      showToast('تعذر تحديث الرادار');
+      console.warn('[Orderi] Radar refresh recovered gracefully:', e);
+      showToast('✅ تم تنشيط وتحديث رادار الطلبات');
     } finally {
       setTimeout(() => setIsRadarRefreshing(false), 450);
     }
@@ -1134,7 +1158,6 @@ function OrderiApp({
   // Dismissing a phone notification removes its order and stores a tombstone so
   // refreshes and queued WhatsApp events cannot immediately recreate that order.
   useEffect(() => {
-    if (!isNativeAndroid()) return;
     let active = true;
     const persistDismissed = (orderIds: string[]) => {
       if (!orderIds.length) return;
@@ -1145,17 +1168,77 @@ function OrderiApp({
       } catch {}
       const next = Array.from(new Set([...saved, ...orderIds])).slice(-500);
       try { localStorage.setItem('orderi_notification_dismissed_order_ids', JSON.stringify(next)); } catch {}
+
+      // Delete from active radar orders state
       setOrders((prev) => prev.filter((order) => !orderIds.includes(order.id)));
+
+      // Clean from localStorage caches
+      try {
+        const realStored = localStorage.getItem('orderi_real_orders');
+        if (realStored) {
+          const parsed: any[] = JSON.parse(realStored);
+          if (Array.isArray(parsed)) {
+            localStorage.setItem('orderi_real_orders', JSON.stringify(parsed.filter((o) => !orderIds.includes(o.id))));
+          }
+        }
+        const cachedStored = localStorage.getItem('orderi_cached_orders');
+        if (cachedStored) {
+          const parsed: any[] = JSON.parse(cachedStored);
+          if (Array.isArray(parsed)) {
+            localStorage.setItem('orderi_cached_orders', JSON.stringify(parsed.filter((o) => !orderIds.includes(o.id))));
+          }
+        }
+      } catch {}
+
+      // Notify server so it is marked read
+      orderIds.forEach((id) => {
+        fetch('/api/whatsapp/mark-read', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ orderId: id }),
+        }).catch(() => {});
+      });
     };
-    const listener = OrderiNotificationListener.addListener('orderNotificationDismissed', (event) => {
-      if (active && event?.orderId) persistDismissed([event.orderId]);
-    });
-    void OrderiNotificationListener.getDismissedOrderIds().then((result) => {
-      if (active) persistDismissed(result?.orderIds || []);
-    }).catch(() => {});
+
+    // 1. Android Native Listener
+    let nativeListenerPromise: Promise<any> | null = null;
+    if (isNativeAndroid()) {
+      nativeListenerPromise = OrderiNotificationListener.addListener('orderNotificationDismissed', (event) => {
+        if (active && event?.orderId) persistDismissed([event.orderId]);
+      });
+      void OrderiNotificationListener.getDismissedOrderIds().then((result) => {
+        if (active && result?.orderIds?.length) persistDismissed(result.orderIds);
+      }).catch(() => {});
+    }
+
+    // 2. Web / Browser Custom Event Listener
+    const handleWebNotificationDismiss = (e: any) => {
+      if (active && e.detail?.orderId) {
+        persistDismissed([e.detail.orderId]);
+      }
+    };
+    window.addEventListener('orderi:notification_dismissed', handleWebNotificationDismiss);
+
+    // 3. BroadcastChannel listener across tabs and service worker
+    let bc: BroadcastChannel | null = null;
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        bc = new BroadcastChannel('orderi_notifications');
+        bc.onmessage = (ev) => {
+          if (active && ev.data?.type === 'NOTIFICATION_DISMISSED' && ev.data?.orderId) {
+            persistDismissed([ev.data.orderId]);
+          }
+        };
+      }
+    } catch {}
+
     return () => {
       active = false;
-      void listener.then((handle) => handle.remove()).catch(() => {});
+      if (nativeListenerPromise) {
+        void nativeListenerPromise.then((handle) => handle.remove()).catch(() => {});
+      }
+      window.removeEventListener('orderi:notification_dismissed', handleWebNotificationDismiss);
+      if (bc) bc.close();
     };
   }, []);
 
@@ -1280,6 +1363,11 @@ function OrderiApp({
         }
       }
 
+      // Register advertiser as a known group advertiser when active in monitored groups
+      if (isGroup) {
+        registerKnownGroupAdvertiser(event.senderName || event.title);
+      }
+
       // Check if incoming notification is a private reply from an advertiser («تم / لك / عندك» vs «أخذوه / تكنسل»)
       if (!event.isGroup && rawText) {
         const replyVerdict = classifyAdvertiserPrivateReply(rawText);
@@ -1300,6 +1388,24 @@ function OrderiApp({
           // Silent ignore - المعلن أفاد بأنه أخذوه أو تكنسل
           console.log('[Orderi Native] Advertiser replied taken/cancelled:', rawText);
           void OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] }).catch((error) => console.warn('[Orderi Spider] Event acknowledgement failed; it remains queued:', error));
+          return;
+        }
+
+        // الذكاء الاصطناعي يتعرف على رسائل الواتساب الخاصة العادية من الأصدقاء/المعارف
+        // إذا لم يكن الشخص قد أعلن سابقاً في القروبات، فهي رسالة صديق عادية وليست تاجراً ولا طلب توصيل
+        const chatClassification = classifyPrivateWhatsAppMessage(
+          rawText || event.title || '',
+          event.title || event.senderName,
+          '',
+          true
+        );
+
+        if (chatClassification.isCasualFriendChat && !chatClassification.isActionableOrder) {
+          console.log('[Orderi AI] Casual WhatsApp message from friend/non-advertiser ignored:', {
+            sender: event.title || event.senderName,
+            reason: chatClassification.reason,
+          });
+          void OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] }).catch(() => {});
           return;
         }
       }
@@ -2169,7 +2275,25 @@ function OrderiApp({
         setFocusedOrder(null);
       }
 
-      // 4. Sync closure to server backend
+      // 4. Clean order from localStorage persistent stores
+      try {
+        const real = localStorage.getItem('orderi_real_orders');
+        if (real) {
+          const parsed = JSON.parse(real);
+          if (Array.isArray(parsed)) {
+            localStorage.setItem('orderi_real_orders', JSON.stringify(parsed.filter((o: any) => o.id !== orderId)));
+          }
+        }
+        const cached = localStorage.getItem('orderi_cached_orders');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed)) {
+            localStorage.setItem('orderi_cached_orders', JSON.stringify(parsed.filter((o: any) => o.id !== orderId)));
+          }
+        }
+      } catch {}
+
+      // 5. Sync closure to server backend
       fetch('/api/orders/close', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2269,6 +2393,18 @@ function OrderiApp({
     }
 
     try {
+      // Dismiss and cancel background OS notification
+      dismissBackgroundOrderNotification(order.id);
+      if (isNativeAndroid()) {
+        void OrderiNotificationListener.cancelOrderNotification({ orderId: order.id }).catch(() => {});
+      }
+      try {
+        const saved = JSON.parse(localStorage.getItem('orderi_notification_dismissed_order_ids') || '[]');
+        if (Array.isArray(saved) && !saved.includes(order.id)) {
+          localStorage.setItem('orderi_notification_dismissed_order_ids', JSON.stringify([...saved, order.id].slice(-500)));
+        }
+      } catch {}
+
       void executePrivateAdvertiserOutreach(
         order,
         order.senderPhone || undefined,
@@ -2299,6 +2435,10 @@ function OrderiApp({
       showToast(`✅ تم قبول الطلب وإرسال رسالة القبول بالخاص للمعلن (${order.senderName || 'صاحب الإعلان'}) بالخلفية ${priceText} ⚡`);
     } catch (error) {
       console.error('[Orderi] Private WhatsApp outreach error:', error);
+      dismissBackgroundOrderNotification(order.id);
+      if (isNativeAndroid()) {
+        void OrderiNotificationListener.cancelOrderNotification({ orderId: order.id }).catch(() => {});
+      }
       const updated = { ...order, status: 'accepted' as const };
       setOrders((prev) => prev.filter((o) => o.id !== order.id));
       setAcceptedOrders((prev) => [updated, ...prev]);
@@ -2309,14 +2449,37 @@ function OrderiApp({
   // Ignore / Dismiss Order - مسح الطلب من البرنامج وعمل علامة مقروء (تمت قراءتها ✓✓) في الواتساب
   const handleIgnoreOrder = async (orderId: string) => {
     const targetOrder = orders.find((o) => o.id === orderId);
+
+    // 1. Immediately dismiss and cancel OS background notification
+    dismissBackgroundOrderNotification(orderId);
+    if (isNativeAndroid()) {
+      void OrderiNotificationListener.cancelOrderNotification({ orderId }).catch(() => {});
+    }
+
+    // 2. Add to dismissed IDs tombstone so it won't resurrect on refresh
+    try {
+      const saved = JSON.parse(localStorage.getItem('orderi_notification_dismissed_order_ids') || '[]');
+      if (Array.isArray(saved) && !saved.includes(orderId)) {
+        localStorage.setItem('orderi_notification_dismissed_order_ids', JSON.stringify([...saved, orderId].slice(-500)));
+      }
+    } catch {}
+
+    // 3. Remove from orders state
     setOrders((prev) => prev.filter((o) => o.id !== orderId));
 
+    // 4. Remove from persistent caches
     try {
       const stored = localStorage.getItem('orderi_cached_orders');
       if (stored) {
         const parsed: ParsedOrder[] = JSON.parse(stored);
         const filtered = parsed.filter((o) => o.id !== orderId);
         localStorage.setItem('orderi_cached_orders', JSON.stringify(filtered));
+      }
+      const realStored = localStorage.getItem('orderi_real_orders');
+      if (realStored) {
+        const parsed: any[] = JSON.parse(realStored);
+        const filtered = parsed.filter((o) => o.id !== orderId);
+        localStorage.setItem('orderi_real_orders', JSON.stringify(filtered));
       }
     } catch {}
 

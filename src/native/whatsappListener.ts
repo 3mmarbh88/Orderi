@@ -51,6 +51,53 @@ export async function openWhatsAppGroupConversation(groupName: string): Promise<
   return { success: false, method: 'not_supported' };
 }
 
+export async function openWhatsAppPrivateConversation(options: {
+  phone?: string;
+  memberName?: string;
+}): Promise<{ success: boolean; method: string }> {
+  const phone = (options.phone || '').replace(/[^\d+]/g, '');
+  const memberName = (options.memberName || '').trim();
+
+  if (isNativeAndroid()) {
+    try {
+      const res = await OrderiNotificationListener.openWhatsAppPrivateConversation({
+        phone: phone || undefined,
+        memberName: memberName || undefined,
+      });
+      if (res && res.success) return res;
+    } catch {}
+  }
+
+  // Web fallback: if phone number is present, open wa.me link directly
+  if (phone) {
+    const cleanDigits = phone.replace(/\D/g, '');
+    const bahrainPhone = cleanDigits.length === 8 ? `973${cleanDigits}` : cleanDigits;
+    const waUrl = `https://wa.me/${bahrainPhone}`;
+    if (typeof window !== 'undefined') {
+      try {
+        window.open(waUrl, '_blank');
+        return { success: true, method: 'web_phone_link' };
+      } catch {
+        window.location.href = waUrl;
+        return { success: true, method: 'web_location_link' };
+      }
+    }
+  }
+
+  // If no phone is known, open WhatsApp app or web interface
+  if (typeof window !== 'undefined') {
+    try {
+      window.open('https://web.whatsapp.com', '_blank');
+      return { success: true, method: 'web_whatsapp' };
+    } catch {
+      window.location.href = 'https://web.whatsapp.com';
+      return { success: true, method: 'web_location' };
+    }
+  }
+
+  return { success: false, method: 'not_supported' };
+}
+
 export async function sendNativeQuickReply(options: {
   groupName?: string;
   phone?: string;

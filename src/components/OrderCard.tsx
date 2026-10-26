@@ -8,6 +8,7 @@ import {
   Clock, 
   Coins, 
   Users, 
+  User, 
   Copy, 
   ExternalLink,
   ChevronDown,
@@ -273,8 +274,22 @@ export function OrderCard({
     await openWhatsAppGroupConversation(groupName || 'واتساب');
   };
 
+  const handleOpenAdvertiserPrivateChat = async (e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    const targetPhone = getAdvertiserTargetPhone(order, effectivePhone);
+    const advertiserName = (order.senderName || 'صاحب الإعلان').trim();
+    const { openWhatsAppPrivateConversation } = await import('../native/whatsappListener');
+    await openWhatsAppPrivateConversation({
+      phone: targetPhone || undefined,
+      memberName: advertiserName,
+    });
+  };
+
   const handleAdvertiserNameClick = (e: React.MouseEvent) => {
-    handleOpenOrderGroup(e);
+    handleOpenAdvertiserPrivateChat(e);
   };
 
   const handleExecuteBackgroundAccept = async (e?: React.MouseEvent) => {
@@ -898,19 +913,33 @@ export function OrderCard({
                   {order.rawText}
                 </p>
                 <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
-                  <button
-                    type="button"
-                    onClick={handleOpenOrderGroup}
-                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-950 border border-emerald-300 hover:border-emerald-400 transition-all font-bold cursor-pointer text-right group shadow-xs active:scale-95"
-                    title={`انقر لفتح قروب الواتساب الذي نُشر فيه الإعلان (${order.groupName || 'واتساب'})`}
-                  >
-                    <Users className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span className="text-slate-600 font-normal">المعلن:</span>
-                    <strong className="underline decoration-emerald-500 group-hover:text-emerald-700">{order.senderName || 'صاحب الإعلان'}</strong>
-                    <span className="text-[10px] bg-emerald-600 text-white px-2 py-0.5 rounded-full font-black flex items-center gap-1">
-                      قروب: {order.groupName || 'واتساب'} 👥
-                    </span>
-                  </button>
+                  <div className="inline-flex items-center gap-1.5 p-1 rounded-xl bg-emerald-50/90 border border-emerald-300 text-emerald-950 font-bold shadow-xs">
+                    {/* Clicking on 'المعلن' opens the WhatsApp group where it was published */}
+                    <button
+                      type="button"
+                      onClick={handleOpenOrderGroup}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[11px] transition-all active:scale-95 cursor-pointer shadow-2xs"
+                      title={`انقر على كلمة «المعلن» لفتح القروب الذي نُشر فيه الإعلان (${order.groupName || 'واتساب'}) 👥`}
+                    >
+                      <Users className="w-3.5 h-3.5 shrink-0" />
+                      <span>المعلن</span>
+                      <span className="text-[10px] opacity-90 hidden sm:inline">({order.groupName || 'القروب'})</span>
+                    </button>
+
+                    <span className="text-slate-400 font-black">:</span>
+
+                    {/* Clicking on the advertiser name opens a private WhatsApp message directly with the advertiser */}
+                    <button
+                      type="button"
+                      onClick={handleOpenAdvertiserPrivateChat}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white hover:bg-emerald-100 text-emerald-950 border border-emerald-200 font-black text-[11px] underline decoration-emerald-500 hover:text-emerald-700 transition-all active:scale-95 cursor-pointer shadow-2xs"
+                      title={`انقر على اسم المعلن «${order.senderName || 'صاحب الإعلان'}» لفتح رسالة خاصة معه في واتساب 💬`}
+                    >
+                      <User className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span>{order.senderName || 'صاحب الإعلان'}</span>
+                      <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">خاص 💬</span>
+                    </button>
+                  </div>
                   {order.senderPhone && (
                     <button
                       type="button"

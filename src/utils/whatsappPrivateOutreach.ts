@@ -489,15 +489,38 @@ export async function executePrivateAdvertiserOutreach(
   const resolution = resolveAdvertiserContact(order);
   const targetPhone = getAdvertiserTargetPhone(order, confirmedPhone);
   const defaultMessage = formatAdvertiserPrivateMessage(order);
-  const template = (customTemplate || '').trim();
-  const messageText = template
-    ? template.replace(/\{area\}/g, areaName || order.from || 'المنامة')
+  
+  // Resolve response template from argument or saved filter settings
+  let template = (customTemplate || '').trim();
+  if (!template && typeof window !== 'undefined') {
+    try {
+      const saved = localStorage.getItem('orderi_filter_settings');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.customResponseTemplate && typeof parsed.customResponseTemplate === 'string') {
+          template = parsed.customResponseTemplate.trim();
+        }
+      }
+    } catch {}
+  }
+
+  const advertiserName = resolution.name || order.senderName || 'صاحب الإعلان';
+  const myArea = areaName || order.from || 'البحرين';
+
+  let messageText = defaultMessage;
+  if (template) {
+    if (template.includes('{from}') || template.includes('{to}') || template.includes('{name}') || template.includes('{price}')) {
+      messageText = template
+        .replace(/\{area\}/g, myArea)
         .replace(/\{from\}/g, order.from || 'الموقع المحدد')
         .replace(/\{to\}/g, order.to || 'الموقع المحدد')
-        .replace(/\{price\}/g, order.price > 0 && !order.isPriceUnspecified ? String(order.price) : 'بالاتفاق')
-        .replace(/\{name\}/g, order.senderName || 'صاحب الإعلان')
-    : defaultMessage;
-  const advertiserName = resolution.name || order.senderName || 'صاحب الإعلان';
+        .replace(/\{price\}/g, order.price > 0 && !order.isPriceUnspecified ? (order.price % 1 === 0 ? order.price.toString() : order.price.toFixed(1)) : 'بالاتفاق')
+        .replace(/\{name\}/g, advertiserName);
+    } else {
+      const baseCourier = template.replace(/\{area\}/g, myArea);
+      messageText = `السلام عليكم، بخصوص طلبك (${order.from} ← ${order.to}):\n${baseCourier} ومستعد للاستلام والتوصيل فوراً 🚗`;
+    }
+  }
 
   // 1. Copy tailored message to clipboard as an instant backup for the driver
   if (typeof navigator !== 'undefined' && navigator.clipboard) {

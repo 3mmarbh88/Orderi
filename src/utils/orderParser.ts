@@ -28,6 +28,7 @@ export interface RawParsedResult {
   passengerDetection: PassengerDetection;
   /** True when message is an advertiser's WhatsApp voice note/message */
   isVoiceNote?: boolean;
+  advertiserName?: string;
 }
 
 /**

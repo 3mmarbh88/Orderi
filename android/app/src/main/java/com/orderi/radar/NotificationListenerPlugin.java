@@ -267,6 +267,8 @@ public class NotificationListenerPlugin extends Plugin {
     @PluginMethod
     public void moveToBackground(PluginCall call) {
         try {
+            getContext().getSharedPreferences(BackgroundRadarService.PREFS, Context.MODE_PRIVATE)
+                    .edit().putBoolean(BackgroundRadarService.KEY_ENABLED, true).apply();
             if (getActivity() != null) {
                 getActivity().moveTaskToBack(true);
             }
@@ -366,6 +368,59 @@ public class NotificationListenerPlugin extends Plugin {
         }
         ret.put("success", opened);
         ret.put("method", opened ? "cached_group_or_whatsapp" : "group_not_found");
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void openWhatsAppPrivateConversation(PluginCall call) {
+        String phone = call.getString("phone", "").trim();
+        String memberName = call.getString("memberName", "").trim();
+        JSObject ret = new JSObject();
+        boolean opened = false;
+
+        // 1. If phone number is available, launch WhatsApp direct chat by phone
+        if (!android.text.TextUtils.isEmpty(phone)) {
+            String cleanPhone = phone.replaceAll("\\D", "");
+            if (cleanPhone.length() == 8) cleanPhone = "973" + cleanPhone;
+            try {
+                Intent intent = new Intent(Intent.ACTION_VIEW);
+                intent.setData(android.net.Uri.parse("https://api.whatsapp.com/send?phone=" + cleanPhone));
+                intent.setPackage("com.whatsapp");
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                getContext().startActivity(intent);
+                opened = true;
+            } catch (Exception e1) {
+                try {
+                    Intent intent = new Intent(Intent.ACTION_VIEW);
+                    intent.setData(android.net.Uri.parse("https://api.whatsapp.com/send?phone=" + cleanPhone));
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    getContext().startActivity(intent);
+                    opened = true;
+                } catch (Exception ignored) {}
+            }
+        }
+
+        // 2. If phone is not provided, try cached private conversation intent by member name
+        if (!opened && !android.text.TextUtils.isEmpty(memberName)) {
+            opened = WhatsAppNotificationListenerService.openWhatsAppPrivateConversation(getContext(), memberName);
+        }
+
+        // 3. Fallback: launch WhatsApp app
+        if (!opened) {
+            try {
+                android.content.pm.PackageManager pm = getContext().getPackageManager();
+                Intent launchIntent = pm.getLaunchIntentForPackage("com.whatsapp");
+                if (launchIntent == null) launchIntent = pm.getLaunchIntentForPackage("com.whatsapp.w4b");
+                if (launchIntent != null) {
+                    launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    getContext().startActivity(launchIntent);
+                    opened = true;
+                }
+            } catch (Exception ignored) {}
+        }
+
+        ret.put("success", opened);
+        ret.put("method", opened ? "whatsapp_private_opened" : "not_opened");
         call.resolve(ret);
     }
 

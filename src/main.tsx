@@ -13,6 +13,9 @@ registerSW({
   onOfflineReady() {
     console.log('[Ordari PWA] App ready to work offline.');
   },
+  onRegisterError(error) {
+    console.warn('[Ordari PWA] Service worker registration notice:', error);
+  },
 });
 
 createRoot(document.getElementById('root')!).render(

@@ -83,6 +83,16 @@ export const FocusedOrderDetailModal: React.FC<FocusedOrderDetailModalProps> = (
     await openWhatsAppGroupConversation(groupName || 'واتساب');
   };
 
+  const handleOpenAdvertiserPrivateChat = async () => {
+    const targetPhone = getAdvertiserTargetPhone(order, effectivePhone);
+    const advertiserName = (order.senderName || 'صاحب الإعلان').trim();
+    const { openWhatsAppPrivateConversation } = await import('../native/whatsappListener');
+    await openWhatsAppPrivateConversation({
+      phone: targetPhone || undefined,
+      memberName: advertiserName,
+    });
+  };
+
   const handleAcceptOrder = async () => {
     if (isAutoReplying) return;
     setIsAutoReplying(true);
@@ -353,19 +363,37 @@ export const FocusedOrderDetailModal: React.FC<FocusedOrderDetailModalProps> = (
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500 px-1">
-              <button
-                type="button"
-                onClick={handleOpenOrderGroup}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-950 border border-emerald-300 hover:border-emerald-400 font-bold transition-all active:scale-95 cursor-pointer shadow-xs"
-                title={`انقر لفتح قروب الواتساب الذي نُشر فيه الإعلان (${order.groupName || 'واتساب'})`}
-              >
-                <Users className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span className="text-slate-600 font-normal">المعلن:</span>
-                <strong className="underline decoration-emerald-500">{order.senderName || 'صاحب الإعلان'}</strong>
-                <span className="text-[10px] bg-emerald-600 text-white px-2 py-0.5 rounded-full font-black">
-                  فتح القروب ({order.groupName || 'واتساب'}) 👥
-                </span>
-              </button>
+              <div className="inline-flex items-center gap-1.5 p-1 rounded-xl bg-emerald-50/90 border border-emerald-300 text-emerald-950 font-bold shadow-xs">
+                {/* Clicking on 'المعلن' opens the WhatsApp group where it was posted */}
+                <button
+                  type="button"
+                  onClick={handleOpenOrderGroup}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white hover:bg-emerald-100 text-emerald-900 border border-emerald-200 hover:border-emerald-400 transition-all active:scale-95 cursor-pointer shadow-2xs"
+                  title={`انقر لفتح قروب الواتساب الذي نُشر فيه الإعلان (${order.groupName || 'واتساب'})`}
+                >
+                  <Users className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                  <span className="font-bold underline decoration-emerald-500 decoration-1">المعلن:</span>
+                  <span className="text-[10px] bg-emerald-700 text-white px-1.5 py-0.2 rounded font-black">
+                    القروب 👥
+                  </span>
+                </button>
+
+                {/* Clicking on the advertiser name opens a private WhatsApp conversation with the advertiser */}
+                <button
+                  type="button"
+                  onClick={handleOpenAdvertiserPrivateChat}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-all active:scale-95 cursor-pointer shadow-2xs font-extrabold"
+                  title={`انقر لفتح رسالة خاصة بالواتساب مع المعلن (${order.senderName || 'صاحب الإعلان'})`}
+                >
+                  <User className="w-3.5 h-3.5 text-white shrink-0" />
+                  <span className="underline decoration-white/80 decoration-1">
+                    {order.senderName || 'صاحب الإعلان'}
+                  </span>
+                  <span className="text-[10px] bg-white/20 text-white px-1.5 py-0.2 rounded font-black">
+                    خاص 💬
+                  </span>
+                </button>
+              </div>
               {effectivePhone && (
                 <button
                   type="button"

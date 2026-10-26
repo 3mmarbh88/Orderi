@@ -222,7 +222,16 @@ export function dismissBackgroundOrderNotification(orderId: string): void {
     detail: { orderId, tag: targetTag }
   }));
 
-  // 3. If running on native Android, cancel OS status-bar notification directly
+  // 3. Broadcast channel for multi-tab and service worker synchronization
+  try {
+    if (typeof BroadcastChannel !== 'undefined') {
+      const bc = new BroadcastChannel('orderi_notifications');
+      bc.postMessage({ type: 'NOTIFICATION_DISMISSED', orderId });
+      bc.close();
+    }
+  } catch {}
+
+  // 4. If running on native Android, cancel OS status-bar notification directly
   if (isNativeAndroid()) {
     try {
       OrderiNotificationListener.cancelOrderNotification({ orderId }).catch(() => {});
@@ -231,11 +240,13 @@ export function dismissBackgroundOrderNotification(orderId: string): void {
 }
 
 function createWindowNotification(title: string, options: any, order?: ParsedOrder) {
+  let isProgrammaticClose = false;
   const notif = new Notification(title, options);
 
-  // Listen for dismiss event to close window-level notification instance
+  // Listen for dismiss event to close window-level notification instance programmatically
   const handleDismiss = (e: any) => {
     if (e.detail?.orderId === order?.id) {
+      isProgrammaticClose = true;
       try {
         notif.close();
       } catch {}
@@ -246,6 +257,19 @@ function createWindowNotification(title: string, options: any, order?: ParsedOrd
 
   notif.onclose = () => {
     window.removeEventListener('orderi:dismiss_notification', handleDismiss);
+    // If closed by user action (swiped away / closed from OS bar), notify Radar to delete order!
+    if (!isProgrammaticClose && order?.id) {
+      window.dispatchEvent(new CustomEvent('orderi:notification_dismissed', {
+        detail: { orderId: order.id }
+      }));
+      try {
+        if (typeof BroadcastChannel !== 'undefined') {
+          const bc = new BroadcastChannel('orderi_notifications');
+          bc.postMessage({ type: 'NOTIFICATION_DISMISSED', orderId: order.id });
+          bc.close();
+        }
+      } catch {}
+    }
   };
 
   notif.onclick = () => {
@@ -262,6 +286,7 @@ function createWindowNotification(title: string, options: any, order?: ParsedOrd
         },
       }));
     }
+    isProgrammaticClose = true;
     notif.close();
   };
 }

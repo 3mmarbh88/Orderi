@@ -206,12 +206,20 @@ export function checkIncomingMessageForClosure(
     const toMention = order.to && cleanMsg.includes(cleanDialectText(order.to));
     const priceMention = order.price && order.price > 0 && cleanMsg.includes(order.price.toString());
 
+    const rawQuoteClean = message.rawQuotedText ? cleanDialectText(message.rawQuotedText) : '';
+    const rawOrderClean = cleanDialectText(order.rawText);
+    const quoteMatchesOrder = Boolean(
+      rawQuoteClean && (
+        (rawQuoteClean.length >= 8 && rawOrderClean.includes(rawQuoteClean.slice(0, 25))) ||
+        (rawOrderClean.length >= 8 && rawQuoteClean.includes(rawOrderClean.slice(0, 25))) ||
+        (order.from && rawQuoteClean.includes(cleanDialectText(order.from))) ||
+        (order.to && rawQuoteClean.includes(cleanDialectText(order.to))) ||
+        (order.senderPhone && rawQuoteClean.includes(order.senderPhone.replace(/\D/g, '').slice(-8)))
+      )
+    );
+
     const isQuoted = 
-      (message.rawQuotedText && (
-        (order.from && message.rawQuotedText.includes(order.from)) || 
-        (order.to && message.rawQuotedText.includes(order.to)) ||
-        message.rawQuotedText.includes(orderSnippet)
-      )) ||
+      quoteMatchesOrder ||
       rawText.includes(`> ${orderSnippet}`) ||
       rawText.includes(orderSnippet) ||
       ((fromMention && toMention) || (fromMention && priceMention) || (toMention && priceMention));
@@ -219,7 +227,7 @@ export function checkIncomingMessageForClosure(
     const isSenderMatch = isAdvertiserSenderMatch(msgSender, msgPhone, order.senderName, order.senderPhone);
 
     // إذا وُجد اقتباس للطلب، أو إذا كان ريبلي من صاحب الطلب نفسه
-    if (isQuoted && (isSenderMatch || !msgSender)) {
+    if (isQuoted && (isSenderMatch || quoteMatchesOrder || !msgSender)) {
       processedMessageHashes.add(dedupeKey);
       markOrderPermanentlyClosed(order.id);
       return {

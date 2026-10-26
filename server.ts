@@ -7,6 +7,7 @@ import QRCode from "qrcode";
 import { parseWhatsAppOrderText } from "./src/utils/orderParser";
 import { checkIncomingMessageForClosure, extractClosureKeywords } from "./src/utils/orderClosureDetector";
 import { classifyAdvertiserPrivateReply } from "./src/utils/advertiserReplyClassifier";
+import { classifyPrivateWhatsAppMessage, registerKnownGroupAdvertiser } from "./src/utils/personalChatClassifier";
 import { checkOrRegisterDevice, activateDevice, resetDeviceTrial } from "./src/server/trialVault";
 
 dotenv.config();
@@ -319,6 +320,24 @@ const handleIncomingWebhook = (req: express.Request, res: express.Response) => {
 
     const groupDisplayName = isDirectChat ? "محادثة خاصة / تاجر مباشر 👤" : group;
 
+    // Register sender as a known group advertiser if posted in a delivery group
+    if (!isDirectChat) {
+      registerKnownGroupAdvertiser(sender, phone);
+    } else {
+      // AI & heuristic filter: if someone sends a private message and hasn't announced in groups,
+      // it is an ordinary chat from a friend unless it has an explicit delivery order format.
+      const chatClassification = classifyPrivateWhatsAppMessage(rawText, sender, phone, true);
+      if (chatClassification.isCasualFriendChat && !chatClassification.isActionableOrder) {
+        console.log(`[Orderi AI Server] Casual private message from friend/non-advertiser (${sender}) ignored: ${chatClassification.reason}`);
+        return res.json({
+          success: true,
+          ignored: true,
+          isCasualFriendChat: true,
+          reason: chatClassification.reason || "رسالة خاصة عادية من صديق وليست تاجراً ولا طلب توصيل",
+        });
+      }
+    }
+
     // Instantly broadcast discovered group name to all active client screens
     if (!isDirectChat && groupDisplayName && groupDisplayName !== "محادثة خاصة / تاجر مباشر 👤") {
       const groupEvent = `data: ${JSON.stringify({
@@ -333,56 +352,54 @@ const handleIncomingWebhook = (req: express.Request, res: express.Response) => {
     }
 
     // 2. Smart Closed Order Detection (الكشف الذكي عن الطلبات المحجوزة أو المنتهية)
-    const closureCheck = extractClosureKeywords(rawText);
-    if (closureCheck.hasClosureIntent) {
-      const closureMatch = checkIncomingMessageForClosure(
-        {
-          text: rawText,
-          senderName: sender,
-          senderPhone: phone,
-          groupName: groupDisplayName,
-          timestamp: Date.now(),
-        },
-        recentWebhookOrders as any
-      );
+    const closureMatch = checkIncomingMessageForClosure(
+      {
+        text: rawText,
+        senderName: sender,
+        senderPhone: phone,
+        groupName: groupDisplayName,
+        timestamp: Date.now(),
+        rawQuotedText: body.quotedText || body.rawQuotedText || "",
+      },
+      recentWebhookOrders as any
+    );
 
-      if (closureMatch) {
-        if (closureMatch.verdict === 'confirmed_closed') {
-          const idx = recentWebhookOrders.findIndex((o) => o.id === closureMatch.orderId);
-          if (idx !== -1) {
-            recentWebhookOrders.splice(idx, 1);
-          }
-          addSpiderLog("CLOSED_ORDER", groupDisplayName, `حذف طلب التوصيل (${closureMatch.matchedOrder?.from || ''} ➔ ${closureMatch.matchedOrder?.to || ''}) بعد حصول المعلن على مندوب: "${closureMatch.reason}"`);
-        } else {
-          const targetOrd = recentWebhookOrders.find((o) => o.id === closureMatch.orderId);
-          if (targetOrd) {
-            targetOrd.status = 'suspicious_closed';
-            targetOrd.closureReason = closureMatch.reason;
-            targetOrd.closureEvidence = closureMatch.evidence;
-          }
+    if (closureMatch) {
+      if (closureMatch.verdict === 'confirmed_closed') {
+        const idx = recentWebhookOrders.findIndex((o) => o.id === closureMatch.orderId);
+        if (idx !== -1) {
+          recentWebhookOrders.splice(idx, 1);
         }
-
-        const closePayload = `data: ${JSON.stringify({
-          type: "ORDER_CLOSED",
-          orderId: closureMatch.orderId,
-          closureMatch,
-        })}\n\n`;
-        sseClients.forEach((client) => {
-          try { client.write(closePayload); } catch { sseClients.delete(client); }
-        });
-
-        console.log(`[Orderi Closure] Order ${closureMatch.orderId} deleted/closed: ${closureMatch.reason}`);
-
-        return res.json({
-          success: true,
-          closureDetected: true,
-          orderId: closureMatch.orderId,
-          verdict: closureMatch.verdict,
-          reason: closureMatch.reason,
-          evidence: closureMatch.evidence,
-          message: "تم رصد رد بالقروب يفيد باكتمال أو حجز الطلب وإغلاقه تلقائياً في الرادار",
-        });
+        addSpiderLog("CLOSED_ORDER", groupDisplayName, `حذف طلب التوصيل (${closureMatch.matchedOrder?.from || ''} ➔ ${closureMatch.matchedOrder?.to || ''}) بعد حصول المعلن على مندوب: "${closureMatch.reason}"`);
+      } else {
+        const targetOrd = recentWebhookOrders.find((o) => o.id === closureMatch.orderId);
+        if (targetOrd) {
+          targetOrd.status = 'suspicious_closed';
+          targetOrd.closureReason = closureMatch.reason;
+          targetOrd.closureEvidence = closureMatch.evidence;
+        }
       }
+
+      const closePayload = `data: ${JSON.stringify({
+        type: "ORDER_CLOSED",
+        orderId: closureMatch.orderId,
+        closureMatch,
+      })}\n\n`;
+      sseClients.forEach((client) => {
+        try { client.write(closePayload); } catch { sseClients.delete(client); }
+      });
+
+      console.log(`[Orderi Closure] Order ${closureMatch.orderId} deleted/closed: ${closureMatch.reason}`);
+
+      return res.json({
+        success: true,
+        closureDetected: true,
+        orderId: closureMatch.orderId,
+        verdict: closureMatch.verdict,
+        reason: closureMatch.reason,
+        evidence: closureMatch.evidence,
+        message: "تم رصد رد بالقروب يفيد باكتمال أو حجز الطلب وإغلاقه تلقائياً في الرادار",
+      });
     }
 
     // 0b. Check if this incoming message is a response from an advertiser we sent a quick private pitch to
@@ -1151,35 +1168,34 @@ app.post("/api/android/notifications", (req, res) => {
       : (subText || title || "قروب واتساب أندرويد 👥");
 
     // Smart Closure Detection on Android notification
-    const closureCheck = extractClosureKeywords(rawText);
-    if (closureCheck.hasClosureIntent) {
-      const closureMatch = checkIncomingMessageForClosure(
-        {
-          text: rawText,
-          senderName: effectiveSender,
-          groupName,
-          timestamp,
-        },
-        recentWebhookOrders as any
-      );
+    const closureMatch = checkIncomingMessageForClosure(
+      {
+        text: rawText,
+        senderName: effectiveSender,
+        groupName,
+        timestamp,
+        rawQuotedText: req.body?.quotedText || req.body?.rawQuotedText || "",
+      },
+      recentWebhookOrders as any
+    );
 
-      if (closureMatch) {
-        if (closureMatch.verdict === 'confirmed_closed') {
-          const idx = recentWebhookOrders.findIndex((o) => o.id === closureMatch.orderId);
-          if (idx !== -1) {
-            recentWebhookOrders.splice(idx, 1);
-          }
-          addSpiderLog("CLOSED_ORDER", groupName, `حذف طلب التوصيل (${closureMatch.matchedOrder?.from || ''} ➔ ${closureMatch.matchedOrder?.to || ''}) بعد حصول المعلن على مندوب: "${closureMatch.reason}"`);
-        } else {
-          const targetOrd = recentWebhookOrders.find((o) => o.id === closureMatch.orderId);
-          if (targetOrd) {
-            targetOrd.status = 'suspicious_closed';
-            targetOrd.closureReason = closureMatch.reason;
-            targetOrd.closureEvidence = closureMatch.evidence;
-          }
+    if (closureMatch) {
+      if (closureMatch.verdict === 'confirmed_closed') {
+        const idx = recentWebhookOrders.findIndex((o) => o.id === closureMatch.orderId);
+        if (idx !== -1) {
+          recentWebhookOrders.splice(idx, 1);
         }
+        addSpiderLog("CLOSED_ORDER", groupName, `حذف طلب التوصيل (${closureMatch.matchedOrder?.from || ''} ➔ ${closureMatch.matchedOrder?.to || ''}) بعد حصول المعلن على مندوب: "${closureMatch.reason}"`);
+      } else {
+        const targetOrd = recentWebhookOrders.find((o) => o.id === closureMatch.orderId);
+        if (targetOrd) {
+          targetOrd.status = 'suspicious_closed';
+          targetOrd.closureReason = closureMatch.reason;
+          targetOrd.closureEvidence = closureMatch.evidence;
+        }
+      }
 
-        const closePayload = `data: ${JSON.stringify({
+      const closePayload = `data: ${JSON.stringify({
           type: "ORDER_CLOSED",
           orderId: closureMatch.orderId,
           closureMatch,
@@ -1197,7 +1213,6 @@ app.post("/api/android/notifications", (req, res) => {
           evidence: closureMatch.evidence,
         });
       }
-    }
 
     const parsed = parseWhatsAppOrderText(rawText);
 

@@ -397,11 +397,10 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         boolean isWhatsApp = PACKAGE_WHATSAPP.equals(pkg) || PACKAGE_WHATSAPP_BUSINESS.equals(pkg) || pkg.contains("whatsapp");
         if (!isWhatsApp) return;
 
-        // The OS notification listener can remain connected after the app is swiped
-        // from Recents. Respect the explicit runtime flag so no new radar events or
-        // Orderi alerts are processed until the user opens Orderi again.
+        // Background radar monitoring: defaults to true so WhatsApp orders and closures
+        // are consistently processed even when Orderi is in the background.
         if (!getSharedPreferences(BackgroundRadarService.PREFS, MODE_PRIVATE)
-                .getBoolean(BackgroundRadarService.KEY_ENABLED, false)) {
+                .getBoolean(BackgroundRadarService.KEY_ENABLED, true)) {
             return;
         }
 

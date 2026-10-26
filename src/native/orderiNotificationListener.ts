@@ -28,6 +28,7 @@ export interface WhatsAppNativeEvent {
 interface OrderiNotificationListenerPlugin {
   isEnabled(): Promise<{ enabled: boolean }>;
   openWhatsAppGroupConversation(options: { groupName: string }): Promise<{ success: boolean; method: string }>;
+  openWhatsAppPrivateConversation(options: { phone?: string; memberName?: string }): Promise<{ success: boolean; method: string }>;
   openSettings(): Promise<void>;
   isAccessibilityEnabled(): Promise<{ enabled: boolean }>;
   openAccessibilitySettings(): Promise<void>;
