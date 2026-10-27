@@ -16,7 +16,6 @@ import {
   CalendarDays,
   Bot,
   Cpu,
-  Mic,
   ShieldCheck
 } from 'lucide-react';
 import { OrderFilter } from '../types';
@@ -38,7 +37,6 @@ interface HeroRadarProps {
   onOpenBackgroundModal?: () => void;
   onRunInBackground?: () => Promise<void> | void;
   onOpenAutoSyncModal?: () => void;
-  onOpenVoiceModal?: () => void;
   excludedOwnAdsCount?: number;
   onToggleRadar?: () => void;
   isStreamConnected?: boolean;
@@ -73,7 +71,6 @@ export function HeroRadar({
   onOpenBackgroundModal,
   onRunInBackground,
   onOpenAutoSyncModal,
-  onOpenVoiceModal,
   excludedOwnAdsCount = 0,
   onToggleRadar,
   isStreamConnected = false,
@@ -243,17 +240,6 @@ export function HeroRadar({
               </button>
             )}
 
-            {/* 3. Voice Note Modal Trigger - التقاط وتحليل ريكوردات الواتساب */}
-            {onOpenVoiceModal && (
-              <button
-                onClick={onOpenVoiceModal}
-                className="flex-1 sm:flex-none min-h-[44px] flex items-center justify-center gap-1.5 px-3 py-2.5 sm:px-3.5 rounded-xl bg-gradient-to-r from-purple-600/30 to-indigo-600/30 hover:from-purple-600/40 hover:to-indigo-600/40 text-purple-200 border border-purple-500/40 font-black text-xs transition-all active:scale-[0.98] cursor-pointer shadow-xs"
-                title="تفريغ وتحليل الفويس نوت والتسجيلات الصوتية في قروبات الواتساب بالذكاء الاصطناعي"
-              >
-                <Mic className="w-3.5 h-3.5 text-purple-300 shrink-0" />
-                <span className="truncate">فويس نوت 🎙️</span>
-              </button>
-            )}
 
             {/* 3. Monthly Recurring Commitments & School Runs (الارتباط بالتوصيلات الشهرية) */}
             {onOpenCommitments && (

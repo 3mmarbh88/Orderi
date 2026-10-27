@@ -138,7 +138,6 @@ export function sendBackgroundOrderNotification(order: ParsedOrder, filter?: Ord
   try {
     const isVip = order.contactStatus === 'vip';
     const isPassenger = order.passengerDetection?.level === 'confirmed_passenger';
-    const isVoice = order.isVoiceNote || (order.rawText && order.rawText.includes('🎙️'));
     
     const priceText = (!order.price || order.price <= 0 || order.isPriceUnspecified)
       ? ''
@@ -151,15 +150,11 @@ export function sendBackgroundOrderNotification(order: ParsedOrder, filter?: Ord
     let title = routeText;
     if (isBlockedPassenger) {
       title = `🚨 نقل ركاب • ${routeText} • تحذير 🚫`;
-    } else if (isVoice) {
-      title = `🎙️ تسجيل صوتي (واتساب) • ${routeText}`;
     } else if (isVip) {
       title = `⭐ VIP • ${routeText}`;
     }
 
-    const body = isVoice && order.voiceTranscript
-      ? `🎙️ "${order.voiceTranscript.slice(0, 70)}..." (${order.groupName || 'واتساب'})`
-      : `${routeText} (${order.groupName || 'واتساب'})`;
+    const body = `${routeText} (${order.groupName || 'واتساب'})`;
 
     const options: any = {
       body,

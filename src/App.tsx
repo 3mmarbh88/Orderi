@@ -64,7 +64,6 @@ import { getCurrentUser, setCurrentUser as setStoredCurrentUser, isProgramActiva
 import { FocusedOrderDetailModal } from './components/FocusedOrderDetailModal';
 import { OrderAwardedCelebrationModal } from './components/OrderAwardedCelebrationModal';
 import { MonthlyCommitmentsModal } from './components/MonthlyCommitmentsModal';
-import { VoiceOrderModal } from './components/VoiceOrderModal';
 import { MonthlyCommitment } from './types';
 import {
   getStoredCommitments,
@@ -642,8 +641,7 @@ function OrderiApp({
     commitmentTitle: string;
   } | null>(null);
 
-  // 8f. Voice Order Recognition Modal State & Self-Ad Exclusions
-  const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
+  // 8f. Self-Ad Exclusions
   const [excludedOwnAdsCount, setExcludedOwnAdsCount] = useState<number>(() => {
     try {
       const saved = localStorage.getItem('orderi_excluded_own_ads_count');
@@ -1038,10 +1036,6 @@ function OrderiApp({
       });
     }
 
-    const isVoice = raw.isVoiceNote === true || 
-      raw.source === 'voice' || 
-      (typeof raw.rawText === 'string' && (raw.rawText.includes('🎙️') || raw.rawText.includes('تسجيل صوتي') || raw.rawText.includes('رسالة صوتية')));
-
     const newOrder: ParsedOrder = {
       ...raw,
       price: typeof raw.price === 'number' && raw.price > 0 ? raw.price : 0,
@@ -1059,10 +1053,6 @@ function OrderiApp({
       huntedDestinationDetails,
       isOwnAd: ownAdDetection.isOwnAd,
       ownAdReason: ownAdDetection.reason,
-      isVoiceNote: isVoice,
-      voiceTranscript: raw.voiceTranscript || (isVoice ? raw.rawText : undefined),
-      voiceAudioUrl: raw.voiceAudioUrl,
-      voiceDurationSeconds: raw.voiceDurationSeconds,
     };
 
     // Sound, Vibration & Notifications
@@ -1200,16 +1190,34 @@ function OrderiApp({
       });
     };
 
-    // 1. Android Native Listener
+    // 1. Android Native Listener & Periodic Background Sync
     let nativeListenerPromise: Promise<any> | null = null;
+    let syncInterval: any = null;
+
+    const checkNativeDismissals = () => {
+      if (!active || !isNativeAndroid()) return;
+      void OrderiNotificationListener.getDismissedOrderIds().then((result) => {
+        if (active && result?.orderIds?.length) {
+          persistDismissed(result.orderIds);
+        }
+      }).catch(() => {});
+    };
+
     if (isNativeAndroid()) {
       nativeListenerPromise = OrderiNotificationListener.addListener('orderNotificationDismissed', (event) => {
         if (active && event?.orderId) persistDismissed([event.orderId]);
       });
-      void OrderiNotificationListener.getDismissedOrderIds().then((result) => {
-        if (active && result?.orderIds?.length) persistDismissed(result.orderIds);
-      }).catch(() => {});
+      checkNativeDismissals();
+      syncInterval = setInterval(checkNativeDismissals, 2500);
     }
+
+    // Check dismissals when app returns to foreground from background
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkNativeDismissals();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     // 2. Web / Browser Custom Event Listener
     const handleWebNotificationDismiss = (e: any) => {
@@ -1234,6 +1242,8 @@ function OrderiApp({
 
     return () => {
       active = false;
+      if (syncInterval) clearInterval(syncInterval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       if (nativeListenerPromise) {
         void nativeListenerPromise.then((handle) => handle.remove()).catch(() => {});
       }
@@ -1465,25 +1475,22 @@ function OrderiApp({
             : (parsed.advertiserName || (event.isGroup ? '' : event.title) || 'معلن بالقروب'),
           senderPhone: parsed.phone || ((event.senderName || '').replace(/[^\d+]/g, '').length >= 8 ? (event.senderName || '').replace(/[^\d+]/g, '') : ''),
           receivedAt: new Date(event.receivedAt || Date.now()),
-          confidence: (parsed.isVoiceNote || /(?:رسالة|تسجيل)\s*صوتية|voice\s*message|ptt|🎙️|فويس\s*نوت/i.test(rawText || event.title || '')) ? 95 : parsed.confidence,
-          type: (parsed.isVoiceNote || /(?:رسالة|تسجيل)\s*صوتية|voice\s*message|ptt|🎙️|فويس\s*نوت/i.test(rawText || event.title || '')) ? '🎙️ تسجيل صوتي (واتساب)' : 'whatsapp_notification',
-          notes: parsed.notes || (parsed.isVoiceNote ? 'فويس نوت من معلن بالقروب 🎙️' : ''),
+          confidence: parsed.confidence,
+          type: 'whatsapp_notification',
+          notes: parsed.notes || '',
           status: 'pending' as const,
           source: 'android_notification' as const,
           isDirectPrivate: !event.isGroup,
           aiTierUsed: parsed.parseMethod,
           passengerDetection: parsed.passengerDetection,
-          isVoiceNote: Boolean(parsed.isVoiceNote || /(?:رسالة|تسجيل)\s*صوتية|voice\s*message|ptt|🎙️|فويس\s*نوت/i.test(rawText || event.title || '')),
-          voiceTranscript: (parsed.isVoiceNote || /(?:رسالة|تسجيل)\s*صوتية|voice\s*message|ptt|🎙️|فويس\s*نوت/i.test(rawText || event.title || '')) ? (rawText || event.title || '') : undefined,
         };
 
-        const isVoice = order.isVoiceNote;
         const isPassengerRequest = parsed.passengerDetection?.level === 'confirmed_passenger' || parsed.passengerDetection?.level === 'suspicious_passenger';
-        // Only actionable delivery/passenger/voice requests enter Radar. Ordinary chat,
+        // Only actionable delivery requests enter Radar. Pure voice notes, ordinary chat,
         // general announcements, reactions and unparsed messages are silently ignored.
-        if (parsed.canCreateOrder || isPassengerRequest || isVoice) {
-          if (!order.from) order.from = isVoice ? 'موقع المعلن (فويس نوت) 🎙️' : 'موقع الاستلام غير محدد 📍';
-          if (!order.to) order.to = isVoice ? 'وجهة التوصيل (مذكورة بالصوت) 📍' : 'وجهة التوصيل غير محددة 📍';
+        if (parsed.canCreateOrder || isPassengerRequest) {
+          if (!order.from) order.from = 'موقع الاستلام غير محدد 📍';
+          if (!order.to) order.to = 'وجهة التوصيل غير محددة 📍';
 
           // Once local AI confirms an order from a group, ask Android to use
           // that group's own explicit WhatsApp "Mark as read" notification action.
@@ -2834,7 +2841,6 @@ function OrderiApp({
           feedFilter={feedFilter}
           onSelectFilterCategory={handleSelectFilterCategory}
           onOpenSpider={() => setIsSpiderModalOpen(true)}
-          onOpenVoiceModal={() => setIsVoiceModalOpen(true)}
           excludedOwnAdsCount={excludedOwnAdsCount}
         />
 
@@ -3242,16 +3248,7 @@ function OrderiApp({
         onShowToast={showToast}
       />
 
-      {/* Voice Note AI Modal (فويس نوت / تسجيلات صوتية في قروبات الواتساب) */}
-      <VoiceOrderModal
-        isOpen={isVoiceModalOpen}
-        onClose={() => setIsVoiceModalOpen(false)}
-        onAddVoiceOrderToRadar={(newOrder) => {
-          handleProcessIncomingRawOrder(newOrder, false);
-          showToast(`🎙️ تم إدراج طلب الفويس نوت في الرادار اللحظي: (${newOrder.from} ← ${newOrder.to})`);
-        }}
-        onShowToast={showToast}
-      />
+
 
       {/* Orderi Spider: Continuous Googlebot-style WhatsApp Crawler Modal */}
       <SpiderControlCenter

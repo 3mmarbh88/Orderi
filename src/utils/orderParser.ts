@@ -26,8 +26,6 @@ export interface RawParsedResult {
   isAdvertisement?: boolean;
   advertisementReason?: string;
   passengerDetection: PassengerDetection;
-  /** True when message is an advertiser's WhatsApp voice note/message */
-  isVoiceNote?: boolean;
   advertiserName?: string;
 }
 
@@ -506,22 +504,29 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
   // 4. Notes / Package Type extraction
   let notes = '';
 
-  // Check if message is a voice note / voice recording from WhatsApp advertiser
+  // استبعاد الفويس نوت والتسجيلات الصوتية من الرادار والبرنامج بناءً على رغبة المستخدم
   const isVoiceMessage = /(?:رسالة|تسجيل)\s*صوتية|voice\s*message|ptt|🎙️|فويس\s*نوت|تسجيل\s*صوتي|مقطع\s*صوتي/i.test(convertedText) ||
     /(?:رسالة|تسجيل)\s*صوتية|voice\s*message|ptt|🎙️|فويس\s*نوت/i.test(rawText);
 
-  if (isVoiceMessage) {
-    if (!fromArea && !toArea) {
-      fromArea = 'موقع المعلن (فويس نوت) 🎙️';
-      toArea = 'وجهة التوصيل (مذكورة بالصوت) 📍';
-    } else if (!fromArea) {
-      fromArea = 'موقع المعلن (صوتي) 🎙️';
-    } else if (!toArea) {
-      toArea = 'وجهة التوصيل (مذكورة بالصوت) 📍';
-    }
-    if (!notes) {
-      notes = 'تسجيل صوتي من معلن واتساب بالقروب 🎙️';
-    }
+  if (isVoiceMessage && !fromArea && !toArea) {
+    // إذا كانت الرسالة مجرد فويس نوت لا تحتوي مساراً كتابياً، تُستبعد كلياً ولا تنشئ طلباً
+    return {
+      from: '',
+      to: '',
+      price: 0,
+      isPriceUnspecified: true,
+      phone,
+      notes: '',
+      confidence: 0,
+      canCreateOrder: false,
+      passengerDetection: {
+        level: 'goods_safe',
+        label: 'فويس نوت مستبعد',
+        matchedPhrases: [],
+        reason: 'تم حذف واستبعاد الفويس نوت من البرنامج',
+        isForbidden: false,
+      },
+    };
   }
 
   // If destination is missing but origin is known
@@ -624,6 +629,5 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
     isAdvertisement: advertisementDetection.isAdvertisement,
     advertisementReason: advertisementDetection.reason,
     passengerDetection,
-    isVoiceNote: isVoiceMessage,
   };
 }

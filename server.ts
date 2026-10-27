@@ -449,16 +449,14 @@ const handleIncomingWebhook = (req: express.Request, res: express.Response) => {
     // Parse order delivery attributes (pickup area, destination area, price, phone, notes)
     const parsed = parseWhatsAppOrderText(rawText);
 
-    // Detect if this incoming message is a voice note / voice recording from an advertiser
-    const isVoiceMessage = /(?:رسالة|تسجيل)\s*صوتية|voice\s*message|ptt|🎙️|فويس\s*نوت|تسجيل\s*صوتي|مقطع\s*صوتي/i.test(rawText) ||
-      Boolean(req.body?.audioBase64) ||
-      Boolean(req.body?.isVoiceNote);
-
-    if (isVoiceMessage) {
-      if (!parsed.from) parsed.from = 'موقع المعلن (فويس نوت) 🎙️';
-      if (!parsed.to) parsed.to = 'وجهة التوصيل (مذكورة بالصوت) 📍';
-      parsed.isVoiceNote = true;
-      if (!parsed.notes) parsed.notes = 'رسالة صوتية مرسلة من معلن بالقروب - استمع أو افتح للتواصل المباشر 🎙️';
+    // استبعاد الفويس نوت والتسجيلات الصوتية بناءً على طلب المستخدم
+    const isVoiceMessage = /(?:رسالة|تسجيل)\s*صوتية|voice\s*message|ptt|🎙️|فويس\s*نوت|تسجيل\s*صوتي|مقطع\s*صوتي/i.test(rawText);
+    if (isVoiceMessage && !parsed.from && !parsed.to) {
+      return res.json({
+        success: true,
+        message: "تم استبعاد الفويس نوت والتسجيلات الصوتية من البرنامج",
+        isVoiceIgnored: true,
+      });
     }
 
     // If message is purely a group invite announcement without an actual delivery order
@@ -471,8 +469,8 @@ const handleIncomingWebhook = (req: express.Request, res: express.Response) => {
       });
     }
 
-    // If message has no pickup/destination area and zero price, and NOT a voice message, it's just general chat
-    if (!parsed.from && !parsed.to && (!parsed.price || parsed.price === 0) && !isVoiceMessage) {
+    // If message has no pickup/destination area and zero price, it's just general chat
+    if (!parsed.from && !parsed.to && (!parsed.price || parsed.price === 0)) {
       return res.json({
         success: true,
         message: "رسالة محادثة عامة بدون تفاصيل طلب توصيل، تم استبعادها بأمان",
@@ -547,23 +545,17 @@ const handleIncomingWebhook = (req: express.Request, res: express.Response) => {
       senderName: sender,
       senderPhone: phone || parsed.phone || "97300000000",
       receivedAt: new Date().toISOString(),
-      confidence: (isVoiceMessage || parsed.isVoiceNote) ? 95 : (parsed.confidence || 90),
-      type: (isVoiceMessage || parsed.isVoiceNote) ? "🎙️ تسجيل صوتي (واتساب)" : (isDirectChat ? "طلب مباشر (خاص)" : "طلب قروب واتساب"),
+      confidence: parsed.confidence || 90,
+      type: isDirectChat ? "طلب مباشر (خاص)" : "طلب قروب واتساب",
       notes: parsed.notes || (isDirectChat ? "وارد في المحادثة الخاصة دايركت" : "وارد من قروب واتساب"),
       status: "pending",
       source: "webhook_real",
       isDirectPrivate: isDirectChat,
-      isVoiceNote: Boolean(isVoiceMessage || parsed.isVoiceNote),
-      voiceTranscript: (isVoiceMessage || parsed.isVoiceNote) ? rawText.trim() : undefined,
       crossPostedGroups: [groupDisplayName],
       duplicateCount: 1,
       passengerCount: parsed.passengerCount,
       passengerDetection: parsed.passengerDetection,
     };
-
-    if (order.isVoiceNote) {
-      addSpiderLog("INDEXED", groupDisplayName, `التقاط فويس نوت لمعلن بالقروب وترجمتها بالذكاء الاصطناعي 🎙️`, 18);
-    }
 
     // Keep up to 50 recent orders in memory
     recentWebhookOrders.unshift(order);

@@ -30,7 +30,10 @@ export async function openWhatsAppAccessibilitySettings(): Promise<void> {
   await OrderiNotificationListener.openAccessibilitySettings();
 }
 
-export async function openWhatsAppGroupConversation(groupName: string): Promise<{ success: boolean; method: string }> {
+export async function openWhatsAppGroupConversation(
+  groupName: string,
+  options?: { inviteLink?: string; rawText?: string }
+): Promise<{ success: boolean; method: string }> {
   const name = (groupName || '').trim();
   if (isNativeAndroid()) {
     try {
@@ -38,8 +41,35 @@ export async function openWhatsAppGroupConversation(groupName: string): Promise<
       if (res && res.success) return res;
     } catch {}
   }
+
+  // Check if an invite link was passed or exists in rawText
+  let inviteUrl = options?.inviteLink;
+  if (!inviteUrl && options?.rawText) {
+    const inviteMatch = /chat\.whatsapp\.com\/([A-Za-z0-9_-]{18,30})/i.exec(options.rawText);
+    if (inviteMatch) {
+      inviteUrl = `https://chat.whatsapp.com/${inviteMatch[1]}`;
+    }
+  }
+
+  if (inviteUrl && typeof window !== 'undefined') {
+    try {
+      window.open(inviteUrl, '_blank');
+      return { success: true, method: 'whatsapp_group_invite' };
+    } catch {
+      window.location.href = inviteUrl;
+      return { success: true, method: 'whatsapp_group_invite_location' };
+    }
+  }
+
   // Web fallback: open WhatsApp Web or app scheme
   if (typeof window !== 'undefined') {
+    const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
+    if (isMobile) {
+      try {
+        window.location.href = 'whatsapp://';
+        return { success: true, method: 'mobile_whatsapp_scheme' };
+      } catch {}
+    }
     try {
       window.open('https://web.whatsapp.com', '_blank');
       return { success: true, method: 'web_whatsapp' };
@@ -54,9 +84,11 @@ export async function openWhatsAppGroupConversation(groupName: string): Promise<
 export async function openWhatsAppPrivateConversation(options: {
   phone?: string;
   memberName?: string;
+  message?: string;
 }): Promise<{ success: boolean; method: string }> {
   const phone = (options.phone || '').replace(/[^\d+]/g, '');
   const memberName = (options.memberName || '').trim();
+  const message = (options.message || '').trim();
 
   if (isNativeAndroid()) {
     try {
@@ -68,11 +100,12 @@ export async function openWhatsAppPrivateConversation(options: {
     } catch {}
   }
 
-  // Web fallback: if phone number is present, open wa.me link directly
+  // Web fallback: if phone number is present, open wa.me link directly with optional message
   if (phone) {
     const cleanDigits = phone.replace(/\D/g, '');
     const bahrainPhone = cleanDigits.length === 8 ? `973${cleanDigits}` : cleanDigits;
-    const waUrl = `https://wa.me/${bahrainPhone}`;
+    const textQuery = message ? `?text=${encodeURIComponent(message)}` : '';
+    const waUrl = `https://wa.me/${bahrainPhone}${textQuery}`;
     if (typeof window !== 'undefined') {
       try {
         window.open(waUrl, '_blank');
@@ -86,6 +119,14 @@ export async function openWhatsAppPrivateConversation(options: {
 
   // If no phone is known, open WhatsApp app or web interface
   if (typeof window !== 'undefined') {
+    const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
+    if (isMobile) {
+      try {
+        const textQuery = message ? `?text=${encodeURIComponent(message)}` : '';
+        window.location.href = `whatsapp://send${textQuery}`;
+        return { success: true, method: 'mobile_whatsapp_scheme' };
+      } catch {}
+    }
     try {
       window.open('https://web.whatsapp.com', '_blank');
       return { success: true, method: 'web_whatsapp' };

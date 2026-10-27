@@ -210,10 +210,6 @@ export interface ParsedOrder {
   outreachDetails?: OutreachAttemptDetails;
   isOwnAd?: boolean;                // إعلان شخصي يخص الكابتن
   ownAdReason?: string;             // سبب التمييز كإعلان شخصي
-  isVoiceNote?: boolean;            // طلب وارد عبر تسجيل صوتي (ريكورد واتساب)
-  voiceTranscript?: string;         // النص الصوتي المفرغ بواسطة الذكاء الاصطناعي
-  voiceAudioUrl?: string;           // رابط أو بيانات المقطع الصوتي إن توفرت
-  voiceDurationSeconds?: number;    // مدة التسجيل الصوتي بالثواني
 }
 
 export type OutreachDeliveryStatus = 

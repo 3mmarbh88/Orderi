@@ -271,7 +271,15 @@ export function OrderCard({
       e.stopPropagation();
     }
     const groupName = (order.groupName || '').trim();
-    await openWhatsAppGroupConversation(groupName || 'واتساب');
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('orderi-toast', {
+        detail: {
+          message: `👥 جاري فتح قروب (${groupName || 'واتساب'})...`,
+          type: 'info'
+        }
+      }));
+    }
+    await openWhatsAppGroupConversation(groupName || 'واتساب', { rawText: order.rawText });
   };
 
   const handleOpenAdvertiserPrivateChat = async (e?: React.MouseEvent) => {
@@ -281,10 +289,19 @@ export function OrderCard({
     }
     const targetPhone = getAdvertiserTargetPhone(order, effectivePhone);
     const advertiserName = (order.senderName || 'صاحب الإعلان').trim();
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('orderi-toast', {
+        detail: {
+          message: `💬 جاري فتح رسالة خاصة مع المعلن (${advertiserName})...`,
+          type: 'info'
+        }
+      }));
+    }
     const { openWhatsAppPrivateConversation } = await import('../native/whatsappListener');
     await openWhatsAppPrivateConversation({
       phone: targetPhone || undefined,
       memberName: advertiserName,
+      message: privateAdvertiserMessage,
     });
   };
 
@@ -673,11 +690,7 @@ export function OrderCard({
                     <span>📢 إعلاني الشخصي</span>
                   </span>
                 )}
-                {(order.isVoiceNote || (order.rawText && order.rawText.includes('🎙️'))) && (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-2xs">
-                    <span>🎙️ تسجيل صوتي (ريكورد)</span>
-                  </span>
-                )}
+
                 {order.source === 'webhook_auto' && (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-900 border border-emerald-300">
                     <Zap className="w-3 h-3 text-emerald-600 fill-emerald-500" />
@@ -714,13 +727,13 @@ export function OrderCard({
                   </span>
                 )}
                 {order.aiTierUsed === 'local_ai' && (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                    <span>🧠 محلي</span>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-900 border border-emerald-300">
+                    <span>🧠 ذكاء محلي</span>
                   </span>
                 )}
                 {order.aiTierUsed === 'cloud_ai' && (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-violet-50 text-violet-800 border border-violet-200">
-                    <span>☁️ سحابي</span>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-900 border border-amber-300">
+                    <span>⚡ ذكاء هجين</span>
                   </span>
                 )}
               </div>
@@ -791,25 +804,6 @@ export function OrderCard({
 
         {/* Route Details Box */}
         <div className="p-4 sm:p-5 space-y-4">
-          
-          {/* Voice Note Transcription Quote Box */}
-          {(order.isVoiceNote || (order.rawText && order.rawText.includes('🎙️'))) && (
-            <div className="p-3.5 rounded-2xl bg-gradient-to-r from-purple-50 via-indigo-50/60 to-purple-50/40 border border-purple-200 text-right space-y-1.5 shadow-2xs">
-              <div className="flex items-center justify-between text-[11px] font-black text-purple-950">
-                <span className="flex items-center gap-1.5">
-                  <Volume2 className="w-3.5 h-3.5 text-purple-600 shrink-0" />
-                  <span>تفريغ الفويس نوت بواسطة الذكاء الاصطناعي 🧠:</span>
-                </span>
-                <span className="text-[10px] bg-purple-200/80 px-2.5 py-0.5 rounded-full text-purple-950 font-black border border-purple-300">
-                  تسجيل صوتي (واتساب) 🎙️
-                </span>
-              </div>
-              <p className="text-xs font-bold text-slate-800 italic leading-relaxed bg-white/90 p-2.5 rounded-xl border border-purple-100">
-                "{order.voiceTranscript || order.rawText.replace(/🎙️\s*تسجيل صوتي.*?:/g, '').replace(/["']/g, '').trim()}"
-              </p>
-            </div>
-          )}
-
           <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/70">
             <div className="flex items-center justify-between gap-3">
               
@@ -912,32 +906,32 @@ export function OrderCard({
                 <p className="text-xs text-slate-700 font-mono leading-relaxed whitespace-pre-wrap bg-white p-3 rounded-lg border border-slate-200/60">
                   {order.rawText}
                 </p>
-                <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
-                  <div className="inline-flex items-center gap-1.5 p-1 rounded-xl bg-emerald-50/90 border border-emerald-300 text-emerald-950 font-bold shadow-xs">
-                    {/* Clicking on 'المعلن' opens the WhatsApp group where it was published */}
+                <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <div className="inline-flex items-center gap-1.5 p-1 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-950 font-bold shadow-xs">
+                    {/* الضغط على كلمة "المعلن" يفتح القروب الذي نُشر فيه الإعلان */}
                     <button
                       type="button"
                       onClick={handleOpenOrderGroup}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[11px] transition-all active:scale-95 cursor-pointer shadow-2xs"
-                      title={`انقر على كلمة «المعلن» لفتح القروب الذي نُشر فيه الإعلان (${order.groupName || 'واتساب'}) 👥`}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs transition-all active:scale-95 cursor-pointer shadow-2xs"
+                      title={`انقر على كلمة «المعلن» لفتح القروب الذي تم الإعلان فيه (${order.groupName || 'واتساب'}) 👥`}
                     >
                       <Users className="w-3.5 h-3.5 shrink-0" />
                       <span>المعلن</span>
-                      <span className="text-[10px] opacity-90 hidden sm:inline">({order.groupName || 'القروب'})</span>
+                      <span className="text-[10px] bg-emerald-700/80 px-1.5 py-0.5 rounded font-normal">فتح القروب 👥</span>
                     </button>
 
-                    <span className="text-slate-400 font-black">:</span>
+                    <span className="text-slate-400 font-black text-sm px-0.5">:</span>
 
-                    {/* Clicking on the advertiser name opens a private WhatsApp message directly with the advertiser */}
+                    {/* الضغط على اسمه يفتح رسالة واتساب خاصة مع الذي كتب الإعلان في القروب */}
                     <button
                       type="button"
                       onClick={handleOpenAdvertiserPrivateChat}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white hover:bg-emerald-100 text-emerald-950 border border-emerald-200 font-black text-[11px] underline decoration-emerald-500 hover:text-emerald-700 transition-all active:scale-95 cursor-pointer shadow-2xs"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white hover:bg-emerald-100 text-emerald-950 border border-emerald-200 font-black text-xs underline decoration-emerald-500 hover:text-emerald-700 transition-all active:scale-95 cursor-pointer shadow-2xs"
                       title={`انقر على اسم المعلن «${order.senderName || 'صاحب الإعلان'}» لفتح رسالة خاصة معه في واتساب 💬`}
                     >
                       <User className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                       <span>{order.senderName || 'صاحب الإعلان'}</span>
-                      <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">خاص 💬</span>
+                      <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">محادثة خاصة 💬</span>
                     </button>
                   </div>
                   {order.senderPhone && (
@@ -945,10 +939,10 @@ export function OrderCard({
                       type="button"
                       onClick={handleExecuteBackgroundAccept}
                       dir="ltr"
-                      className="font-mono text-emerald-700 hover:text-emerald-800 font-bold bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg border border-emerald-300 cursor-pointer transition-all active:scale-95 flex items-center gap-1"
+                      className="font-mono text-emerald-700 hover:text-emerald-800 font-bold bg-white hover:bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-300 cursor-pointer transition-all active:scale-95 flex items-center gap-1.5 text-xs shadow-2xs"
                       title="قبول وإرسال رسالة القبول بالخاص في الخلفية دون فتح واتساب"
                     >
-                      <Phone className="w-3 h-3 text-emerald-600" />
+                      <Phone className="w-3.5 h-3.5 text-emerald-600" />
                       +{order.senderPhone}
                     </button>
                   )}
