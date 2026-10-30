@@ -292,7 +292,6 @@ export function checkIncomingMessageForClosure(
     messageId?: string;
     isGroup?: boolean;
     isDirectPrivate?: boolean;
-    isGroup?: boolean;
   },
   activeOrders: ParsedOrder[]
 ): ClosureMatchResult | null {
