@@ -397,6 +397,21 @@ export function evaluateCatchupCandidate(
 }
 
 /**
+ * قبول رسائل الاستعادة من مصدر قروب مؤكد فقط.
+ * لا يكفي اسم محادثة أو نص يشبه الإعلان لإثبات أن المصدر قروب.
+ */
+export function hasVerifiedCatchupGroupSource(message: CatchupCandidateMessage): boolean {
+  const groupName = (message.groupName || '').trim();
+  const chatId = (message.chatId || '').toLowerCase();
+
+  if (message.isDirectPrivate === true || message.isGroup !== true) return false;
+  if (!groupName || groupName === 'واتساب' || groupName.includes('خاصة')) return false;
+  if (chatId.includes('@s.whatsapp.net') || chatId.includes('@c.us')) return false;
+
+  return true;
+}
+
+/**
  * المحرك الرئيسي لآلية استعادة الطلبات الفائتة في Spider (Catch-up Recovery)
  */
 export async function runSpiderCatchupRecovery(
@@ -448,14 +463,29 @@ export async function runSpiderCatchupRecovery(
       break;
     }
 
+    // Privacy-first: catch-up must never promote a private or unidentified source.
+    if (!hasVerifiedCatchupGroupSource(msg)) {
+      report.nonOrdersCount++;
+      logDiag(`استبعاد رسالة الاستعادة لعدم ثبوت أنها من قروب واتساب: (${msg.id}).`);
+      continue;
+    }
+
     const rawText = (msg.rawText || '').trim();
     if (!rawText) {
       report.nonOrdersCount++;
       continue;
     }
 
-    // 1. منع التكرار: استبعاد الطلبات المسجلة مسبقاً أو المغلقة نهائياً أو المحذوفة
-    if (existingIds.has(msg.id) || dismissedSet.has(msg.id) || isOrderPermanentlyClosed(msg.id)) {
+    // Prevent duplicates even when the recovered order uses the spider-rec- prefix.
+    const recoveredId = msg.id.startsWith('spider-') ? msg.id : `spider-rec-${msg.id}`;
+    if (
+      existingIds.has(msg.id) ||
+      existingIds.has(recoveredId) ||
+      dismissedSet.has(msg.id) ||
+      dismissedSet.has(recoveredId) ||
+      isOrderPermanentlyClosed(msg.id) ||
+      isOrderPermanentlyClosed(recoveredId)
+    ) {
       report.duplicatesSkippedCount++;
       logDiag(`تخطي رسالة مكررة أو مسجلة مسبقاً (${msg.id}).`);
       continue;
