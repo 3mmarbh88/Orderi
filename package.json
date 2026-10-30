@@ -13,7 +13,8 @@
     "cap:copy": "vite build && cap copy android",
     "cap:sync": "vite build && cap sync android",
     "cap:open": "cap open android",
-    "test:group-capture": "tsx test/groupCapture.test.ts"
+    "test:group-capture": "tsx test/groupCapture.test.ts",
+    "test:spider-privacy": "tsx test/spiderPrivacy.test.ts"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.2",
