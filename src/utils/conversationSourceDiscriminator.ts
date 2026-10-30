@@ -261,20 +261,23 @@ export function discriminateConversationSource(
   const idCandidate = event.chatId || event.tag || event.key || '';
   const { isGroupJid, isUserJid, jidType } = inspectChatJid(idCandidate);
 
-  // Group Indicators in title or group name (expanded with delivery tokens & Bahrain areas)
-  const hasGroupKeywords = (text: string) => {
-    if (!text) return false;
-    const lower = text.toLowerCase();
-    const keywords = [
-      'قروب', 'جروب', 'مجموعة', 'مجموعه', 'مناديب', 'مندوب', 'كباتن', 'كابتن',
-      'توصيل', 'طلبات', 'طلب', 'سوق', 'متجر', 'تجار', 'بحرين', 'مؤرشف', 'أرشيف', 'ارشيف',
-      'archive', 'مشاوير', 'مشوار', 'دريول', 'سائق', 'أوردرات', 'اوردرات', 'شبكة', 'شبكه',
-      'حراج', 'اعلانات', 'إعلانات', 'بزنس', 'منتجة', 'خدمات', 'دانات', 'واتساب', 'whatsapp',
-      'المنامة', 'المحرق', 'الرفاع', 'سترة', 'حمد', 'عيسى', 'سار', 'الجنبية', 'البديع',
-      'سند', 'توبلي', 'سلماباد', 'الحد', 'عراد', 'قلالي', 'الديه', 'جدحفص'
-    ];
-    return keywords.some((kw) => lower.includes(kw));
-  };
+  // Privacy-first source gate: explicit private signals must win over message
+  // wording, contact names, location names, and notification title formatting.
+  if (event.isDirectPrivate === true || (event.isGroup === false && !isGroupJid)) {
+    return {
+      sourceType: 'private_individual',
+      isGroup: false,
+      isPrivateIndividual: true,
+      isAuthorized: false,
+      groupName: undefined,
+      chatId: idCandidate || undefined,
+      senderName: rawSender || rawTitle,
+      confidence: 99,
+      reason: 'إشارة المصدر تؤكد محادثة فردية أو خاصة؛ تم الاستبعاد قبل تحليل نص الرسالة',
+      diagnosticCode: 'PRIVATE_SOURCE_FLAG_EXCLUDED',
+      rejectionReason: 'لا يسمح لنص الرسالة أو اسم جهة الاتصال بتحويل المحادثة الخاصة إلى قروب',
+    };
+  }
 
   // 1. Explicit Private Chat Signals:
   // A message is strictly private if:
@@ -317,16 +320,11 @@ export function discriminateConversationSource(
 
   // 2. Explicit Group Verification Signals:
   const hasExplicitGroupFlag = event.isGroup === true || event.isExplicitGroup === true;
-  const hasDistinctConvTitle = Boolean(rawConvTitle && rawConvTitle !== rawSender && !isPrivateChatPlaceholder(rawConvTitle));
-  const hasValidGroup = Boolean(rawGroup && !isPrivateChatPlaceholder(rawGroup));
-  const hasTitleGroupKeywords = hasGroupKeywords(rawTitle) || hasGroupKeywords(rawGroup);
   const hasGroupJidMatch = isGroupJid;
-  const hasColonInTitle = rawTitle.includes(':') || rawTitle.includes(' @ ');
-  const hasDeliveryTextIntent = Boolean(
-    event.rawText && /(?:اوردر|أوردر|طلب|توصيل|مشوار|مندوب|بيك\s*اب|delivery|دينار|د\.ب)/i.test(event.rawText)
-  );
 
-  const isConfirmedGroup = (hasExplicitGroupFlag || hasDistinctConvTitle || hasValidGroup || hasTitleGroupKeywords || hasGroupJidMatch || hasColonInTitle || (hasDeliveryTextIntent && !isUserJidConfirmed)) && !isUserJidConfirmed;
+  // Only platform group metadata or a WhatsApp group JID can establish a group.
+  // A contact name, title punctuation, or delivery words are not proof of a group.
+  const isConfirmedGroup = (hasExplicitGroupFlag || hasGroupJidMatch) && !isUserJidConfirmed;
 
   if (isConfirmedGroup) {
     // Resolve canonical group title
