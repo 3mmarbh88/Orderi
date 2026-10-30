@@ -81,6 +81,7 @@ import {
   ALERT_TONE_PRESETS, 
   VIBRATION_PRESETS 
 } from '../utils/sound';
+import { isSimulatedMockGroup } from '../utils/simulatorPurge';
 
 interface FilterSettingsProps {
   filter: OrderFilter;
@@ -94,6 +95,7 @@ interface FilterSettingsProps {
   onSetManualLocation: (area: AreaLocation) => void;
   onSaveToast: () => void;
   detectedIncomingGroups?: string[];
+  onClearDetectedGroups?: () => void;
   onOpenDiscoveredGroupsModal?: () => void;
   discoveredGroupsCount?: number;
   isCarTrackingActive?: boolean;
@@ -115,6 +117,7 @@ export function FilterSettings({
   onSetManualLocation,
   onSaveToast,
   detectedIncomingGroups = [],
+  onClearDetectedGroups,
   onOpenDiscoveredGroupsModal,
   discoveredGroupsCount = 0,
   isCarTrackingActive = true,
@@ -315,18 +318,20 @@ export function FilterSettings({
     });
   };
 
-  // WhatsApp Groups joined on user's phone
+  // WhatsApp Groups joined on user's phone (purged of simulator mock groups)
   const [newGroupNameInput, setNewGroupNameInput] = useState('');
   const [myGroups, setMyGroups] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem('orderi_my_whatsapp_groups');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.filter((g: any) => typeof g === 'string' && !isSimulatedMockGroup(g));
+        }
       }
     } catch {}
     if (filter.customGroups && filter.customGroups.length > 0) {
-      return filter.customGroups;
+      return filter.customGroups.filter((g) => !isSimulatedMockGroup(g));
     }
     return [];
   });
@@ -976,56 +981,63 @@ export function FilterSettings({
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <button
             type="button"
-            onClick={() => setLocalFilter({ ...localFilter, selectedGroups: [] })}
+            onClick={() => setLocalFilter({ ...localFilter, allJoinedGroupsMode: true, selectedGroups: [] })}
             className={`p-3.5 rounded-2xl border text-right transition-all flex items-start gap-3 cursor-pointer ${
-              localFilter.selectedGroups.length === 0
+              localFilter.allJoinedGroupsMode !== false
                 ? 'bg-emerald-500/10 border-emerald-500 ring-2 ring-emerald-500/20 text-slate-900'
                 : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-600'
             }`}
           >
             <div className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 mt-0.5 ${
-              localFilter.selectedGroups.length === 0 
+              localFilter.allJoinedGroupsMode !== false 
                 ? 'border-emerald-600 bg-emerald-600 text-white' 
                 : 'border-slate-300 bg-white'
             }`}>
-              {localFilter.selectedGroups.length === 0 && <Check className="w-3 h-3 stroke-[3]" />}
+              {localFilter.allJoinedGroupsMode !== false && <Check className="w-3 h-3 stroke-[3]" />}
             </div>
             <div>
               <span className="text-xs font-black text-slate-900 block">
                 مراقبة جميع قروبات واتسابي تلقائياً ⚡ (موصى به)
               </span>
               <span className="text-[11px] text-slate-500 mt-0.5 block">
-                يستقبل الطلبات من أي قروب أنت عضو فيه في الواتساب دون الحاجة لتسميته
+                يلتقط الطلبات من أي قروب أنت عضو فيه بهاتفك تلقائياً فور نشر أي طلب
               </span>
             </div>
           </button>
 
           <button
             type="button"
-            onClick={() => setLocalFilter({ ...localFilter, selectedGroups: myGroups })}
+            onClick={() => setLocalFilter({ ...localFilter, allJoinedGroupsMode: false, selectedGroups: myGroups })}
             className={`p-3.5 rounded-2xl border text-right transition-all flex items-start gap-3 cursor-pointer ${
-              localFilter.selectedGroups.length > 0
+              localFilter.allJoinedGroupsMode === false
                 ? 'bg-blue-500/10 border-blue-500 ring-2 ring-blue-500/20 text-slate-900'
                 : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-600'
             }`}
           >
             <div className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 mt-0.5 ${
-              localFilter.selectedGroups.length > 0 
+              localFilter.allJoinedGroupsMode === false 
                 ? 'border-blue-600 bg-blue-600 text-white' 
                 : 'border-slate-300 bg-white'
             }`}>
-              {localFilter.selectedGroups.length > 0 && <Check className="w-3 h-3 stroke-[3]" />}
+              {localFilter.allJoinedGroupsMode === false && <Check className="w-3 h-3 stroke-[3]" />}
             </div>
             <div>
               <span className="text-xs font-black text-slate-900 block">
                 تحديد قروبات معينة فقط من واتسابي 🎯
               </span>
               <span className="text-[11px] text-slate-500 mt-0.5 block">
-                استقبال الإعلانات فقط من القروبات المفعلة أدناه وتجاهل البقية
+                استقبال الإعلانات فقط من القروبات المفعلة أدناه وتجاهل باقي القروبات
               </span>
             </div>
           </button>
         </div>
+
+        {localFilter.allJoinedGroupsMode !== false && (
+          <div className="p-3 bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-xl flex items-center gap-2 text-xs font-bold text-emerald-900">
+            <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>وضع «المراقبة الشاملة» مفعّل: الرادار يلتقط الطلبات من كافة القروبات التي تشترك فيها بالواتساب تلقائياً فور نشرها.</span>
+          </div>
+        )}
 
         {/* Add New Custom Group From My WhatsApp */}
         <div className="p-3 sm:p-4 rounded-2xl bg-slate-50 border border-slate-200/90 space-y-2.5">
@@ -1059,65 +1071,85 @@ export function FilterSettings({
         </div>
 
         {/* Auto-Discovered Groups From Incoming Phone Notifications */}
-        {detectedIncomingGroups && detectedIncomingGroups.length > 0 ? (
-          <div className="p-3.5 sm:p-4 rounded-2xl bg-gradient-to-br from-blue-50/80 via-indigo-50/40 to-white border border-blue-200/90 space-y-2.5 shadow-2xs">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5 text-xs font-black text-blue-950">
-                <Smartphone className="w-4 h-4 text-blue-600" />
-                <span>قروبات تم رصد إشعارات منها على هاتفك مؤخراً ({detectedIncomingGroups.length}):</span>
+        {(() => {
+          const cleanDetected = (detectedIncomingGroups || []).filter((g) => !isSimulatedMockGroup(g));
+          if (cleanDetected.length === 0) {
+            return (
+              <div className="p-3 sm:p-3.5 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-xs font-black text-slate-800">
+                  <Smartphone className="w-4 h-4 text-emerald-600" />
+                  <span>رصد إشعارات قروبات واتساب:</span>
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-200">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                    جاهز للرصد التلقائي 🟢
+                  </span>
+                </div>
               </div>
-              <button
-                type="button"
-                onClick={handleLinkAllDetectedGroups}
-                className="px-3 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-black text-xs rounded-xl shadow-xs cursor-pointer flex items-center gap-1.5 transition-all active:scale-95"
-              >
-                <Check className="w-3.5 h-3.5" />
-                <span>ربط واعتماد كافة هذه القروبات بحسابي فوراً ⚡</span>
-              </button>
-            </div>
+            );
+          }
 
-            <div className="flex flex-wrap gap-2 pt-0.5">
-              {detectedIncomingGroups.map((discGroup) => {
-                const isAlreadyInMyGroups = myGroups.includes(discGroup);
-                return (
+          return (
+            <div className="p-3.5 sm:p-4 rounded-2xl bg-gradient-to-br from-blue-50/80 via-indigo-50/40 to-white border border-blue-200/90 space-y-2.5 shadow-2xs">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 text-xs font-black text-blue-950">
+                  <Smartphone className="w-4 h-4 text-blue-600" />
+                  <span>قروبات تم رصد إشعارات منها على هاتفك مؤخراً ({cleanDetected.length}):</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {onClearDetectedGroups && (
+                    <button
+                      type="button"
+                      onClick={onClearDetectedGroups}
+                      className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs rounded-xl shadow-xs cursor-pointer flex items-center gap-1.5 transition-all active:scale-95"
+                      title="مسح وحذف كافة القروبات المرصودة بالكامل"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                      <span>حذف القروبات المرصودة</span>
+                    </button>
+                  )}
                   <button
-                    key={discGroup}
                     type="button"
-                    onClick={() => {
-                      if (!isAlreadyInMyGroups) {
-                        handleAddMyGroup(discGroup);
-                      }
-                    }}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${
-                      isAlreadyInMyGroups
-                        ? 'bg-emerald-50 text-emerald-800 border-emerald-300 cursor-default'
-                        : 'bg-white hover:bg-blue-50 text-blue-700 border-blue-200 hover:border-blue-300 cursor-pointer shadow-2xs'
-                    }`}
+                    onClick={handleLinkAllDetectedGroups}
+                    className="px-3 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-black text-xs rounded-xl shadow-xs cursor-pointer flex items-center gap-1.5 transition-all active:scale-95"
                   >
-                    <span className={`w-1.5 h-1.5 rounded-full ${isAlreadyInMyGroups ? 'bg-emerald-500' : 'bg-blue-500'}`} />
-                    <span>{discGroup}</span>
-                    {isAlreadyInMyGroups ? (
-                      <span className="text-[10px] text-emerald-700 font-black">(مرتبط بحسابك ✓)</span>
-                    ) : (
-                      <Plus className="w-3 h-3 text-blue-600" />
-                    )}
+                    <Check className="w-3.5 h-3.5" />
+                    <span>ربط واعتماد كافة هذه القروبات بحسابي فوراً ⚡</span>
                   </button>
-                );
-              })}
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2 pt-0.5">
+                {cleanDetected.map((discGroup) => {
+                  const isAlreadyInMyGroups = myGroups.includes(discGroup);
+                  return (
+                    <button
+                      key={discGroup}
+                      type="button"
+                      onClick={() => {
+                        if (!isAlreadyInMyGroups) {
+                          handleAddMyGroup(discGroup);
+                        }
+                      }}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${
+                        isAlreadyInMyGroups
+                          ? 'bg-emerald-50 text-emerald-800 border-emerald-300 cursor-default'
+                          : 'bg-white hover:bg-blue-50 text-blue-700 border-blue-200 hover:border-blue-300 cursor-pointer shadow-2xs'
+                      }`}
+                    >
+                      <span className={`w-1.5 h-1.5 rounded-full ${isAlreadyInMyGroups ? 'bg-emerald-500' : 'bg-blue-500'}`} />
+                      <span>{discGroup}</span>
+                      {isAlreadyInMyGroups ? (
+                        <span className="text-[10px] text-emerald-700 font-black">(مرتبط بحسابك ✓)</span>
+                      ) : (
+                        <Plus className="w-3 h-3 text-blue-600" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        ) : (
-          <div className="p-3 sm:p-3.5 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2 text-xs font-black text-slate-800">
-              <Smartphone className="w-4 h-4 text-emerald-600" />
-              <span>رصد إشعارات قروبات واتساب:</span>
-              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-200">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
-                جاهز للرصد التلقائي 🟢
-              </span>
-            </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* My Monitored Groups List */}
         <div className="space-y-2">

@@ -226,19 +226,10 @@ export async function spiderIngestMessage(
   return { action: 'CRAWLING', reason: 'محادثة عامة تم فحصها' };
 }
 
-const DEFAULT_SPIDER_GROUPS = [
-  'قروب مناديب وتوصيل البحرين 🇧🇭',
-  'قروب كباتن وتجار المنامة والرفاع 📦',
-  'قروب توصيل المحرق والحد 🚗',
-  'طلبات المحافظة الشمالية السريعة ⚡',
-  'سوق البحرين للتوصيل الفوري 🇧🇭',
-  'توصيل كباتن مدينة عيسى وحمد 📍',
-  'شبكة مناديب البحرين للتوصيل 🚗',
-  'قروب تجار ومناديب سار والجنبية 📦',
-];
+const DEFAULT_SPIDER_GROUPS: string[] = [];
 
 /**
- * Trigger an instant simulated spider crawling pass
+ * Trigger an instant spider crawling pass across real active groups
  */
 export async function triggerSpiderCrawlPass(
   onOrderFound?: (order: any) => void
@@ -247,11 +238,13 @@ export async function triggerSpiderCrawlPass(
     ? currentStats.crawlQueue
     : DEFAULT_SPIDER_GROUPS;
 
-  const pickedGroup = groups[Math.floor(Math.random() * groups.length)];
+  const pickedGroup = groups.length > 0
+    ? groups[Math.floor(Math.random() * groups.length)]
+    : 'قروبات واتساب المراقبة 📡';
   currentStats.currentCrawlingGroup = pickedGroup;
   currentStats.lastCrawlTimestamp = Date.now();
-  currentStats.crawledGroupsCount = Math.max(currentStats.crawledGroupsCount + 1, groups.length);
-  currentStats.messagesCrawledCount += Math.floor(3 + Math.random() * 5);
+  currentStats.crawledGroupsCount = groups.length;
+  currentStats.messagesCrawledCount += 1;
   notify();
 
   // Hit server endpoint to synchronize active crawler queue and index an order immediately

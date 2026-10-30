@@ -37,6 +37,7 @@ import {
   syncWhatsAppPhoneWithAccount,
   autoAdoptDetectedGroups
 } from '../utils/whatsappConnection';
+import { isSimulatedMockGroup } from '../utils/simulatorPurge';
 
 export interface WhatsAppSessionData {
   status: 'disconnected' | 'qr_ready' | 'connecting' | 'connected';
@@ -133,28 +134,24 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
     }
   }, [currentUser?.phone]);
 
-  // WhatsApp Groups list: dynamically synchronized with "قائمة قروباتي في الواتساب"
+  // WhatsApp Groups list: dynamically synchronized with "قائمة قروباتي في الواتساب" (بدون أي قروبات محاكاة)
   const [internalMyGroups, setInternalMyGroups] = useState<string[]>(() => {
-    if (propMyGroups && propMyGroups.length > 0) return propMyGroups;
+    if (propMyGroups && propMyGroups.length > 0) {
+      return propMyGroups.filter((g) => !isSimulatedMockGroup(g));
+    }
     try {
       const saved = localStorage.getItem('orderi_my_whatsapp_groups');
       if (saved) {
         const parsed = JSON.parse(saved);
-        const banned = [
-          'قروب مندوبي البحرين 🇧🇭',
-          'طلبات التوصيل - المنامة والمحرق',
-          'توصيل سريع الرفاع ومدينة عيسى',
-          'شبكة مناديب التوصيل السريع',
-        ];
         if (Array.isArray(parsed) && parsed.length > 0) {
-          const valid = parsed.filter((g: string) => !banned.includes(g));
+          const valid = parsed.filter((g: string) => !isSimulatedMockGroup(g));
           if (valid.length > 0) return valid;
         }
       }
     } catch {}
-    // Auto-link detected groups from phone notifications if myGroups is empty
+    // Auto-link clean detected groups from phone notifications if myGroups is empty
     if (detectedIncomingGroups && detectedIncomingGroups.length > 0) {
-      return detectedIncomingGroups;
+      return detectedIncomingGroups.filter((g) => !isSimulatedMockGroup(g));
     }
     return [];
   });
@@ -162,36 +159,38 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
   // Keep internal groups synced if prop changes
   useEffect(() => {
     if (propMyGroups && propMyGroups.length > 0) {
-      setInternalMyGroups(propMyGroups);
+      setInternalMyGroups(propMyGroups.filter((g) => !isSimulatedMockGroup(g)));
     }
   }, [propMyGroups]);
 
-  // Automatically link and adopt ALL detected groups from phone notifications into user's account
+  // Automatically link and adopt ALL clean detected groups from phone notifications into user's account
   useEffect(() => {
-    if (detectedIncomingGroups && detectedIncomingGroups.length > 0) {
-      const unlinked = detectedIncomingGroups.filter((g) => !internalMyGroups.includes(g));
+    const cleanDetected = (detectedIncomingGroups || []).filter((g) => !isSimulatedMockGroup(g));
+    if (cleanDetected.length > 0) {
+      const unlinked = cleanDetected.filter((g) => !internalMyGroups.includes(g));
       if (unlinked.length > 0) {
-        const merged = Array.from(new Set([...internalMyGroups, ...detectedIncomingGroups]));
+        const merged = Array.from(new Set([...internalMyGroups, ...cleanDetected]));
         setInternalMyGroups(merged);
         try {
           localStorage.setItem('orderi_my_whatsapp_groups', JSON.stringify(merged));
         } catch {}
-        autoAdoptDetectedGroups(detectedIncomingGroups);
+        autoAdoptDetectedGroups(cleanDetected);
         if (onUpdateMyGroups) onUpdateMyGroups(merged);
       }
     }
   }, [detectedIncomingGroups, internalMyGroups, onUpdateMyGroups]);
 
   const handleLinkAllDetectedToWhatsApp = () => {
-    if (!detectedIncomingGroups || detectedIncomingGroups.length === 0) return;
-    const merged = Array.from(new Set([...internalMyGroups, ...detectedIncomingGroups]));
+    const cleanDetected = (detectedIncomingGroups || []).filter((g) => !isSimulatedMockGroup(g));
+    if (cleanDetected.length === 0) return;
+    const merged = Array.from(new Set([...internalMyGroups, ...cleanDetected]));
     setInternalMyGroups(merged);
     try {
       localStorage.setItem('orderi_my_whatsapp_groups', JSON.stringify(merged));
     } catch {}
-    autoAdoptDetectedGroups(detectedIncomingGroups);
+    autoAdoptDetectedGroups(cleanDetected);
     if (onUpdateMyGroups) onUpdateMyGroups(merged);
-    onShowToast(`✅ تم ربط واعتماد كافة القروبات المرصودة (${detectedIncomingGroups.length}) بحسابك أوتوماتيكياً!`);
+    onShowToast(`✅ تم ربط واعتماد كافة القروبات المرصودة (${cleanDetected.length}) بحسابك أوتوماتيكياً!`);
   };
 
   const [isManagingGroups, setIsManagingGroups] = useState<boolean>(false);

@@ -476,20 +476,48 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
             }
         }
 
-        if (TextUtils.isEmpty(detectedGroupName) && !TextUtils.isEmpty(title)
-                && (title.contains("قروب") || title.contains("جروب") || title.contains("مجموعة")
-                || title.contains("مندوب") || title.contains("توصيل") || title.contains("كباتن")
-                || title.contains("طلبات") || title.contains("بحرين") || title.contains("مؤرشف")
-                || title.contains("أرشيف") || title.contains("ارشيف") || title.toLowerCase(java.util.Locale.ROOT).contains("archive")
-                || title.contains("سوق") || title.contains("تجار") || title.contains("متجر"))) {
-            detectedGroupName = title.trim();
+        // Inspect subText which frequently holds the WhatsApp group title on newer Android builds
+        if (TextUtils.isEmpty(detectedGroupName) && !TextUtils.isEmpty(subText)) {
+            String normSub = subText.trim();
+            if (!normSub.equals(title) && !normSub.matches("\\d+\\s+.*") && !normSub.contains("رسائل") && !normSub.contains("messages")) {
+                detectedGroupName = normSub;
+            }
         }
 
-        if (TextUtils.isEmpty(detectedGroupName) && !TextUtils.isEmpty(summaryText)
-                && (summaryText.contains("قروب") || summaryText.contains("مجموعة")
-                || summaryText.contains("توصيل") || summaryText.contains("كباتن")
-                || summaryText.contains("مؤرشف") || summaryText.toLowerCase(java.util.Locale.ROOT).contains("archive"))) {
-            detectedGroupName = summaryText.trim();
+        // Colon layout in title: "Group Name: Sender Name"
+        if (TextUtils.isEmpty(detectedGroupName) && !TextUtils.isEmpty(title) && title.contains(":")) {
+            int tColon = title.indexOf(':');
+            if (tColon > 1 && tColon < title.length() - 1) {
+                detectedGroupName = title.substring(0, tColon).trim();
+                detectedSenderName = title.substring(tColon + 1).trim();
+            }
+        }
+
+        if (TextUtils.isEmpty(detectedGroupName) && !TextUtils.isEmpty(title)) {
+            String lowerTitle = title.toLowerCase(java.util.Locale.ROOT);
+            if (lowerTitle.contains("قروب") || lowerTitle.contains("جروب") || lowerTitle.contains("مجموعة") || lowerTitle.contains("مجموعه")
+                || lowerTitle.contains("مندوب") || lowerTitle.contains("مناديب") || lowerTitle.contains("توصيل") || lowerTitle.contains("كباتن") || lowerTitle.contains("كابتن")
+                || lowerTitle.contains("طلبات") || lowerTitle.contains("طلب") || lowerTitle.contains("بحرين") || lowerTitle.contains("مؤرشف")
+                || lowerTitle.contains("أرشيف") || lowerTitle.contains("ارشيف") || lowerTitle.contains("archive")
+                || lowerTitle.contains("سوق") || lowerTitle.contains("تجار") || lowerTitle.contains("متجر") || lowerTitle.contains("مشاوير")
+                || lowerTitle.contains("شبكة") || lowerTitle.contains("شبكه") || lowerTitle.contains("حراج") || lowerTitle.contains("اعلانات") || lowerTitle.contains("إعلانات")
+                || lowerTitle.contains("بزنس") || lowerTitle.contains("منتجة") || lowerTitle.contains("أوردرات") || lowerTitle.contains("اوردرات")
+                || lowerTitle.contains("المنامة") || lowerTitle.contains("المحرق") || lowerTitle.contains("الرفاع") || lowerTitle.contains("سترة")
+                || lowerTitle.contains("حمد") || lowerTitle.contains("عيسى") || lowerTitle.contains("سار") || lowerTitle.contains("الجنبية")
+                || lowerTitle.contains("البديع") || lowerTitle.contains("سند") || lowerTitle.contains("توبلي") || lowerTitle.contains("سلماباد")
+                || lowerTitle.contains("الحد") || lowerTitle.contains("عراد") || lowerTitle.contains("قلالي") || lowerTitle.contains("الديه") || lowerTitle.contains("جدحفص")) {
+                detectedGroupName = title.trim();
+            }
+        }
+
+        if (TextUtils.isEmpty(detectedGroupName) && !TextUtils.isEmpty(summaryText)) {
+            String lowerSummary = summaryText.toLowerCase(java.util.Locale.ROOT);
+            if (lowerSummary.contains("قروب") || lowerSummary.contains("مجموعة") || lowerSummary.contains("مجموعه")
+                || lowerSummary.contains("توصيل") || lowerSummary.contains("كباتن") || lowerSummary.contains("مناديب")
+                || lowerSummary.contains("طلبات") || lowerSummary.contains("سوق")
+                || lowerSummary.contains("مؤرشف") || lowerSummary.contains("archive")) {
+                detectedGroupName = summaryText.trim();
+            }
         }
 
         // Strict source discrimination: NEVER treat a chat as a group merely because

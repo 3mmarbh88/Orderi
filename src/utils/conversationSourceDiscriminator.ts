@@ -191,6 +191,9 @@ export function isPrivateChatPlaceholder(name?: string): boolean {
 /**
  * Check whether an identified group is authorized under the driver's current FilterSettings
  */
+/**
+ * Check whether an identified group is authorized under the driver's current FilterSettings
+ */
 export function isGroupAuthorizedByFilter(
   groupName: string, 
   filter?: Partial<FilterSettings> | null
@@ -210,7 +213,14 @@ export function isGroupAuthorizedByFilter(
     return false;
   }
 
-  // If driver has specified a whitelist of selected groups:
+  // ALL JOINED GROUPS MODE (Default & Recommended):
+  // When allJoinedGroupsMode !== false, the driver wants Orderi to monitor ALL delivery groups
+  // they are joined in on WhatsApp!
+  if (filter?.allJoinedGroupsMode !== false) {
+    return true;
+  }
+
+  // If driver explicitly disabled allJoinedGroupsMode to restrict to a whitelist of selected groups:
   if (filter?.selectedGroups && filter.selectedGroups.length > 0) {
     return filter.selectedGroups.some((g) => {
       const normG = (g || '').trim().toLowerCase();
@@ -218,8 +228,7 @@ export function isGroupAuthorizedByFilter(
     });
   }
 
-  // If driver monitors all joined groups (selectedGroups is empty):
-  // Any genuine non-private group is allowed
+  // Default: Any genuine non-private group is allowed
   return true;
 }
 
@@ -252,25 +261,19 @@ export function discriminateConversationSource(
   const idCandidate = event.chatId || event.tag || event.key || '';
   const { isGroupJid, isUserJid, jidType } = inspectChatJid(idCandidate);
 
-  // Group Indicators in title or group name
+  // Group Indicators in title or group name (expanded with delivery tokens & Bahrain areas)
   const hasGroupKeywords = (text: string) => {
     if (!text) return false;
     const lower = text.toLowerCase();
-    return (
-      lower.includes('قروب') ||
-      lower.includes('جروب') ||
-      lower.includes('مجموعة') ||
-      lower.includes('مناديب') ||
-      lower.includes('كباتن') ||
-      lower.includes('توصيل') ||
-      lower.includes('طلبات') ||
-      lower.includes('سوق') ||
-      lower.includes('بحرين') ||
-      lower.includes('مؤرشف') ||
-      lower.includes('archive') ||
-      lower === 'واتساب' ||
-      lower === 'whatsapp'
-    );
+    const keywords = [
+      'قروب', 'جروب', 'مجموعة', 'مجموعه', 'مناديب', 'مندوب', 'كباتن', 'كابتن',
+      'توصيل', 'طلبات', 'طلب', 'سوق', 'متجر', 'تجار', 'بحرين', 'مؤرشف', 'أرشيف', 'ارشيف',
+      'archive', 'مشاوير', 'مشوار', 'دريول', 'سائق', 'أوردرات', 'اوردرات', 'شبكة', 'شبكه',
+      'حراج', 'اعلانات', 'إعلانات', 'بزنس', 'منتجة', 'خدمات', 'دانات', 'واتساب', 'whatsapp',
+      'المنامة', 'المحرق', 'الرفاع', 'سترة', 'حمد', 'عيسى', 'سار', 'الجنبية', 'البديع',
+      'سند', 'توبلي', 'سلماباد', 'الحد', 'عراد', 'قلالي', 'الديه', 'جدحفص'
+    ];
+    return keywords.some((kw) => lower.includes(kw));
   };
 
   // 1. Explicit Private Chat Signals:
@@ -318,16 +321,23 @@ export function discriminateConversationSource(
   const hasValidGroup = Boolean(rawGroup && !isPrivateChatPlaceholder(rawGroup));
   const hasTitleGroupKeywords = hasGroupKeywords(rawTitle) || hasGroupKeywords(rawGroup);
   const hasGroupJidMatch = isGroupJid;
+  const hasColonInTitle = rawTitle.includes(':') || rawTitle.includes(' @ ');
+  const hasDeliveryTextIntent = Boolean(
+    event.rawText && /(?:اوردر|أوردر|طلب|توصيل|مشوار|مندوب|بيك\s*اب|delivery|دينار|د\.ب)/i.test(event.rawText)
+  );
 
-  const isConfirmedGroup = (hasExplicitGroupFlag || hasDistinctConvTitle || hasValidGroup || hasTitleGroupKeywords || hasGroupJidMatch) && !isUserJidConfirmed;
+  const isConfirmedGroup = (hasExplicitGroupFlag || hasDistinctConvTitle || hasValidGroup || hasTitleGroupKeywords || hasGroupJidMatch || hasColonInTitle || (hasDeliveryTextIntent && !isUserJidConfirmed)) && !isUserJidConfirmed;
 
   if (isConfirmedGroup) {
     // Resolve canonical group title
-    const canonicalGroupName = 
+    let canonicalGroupName = 
       (rawConvTitle && !isPrivateChatPlaceholder(rawConvTitle) ? rawConvTitle : '') ||
       (rawGroup && !isPrivateChatPlaceholder(rawGroup) ? rawGroup : '') ||
-      (rawTitle && !isPrivateChatPlaceholder(rawTitle) ? rawTitle : '') ||
+      (rawTitle && !isPrivateChatPlaceholder(rawTitle) ? (rawTitle.includes(':') ? rawTitle.split(':')[0].trim() : (rawTitle.includes(' @ ') ? rawTitle.split(' @ ')[1].trim() : rawTitle)) : '') ||
       'واتساب';
+
+    // Strip trailing message count summary like "(3 messages)" or "(5 رسائل)"
+    canonicalGroupName = canonicalGroupName.replace(/\s*\(\d+[^)]*\)$/, '').trim();
 
     // Check if the group is authorized according to driver filter settings
     const isAuthorized = isGroupAuthorizedByFilter(canonicalGroupName, filter);

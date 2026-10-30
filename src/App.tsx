@@ -124,6 +124,7 @@ import {
   startBackgroundHeartbeat
 } from './utils/backgroundManager';
 import { detectIsOwnAd } from './utils/selfAdDetector';
+import { isSimulatedMockGroup, purgeSimulatorArtifactsFromStorage } from './utils/simulatorPurge';
 
 const DEFAULT_FILTER: OrderFilter = {
   coverageKm: 15,
@@ -143,6 +144,7 @@ const DEFAULT_FILTER: OrderFilter = {
   vibrationPattern: 'standard',
   excellentAlertEnabled: true,
   ignoreNonMatching: false,
+  allJoinedGroupsMode: true, // مراقبة كافة قروبات الواتساب المُنضم إليها افتراضياً لضمان التقاط جميع الطلبات
   selectedGroups: [],
   customResponseTemplate: '#مندوب_توصيل انا في {area} ومستعد للاستلام فوراً',
   contacts: DEFAULT_CONTACTS,
@@ -269,31 +271,31 @@ function OrderiApp({
     return true;
   });
 
-  // Self-healing purge: Clean old simulation artifacts from localStorage
+  // Self-healing purge: Clean old simulation artifacts, mock groups, and discovered simulator links
   useEffect(() => {
     try {
-      // Clean orderi_real_orders
-      const savedOrders = localStorage.getItem('orderi_real_orders');
-      if (savedOrders) {
-        const parsedOrders = JSON.parse(savedOrders);
-        if (Array.isArray(parsedOrders)) {
-          const cleanedOrders = parsedOrders.filter((o: any) => 
-            o.source !== 'simulation' && 
-            o.source !== 'spider_crawler' &&
-            !o.id?.startsWith('ord-spider-') &&
-            !o.id?.startsWith('ord-showcase-')
-          );
-          if (cleanedOrders.length !== parsedOrders.length) {
-            localStorage.setItem('orderi_real_orders', JSON.stringify(cleanedOrders));
-            setOrders(cleanedOrders.map((o: any) => ({
-              ...o,
-              receivedAt: new Date(o.receivedAt),
-            })));
-          }
-        }
-      }
+      // 1. Purge storage artifacts (detected groups, my groups, connections, filter groups, mock links)
+      purgeSimulatorArtifactsFromStorage();
 
-      // Clean orderi_monthly_commitments (إزالة أي التزامات وهمية أو تجريبية سابقة)
+      // 2. Clean live state
+      setPersistedDetectedGroups((prev) => prev.filter((g) => !isSimulatedMockGroup(g)));
+      setDiscoveredGroupLinks((prev) => 
+        prev.filter((l) => !isSimulatedMockGroup(l.sourceGroup) && !isSimulatedMockGroup(l.title) && !l.id?.startsWith('grp-mock-'))
+      );
+      setOrders((prev) => 
+        prev.filter((o) => 
+          !isSimulatedMockGroup(o.groupName) &&
+          o.source !== 'simulation' && 
+          o.source !== 'spider_crawler' &&
+          !o.id?.startsWith('ord-spider-') &&
+          !o.id?.startsWith('ord-showcase-')
+        )
+      );
+
+      // 3. Clean server state & memory
+      fetch('/api/whatsapp/purge-simulator-groups', { method: 'POST' }).catch(() => {});
+
+      // 4. Clean orderi_monthly_commitments (إزالة أي التزامات وهمية سابقة)
       const savedComm = localStorage.getItem('orderi_monthly_commitments');
       if (savedComm) {
         const parsedComm = JSON.parse(savedComm);
@@ -493,13 +495,15 @@ function OrderiApp({
     }
   };
 
-  // Persistent list of groups detected from phone notifications / orders
+  // Persistent list of groups detected from phone notifications / orders (purged of simulator mock groups)
   const [persistedDetectedGroups, setPersistedDetectedGroups] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem('orderi_detected_incoming_groups');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.filter((g: any) => typeof g === 'string' && !isSimulatedMockGroup(g));
+        }
       }
     } catch {}
     return [];
@@ -1481,20 +1485,35 @@ function OrderiApp({
         return;
       }
 
-      if (sourceAnalysis.sourceType === 'undetermined_ambiguous') {
-        // Logged locally for diagnosis, excluded from Radar
-        void OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] }).catch(() => {});
-        return;
-      }
-
       if (sourceAnalysis.sourceType === 'unauthorized_group') {
-        // Group is not selected in driver settings
+        // Group is not selected in restricted mode, but record it into detected groups so the driver sees it!
+        if (sourceAnalysis.groupName && !isSimulatedMockGroup(sourceAnalysis.groupName)) {
+          setPersistedDetectedGroups((prev) => {
+            if (!prev.includes(sourceAnalysis.groupName!)) {
+              const next = [sourceAnalysis.groupName!, ...prev];
+              try { localStorage.setItem('orderi_detected_incoming_groups', JSON.stringify(next)); } catch {}
+              return next;
+            }
+            return prev;
+          });
+        }
         void OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] }).catch(() => {});
         return;
       }
 
-      // At this point, source is GUARANTEED to be an authorized delivery group!
-      const groupName = sourceAnalysis.groupName!;
+      if (sourceAnalysis.sourceType === 'undetermined_ambiguous') {
+        // Check if message text has an explicit delivery order intent
+        const hasOrderIntent = Boolean(
+          rawText && /(?:اوردر|أوردر|طلب|توصيل|مشوار|مندوب|بيك\s*اب|delivery|دينار|د\.ب)/i.test(rawText)
+        );
+        if (!hasOrderIntent) {
+          void OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] }).catch(() => {});
+          return;
+        }
+      }
+
+      // At this point, source is an authorized delivery group or verified order!
+      const groupName = sourceAnalysis.groupName || event.groupName || event.conversationTitle || event.title || 'واتساب';
       const isGroup = true;
       
       // Suppress provider/travel/commercial adverts before closure matching, radar insertion,
@@ -1511,7 +1530,7 @@ function OrderiApp({
       setIsWhatsAppConnected(true);
 
       // IMMEDIATE GROUP REGISTRATION & AUTO-ADOPTION: Always bind and monitor the group automatically
-      if (groupName && groupName !== 'محادثة خاصة 👤' && !groupName.includes('محادثة خاصة')) {
+      if (groupName && groupName !== 'محادثة خاصة 👤' && !groupName.includes('محادثة خاصة') && !isSimulatedMockGroup(groupName)) {
         autoAdoptDetectedGroups([groupName]);
         setFilter((prev) => {
           if (!prev.selectedGroups.includes(groupName)) {
@@ -1839,9 +1858,13 @@ function OrderiApp({
               if (filterRef.current.soundEnabled) {
                 playAlertTone('cash_register', 90);
               }
+            } else if (data.type === 'PURGE_SIMULATOR_GROUPS') {
+              setPersistedDetectedGroups((prev) => prev.filter((g) => !isSimulatedMockGroup(g)));
+              setDiscoveredGroupLinks((prev) => prev.filter((l) => !isSimulatedMockGroup(l.sourceGroup) && !isSimulatedMockGroup(l.title)));
+              setOrders((prev) => prev.filter((o) => !isSimulatedMockGroup(o.groupName)));
             } else if (data.type === 'GROUP_DISCOVERED' && data.groupName) {
               const gName = data.groupName;
-              if (gName && gName !== 'محادثة خاصة 👤' && !gName.includes('محادثة خاصة')) {
+              if (gName && gName !== 'محادثة خاصة 👤' && !gName.includes('محادثة خاصة') && !isSimulatedMockGroup(gName)) {
                 autoAdoptDetectedGroups([gName]);
                 setFilter((prev) => {
                   if (!prev.selectedGroups.includes(gName)) {
@@ -1869,14 +1892,16 @@ function OrderiApp({
                 });
               }
             } else if (data.type === 'GROUP_LINK_DETECTED' && data.groupLink) {
-              setDiscoveredGroupLinks((prev) => {
-                const exists = prev.some((l) => l.inviteCode === data.groupLink.inviteCode);
-                if (exists) return prev;
-                const next = [data.groupLink, ...prev];
-                saveDiscoveredGroupLinks(next);
-                setActiveGroupLinkPrompt(data.groupLink);
-                return next;
-              });
+              if (!isSimulatedMockGroup(data.groupLink.sourceGroup) && !isSimulatedMockGroup(data.groupLink.title)) {
+                setDiscoveredGroupLinks((prev) => {
+                  const exists = prev.some((l) => l.inviteCode === data.groupLink.inviteCode);
+                  if (exists) return prev;
+                  const next = [data.groupLink, ...prev];
+                  saveDiscoveredGroupLinks(next);
+                  setActiveGroupLinkPrompt(data.groupLink);
+                  return next;
+                });
+              }
             }
           } catch {}
         };
@@ -2849,7 +2874,11 @@ function OrderiApp({
     if (clean === 'واتساب' || clean.toLowerCase() === 'whatsapp') {
       return true;
     }
-    // If selectedGroups is empty, driver wants to monitor ALL joined groups in WhatsApp!
+    // Default: monitor and allow ALL delivery groups in WhatsApp!
+    if (filter.allJoinedGroupsMode !== false) {
+      return true;
+    }
+    // If driver explicitly restricted monitoring to specific groups:
     if (!filter.selectedGroups || filter.selectedGroups.length === 0) return true;
     return filter.selectedGroups.some(g => 
       clean.toLowerCase().includes(g.toLowerCase()) || 
@@ -2862,7 +2891,16 @@ function OrderiApp({
       ...persistedDetectedGroups,
       ...orders.map((o) => o.groupName).filter(Boolean),
     ])
-  ).filter((g) => g && g !== 'محادثة خاصة 👤' && !g.includes('محادثة خاصة')) as string[];
+  ).filter((g) => g && g !== 'محادثة خاصة 👤' && !g.includes('محادثة خاصة') && !isSimulatedMockGroup(g)) as string[];
+
+  const handleClearDetectedGroups = () => {
+    setPersistedDetectedGroups([]);
+    try {
+      localStorage.removeItem('orderi_detected_incoming_groups');
+    } catch {}
+    fetch('/api/whatsapp/purge-simulator-groups', { method: 'POST' }).catch(() => {});
+    showToast('✅ تم حذف ومسح كافة القروبات المرصودة بنجاح');
+  };
 
   // Non-matching count (respecting group filter)
   const groupFilteredOrders = orders.filter((o) => isOrderGroupAllowed(o.groupName));
@@ -3330,6 +3368,7 @@ function OrderiApp({
             onSaveToast={() => showToast('✅ تم حفظ التعديلات وتفعيل شروط الفلتر، وطي الأقسام والانتقال لشاشة الرادار 📡')}
             onNavigateToRadar={() => setActiveTab('radar')}
             detectedIncomingGroups={detectedIncomingGroups}
+            onClearDetectedGroups={handleClearDetectedGroups}
             onOpenDiscoveredGroupsModal={() => setIsDiscoveredGroupsModalOpen(true)}
             discoveredGroupsCount={discoveredGroupLinks.length}
             isCarTrackingActive={isCarTrackingActive}

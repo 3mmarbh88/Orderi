@@ -89,16 +89,20 @@ function inferGroupTitle(
   return `قروب توصيل جديد (من ${senderName || sourceGroup})`;
 }
 
-/**
- * LocalStorage storage helpers
- */
+import { isSimulatedMockGroup } from './simulatorPurge';
+
 export function getStoredDiscoveredGroupLinks(): DiscoveredGroupLink[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
+        return parsed.filter((l: any) => 
+          !isSimulatedMockGroup(l.sourceGroup) && 
+          !isSimulatedMockGroup(l.title) &&
+          !l.id?.startsWith('grp-mock-') &&
+          !l.url?.includes('example')
+        );
       }
     }
   } catch (err) {
