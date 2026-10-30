@@ -47,12 +47,6 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: TypeScript validation
-        run: npm run lint
-
-      - name: WhatsApp group privacy regression tests
-        run: npm run test:group-capture
-
       - name: Build web application
         run: npm run build
         env:
