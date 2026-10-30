@@ -2,7 +2,7 @@ import { ParsedOrder } from '../types';
 import { parseWhatsAppOrderWithLocalAi } from './localAiOrderParser';
 import { detectPassengerDelivery } from './passengerClassifier';
 import { detectAdvertisementMessage } from './advertisementClassifier';
-import { extractClosureKeywords } from './orderClosureDetector';
+import { checkIncomingMessageForClosure, extractClosureKeywords } from './orderClosureDetector';
 import { extractGroupLinksFromText } from './groupLinkDetector';
 
 export interface SpiderLogEvent {
@@ -98,7 +98,9 @@ export async function spiderIngestMessage(
   groupName: string,
   senderName: string,
   senderPhone?: string,
-  isDirectPrivate?: boolean
+  isDirectPrivate?: boolean,
+  isGroup?: boolean,
+  activeOrders: ParsedOrder[] = []
 ): Promise<{
   action: SpiderLogEvent['action'];
   order?: any;
@@ -112,6 +114,7 @@ export async function spiderIngestMessage(
   const cleanGroup = (groupName || '').trim();
   if (
     isDirectPrivate || 
+    isGroup !== true ||
     !cleanGroup || 
     cleanGroup === 'محادثة خاصة 👤' || 
     cleanGroup.includes('خاصة') || 
@@ -144,13 +147,36 @@ export async function spiderIngestMessage(
 
   if (closure.hasClosureIntent || isMinimalSignal) {
     const matchedText = isSticker ? 'ملصق / استيكر 🖼️' : (closure.matchedWords.join(', ') || closure.matchedEmojis.join(' ') || rawText.trim());
+    const closureMatch = checkIncomingMessageForClosure({
+      text: rawText,
+      senderName,
+      senderPhone,
+      groupName: cleanGroup,
+      timestamp: Date.now(),
+      messageId: `spider-ingest:${cleanGroup}:${senderPhone || senderName}:${Date.now()}`,
+      isGroup: true,
+    }, activeOrders);
+
+    // A keyword or sticker alone is not proof that a specific advertiser's
+    // order is closed. The shared closure detector must match the same group
+    // and the original advertiser before any order can be marked closed.
+    if (!closureMatch) {
+      recordSpiderEvent({
+        action: 'SYSTEM',
+        groupName: cleanGroup,
+        detail: `إشارة إغلاق محتملة (${matchedText}) لم تُربط بإعلان المرسل نفسه؛ لم يتم إغلاق أي طلب`,
+        latencyMs: Math.max(1, Math.round(performance.now() - startTime)),
+      });
+      return { action: 'CRAWLING', reason: 'إشارة إغلاق غير مؤكدة؛ لا يوجد تطابق موثوق مع المعلن' };
+    }
+
     recordSpiderEvent({
       action: 'CLOSED_ORDER',
-      groupName,
-      detail: `رصد بالذكاء الاصطناعي: المعلن (${senderName || 'صاحب الإعلان'}) أكد الحصول على مندوب (${matchedText}) وحُذف طلبه من الرادار والإشعارات فوراً`,
+      groupName: cleanGroup,
+      detail: `تأكيد إغلاق مرتبط بإعلان المرسل نفسه: ${closureMatch.matchedOrder.from} ← ${closureMatch.matchedOrder.to} (${matchedText})`,
       latencyMs: Math.max(1, Math.round(performance.now() - startTime)),
     });
-    return { action: 'CLOSED_ORDER', reason: matchedText };
+    return { action: 'CLOSED_ORDER', order: closureMatch.matchedOrder, reason: matchedText };
   }
 
   // 3. Spam / Promotion Filter
