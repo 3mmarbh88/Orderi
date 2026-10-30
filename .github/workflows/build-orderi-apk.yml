@@ -47,6 +47,9 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Run privacy and Spider regression tests
+        run: npm run test:group-capture && npm run test:spider-privacy
+
       - name: Build web application
         run: npm run build
         env:
