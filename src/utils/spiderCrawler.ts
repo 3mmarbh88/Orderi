@@ -183,7 +183,7 @@ export async function spiderIngestMessage(
   const parsed = await parseWhatsAppOrderWithLocalAi(rawText, {
     hybridMode: true,
     minConfidence: 75,
-    useCloudFallback: true,
+    useCloudFallback: false,
     senderName,
     groupName,
   });
@@ -237,6 +237,22 @@ export async function triggerSpiderCrawlPass(
   const groups = (currentStats.crawlQueue && currentStats.crawlQueue.length > 0)
     ? currentStats.crawlQueue
     : DEFAULT_SPIDER_GROUPS;
+
+  // Never fabricate a group name or report a crawl when no real monitored
+  // group/message source is available. Android's notification listener is the
+  // actual WhatsApp ingestion source.
+  if (groups.length === 0) {
+    currentStats.currentCrawlingGroup = '';
+    currentStats.crawledGroupsCount = 0;
+    notify();
+    recordSpiderEvent({
+      action: 'SYSTEM',
+      groupName: '',
+      detail: 'لا توجد قروبات فعلية في طابور Spider؛ بانتظار رسائل يلتقطها مستمع WhatsApp الأصلي',
+      latencyMs: 0,
+    });
+    return { success: false, crawledGroup: '', itemsIndexed: 0 };
+  }
 
   const pickedGroup = groups.length > 0
     ? groups[Math.floor(Math.random() * groups.length)]

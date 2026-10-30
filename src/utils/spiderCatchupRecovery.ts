@@ -114,6 +114,7 @@ export function evaluateSubsequentThreadClosure(
   // جلب كافة الرسائل التي وردت بعد رسالة الطلب في نفس القروب خلال نافذة 4 ساعات
   const subsequentMessages = allGroupMessages.filter((msg) => {
     if (msg.id === orderMsg.id) return false;
+    if (msg.isGroup !== true || msg.isDirectPrivate === true) return false;
     if (msg.groupName !== orderMsg.groupName) return false;
     const t = new Date(msg.timestamp).getTime();
     const diffHours = (t - orderTime) / (1000 * 60 * 60);
@@ -144,7 +145,7 @@ export function evaluateSubsequentThreadClosure(
     // 2. تحليل الملصقات والاستيكرات
     const stickerResult = analyzeStickerSignal(rawText, followUp.stickerData);
     if (stickerResult.isSticker) {
-      if (stickerResult.isClosure && (quoteMatches || isSameAdvertiser)) {
+      if (stickerResult.isClosure && isSameAdvertiser) {
         return {
           isClosed: true,
           isAmbiguous: false,
@@ -183,7 +184,7 @@ export function evaluateSubsequentThreadClosure(
       /(?:حصلت|لقيت|توفر|تنسق)\s*(?:خلاص\s*)?مندوب|خلاص\s*حصلت|مع\s*المندوب\s*خلاص|الطلب\s*مع\s*المندوب|شالوه\s*خلاص|انحجز\s*خلاص|تم\s*(?:اخذ|أخذ)\s*الطلب|حصلت\s*على\s*مندوب|driver\s*assigned|got\s*a\s*driver/i.test(rawText);
 
     // أ) ريبلي مباشر مقتبس للطلب يفيد الإغلاق
-    if (quoteMatches) {
+    if (quoteMatches && isSameAdvertiser) {
       if (closureKeywords.hasClosureIntent || isDirectClosureExpression || isExplicitClosurePhrase) {
         return {
           isClosed: true,
@@ -226,13 +227,7 @@ export function evaluateSubsequentThreadClosure(
 
     // ج) عبارة صريحة جداً لا تحتمل اللبس ومربوطة بالطلب حصراً (اقتباس أو نفس المعلن أو تذكر تفاصيل الإعلان)
     // منع حذف طلب قائم لمعلن لمجرد ظهور كلمة عامة لمعلن آخر في القروب
-    const mentionsOrderDetails = Boolean(
-      (orderMsg.from && orderMsg.from.length >= 3 && rawText.includes(orderMsg.from)) ||
-      (orderMsg.to && orderMsg.to.length >= 3 && rawText.includes(orderMsg.to)) ||
-      (orderSenderName && orderSenderName.length >= 3 && rawText.includes(orderSenderName))
-    );
-
-    if (isExplicitClosurePhrase && (isSameAdvertiser || quoteMatches || mentionsOrderDetails) && !isFalsePositiveClosureUsage(rawText, 'تم')) {
+    if (isExplicitClosurePhrase && isSameAdvertiser && !isFalsePositiveClosureUsage(rawText, 'تم')) {
       return {
         isClosed: true,
         isAmbiguous: false,
@@ -291,7 +286,7 @@ export function evaluateCatchupCandidate(
 
   // 0. فحص مصدر المحادثة واستبعاد المحادثات الخاصة الفردية لحماية الخصوصية
   const group = (candidate.groupName || '').trim();
-  const isDirectPrivate = candidate.isDirectPrivate === true || candidate.isGroup === false;
+  const isDirectPrivate = candidate.isDirectPrivate === true || candidate.isGroup !== true;
   const isPrivateLabel = !group || group === 'محادثة خاصة 👤' || group.includes('خاصة') || group === 'واتساب';
   const isUserJid = candidate.chatId ? candidate.chatId.includes('@s.whatsapp.net') : false;
 
@@ -339,7 +334,10 @@ export function evaluateCatchupCandidate(
     senderPhone: m.senderPhone || m.phone || '',
     timestamp: m.timestamp || Date.now(),
     rawQuotedText: m.rawQuotedText || m.quotedText,
-    stickerData: m.stickerData || (m.stickerUrl ? { caption: m.caption, emoji: m.visualEmoji } : undefined)
+    stickerData: m.stickerData || (m.stickerUrl ? { caption: m.caption, emoji: m.visualEmoji } : undefined),
+    isGroup: m.isGroup,
+    isDirectPrivate: m.isDirectPrivate,
+    chatId: m.chatId,
   }));
 
   const threadCheck = evaluateSubsequentThreadClosure(candidate, normalizedMessages);

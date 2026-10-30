@@ -571,7 +571,9 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         } else if (hasGroupJid) {
             looksLikeGroup = true;
         } else {
-            looksLikeGroup = isExplicitGroupFlag || !TextUtils.isEmpty(conversationTitle) || !TextUtils.isEmpty(detectedGroupName);
+            // A contact display name can populate conversationTitle just like
+            // a group title. Trust only Android's explicit group flag here.
+            looksLikeGroup = isExplicitGroupFlag;
         }
 
         String resolvedTitle = !TextUtils.isEmpty(detectedGroupName) ? detectedGroupName

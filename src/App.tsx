@@ -157,7 +157,7 @@ const DEFAULT_FILTER: OrderFilter = {
   captainPhone: '',
   monitorArchivedGroups: true, // رصد ومراقبة قروبات الواتساب المؤرشفة تلقائياً
   // Cloud AI Deep Analysis enabled for WhatsApp orders
-  useCloudAiFallback: true,
+  useCloudAiFallback: false,
 };
 
 function OrderiApp({
@@ -417,6 +417,7 @@ function OrderiApp({
                     timestamp: event.receivedAt || Date.now(),
                     rawQuotedText: (event as any).rawQuotedText || '',
                     messageId: event.id,
+                    isGroup: true,
                   };
                   const closureMatch = checkIncomingMessageForClosure(closureData, ordersRef.current);
                   if (closureMatch) {
@@ -1502,14 +1503,10 @@ function OrderiApp({
       }
 
       if (sourceAnalysis.sourceType === 'undetermined_ambiguous') {
-        // Check if message text has an explicit delivery order intent
-        const hasOrderIntent = Boolean(
-          rawText && /(?:اوردر|أوردر|طلب|توصيل|مشوار|مندوب|بيك\s*اب|delivery|دينار|د\.ب)/i.test(rawText)
-        );
-        if (!hasOrderIntent) {
-          void OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] }).catch(() => {});
-          return;
-        }
+        // Ambiguous notifications are always dropped. Message content must
+        // never promote an unknown/private chat into a trusted delivery group.
+        void OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] }).catch(() => {});
+        return;
       }
 
       // At this point, source is an authorized delivery group or verified order!
@@ -1591,6 +1588,7 @@ function OrderiApp({
           timestamp: event.receivedAt || Date.now(),
           rawQuotedText: (event as any).rawQuotedText || (event as any).quotedText || '',
           messageId: event.id,
+          isGroup: true,
         };
 
         const fastClosureMatch = checkIncomingMessageForClosure(

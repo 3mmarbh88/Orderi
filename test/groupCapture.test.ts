@@ -82,13 +82,32 @@ const analysis1 = discriminateConversationSource(notifEvent1, defaultFilter);
 assert(canMessageCreateRadarOrder(analysis1) === true, 'Allows group with colon in title to create order');
 assert(analysis1.groupName?.includes('سوق البحرين') === true, 'Resolves correct group name from colon title');
 
-const notifEvent2 = {
+const privateDeliveryLookingMessage = {
   isGroup: false,
   title: 'أسر منتجة المحرق',
+  senderName: 'صديق',
   rawText: 'توصيل عاجل من المحرق للرفاع دينارين ونصف',
 };
-const analysis2 = discriminateConversationSource(notifEvent2, defaultFilter);
-assert(canMessageCreateRadarOrder(analysis2) === true, 'Recognizes group containing Bahrain area name and order intent');
+const privateAnalysis = discriminateConversationSource(privateDeliveryLookingMessage, defaultFilter);
+assert(privateAnalysis.sourceType === 'private_individual', 'Explicit private flag wins over group-like title and delivery text');
+assert(canMessageCreateRadarOrder(privateAnalysis) === false, 'Never creates a Radar order from a private chat');
+
+const ambiguousDeliveryLookingMessage = {
+  title: 'المحرق',
+  rawText: 'مطلوب مندوب من المحرق للرفاع 2 دينار',
+};
+const ambiguousAnalysis = discriminateConversationSource(ambiguousDeliveryLookingMessage, defaultFilter);
+assert(ambiguousAnalysis.sourceType === 'undetermined_ambiguous', 'Unknown source remains ambiguous even when message text looks like an order');
+assert(canMessageCreateRadarOrder(ambiguousAnalysis) === false, 'Never promotes an unknown source using message text');
+
+const verifiedGroupEvent = {
+  isGroup: true,
+  isExplicitGroup: true,
+  title: 'أسر منتجة المحرق: بو علي',
+  rawText: 'توصيل عاجل من المحرق للرفاع دينارين ونصف',
+};
+const verifiedGroupAnalysis = discriminateConversationSource(verifiedGroupEvent, defaultFilter);
+assert(canMessageCreateRadarOrder(verifiedGroupAnalysis) === true, 'Allows a notification explicitly identified by Android as a group');
 
 console.log('========================================================');
 console.log(`📊 Group Capture Summary: ${passedTests}/${totalTests} Passed (${failedTests} Failed)`);

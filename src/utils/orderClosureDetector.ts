@@ -304,7 +304,7 @@ export function checkIncomingMessageForClosure(
   const msgGroup = (message.groupName || '').trim();
   if (
     message.isDirectPrivate === true ||
-    message.isGroup === false ||
+    message.isGroup !== true ||
     !msgGroup ||
     msgGroup === 'محادثة خاصة 👤' ||
     msgGroup.includes('خاصة') ||
@@ -390,7 +390,7 @@ export function checkIncomingMessageForClosure(
     const isSenderMatch = isAdvertiserSenderMatch(msgSender, msgPhone, order.senderName, order.senderPhone);
 
     // إذا وُجد اقتباس للطلب، أو إذا كان ريبلي من صاحب الطلب نفسه
-    if (isQuoted && (isSenderMatch || quoteMatchesOrder || !msgSender)) {
+    if (isQuoted && isSenderMatch) {
       processedMessageHashes.add(dedupeKey);
       markOrderPermanentlyClosed(order.id);
       return {
@@ -465,7 +465,7 @@ export function checkIncomingMessageForClosure(
 
   if (hasExplicitCourierFound) {
     // إذا كان هناك طلب وحيد نشط في القروب
-    if (candidateOrders.length === 1) {
+    if (candidateOrders.length === 1 && isAdvertiserSenderMatch(msgSender, msgPhone, candidateOrders[0].senderName, candidateOrders[0].senderPhone)) {
       const targetOrder = candidateOrders[0];
       processedMessageHashes.add(dedupeKey);
       markOrderPermanentlyClosed(targetOrder.id);
@@ -504,6 +504,8 @@ export async function checkIncomingMessageForClosureWithAI(
     timestamp?: Date | number;
     rawQuotedText?: string;
     messageId?: string;
+    isGroup?: boolean;
+    isDirectPrivate?: boolean;
   },
   activeOrders: ParsedOrder[]
 ): Promise<ClosureMatchResult | null> {
@@ -512,7 +514,7 @@ export async function checkIncomingMessageForClosureWithAI(
   if (fastResult) return fastResult;
 
   const rawText = (message.text || '').trim();
-  if (!rawText) return null;
+  if (!rawText || message.isGroup !== true || message.isDirectPrivate === true) return null;
 
   const msgGroup = (message.groupName || '').trim();
   const msgSender = (message.senderName || '').trim();
@@ -529,19 +531,10 @@ export async function checkIncomingMessageForClosureWithAI(
     return isAdvertiserSenderMatch(msgSender, msgPhone, order.senderName, order.senderPhone);
   });
 
-  // في حال وجود اختلاف في صياغة اسم المرسل، نفحص الطلبات النشطة في نفس القروب خلال آخر 3.5 ساعات
-  const groupOrders = activeOrders.filter((order) => {
-    if (order.status === 'accepted' || order.status === 'closed_taken') return false;
-    const inSameGroup = 
-      (msgGroup && order.groupName && (order.groupName.includes(msgGroup) || msgGroup.includes(order.groupName))) ||
-      (order.crossPostedGroups && order.crossPostedGroups.some((g) => g.includes(msgGroup) || msgGroup.includes(g)));
-    if (!msgGroup || !inSameGroup) return false;
-    const diffHours = (msgTime - new Date(order.receivedAt).getTime()) / (1000 * 60 * 60);
-    return diffHours >= 0 && diffHours <= 3.5;
-  });
-
-  const targetCandidates = advertiserOrders.length > 0 ? advertiserOrders : groupOrders;
-  if (targetCandidates.length === 0) return null;
+  // AI must never guess which advertiser owns a closure. Without an exact
+  // sender match, leave every active order untouched.
+  if (advertiserOrders.length === 0) return null;
+  const targetCandidates = advertiserOrders;
 
   // استدعاء الذكاء الاصطناعي لفهم التعبير العامي الجديد
   try {
