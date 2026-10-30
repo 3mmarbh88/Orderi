@@ -58,6 +58,7 @@ import { AuthModal } from './components/AuthModal';
 import { SplashScreen } from './components/SplashScreen';
 import { FaceBiometricModal } from './components/FaceBiometricModal';
 import { SpiderControlCenter } from './components/SpiderControlCenter';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { recordSpiderEvent, updateSpiderStats } from './utils/spiderCrawler';
 import { DiscoveredGroupLink, CaptainUser } from './types';
 import { getCurrentUser, setCurrentUser as setStoredCurrentUser, isProgramActivated, normalizeBahrainPhone } from './utils/authManager';
@@ -84,7 +85,7 @@ import {
 import { isNativeAndroid, OrderiNotificationListener, WhatsAppNativeEvent } from './native/orderiNotificationListener';
 import { getWhatsAppListenerStatus, markAllWhatsAppAsRead, openWhatsAppAccessibilitySettings } from './native/whatsappListener';
 import { executePrivateAdvertiserOutreach } from './utils/whatsappPrivateOutreach';
-import { isDuplicateOrder, findDuplicateOrderMatch, rememberOrderFingerprint } from './utils/orderDedup';
+import { isDuplicateOrder, findDuplicateOrderMatch, rememberOrderFingerprint, registerOrderInDedupRegistry } from './utils/orderDedup';
 import { computeClientAiEvaluation } from './utils/aiEvaluator';
 import { detectPassengerDelivery } from './utils/passengerClassifier';
 import { 
@@ -98,6 +99,15 @@ import {
 import { classifyAdvertiserPrivateReply } from './utils/advertiserReplyClassifier';
 import { detectAdvertisementMessage } from './utils/advertisementClassifier';
 import { classifyPrivateWhatsAppMessage, registerKnownGroupAdvertiser } from './utils/personalChatClassifier';
+import {
+  discriminateConversationSource,
+  canMessageCreateRadarOrder,
+  canMessageCloseRadarOrder,
+  canForwardToCloudAI,
+  incrementExcludedPrivateChatsCounter,
+  getExcludedPrivateChatsCount,
+  recordAmbiguousSourceDiagnostic,
+} from './utils/conversationSourceDiscriminator';
 import { 
   checkOrderDestinationHunt, 
   saveHuntedDestinationLog 
@@ -116,10 +126,10 @@ import {
 import { detectIsOwnAd } from './utils/selfAdDetector';
 
 const DEFAULT_FILTER: OrderFilter = {
-  coverageKm: 10,
-  minimumPrice: 2.5,
+  coverageKm: 15,
+  minimumPrice: 2.0,
   startAreas: [],
-  destinations: ['الرفاع', 'مدينة عيسى', 'سار'],
+  destinations: [], // Default: all Bahrain destinations eligible
   startTime: '08:00',
   endTime: '23:00',
   notificationsEnabled: true,
@@ -224,8 +234,9 @@ function OrderiApp({
           return parsed
             .filter((o: any) => 
               o.source !== 'simulation' && 
+              o.source !== 'spider_crawler' &&
+              !o.id?.startsWith('ord-spider-') && 
               !o.id?.startsWith('ord-showcase-') && 
-              !o.id?.startsWith('spider-') && 
               !o.notes?.includes('سحبه تلقائياً فور ربط')
             )
             .map((o: any) => ({
@@ -238,7 +249,7 @@ function OrderiApp({
       }
     } catch {}
 
-    // Clean initial state: no mock/simulation orders, only live WhatsApp orders
+    // Clean initial state
     return [];
   });
   const [acceptedOrders, setAcceptedOrders] = useState<ParsedOrder[]>(() => {
@@ -258,23 +269,9 @@ function OrderiApp({
     return true;
   });
 
-  // Self-healing purge: Automatically remove deleted default groups & mock orders from localStorage
+  // Self-healing purge: Clean old simulation artifacts from localStorage
   useEffect(() => {
     try {
-      const banned = [
-        'قروب مندوبين البحرين 🇧🇭',
-        'قروب توصيل المنامة والرفاع 📦',
-        'قروب كباتن المحرق والحد 🚗',
-        'قروب طلبات المحافظة الشمالية ⚡',
-        'قروب توصيل مدينة حمد وعيسى 📍',
-        'قروب مندوبي البحرين 🇧🇭',
-        'طلبات التوصيل - المنامة والمحرق',
-        'توصيل سريع الرفاع ومدينة عيسى',
-        'شبكة مناديب التوصيل السريع',
-        'شبكة مندوبي البحرين العامة 🇧🇭',
-        'كباتن توصيل المحرق والحد 🚗',
-      ];
-
       // Clean orderi_real_orders
       const savedOrders = localStorage.getItem('orderi_real_orders');
       if (savedOrders) {
@@ -282,9 +279,9 @@ function OrderiApp({
         if (Array.isArray(parsedOrders)) {
           const cleanedOrders = parsedOrders.filter((o: any) => 
             o.source !== 'simulation' && 
-            !o.id?.startsWith('ord-showcase-') && 
-            !o.id?.startsWith('spider-') &&
-            !banned.includes(o.groupName)
+            o.source !== 'spider_crawler' &&
+            !o.id?.startsWith('ord-spider-') &&
+            !o.id?.startsWith('ord-showcase-')
           );
           if (cleanedOrders.length !== parsedOrders.length) {
             localStorage.setItem('orderi_real_orders', JSON.stringify(cleanedOrders));
@@ -292,30 +289,6 @@ function OrderiApp({
               ...o,
               receivedAt: new Date(o.receivedAt),
             })));
-          }
-        }
-      }
-
-      // Clean orderi_my_whatsapp_groups
-      const saved = localStorage.getItem('orderi_my_whatsapp_groups');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          const cleaned = parsed.filter((g: string) => !banned.includes(g));
-          if (cleaned.length !== parsed.length) {
-            localStorage.setItem('orderi_my_whatsapp_groups', JSON.stringify(cleaned));
-          }
-        }
-      }
-
-      // Clean orderi_custom_broadcast_groups
-      const savedBroadcast = localStorage.getItem('orderi_custom_broadcast_groups');
-      if (savedBroadcast) {
-        const parsedB = JSON.parse(savedBroadcast);
-        if (Array.isArray(parsedB)) {
-          const cleanedB = parsedB.filter((g: any) => !banned.includes(g?.name || g));
-          if (cleanedB.length !== parsedB.length) {
-            localStorage.setItem('orderi_custom_broadcast_groups', JSON.stringify(cleanedB));
           }
         }
       }
@@ -360,7 +333,36 @@ function OrderiApp({
     setIsRadarRefreshing(true);
     showToast('🔄 جاري تحديث وجلب أحدث طلبات الواتساب...');
     try {
-      // 1. Fetch recent webhook orders from server if available
+      // 1. First hydrate from local cache if orders is currently empty
+      try {
+        const saved = localStorage.getItem('orderi_real_orders');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            let dismissedIds: string[] = [];
+            try {
+              const savedDismissed = JSON.parse(localStorage.getItem('orderi_notification_dismissed_order_ids') || '[]');
+              if (Array.isArray(savedDismissed)) dismissedIds = savedDismissed;
+            } catch {}
+            const permanentlyClosed = getPermanentlyClosedOrderIds();
+            const valid = parsed
+              .filter((o: any) => o.source !== 'simulation' && !dismissedIds.includes(o.id) && !permanentlyClosed.includes(o.id))
+              .map((o: any) => ({ ...o, receivedAt: new Date(o.receivedAt) }));
+
+            if (valid.length > 0) {
+              setOrders((prev) => {
+                const existing = new Set(prev.map((o) => o.id));
+                const missing = valid.filter((v: any) => !existing.has(v.id));
+                return [...prev, ...missing].slice(0, 40);
+              });
+            }
+          }
+        }
+      } catch (storageErr) {
+        console.warn('[Orderi] Error loading local persisted orders:', storageErr);
+      }
+
+      // 2. Fetch recent webhook & spider crawler orders from server
       try {
         const res = await fetch('/api/whatsapp/recent', { signal: AbortSignal.timeout(3500) });
         if (res.ok) {
@@ -379,28 +381,6 @@ function OrderiApp({
         console.warn('[Orderi] Could not fetch server recent orders (using local radar cache):', netErr);
       }
 
-      // 2. Refresh local persisted orders (excluding permanently closed and dismissed)
-      try {
-        const saved = localStorage.getItem('orderi_real_orders');
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed)) {
-            let dismissedIds: string[] = [];
-            try {
-              const savedDismissed = JSON.parse(localStorage.getItem('orderi_notification_dismissed_order_ids') || '[]');
-              if (Array.isArray(savedDismissed)) dismissedIds = savedDismissed;
-            } catch {}
-            const permanentlyClosed = getPermanentlyClosedOrderIds();
-            setOrders(parsed
-              .filter((o: any) => o.source !== 'simulation' && !dismissedIds.includes(o.id) && !permanentlyClosed.includes(o.id))
-              .map((o: any) => ({ ...o, receivedAt: new Date(o.receivedAt) }))
-              .slice(0, 40));
-          }
-        }
-      } catch (storageErr) {
-        console.warn('[Orderi] Error loading local persisted orders:', storageErr);
-      }
-
       // 3. In Native Android, check pending notification events with robust per-event isolation
       if (isNativeAndroid()) {
         try {
@@ -409,7 +389,17 @@ function OrderiApp({
             const { parseWhatsAppOrderWithLocalAi } = await import('./utils/localAiOrderParser');
             for (const event of pending.events.slice(-30)) {
               try {
-                const groupName = (event.conversationTitle || event.title || '').trim() || 'محادثة خاصة 👤';
+                // Strict Source Discrimination:
+                // Only authorized delivery groups can be restored or checked for closures
+                const sourceAnalysis = discriminateConversationSource(event, filterRef.current);
+                if (!canMessageCreateRadarOrder(sourceAnalysis)) {
+                  if (sourceAnalysis.isPrivateIndividual) {
+                    incrementExcludedPrivateChatsCounter();
+                  }
+                  await OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] });
+                  continue;
+                }
+                const groupName = sourceAnalysis.groupName!;
                 const rawText = (event.rawText || event.bigText || event.text || event.subText || '').trim();
                 if (detectAdvertisementMessage(rawText || event.title || '').isAdvertisement) {
                   console.info('[Orderi] Suppressed pending service advertisement');
@@ -716,6 +706,17 @@ function OrderiApp({
   // Heartbeat to keep background radar alive on mobile browsers & background tabs
   useEffect(() => {
     startBackgroundHeartbeat();
+    const handleFirstGesture = () => {
+      primeBackgroundAudio();
+      window.removeEventListener('click', handleFirstGesture);
+      window.removeEventListener('touchstart', handleFirstGesture);
+    };
+    window.addEventListener('click', handleFirstGesture, { once: true });
+    window.addEventListener('touchstart', handleFirstGesture, { once: true });
+    return () => {
+      window.removeEventListener('click', handleFirstGesture);
+      window.removeEventListener('touchstart', handleFirstGesture);
+    };
   }, []);
 
   // Automated background polling of pending events & radar refresh for archived groups
@@ -732,6 +733,11 @@ function OrderiApp({
 
     return () => window.clearInterval(sweepTimer);
   }, [filter.monitorArchivedGroups, filter.autoArchivedChatsPolling, filter.archivedPollingIntervalMinutes]);
+
+  // Initial mount: load recent WhatsApp orders immediately into radar
+  useEffect(() => {
+    void refreshRadar();
+  }, []);
 
   // Reference to prevent duplicate sounds
   const filterRef = useRef(filter);
@@ -752,8 +758,19 @@ function OrderiApp({
   useEffect(() => {
     try {
       localStorage.setItem('orderi_filter_settings', JSON.stringify(filter));
+      if (isNativeAndroid() && OrderiNotificationListener.updateFilterSettings) {
+        OrderiNotificationListener.updateFilterSettings({
+          ignoreNonMatching: filter.ignoreNonMatching,
+          minPrice: filter.minPrice,
+          coverageKm: filter.maxDistanceKm,
+          driverLat: driverLocation?.latitude,
+          driverLon: driverLocation?.longitude,
+          blockPassenger: filter.blockPassengerDeliveries !== false,
+          notificationsEnabled: (filter.notificationsEnabled !== false) && (filter.backgroundNotificationsEnabled !== false),
+        }).catch(() => {});
+      }
     } catch {}
-  }, [filter]);
+  }, [filter, driverLocation]);
 
   useEffect(() => {
     try {
@@ -811,21 +828,28 @@ function OrderiApp({
 
   // Check if a group is allowed by driver filter
   const isOrderGroupAllowedRef = (groupName?: string) => {
-    if (!filterRef.current.selectedGroups || filterRef.current.selectedGroups.length === 0) return true;
-    if (!groupName) return true;
+    if (!groupName) return true; // Default fallback to allow order if group is unspecified
+    const clean = groupName.trim();
+    if (clean === 'محادثة خاصة 👤' || clean === 'محادثة خاصة' || clean === 'خاص 👤' || clean === 'محادثة فردية') {
+      return false; // المحادثات الفردية الشخصية مستبعدة نهائياً من الرادار
+    }
+
+    // البث المباشر وقناة الرادار العامة
+    if (clean === 'واتساب' || clean.toLowerCase() === 'whatsapp') {
+      return true;
+    }
 
     // رصد قروبات الواتساب المؤرشفة تلقائياً إذا كان الخيار مفعلاً
     if (filterRef.current.monitorArchivedGroups !== false) {
-      const isArchived = groupName.includes('مؤرشف') || groupName.toLowerCase().includes('archive');
+      const isArchived = clean.includes('مؤرشف') || clean.toLowerCase().includes('archive');
       if (isArchived) return true;
     }
 
-    // المحادثات الخاصة وقنوات الواتساب المباشرة مسموحة دائماً
-    if (groupName.includes('محادثة خاصة') || groupName.includes('واتساب') || groupName.includes('خاص 👤')) return true;
+    if (!filterRef.current.selectedGroups || filterRef.current.selectedGroups.length === 0) return true;
 
     return filterRef.current.selectedGroups.some(g =>
-      groupName.toLowerCase().includes(g.toLowerCase()) ||
-      g.toLowerCase().includes(groupName.toLowerCase())
+      clean.toLowerCase().includes(g.toLowerCase()) ||
+      g.toLowerCase().includes(clean.toLowerCase())
     );
   };
 
@@ -835,6 +859,24 @@ function OrderiApp({
   // Unified processor for incoming WhatsApp orders from SSE, Pairing, or Polling
   const handleProcessIncomingRawOrder = (raw: any, isInitialBatch = false) => {
     if (!raw || !raw.id) return;
+
+    // Strict Privacy & Discrimination Gate:
+    // Personal 1-on-1 private messages and non-groups CAN NEVER be created as Radar orders!
+    if (
+      raw.isDirectPrivate === true ||
+      raw.groupName === 'محادثة خاصة 👤' ||
+      raw.groupName === 'محادثة خاصة' ||
+      raw.groupName === 'خاص 👤' ||
+      raw.groupName === 'محادثة فردية'
+    ) {
+      incrementExcludedPrivateChatsCounter();
+      return;
+    }
+
+    if (!raw.groupName) {
+      raw.groupName = 'واتساب';
+    }
+
     try {
       const dismissed = JSON.parse(localStorage.getItem('orderi_notification_dismissed_order_ids') || '[]');
       if (Array.isArray(dismissed) && dismissed.includes(raw.id)) return;
@@ -929,13 +971,6 @@ function OrderiApp({
       { rawText: raw.rawText || '', scheduledTimeMinutes: raw.scheduledTimeMinutes, postedAt: raw.receivedAt }
     );
 
-    // Apply the schedule feasibility gate uniformly to webhook and native WhatsApp events.
-    // A request that cannot be reached in time is silently excluded from Radar and alerts.
-    if (match.scheduleFeasible === false) {
-      console.info('[Orderi] Scheduled request excluded:', match.scheduleReason || 'pickup time infeasible');
-      return;
-    }
-
     // Check VIP or Blacklist contact status
     const contactCheck = checkOrderContactStatus(
       raw.senderPhone,
@@ -957,24 +992,27 @@ function OrderiApp({
     const passengerDetection = raw.passengerDetection || detectPassengerDelivery(raw.rawText || `${raw.from} ${raw.to}`, {
       isBlockForbiddenEnabled: filterRef.current.blockPassengerDeliveries !== false,
     });
-    const isPassengerOrder =
-      passengerDetection.level === 'confirmed_passenger' ||
-      passengerDetection.level === 'suspicious_passenger';
 
-    // The "ignore non-matching" setting applies to passenger ads too, including VIP senders.
-    // Keep the existing VIP exception only for ordinary goods orders.
-    if (
-      filterRef.current.ignoreNonMatching &&
-      match.score < 80 &&
-      (isPassengerOrder || contactCheck.status !== 'vip')
-    ) {
-      return;
-    }
-
-    // Compare order & advertiser across WhatsApp groups to prevent duplicates
+    // Compare order & advertiser across WhatsApp groups to prevent duplicates (منع تكرار نشر نفس الإعلان في عدة قروبات)
     if (filterRef.current.preventDuplicateOrders !== false) {
       const existingMatch = findDuplicateOrderMatch(raw, ordersRef.current);
       if (existingMatch) {
+        // Synchronously update ordersRef.current so burst messages see the merge immediately
+        ordersRef.current = ordersRef.current.map((o) => {
+          if (o.id === existingMatch.id) {
+            const currentGroups = o.crossPostedGroups || [o.groupName];
+            const updatedGroups = currentGroups.includes(raw.groupName)
+              ? currentGroups
+              : [...currentGroups, raw.groupName];
+            return {
+              ...o,
+              crossPostedGroups: updatedGroups,
+              duplicateCount: (o.duplicateCount || 1) + 1,
+            };
+          }
+          return o;
+        });
+
         setOrders((prev) =>
           prev.map((o) => {
             if (o.id === existingMatch.id) {
@@ -992,8 +1030,8 @@ function OrderiApp({
           })
         );
         rememberOrderFingerprint(raw);
-        showToast(`📢 تم دمج إعلان مكرر من المعلن نُشر في قروب: ${raw.groupName} لمنع التكرار`);
-        return;
+        console.info(`[Orderi Dedup] Merged cross-posted ad from ${raw.senderName || 'معلن'} in group "${raw.groupName}" into existing order ${existingMatch.id}`);
+        return; // Suppress duplicate card in radar and suppress duplicate notification!
       }
     }
 
@@ -1002,11 +1040,37 @@ function OrderiApp({
       return;
     }
 
-    // Deduplicate only after the order passes activation, blacklist and group
-    // filters. This prevents an ignored group from "claiming" an order that
-    // later appears in one of the driver's monitored groups.
-    if (isDuplicateOrder(raw)) {
+    if (ordersRef.current.some((o) => o.id === raw.id)) {
       return;
+    }
+
+    // Secondary fingerprint check: If this order fingerprint was already alerted recently across any group
+    const isAlreadyAlerted = isDuplicateOrder(raw);
+    if (isAlreadyAlerted) {
+      // Find matching order in active radar to attach cross-posted group name
+      const fallbackMatch = findDuplicateOrderMatch(raw, ordersRef.current);
+      if (fallbackMatch) {
+        ordersRef.current = ordersRef.current.map((o) => {
+          if (o.id === fallbackMatch.id) {
+            const currentGroups = o.crossPostedGroups || [o.groupName];
+            const updatedGroups = currentGroups.includes(raw.groupName) ? currentGroups : [...currentGroups, raw.groupName];
+            return { ...o, crossPostedGroups: updatedGroups, duplicateCount: (o.duplicateCount || 1) + 1 };
+          }
+          return o;
+        });
+        setOrders((prev) =>
+          prev.map((o) => {
+            if (o.id === fallbackMatch.id) {
+              const currentGroups = o.crossPostedGroups || [o.groupName];
+              const updatedGroups = currentGroups.includes(raw.groupName) ? currentGroups : [...currentGroups, raw.groupName];
+              return { ...o, crossPostedGroups: updatedGroups, duplicateCount: (o.duplicateCount || 1) + 1 };
+            }
+            return o;
+          })
+        );
+      }
+      console.info(`[Orderi Dedup] Suppressed duplicate notification and duplicate card for cross-posted ad in "${raw.groupName}"`);
+      return; // Do NOT insert duplicate card and do NOT send notification!
     }
 
     // Check Desired Destination Hunting (صائد وجهات التوصيل والتسليم المرغوبة في القروبات)
@@ -1056,7 +1120,7 @@ function OrderiApp({
     };
 
     // Sound, Vibration & Notifications
-    if (!isInitialBatch) {
+    if (!isInitialBatch && !isAlreadyAlerted) {
       const isPassengerBlocked = passengerDetection.level === 'confirmed_passenger' && filterRef.current.blockPassengerDeliveries !== false;
 
       if (newOrder.match.scheduleFeasible === false) {
@@ -1074,7 +1138,7 @@ function OrderiApp({
         if (filterRef.current.vibrationEnabled) {
           triggerCustomVibration('urgent', 3, true);
         }
-        if (filterRef.current.backgroundNotificationsEnabled ?? true) {
+        if (filterRef.current.notificationsEnabled !== false && (filterRef.current.backgroundNotificationsEnabled ?? true)) {
           sendBackgroundOrderNotification(newOrder, filterRef.current);
         }
         showToast(`⭐ وارد تلقائياً: طلب VIP من (${contactCheck.contact?.name || newOrder.senderName}) • ${newOrder.from} ← ${newOrder.to}`);
@@ -1095,7 +1159,7 @@ function OrderiApp({
           }
         }
 
-        if (filterRef.current.backgroundNotificationsEnabled ?? true) {
+        if (filterRef.current.notificationsEnabled !== false && (filterRef.current.backgroundNotificationsEnabled ?? true)) {
           sendBackgroundOrderNotification(newOrder, filterRef.current);
         }
         const orderKindLabel = isDestinationHunted 
@@ -1108,32 +1172,54 @@ function OrderiApp({
       } else {
         // الطلب غير مطابق لشروط الكابتن
         if (filterRef.current.ignoreNonMatching && newOrder.match.score < 80) {
-          // لا نصدر تنبيهاً لطلب غير مطابق؛ يشمل ذلك نقل الركاب، ولا يسمح لتصنيف الراكب بتجاوز الفلتر.
-          return;
+          // الحجب مفعل: لا نصدر تنبيهاً ولا إشعاراً لطلب غير مطابق، ويبقى صامتاً مع ظهوره بالرادار
+        } else {
+          // الحجب معطل: الكابتن يسمح بالطلبات غير المطابقة ويريد تنبيهات وإشعارات كاملة لها
+          if (filterRef.current.soundEnabled) {
+            playAlertTone(filterRef.current.alertTone || 'chime', 60);
+          }
+          if (filterRef.current.notificationsEnabled !== false && (filterRef.current.backgroundNotificationsEnabled ?? true)) {
+            sendBackgroundOrderNotification(newOrder, filterRef.current);
+          }
+          showToast(`⚡ وارد تلقائياً من واتساب: ${newOrder.from} ← ${newOrder.to} (${newOrder.price} د.ب)`);
         }
-        if (filterRef.current.soundEnabled) {
-          playAlertTone(filterRef.current.alertTone || 'chime', 60);
-        }
-        showToast(`⚡ وارد تلقائياً من واتساب: ${newOrder.from} ← ${newOrder.to} (${newOrder.price} د.ب)`);
       }
     }
 
-    setOrders((prev) => [newOrder, ...prev.filter(o => o.id !== newOrder.id).slice(0, 39)]);
+    // Register immediately in synchronous registry and memory ref to defeat burst duplicate races
+    registerOrderInDedupRegistry(newOrder);
+    rememberOrderFingerprint(newOrder);
+    ordersRef.current = [newOrder, ...ordersRef.current.filter((o) => o.id !== newOrder.id)].slice(0, 40);
+
+    setOrders((prev) => {
+      if (prev.some((o) => o.id === newOrder.id)) return prev;
+      const nextList = [newOrder, ...prev.filter((o) => o.id !== newOrder.id)].slice(0, 40);
+      try {
+        localStorage.setItem('orderi_real_orders', JSON.stringify(nextList));
+      } catch {}
+      return nextList;
+    });
 
     // Phone alerts are created only after the order has passed parsing, filters,
-    // and deduplication and is being inserted into Radar.
+    // and deduplication and is being inserted into Radar (respecting blocking rules).
     if (!isInitialBatch && isNativeAndroid() && filterRef.current.notificationsEnabled !== false &&
         (filterRef.current.backgroundNotificationsEnabled ?? true)) {
-      void OrderiNotificationListener.showOrderNotification({
-        orderId: newOrder.id,
-        from: newOrder.from || 'غير محدد',
-        to: newOrder.to || 'غير محدد',
-        price: newOrder.price || 0,
-        priceDisplay: (!newOrder.price || newOrder.price <= 0 || newOrder.isPriceUnspecified)
-          ? ''
-          : `${Number.isInteger(newOrder.price) ? newOrder.price : Number(newOrder.price.toFixed(1))} دينار`,
-        rawText: newOrder.rawText || '',
-      }).catch((error) => console.warn('[Orderi] Could not show accepted Radar order notification:', error));
+      const isPassengerBlocked = (newOrder.passengerDetection?.level === 'confirmed_passenger' || newOrder.passengerDetection?.level === 'suspicious_passenger') && filterRef.current.blockPassengerDeliveries !== false;
+      const isNonMatchingBlocked = filterRef.current.ignoreNonMatching && newOrder.match.score < 80 && newOrder.contactStatus !== 'vip';
+      const isOwnAdBlocked = (newOrder.isOwnAd || (newOrder as any).isFromMe) && filterRef.current.excludeMyOwnAds !== false;
+
+      if (!isPassengerBlocked && !isNonMatchingBlocked && !isOwnAdBlocked) {
+        void OrderiNotificationListener.showOrderNotification({
+          orderId: newOrder.id,
+          from: newOrder.from || 'غير محدد',
+          to: newOrder.to || 'غير محدد',
+          price: newOrder.price || 0,
+          priceDisplay: (!newOrder.price || newOrder.price <= 0 || newOrder.isPriceUnspecified)
+            ? ''
+            : `${Number.isInteger(newOrder.price) ? newOrder.price : Number(newOrder.price.toFixed(1))} دينار`,
+          rawText: newOrder.rawText || '',
+        }).catch((error) => console.warn('[Orderi] Could not show accepted Radar order notification:', error));
+      }
     }
   };
 
@@ -1149,8 +1235,49 @@ function OrderiApp({
   // refreshes and queued WhatsApp events cannot immediately recreate that order.
   useEffect(() => {
     let active = true;
+
+    // Clear all orders in radar when "Clear All" (مسح الكل) is pressed in notifications
+    const clearAllOrders = (notifyToast = true) => {
+      const currentIds = ordersRef.current.map((o) => o.id);
+      if (currentIds.length > 0) {
+        let saved: string[] = [];
+        try {
+          const parsed = JSON.parse(localStorage.getItem('orderi_notification_dismissed_order_ids') || '[]');
+          if (Array.isArray(parsed)) saved = parsed;
+        } catch {}
+        const next = Array.from(new Set([...saved, ...currentIds])).slice(-500);
+        try { localStorage.setItem('orderi_notification_dismissed_order_ids', JSON.stringify(next)); } catch {}
+
+        currentIds.forEach((id) => {
+          fetch('/api/whatsapp/mark-read', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ orderId: id }),
+          }).catch(() => {});
+        });
+      }
+
+      setOrders([]);
+      try {
+        localStorage.setItem('orderi_real_orders', JSON.stringify([]));
+        localStorage.removeItem('orderi_cached_orders');
+        sessionStorage.setItem('orderi_notifs_sent_count', '0');
+      } catch {}
+
+      if (notifyToast) {
+        showToast('🗑️ تم مسح جميع الطلبات من الرادار لمطابقة مسح الكل للإشعارات ✓✓');
+      }
+    };
+
     const persistDismissed = (orderIds: string[]) => {
       if (!orderIds.length) return;
+
+      // If all active orders in the radar are being dismissed at once (Clear All action)
+      if (ordersRef.current.length > 0 && ordersRef.current.every((o) => orderIds.includes(o.id))) {
+        clearAllOrders(true);
+        return;
+      }
+
       let saved: string[] = [];
       try {
         const parsed = JSON.parse(localStorage.getItem('orderi_notification_dismissed_order_ids') || '[]');
@@ -1160,7 +1287,13 @@ function OrderiApp({
       try { localStorage.setItem('orderi_notification_dismissed_order_ids', JSON.stringify(next)); } catch {}
 
       // Delete from active radar orders state
-      setOrders((prev) => prev.filter((order) => !orderIds.includes(order.id)));
+      setOrders((prev) => {
+        const remaining = prev.filter((order) => !orderIds.includes(order.id));
+        if (prev.length > 0 && remaining.length === 0) {
+          clearAllOrders(true);
+        }
+        return remaining;
+      });
 
       // Clean from localStorage caches
       try {
@@ -1192,12 +1325,16 @@ function OrderiApp({
 
     // 1. Android Native Listener & Periodic Background Sync
     let nativeListenerPromise: Promise<any> | null = null;
+    let nativeAllDismissPromise: Promise<any> | null = null;
     let syncInterval: any = null;
 
     const checkNativeDismissals = () => {
       if (!active || !isNativeAndroid()) return;
       void OrderiNotificationListener.getDismissedOrderIds().then((result) => {
-        if (active && result?.orderIds?.length) {
+        if (!active) return;
+        if (result?.allDismissed) {
+          clearAllOrders(true);
+        } else if (result?.orderIds?.length) {
           persistDismissed(result.orderIds);
         }
       }).catch(() => {});
@@ -1205,10 +1342,18 @@ function OrderiApp({
 
     if (isNativeAndroid()) {
       nativeListenerPromise = OrderiNotificationListener.addListener('orderNotificationDismissed', (event) => {
-        if (active && event?.orderId) persistDismissed([event.orderId]);
+        if (!active) return;
+        if (event?.allDismissed) {
+          clearAllOrders(true);
+        } else if (event?.orderId) {
+          persistDismissed([event.orderId]);
+        }
+      });
+      nativeAllDismissPromise = OrderiNotificationListener.addListener('allOrderNotificationsDismissed', () => {
+        if (active) clearAllOrders(true);
       });
       checkNativeDismissals();
-      syncInterval = setInterval(checkNativeDismissals, 2500);
+      syncInterval = setInterval(checkNativeDismissals, 2000);
     }
 
     // Check dismissals when app returns to foreground from background
@@ -1221,11 +1366,18 @@ function OrderiApp({
 
     // 2. Web / Browser Custom Event Listener
     const handleWebNotificationDismiss = (e: any) => {
-      if (active && e.detail?.orderId) {
+      if (!active) return;
+      if (e.detail?.allDismissed) {
+        clearAllOrders(true);
+      } else if (e.detail?.orderId) {
         persistDismissed([e.detail.orderId]);
       }
     };
+    const handleWebAllDismiss = () => {
+      if (active) clearAllOrders(true);
+    };
     window.addEventListener('orderi:notification_dismissed', handleWebNotificationDismiss);
+    window.addEventListener('orderi:all_notifications_dismissed', handleWebAllDismiss);
 
     // 3. BroadcastChannel listener across tabs and service worker
     let bc: BroadcastChannel | null = null;
@@ -1233,7 +1385,10 @@ function OrderiApp({
       if (typeof BroadcastChannel !== 'undefined') {
         bc = new BroadcastChannel('orderi_notifications');
         bc.onmessage = (ev) => {
-          if (active && ev.data?.type === 'NOTIFICATION_DISMISSED' && ev.data?.orderId) {
+          if (!active) return;
+          if (ev.data?.type === 'ALL_NOTIFICATIONS_DISMISSED') {
+            clearAllOrders(true);
+          } else if (ev.data?.type === 'NOTIFICATION_DISMISSED' && ev.data?.orderId) {
             persistDismissed([ev.data.orderId]);
           }
         };
@@ -1247,7 +1402,11 @@ function OrderiApp({
       if (nativeListenerPromise) {
         void nativeListenerPromise.then((handle) => handle.remove()).catch(() => {});
       }
+      if (nativeAllDismissPromise) {
+        void nativeAllDismissPromise.then((handle) => handle.remove()).catch(() => {});
+      }
       window.removeEventListener('orderi:notification_dismissed', handleWebNotificationDismiss);
+      window.removeEventListener('orderi:all_notifications_dismissed', handleWebAllDismiss);
       if (bc) bc.close();
     };
   }, []);
@@ -1276,42 +1435,67 @@ function OrderiApp({
         return;
       }
 
-      // Smart resolution of Group Name and whether it's a group
-      let detectedGroupName = '';
-      if (event.groupName && event.groupName.trim()) {
-        detectedGroupName = event.groupName.trim();
-      } else if (event.conversationTitle && event.conversationTitle.trim()) {
-        detectedGroupName = event.conversationTitle.trim();
-      } else if (event.isGroup && event.title) {
-        if (event.title.includes(' @ ')) {
-          const parts = event.title.split(' @ ');
-          detectedGroupName = parts[1]?.trim() || event.title.trim();
-        } else {
-          detectedGroupName = event.title.trim();
+      // 1. Strict Conversation Source Discrimination:
+      // Identifies authorized delivery groups vs personal 1-on-1 private chats vs ambiguous sources
+      const sourceAnalysis = discriminateConversationSource(event, filterRef.current);
+
+      if (sourceAnalysis.sourceType === 'private_individual') {
+        incrementExcludedPrivateChatsCounter();
+
+        // Check if driver has an ACTIVE outreach to this specific contact/phone for a pending order
+        if (rawText) {
+          const activeOutreachOrder = ordersRef.current.find((ord) => {
+            if (ord.status !== 'pending' || !ord.outreachStatus) return false;
+            const ordPhone = (ord.senderPhone || '').replace(/\D/g, '');
+            const evPhone = (event.senderPhone || event.title || '').replace(/\D/g, '');
+            if (ordPhone.length >= 8 && evPhone.length >= 8 && ordPhone.slice(-8) === evPhone.slice(-8)) return true;
+            if (ord.senderName && event.title && ord.senderName.trim() === event.title.trim()) return true;
+            return false;
+          });
+
+          if (activeOutreachOrder) {
+            const replyVerdict = classifyAdvertiserPrivateReply(rawText);
+            if (replyVerdict.verdict === 'CONFIRMED_AWARDED') {
+              setAwardedOrderData({
+                orderId: activeOutreachOrder.id,
+                advertiserName: event.title || activeOutreachOrder.senderName || 'صاحب الإعلان',
+                advertiserPhone: activeOutreachOrder.senderPhone || '',
+                replyText: rawText.trim(),
+              });
+              showToast(`✅ المعلن رد عليك بالخاص وأكّد الطلب لك («${rawText.trim()}»)`);
+              if (filterRef.current.soundEnabled) {
+                playAlertTone('cash_register', 90);
+              }
+            } else if (replyVerdict.verdict === 'REJECTED_OR_TAKEN') {
+              console.log('[Orderi Native] Contacted advertiser replied taken/cancelled:', rawText);
+            }
+          } else {
+            console.log('[Orderi AI] Casual WhatsApp message from personal chat excluded for privacy:', {
+              sender: event.title || event.senderName,
+            });
+          }
         }
-      } else if (event.title && (
-        event.title.includes('قروب') ||
-        event.title.includes('جروب') ||
-        event.title.includes('مجموعة') ||
-        event.title.includes('مناديب') ||
-        event.title.includes('توصيل') ||
-        event.title.includes('كباتن') ||
-        event.title.includes('بحرين') ||
-        event.title.includes('طلبات') ||
-        event.title.includes('مؤرشف') ||
-        event.title.includes('أرشيف') ||
-        event.title.includes('ارشيف') ||
-        event.title.toLowerCase().includes('archive') ||
-        event.title.includes('سوق') ||
-        event.title.includes('تجار')
-      )) {
-        detectedGroupName = event.title.trim();
+
+        // STRICT PRIVACY GUARANTEE: Never create order from personal 1-on-1 chats, never close other orders!
+        void OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] }).catch(() => {});
+        return;
       }
 
-      const isGroup = Boolean(event.isGroup || (detectedGroupName && detectedGroupName.length > 0));
-      const isArchivedChat = (event.title && (event.title.includes('مؤرشف') || event.title.toLowerCase().includes('archive'))) ||
-                             (detectedGroupName && (detectedGroupName.includes('مؤرشف') || detectedGroupName.toLowerCase().includes('archive')));
-      const groupName = detectedGroupName || (isGroup ? event.title || 'قروب واتساب' : (isArchivedChat ? `${event.title || 'قروب'} (مؤرشف 📦)` : 'محادثة خاصة 👤'));
+      if (sourceAnalysis.sourceType === 'undetermined_ambiguous') {
+        // Logged locally for diagnosis, excluded from Radar
+        void OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] }).catch(() => {});
+        return;
+      }
+
+      if (sourceAnalysis.sourceType === 'unauthorized_group') {
+        // Group is not selected in driver settings
+        void OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] }).catch(() => {});
+        return;
+      }
+
+      // At this point, source is GUARANTEED to be an authorized delivery group!
+      const groupName = sourceAnalysis.groupName!;
+      const isGroup = true;
       
       // Suppress provider/travel/commercial adverts before closure matching, radar insertion,
       // sounds, toasts and phone notifications.
@@ -1323,11 +1507,11 @@ function OrderiApp({
       }
 
       // A real WhatsApp notification verifies that the native listener is seeing WhatsApp on this device.
-      markWhatsAppVerified(isGroup ? groupName : undefined);
+      markWhatsAppVerified(groupName);
       setIsWhatsAppConnected(true);
 
       // IMMEDIATE GROUP REGISTRATION & AUTO-ADOPTION: Always bind and monitor the group automatically
-      if (isGroup && groupName && groupName !== 'محادثة خاصة 👤' && !groupName.includes('محادثة خاصة')) {
+      if (groupName && groupName !== 'محادثة خاصة 👤' && !groupName.includes('محادثة خاصة')) {
         autoAdoptDetectedGroups([groupName]);
         setFilter((prev) => {
           if (!prev.selectedGroups.includes(groupName)) {
@@ -1374,51 +1558,7 @@ function OrderiApp({
       }
 
       // Register advertiser as a known group advertiser when active in monitored groups
-      if (isGroup) {
-        registerKnownGroupAdvertiser(event.senderName || event.title);
-      }
-
-      // Check if incoming notification is a private reply from an advertiser («تم / لك / عندك» vs «أخذوه / تكنسل»)
-      if (!event.isGroup && rawText) {
-        const replyVerdict = classifyAdvertiserPrivateReply(rawText);
-        if (replyVerdict.verdict === 'CONFIRMED_AWARDED') {
-          setAwardedOrderData({
-            orderId: `notif-reply-${Date.now()}`,
-            advertiserName: event.title || 'صاحب الإعلان',
-            advertiserPhone: '',
-            replyText: rawText.trim(),
-          });
-          showToast(`✅ المعلن رد عليك بالخاص وأكّد الطلب لك («${rawText.trim()}»)`);
-          if (filterRef.current.soundEnabled) {
-            playAlertTone('cash_register', 90);
-          }
-          void OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] }).catch((error) => console.warn('[Orderi Spider] Event acknowledgement failed; it remains queued:', error));
-          return;
-        } else if (replyVerdict.verdict === 'REJECTED_OR_TAKEN') {
-          // Silent ignore - المعلن أفاد بأنه أخذوه أو تكنسل
-          console.log('[Orderi Native] Advertiser replied taken/cancelled:', rawText);
-          void OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] }).catch((error) => console.warn('[Orderi Spider] Event acknowledgement failed; it remains queued:', error));
-          return;
-        }
-
-        // الذكاء الاصطناعي يتعرف على رسائل الواتساب الخاصة العادية من الأصدقاء/المعارف
-        // إذا لم يكن الشخص قد أعلن سابقاً في القروبات، فهي رسالة صديق عادية وليست تاجراً ولا طلب توصيل
-        const chatClassification = classifyPrivateWhatsAppMessage(
-          rawText || event.title || '',
-          event.title || event.senderName,
-          '',
-          true
-        );
-
-        if (chatClassification.isCasualFriendChat && !chatClassification.isActionableOrder) {
-          console.log('[Orderi AI] Casual WhatsApp message from friend/non-advertiser ignored:', {
-            sender: event.title || event.senderName,
-            reason: chatClassification.reason,
-          });
-          void OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] }).catch(() => {});
-          return;
-        }
-      }
+      registerKnownGroupAdvertiser(event.senderName || event.title);
 
       // Check for Smart Order Closure (الكشف الذكي عن الطلبات المحجوزة أو المنتهية)
       if (filterRef.current.autoCloseOrdersEnabled !== false) {
@@ -1455,8 +1595,8 @@ function OrderiApp({
       import('./utils/localAiOrderParser').then(async ({ parseWhatsAppOrderWithLocalAi }) => {
         const parsed = await parseWhatsAppOrderWithLocalAi(rawText || event.title || '', {
           hybridMode: filterRef.current.localAiConfig?.hybridMode !== false,
-          useCloudFallback: filterRef.current.useCloudAiFallback === true,
-          senderName: event.title,
+          useCloudFallback: filterRef.current.useCloudAiFallback === true && canForwardToCloudAI(sourceAnalysis),
+          senderName: event.senderName || event.title,
           groupName,
         });
         const order = {
@@ -1472,7 +1612,7 @@ function OrderiApp({
           rawText: rawText || event.title || '',
           senderName: (event.senderName && event.senderName.trim()) 
             ? event.senderName.trim() 
-            : (parsed.advertiserName || (event.isGroup ? '' : event.title) || 'معلن بالقروب'),
+            : (parsed.advertiserName || event.title || 'معلن بالقروب'),
           senderPhone: parsed.phone || ((event.senderName || '').replace(/[^\d+]/g, '').length >= 8 ? (event.senderName || '').replace(/[^\d+]/g, '') : ''),
           receivedAt: new Date(event.receivedAt || Date.now()),
           confidence: parsed.confidence,
@@ -1480,7 +1620,7 @@ function OrderiApp({
           notes: parsed.notes || '',
           status: 'pending' as const,
           source: 'android_notification' as const,
-          isDirectPrivate: !event.isGroup,
+          isDirectPrivate: false,
           aiTierUsed: parsed.parseMethod,
           passengerDetection: parsed.passengerDetection,
         };
@@ -1531,6 +1671,7 @@ function OrderiApp({
         // Listen for openOrderDetail emitted when tapping Android phone notification
         openOrderListenerHandle = await OrderiNotificationListener.addListener('openOrderDetail', (data: any) => {
           if (!data) return;
+          setActiveTab('radar');
           const orderId = data.orderId;
           const existing = ordersRef.current.find((o) => o.id === orderId);
           if (existing) {
@@ -1577,6 +1718,7 @@ function OrderiApp({
         if (OrderiNotificationListener.getClickedOrder) {
           const clicked = await OrderiNotificationListener.getClickedOrder();
           if (clicked?.order && !removed) {
+            setActiveTab('radar');
             const data = clicked.order;
             const existing = ordersRef.current.find((o) => o.id === data.orderId);
             if (existing) {
@@ -1637,10 +1779,11 @@ function OrderiApp({
   useEffect(() => {
     if (isNativeAndroid()) {
       getWhatsAppListenerStatus().then((enabled) => {
-        setIsStreamConnected(enabled);
-      }).catch(() => setIsStreamConnected(false));
-      return;
+        if (enabled) setIsStreamConnected(true);
+      }).catch(() => {});
     }
+
+    // Connect to live SSE stream for real-time Spider orders, webhooks & synchronization
 
     // Web / PWA real-time SSE stream connection
     let eventSource: EventSource | null = null;
@@ -1655,7 +1798,13 @@ function OrderiApp({
         eventSource.onmessage = (event) => {
           try {
             const data = JSON.parse(event.data);
-            if (data.type === 'NEW_ORDER' && data.order) {
+            if (data.type === 'CONNECTED') {
+              if (Array.isArray(data.recentOrders) && data.recentOrders.length > 0) {
+                data.recentOrders.forEach((rawOrder: any) => {
+                  handleProcessIncomingRawOrder(rawOrder, true);
+                });
+              }
+            } else if (data.type === 'NEW_ORDER' && data.order) {
               handleProcessIncomingRawOrder(data.order, false);
             } else if (data.type === 'ORDER_CROSSPOSTED' && data.orderId) {
               setOrders((prev) =>
@@ -1749,37 +1898,84 @@ function OrderiApp({
     };
   }, []);
 
-  // Listen for Web / PWA background notification clicks: opens order details modal directly!
+  // Listen for Web / PWA background notification clicks: opens order details modal directly in Radar!
   useEffect(() => {
     const handleOpenOrderDetailEvent = (e: any) => {
       const detail = e.detail;
       if (!detail) return;
+      setActiveTab('radar');
       const order = detail.order || ordersRef.current.find((o) => o.id === detail.orderId);
       if (order) {
         setFocusedOrder(order);
+        setIsSpiderModalOpen(false);
       } else if (detail.orderId) {
-        // Fallback placeholder with the id if order object was minimal
-        setFocusedOrder({
-          id: detail.orderId,
-          from: detail.from || 'البحرين',
-          to: detail.to || 'حسب طلب الزبون 📍',
-          price: detail.price || 0,
-          isPriceUnspecified: !detail.price || detail.price <= 0,
-          rawText: detail.rawText || '',
-          groupName: 'واتساب',
-          senderName: detail.senderName || 'معلن واتساب',
-          receivedAt: new Date(),
-          confidence: 90,
-          type: 'طلب واتساب',
-          notes: '',
-          status: 'pending',
-        });
+        // Look up in persisted real orders storage
+        let storedOrder: ParsedOrder | undefined;
+        try {
+          const rawStored = localStorage.getItem('orderi_real_orders');
+          if (rawStored) {
+            const list: ParsedOrder[] = JSON.parse(rawStored);
+            storedOrder = list.find((o) => o.id === detail.orderId);
+          }
+        } catch {}
+
+        if (storedOrder) {
+          setFocusedOrder(storedOrder);
+          setIsSpiderModalOpen(false);
+        } else {
+          // Fallback placeholder with the id if order object was minimal
+          setFocusedOrder({
+            id: detail.orderId,
+            from: detail.from || 'البحرين',
+            to: detail.to || 'حسب طلب الزبون 📍',
+            price: detail.price || 0,
+            isPriceUnspecified: !detail.price || detail.price <= 0,
+            rawText: detail.rawText || '',
+            groupName: 'واتساب',
+            senderName: detail.senderName || 'معلن واتساب',
+            receivedAt: new Date(),
+            confidence: 90,
+            type: 'طلب واتساب',
+            notes: '',
+            status: 'pending',
+          });
+          setIsSpiderModalOpen(false);
+        }
       }
     };
 
     window.addEventListener('orderi:open_order_detail', handleOpenOrderDetailEvent);
+
+    // Deep link from URL params (?orderId=...)
+    const checkDeepLink = () => {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const urlOrderId = params.get('orderId');
+        if (urlOrderId) {
+          handleOpenOrderDetailEvent({ detail: { orderId: urlOrderId } });
+        }
+      } catch {}
+    };
+    checkDeepLink();
+    window.addEventListener('popstate', checkDeepLink);
+
+    // Listen to ServiceWorker postMessage for background notification clicks
+    let swMsgHandler: ((e: MessageEvent) => void) | null = null;
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+      swMsgHandler = (e: MessageEvent) => {
+        if (e.data?.type === 'ORDERI_OPEN_ORDER') {
+          handleOpenOrderDetailEvent({ detail: { orderId: e.data.orderId, order: e.data.order } });
+        }
+      };
+      navigator.serviceWorker.addEventListener('message', swMsgHandler);
+    }
+
     return () => {
       window.removeEventListener('orderi:open_order_detail', handleOpenOrderDetailEvent);
+      window.removeEventListener('popstate', checkDeepLink);
+      if (swMsgHandler && typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+        navigator.serviceWorker.removeEventListener('message', swMsgHandler);
+      }
     };
   }, []);
 
@@ -2606,14 +2802,58 @@ function OrderiApp({
     showToast('تمت إضافة رابط القروب بنجاح');
   };
 
+  // Ingest genuinely open recovered orders from Spider Catch-up Recovery
+  const handleRecoveredCatchupOrders = (recoveredOrders: ParsedOrder[]) => {
+    if (!recoveredOrders || recoveredOrders.length === 0) return;
+    let addedCount = 0;
+
+    recoveredOrders.forEach((recOrder) => {
+      // Evaluate matching score against driver's current position and preferences
+      const match = evaluateOrderMatch(
+        recOrder.from,
+        recOrder.to,
+        recOrder.price,
+        filterRef.current,
+        driverLocationRef.current,
+        { rawText: recOrder.rawText, postedAt: recOrder.receivedAt }
+      );
+
+      const readyOrder: ParsedOrder = {
+        ...recOrder,
+        match,
+      };
+
+      setOrders((prev) => {
+        if (prev.some((o) => o.id === readyOrder.id)) return prev;
+        addedCount++;
+        return [readyOrder, ...prev.slice(0, 39)];
+      });
+    });
+
+    if (addedCount > 0) {
+      if (filterRef.current.soundEnabled) {
+        playAlertTone('chime', 70);
+      }
+      showToast(`🎯 تمت استعادة ${addedCount} طلب متاح مؤكد إلى الرادار بنجاح عبر Catch-up ⚡`);
+    }
+  };
+
   // Helper to verify if an order's WhatsApp group is allowed by driver's group filter
   const isOrderGroupAllowed = (groupName?: string) => {
+    if (!groupName) return true;
+    const clean = groupName.trim();
+    if (clean === 'محادثة خاصة 👤' || clean === 'محادثة خاصة' || clean === 'خاص 👤' || clean === 'محادثة فردية') {
+      return false; // المحادثات الفردية الشخصية مستبعدة نهائياً من الرادار
+    }
+    // البث المباشر وقناة الرادار العامة
+    if (clean === 'واتساب' || clean.toLowerCase() === 'whatsapp') {
+      return true;
+    }
     // If selectedGroups is empty, driver wants to monitor ALL joined groups in WhatsApp!
     if (!filter.selectedGroups || filter.selectedGroups.length === 0) return true;
-    if (!groupName) return true; // Direct messages or unspecified groups
     return filter.selectedGroups.some(g => 
-      groupName.toLowerCase().includes(g.toLowerCase()) || 
-      g.toLowerCase().includes(groupName.toLowerCase())
+      clean.toLowerCase().includes(g.toLowerCase()) || 
+      g.toLowerCase().includes(clean.toLowerCase())
     );
   };
 
@@ -2652,13 +2892,17 @@ function OrderiApp({
     }
 
     const isPassengerOrder = ord.passengerDetection?.level === 'confirmed_passenger' || ord.passengerDetection?.level === 'suspicious_passenger';
-    // Previously passenger ads bypassed this check and remained visible even when unmatched.
-    if (filter.ignoreNonMatching && ord.match.score < 80 && (isPassengerOrder || ord.contactStatus !== 'vip')) return false;
+    if (isPassengerOrder && filter.blockPassengerDeliveries !== false && feedFilter !== 'passengers') {
+      return false;
+    }
     if (feedFilter === 'hunted') return !!ord.isDestinationHunted;
     if (feedFilter === 'matched') return ord.match.score >= 80;
     if (feedFilter === 'vip') return ord.match.score >= 90;
     if (feedFilter === 'trusted_vip') return ord.contactStatus === 'vip';
     if (feedFilter === 'passengers') return isPassengerOrder;
+    if (feedFilter === 'all' && filter.ignoreNonMatching && ord.match.score < 80 && ord.contactStatus !== 'vip') {
+      // In 'all' feed when ignoreNonMatching is active, let captain see all available orders with their match status
+    }
     return true;
   });
 
@@ -3251,14 +3495,25 @@ function OrderiApp({
 
 
       {/* Orderi Spider: Continuous Googlebot-style WhatsApp Crawler Modal */}
-      <SpiderControlCenter
-        isOpen={isSpiderModalOpen}
-        onClose={() => setIsSpiderModalOpen(false)}
-        onOrderCaptured={(newOrder) => {
-          handleProcessIncomingRawOrder(newOrder, true);
-        }}
-        onShowToast={showToast}
-      />
+      {isSpiderModalOpen && (
+        <ErrorBoundary 
+          fallbackTitle="عنكبوت الأوردرات الذكي (Orderi Spider)"
+          onReset={() => setIsSpiderModalOpen(false)}
+        >
+          <SpiderControlCenter
+            isOpen={isSpiderModalOpen}
+            onClose={() => setIsSpiderModalOpen(false)}
+            onOrderCaptured={(newOrder) => {
+              handleProcessIncomingRawOrder(newOrder, false);
+            }}
+            onRecoverOrders={handleRecoveredCatchupOrders}
+            activeOrders={orders}
+            onShowToast={showToast}
+            filter={filter}
+            onUpdateFilter={handleUpdateFilter}
+          />
+        </ErrorBoundary>
+      )}
 
       {/* Captain Auth & License Modal (Phone, Password, Fingerprint Biometrics, Registration, and Activation Code) */}
       <AuthModal

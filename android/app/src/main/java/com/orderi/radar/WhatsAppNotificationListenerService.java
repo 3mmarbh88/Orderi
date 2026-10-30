@@ -492,14 +492,8 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
             detectedGroupName = summaryText.trim();
         }
 
-        // If visible text has explicit delivery order patterns (pickup to destination or price) and detectedGroupName is empty,
-        // treat chat as a delivery group so it reaches Radar even if archived
-        if (TextUtils.isEmpty(detectedGroupName) && !TextUtils.isEmpty(title) && !TextUtils.isEmpty(combinedVisibleText)) {
-            String normVis = combinedVisibleText.toLowerCase(java.util.Locale.ROOT);
-            if ((normVis.contains("من ") || normVis.contains("استلام")) && (normVis.contains("إلى") || normVis.contains("الى") || normVis.contains("توصيل") || normVis.contains("دينار") || normVis.contains("د.ب"))) {
-                detectedGroupName = title.trim();
-            }
-        }
+        // Strict source discrimination: NEVER treat a chat as a group merely because
+        // the text mentions delivery keywords, Bahrain areas, or prices.
 
         // MessagingStyle can expose the actual sender separately from the visible title.
         // If the sender differs from the notification title, the title is usually the group
@@ -538,7 +532,20 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
             } catch (Exception ignored) {}
         }
 
-        boolean looksLikeGroup = !TextUtils.isEmpty(detectedGroupName) || isExplicitGroupFlag;
+        String sbnTag = safe(sbn.getTag());
+        String sbnKey = safe(sbn.getKey());
+        boolean hasGroupJid = sbnTag.contains("@g.us") || sbnKey.contains("@g.us");
+        boolean hasUserJid = sbnTag.contains("@s.whatsapp.net") || sbnKey.contains("@s.whatsapp.net");
+
+        boolean looksLikeGroup;
+        if (hasUserJid) {
+            looksLikeGroup = false;
+        } else if (hasGroupJid) {
+            looksLikeGroup = true;
+        } else {
+            looksLikeGroup = isExplicitGroupFlag || !TextUtils.isEmpty(conversationTitle) || !TextUtils.isEmpty(detectedGroupName);
+        }
+
         String resolvedTitle = !TextUtils.isEmpty(detectedGroupName) ? detectedGroupName
                 : (!TextUtils.isEmpty(conversationTitle) ? conversationTitle : title);
         String rawText = !TextUtils.isEmpty(bigText) ? bigText : text;
@@ -595,6 +602,11 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
             event.put("conversationTitle", conversationTitle);
             event.put("category", category);
             event.put("isGroup", looksLikeGroup);
+            event.put("isDirectPrivate", hasUserJid || (!looksLikeGroup && TextUtils.isEmpty(detectedGroupName) && TextUtils.isEmpty(conversationTitle)));
+            event.put("tag", sbnTag);
+            event.put("chatJid", hasGroupJid ? "@g.us" : (hasUserJid ? "@s.whatsapp.net" : ""));
+            event.put("isExplicitGroup", isExplicitGroupFlag);
+            event.put("hasConversationTitle", !TextUtils.isEmpty(conversationTitle));
 
             // Cache WhatsApp direct reply action from notification if present
             if (n.actions != null) {

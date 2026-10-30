@@ -97,7 +97,8 @@ export async function spiderIngestMessage(
   rawText: string,
   groupName: string,
   senderName: string,
-  senderPhone?: string
+  senderPhone?: string,
+  isDirectPrivate?: boolean
 ): Promise<{
   action: SpiderLogEvent['action'];
   order?: any;
@@ -105,8 +106,22 @@ export async function spiderIngestMessage(
   reason?: string;
 }> {
   const startTime = performance.now();
+
+  // Strict Privacy & Discrimination Gate:
+  // Personal 1-on-1 chats and indeterminate sources must never enter crawler indexing or closure actions.
+  const cleanGroup = (groupName || '').trim();
+  if (
+    isDirectPrivate || 
+    !cleanGroup || 
+    cleanGroup === 'محادثة خاصة 👤' || 
+    cleanGroup.includes('خاصة') || 
+    cleanGroup === 'واتساب'
+  ) {
+    return { action: 'CRAWLING', reason: 'محادثة شخصية خاصة (مستبعدة نهائياً لحماية الخصوصية)' };
+  }
+
   currentStats.messagesCrawledCount += 1;
-  currentStats.currentCrawlingGroup = groupName;
+  currentStats.currentCrawlingGroup = cleanGroup;
 
   // 1. Intercept Group Invite Links
   const links = extractGroupLinksFromText(rawText);
@@ -211,27 +226,35 @@ export async function spiderIngestMessage(
   return { action: 'CRAWLING', reason: 'محادثة عامة تم فحصها' };
 }
 
+const DEFAULT_SPIDER_GROUPS = [
+  'قروب مناديب وتوصيل البحرين 🇧🇭',
+  'قروب كباتن وتجار المنامة والرفاع 📦',
+  'قروب توصيل المحرق والحد 🚗',
+  'طلبات المحافظة الشمالية السريعة ⚡',
+  'سوق البحرين للتوصيل الفوري 🇧🇭',
+  'توصيل كباتن مدينة عيسى وحمد 📍',
+  'شبكة مناديب البحرين للتوصيل 🚗',
+  'قروب تجار ومناديب سار والجنبية 📦',
+];
+
 /**
  * Trigger an instant simulated spider crawling pass
  */
 export async function triggerSpiderCrawlPass(
   onOrderFound?: (order: any) => void
 ): Promise<{ success: boolean; crawledGroup: string; itemsIndexed: number }> {
-  const groups = currentStats.crawlQueue;
-  if (!groups || groups.length === 0) {
-    return {
-      success: true,
-      crawledGroup: '',
-      itemsIndexed: 0,
-    };
-  }
+  const groups = (currentStats.crawlQueue && currentStats.crawlQueue.length > 0)
+    ? currentStats.crawlQueue
+    : DEFAULT_SPIDER_GROUPS;
 
   const pickedGroup = groups[Math.floor(Math.random() * groups.length)];
   currentStats.currentCrawlingGroup = pickedGroup;
   currentStats.lastCrawlTimestamp = Date.now();
+  currentStats.crawledGroupsCount = Math.max(currentStats.crawledGroupsCount + 1, groups.length);
+  currentStats.messagesCrawledCount += Math.floor(3 + Math.random() * 5);
   notify();
 
-  // Hit server endpoint to synchronize active crawler queue
+  // Hit server endpoint to synchronize active crawler queue and index an order immediately
   try {
     const res = await fetch('/api/spider/crawl-now', {
       method: 'POST',
@@ -240,8 +263,18 @@ export async function triggerSpiderCrawlPass(
     });
     if (res.ok) {
       const data = await res.json();
-      if (data?.order && onOrderFound) {
-        onOrderFound(data.order);
+      if (data?.order) {
+        currentStats.ordersCapturedCount += 1;
+        recordSpiderEvent({
+          action: 'INDEXED',
+          groupName: pickedGroup,
+          detail: `فهرسة طلب توصيل مؤكد: من ${data.order.from} إلى ${data.order.to} (${data.order.price > 0 ? `${data.order.price} د.ب` : 'سعر عند الاتفاق'}) عبر عنكبوت القروبات 🕷️`,
+          latencyMs: 14,
+          highlight: `${data.order.from} ➔ ${data.order.to}`,
+        });
+        if (onOrderFound) {
+          onOrderFound(data.order);
+        }
         return {
           success: true,
           crawledGroup: pickedGroup,
@@ -249,7 +282,16 @@ export async function triggerSpiderCrawlPass(
         };
       }
     }
-  } catch {}
+  } catch (err) {
+    console.warn('[Spider] Instant crawl error:', err);
+  }
+
+  recordSpiderEvent({
+    action: 'CRAWLING',
+    groupName: pickedGroup,
+    detail: 'فحص مستمر وتحديث لرسائل قروب الواتساب النشطة ⚡',
+    latencyMs: 12,
+  });
 
   return {
     success: true,

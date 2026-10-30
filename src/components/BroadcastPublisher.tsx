@@ -33,7 +33,7 @@ import {
 import { BAHRAIN_AREAS, POPULAR_WHATSAPP_GROUPS } from '../data/bahrainAreas';
 import { MatcherLocation, evaluateOrderMatch } from '../utils/matcher';
 import { OrderBroadcast, OrderFilter, ParsedOrder } from '../types';
-import { isNativeAndroid, publishToWhatsAppGroups, replyDoneToOriginalAd, OrderiNotificationListener } from '../native/orderiNotificationListener';
+import { isNativeAndroid, publishToWhatsAppGroups, OrderiNotificationListener } from '../native/orderiNotificationListener';
 
 interface BroadcastPublisherProps {
   driverLocation: MatcherLocation | null;
@@ -215,6 +215,8 @@ export function BroadcastPublisher({
   const [replayIncludeQuote, setReplayIncludeQuote] = useState<boolean>(filter.broadcastIncludeQuote ?? true);
   const [replayDoneWord, setReplayDoneWord] = useState<string>(filter.broadcastDefaultDoneText || '(تم) ✅');
   const [isSavedAsDefault, setIsSavedAsDefault] = useState(false);
+  const [isPublishingReplay, setIsPublishingReplay] = useState(false);
+  const [quickCompletingId, setQuickCompletingId] = useState<string | null>(null);
 
   // Load history from localStorage
   useEffect(() => {
@@ -531,8 +533,9 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
     setIsSavedAsDefault(false);
   };
 
-  // Publish Replay (تم) to ALL target WhatsApp groups
+  // Publish Replay (تم) to ALL target WhatsApp groups (Strictly Single Execution)
   const handlePublishReplayToAllWhatsApp = async () => {
+    if (isPublishingReplay) return;
     if (!replayItem || !replayText.trim()) return;
     const allGroups = replayTargetGroups.length > 0 ? replayTargetGroups : selectedGroupNames;
     if (allGroups.length === 0) {
@@ -540,8 +543,25 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
       return;
     }
 
-    if (!isNativeAndroid()) {
-      try { await navigator.clipboard.writeText(replayText); } catch {}
+    setIsPublishingReplay(true);
+
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard) {
+        try { await navigator.clipboard.writeText(replayText); } catch {}
+      }
+
+      if (isNativeAndroid()) {
+        try {
+          await publishToWhatsAppGroups(allGroups, replayText);
+        } catch (err) {
+          console.warn('[Orderi] publish replay error:', err);
+        }
+        onToast(`✅ تم إطلاق إرسال رد «تم» في الخلفية إلى ${allGroups.length} قروب دون فتح واتساب 🚀`);
+      } else {
+        onToast(`✅ تم إرسال رد (تم) في الخلفية إلى ${allGroups.length} قروب محدد 🎯`);
+      }
+
+      // Single notification to backend API
       fetch('/api/whatsapp/broadcast-reply', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -552,48 +572,33 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
           originalText: replayItem.text,
         }),
       }).catch(() => {});
-      onToast(`✅ تم إرسال رد (تم) في الخلفية إلى ${allGroups.length} قروب محدد 🎯`);
-    } else {
-      try { await navigator.clipboard.writeText(replayText); } catch {}
-      // Send directly via notification RemoteInput for matching groups
-      for (const groupName of allGroups) {
-        try { replyDoneToOriginalAd(groupName, replayText); } catch {}
-      }
-      try {
-        await publishToWhatsAppGroups(allGroups, replayText);
-      } catch (err) {
-        console.warn('[Orderi] publish replay error:', err);
-      }
-      onToast(`✅ تم إطلاق إرسال رد «تم» في الخلفية إلى ${allGroups.length} قروب دون فتح واتساب 🚀`);
-    }
 
-    const updatedHistory = broadcastHistory.map((item) => item.id === replayItem.id
-      ? {
-          ...item,
-          isCompleted: true,
-          completedAt: new Date().toLocaleTimeString('ar-BH', { hour: '2-digit', minute: '2-digit' }),
-          repliedGroups: allGroups,
-          replyTextSent: replayText,
-        }
-      : item
-    );
-    setBroadcastHistory(updatedHistory);
-    setRepliedGroups(allGroups);
-    try { localStorage.setItem('orderi_broadcast_history', JSON.stringify(updatedHistory)); } catch {}
-    fetch('/api/whatsapp/broadcast-reply', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        broadcastId: replayItem.id,
-        replyText: replayText,
-        targetGroups: allGroups,
-        originalText: replayItem.text,
-      }),
-    }).catch(() => {});
+      const updatedHistory = broadcastHistory.map((item) => item.id === replayItem.id
+        ? {
+            ...item,
+            isCompleted: true,
+            completedAt: new Date().toLocaleTimeString('ar-BH', { hour: '2-digit', minute: '2-digit' }),
+            repliedGroups: allGroups,
+            replyTextSent: replayText,
+          }
+        : item
+      );
+      setBroadcastHistory(updatedHistory);
+      setRepliedGroups(allGroups);
+      try { localStorage.setItem('orderi_broadcast_history', JSON.stringify(updatedHistory)); } catch {}
+
+      // Close modal gracefully after success
+      setTimeout(() => {
+        setReplayItem(null);
+      }, 500);
+    } finally {
+      setIsPublishingReplay(false);
+    }
   };
 
-  // One-tap "حصلت مندوب": format a quote-reply to the published ad and send in background to groups
+  // One-tap "حصلت مندوب": format a quote-reply to the published ad and send in background strictly ONCE
   const handleQuickCompleteBroadcast = async (item: OrderBroadcast) => {
+    if (quickCompletingId === item.id) return;
     const rawGroups = (item.targetGroups && item.targetGroups.length > 0 ? item.targetGroups : selectedGroupNames) || [];
     const groups: string[] = Array.from(new Set<string>(rawGroups.map((name: string) => name.trim()).filter(Boolean)));
     if (!groups.length) {
@@ -601,34 +606,27 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
       return;
     }
 
-    // Build quote-reply containing the original announcement text
-    const raw = item.text.trim();
-    const quoted = raw ? '> ' + raw.replace(/\n/g, '\n> ') : '';
-    const word = filter.broadcastDefaultDoneText || '(تم) ✅ حصلت مندوب';
-    const replayMessage = `${word}\n\n${quoted}\n\nتم توفير مندوب واستلام الطلب، شكراً لكم جميعاً! يرجى التوقف عن التواصل.`;
+    setQuickCompletingId(item.id);
 
     try {
+      // Build quote-reply containing the original announcement text with configured template
+      const initialPreset = filter.broadcastReplayTemplate ? 'saved_template' : 'full_quote';
+      const replayMessage = buildReplayMessage(item, initialPreset);
+
       if (typeof navigator !== 'undefined' && navigator.clipboard) {
-        await navigator.clipboard.writeText(replayMessage);
+        try { await navigator.clipboard.writeText(replayMessage); } catch {}
       }
-    } catch {}
 
-    // Dispatch in Android native background (zero foreground WhatsApp launch)
-    if (isNativeAndroid()) {
-      for (const groupName of groups) {
+      // Dispatch in Android native background strictly ONCE via publishToWhatsAppGroups
+      if (isNativeAndroid()) {
         try {
-          replyDoneToOriginalAd(groupName, replayMessage);
-        } catch {}
+          await publishToWhatsAppGroups(groups, replayMessage);
+        } catch (err) {
+          console.warn('[Orderi] Native group broadcast background error:', err);
+        }
       }
-      try {
-        await publishToWhatsAppGroups(groups, replayMessage);
-      } catch (err) {
-        console.warn('[Orderi] Native group broadcast background error:', err);
-      }
-    }
 
-    // Dispatch to backend API
-    try {
+      // Dispatch to backend API strictly ONCE
       fetch('/api/whatsapp/broadcast-reply', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -639,24 +637,26 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
           originalText: item.text,
         }),
       }).catch(() => {});
-    } catch {}
 
-    // Mark as completed in state and localStorage
-    const now = new Date().toLocaleTimeString('ar-BH', { hour: '2-digit', minute: '2-digit' });
-    const updatedHistory = broadcastHistory.map((entry) => entry.id === item.id
-      ? {
-          ...entry,
-          isCompleted: true,
-          completedAt: now,
-          repliedGroups: groups,
-          replyTextSent: replayMessage,
-        }
-      : entry
-    );
-    setBroadcastHistory(updatedHistory);
-    try { localStorage.setItem('orderi_broadcast_history', JSON.stringify(updatedHistory)); } catch {}
+      // Mark as completed in state and localStorage
+      const now = new Date().toLocaleTimeString('ar-BH', { hour: '2-digit', minute: '2-digit' });
+      const updatedHistory = broadcastHistory.map((entry) => entry.id === item.id
+        ? {
+            ...entry,
+            isCompleted: true,
+            completedAt: now,
+            repliedGroups: groups,
+            replyTextSent: replayMessage,
+          }
+        : entry
+      );
+      setBroadcastHistory(updatedHistory);
+      try { localStorage.setItem('orderi_broadcast_history', JSON.stringify(updatedHistory)); } catch {}
 
-    onToast(`✅ تم إرسال رد (حصلت مندوب) مع اقتباس الإعلان لجميع القروبات (${groups.length}) في الخلفية دون فتح واتساب 🎯`);
+      onToast(`✅ تم إرسال رد (حصلت مندوب) مع اقتباس الإعلان لجميع القروبات (${groups.length}) في الخلفية دون فتح واتساب 🎯`);
+    } finally {
+      setQuickCompletingId(null);
+    }
   };
 
   // Send Replay to a single specific group
@@ -889,11 +889,12 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
                 <div className="pt-2 border-t border-slate-100 flex items-center gap-2">
                   <button
                     type="button"
+                    disabled={quickCompletingId === item.id}
                     onClick={() => handleQuickCompleteBroadcast(item)}
-                    className="flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black shadow-sm transition-all hover:scale-[1.01] active:scale-[0.99]"
+                    className="flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black shadow-sm transition-all hover:scale-[1.01] active:scale-[0.99] cursor-pointer disabled:opacity-50"
                   >
-                    <Reply className="w-4 h-4" />
-                    <span>حصلت مندوب (انشر: تم) 🎯</span>
+                    <Reply className={`w-4 h-4 ${quickCompletingId === item.id ? 'animate-spin' : ''}`} />
+                    <span>{quickCompletingId === item.id ? 'جاري إرسال (تم)...' : 'حصلت مندوب (انشر: تم) 🎯'}</span>
                   </button>
 
                   <button
@@ -1424,15 +1425,16 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
                     <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100">
                       <button
                         type="button"
+                        disabled={quickCompletingId === item.id}
                         onClick={() => handleQuickCompleteBroadcast(item)}
-                        className={`text-[11px] font-black px-2.5 py-1 rounded-lg flex items-center gap-1.5 transition-all shadow-2xs ${
+                        className={`text-[11px] font-black px-2.5 py-1 rounded-lg flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer disabled:opacity-50 ${
                           item.isCompleted 
                             ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' 
                             : 'bg-emerald-600 hover:bg-emerald-500 text-white'
                         }`}
                       >
-                        <Reply className="w-3 h-3" />
-                        <span>{item.isCompleted ? 'إعادة إرسال (تم)' : 'حصلت مندوب (رد: تم) 🎯'}</span>
+                        <Reply className={`w-3 h-3 ${quickCompletingId === item.id ? 'animate-spin' : ''}`} />
+                        <span>{quickCompletingId === item.id ? 'جاري الإرسال...' : item.isCompleted ? 'إعادة إرسال (تم)' : 'حصلت مندوب (رد: تم) 🎯'}</span>
                       </button>
 
                       <div className="flex items-center gap-2">
@@ -1678,11 +1680,12 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
             <div className="pt-2 flex flex-col sm:flex-row items-center gap-2.5">
               <button
                 type="button"
+                disabled={isPublishingReplay}
                 onClick={handlePublishReplayToAllWhatsApp}
-                className="w-full sm:flex-1 flex items-center justify-center gap-2 py-3.5 px-4 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs sm:text-sm font-black shadow-lg shadow-emerald-600/20 transition-all hover:scale-[1.01] active:scale-[0.99]"
+                className="w-full sm:flex-1 flex items-center justify-center gap-2 py-3.5 px-4 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs sm:text-sm font-black shadow-lg shadow-emerald-600/20 transition-all hover:scale-[1.01] active:scale-[0.99] cursor-pointer disabled:opacity-50"
               >
-                <Send className="w-4 h-4" />
-                <span>🚀 نشر رد (تم) في كل القروبات ({replayTargetGroups.length}) الآن</span>
+                <Send className={`w-4 h-4 ${isPublishingReplay ? 'animate-spin' : ''}`} />
+                <span>{isPublishingReplay ? 'جاري نشر رد (تم)...' : `🚀 نشر رد (تم) في كل القروبات (${replayTargetGroups.length}) الآن`}</span>
               </button>
 
               <button

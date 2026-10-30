@@ -40,6 +40,8 @@ export interface StoreContact {
   addedAt: string;
 }
 
+export type FilterSettings = OrderFilter;
+
 export interface OrderFilter {
   coverageKm: number;
   minimumPrice: number;

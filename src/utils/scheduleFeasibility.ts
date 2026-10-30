@@ -26,8 +26,28 @@ function getRawHourAndMinute(text: string, scheduledTimeMinutes?: number): { hou
     if ([0, 15, 30, 45].includes(left) && right >= 1 && right <= 12) return { hour: right, minute: left };
     if (left <= 23 && right <= 59) return { hour: left, minute: right };
   }
-  const schedule = /(?:الساعة|ساعة|على الساعة|في حدود الساعة|توقيت|موعد|وقت|استلام|تسليم|توصيل)\s*(\d{1,2})(?!\s*[:：])/i.exec(converted);
-  if (schedule) return { hour: Number(schedule[1]), minute: 0 };
+
+  // Explicit schedule keywords like: الساعة 3, موعد 5, توقيت 4
+  // Ensure not followed by prices (e.g. 2 دينار, 2.5 د.ب) or quantities (e.g. 2 وجبات, 3 كراتين)
+  const explicitClock = /(?:الساعة|ساعة|على الساعة|في حدود الساعة|توقيت|موعد|وقت)\s*(\d{1,2})(?!\s*[:：])(?!\s*(?:دينار|د\.ب|دنانير|فلس|bd|bhd|دب|طلب|طلبات|كرتون|كراتين|وجبة|وجبات|طرد|طرود|حبة|حبات|أكياس|اكياس|أغراض|اغراض|كيلو|كم|[.,٫]\d))/i.exec(converted);
+  if (explicitClock) {
+    const h = Number(explicitClock[1]);
+    if (h >= 1 && h <= 24) return { hour: h, minute: 0 };
+  }
+
+  // Delivery / pickup words only if explicitly paired with time keywords or am/pm dayparts
+  const pickupTime = /(?:استلام|تسليم|توصيل)\s+(?:الساعة|ساعة|في حدود|على)\s*(\d{1,2})(?!\s*[:：])/i.exec(converted);
+  if (pickupTime) {
+    const h = Number(pickupTime[1]);
+    if (h >= 1 && h <= 24) return { hour: h, minute: 0 };
+  }
+
+  const pickupDaypart = /(?:استلام|تسليم|توصيل)\s*(\d{1,2})\s*(?:صباحاً|صباحا|الصبح|الصباح|مساءً|مساء|المساء|الظهر|العصر|المغرب|بالليل|في الليل|ليل|ص|م)\b/i.exec(converted);
+  if (pickupDaypart) {
+    const h = Number(pickupDaypart[1]);
+    if (h >= 1 && h <= 12) return { hour: h, minute: 0 };
+  }
+
   if (typeof scheduledTimeMinutes === 'number' && Number.isFinite(scheduledTimeMinutes)) {
     return { hour: Math.floor(scheduledTimeMinutes / 60), minute: scheduledTimeMinutes % 60 };
   }
@@ -119,10 +139,10 @@ export function evaluateScheduleFeasibility(args: {
   if (!args.driverLocation) {
     return {
       status: 'unknown_location',
-      eligible: false,
+      eligible: true,
       resolvedTimeMinutes: resolved.minutes,
       minutesUntilPickup,
-      reason: 'تعذر تأكيد إمكانية الوصول لأن موقع السائق غير متوفر',
+      reason: 'موعد مجدول (في انتظار تحديد موقع السائق بالـ GPS لحساب وقت الوصول بدقة)',
     };
   }
 
@@ -136,10 +156,10 @@ export function evaluateScheduleFeasibility(args: {
   if (!pickupArea) {
     return {
       status: 'ambiguous',
-      eligible: false,
+      eligible: true,
       resolvedTimeMinutes: resolved.minutes,
       minutesUntilPickup,
-      reason: 'تعذر تحديد إحداثيات منطقة الاستلام بثقة؛ يحتاج الطلب إلى مراجعة',
+      reason: 'موعد مجدول (بانتظار تأكيد إحداثيات منطقة الاستلام بدقة لحساب وقت الوصول)',
     };
   }
 

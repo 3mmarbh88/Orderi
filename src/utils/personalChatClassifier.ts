@@ -162,23 +162,15 @@ export function classifyPrivateWhatsAppMessage(
     };
   }
 
-  // 2. If NOT a known group advertiser:
-  // Must possess explicit, unequivocal delivery intent (e.g. "عندي طلب توصيل من ... إلى ...")
-  if (!isKnown) {
-    const hasExplicitDeliveryIntent = EXPLICIT_DELIVERY_INTENT.some((p) => p.test(normalized));
-    if (!hasExplicitDeliveryIntent) {
-      return {
-        isCasualFriendChat: true,
-        isKnownAdvertiser: false,
-        reason: 'رسالة خاصة من شخص لم يسبق له الإعلان في قروبات التوصيل ولا تحتوي صيغة طلب توصيل تجاري صريح',
-        isActionableOrder: false,
-      };
-    }
-  }
-
+  // 2. Strict Exclusion Rule:
+  // Personal 1-on-1 private chats can NEVER create orders in Radar regardless of keywords or locations.
+  // This completely eliminates any confusion between personal chats and delivery groups.
   return {
-    isCasualFriendChat: false,
+    isCasualFriendChat: true,
     isKnownAdvertiser: isKnown,
-    isActionableOrder: true,
+    reason: isKnown 
+      ? 'محادثة خاصة فردية من معلن مسجل (مستبعدة نهائياً من إنشاء طلبات جديدة بالرادار)'
+      : 'محادثة خاصة فردية من صديق/جهة اتصال (مستبعدة نهائياً لحماية الخصوصية)',
+    isActionableOrder: false,
   };
 }

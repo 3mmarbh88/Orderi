@@ -118,26 +118,39 @@ export function sendBackgroundOrderNotification(order: ParsedOrder, filter?: Ord
   if (!isNotificationSupported()) return;
   if (Notification.permission !== 'granted') return;
 
-  // استبعاد إعلاناتي الشخصية من إرسال أي إشعار بالنظام في الخلفية
-  if (order.isOwnAd || order.isFromMe) {
+  // إذا تم إيقاف الإشعارات من داخل التطبيق (إلا إذا أغلقنا عمل الإشعارات من داخل البرنامج)
+  if (filter?.notificationsEnabled === false || filter?.backgroundNotificationsEnabled === false) {
     return;
   }
 
-  // حجب كامل للإشعارات في الخلفية للطلبات غير المطابقة لشروط الكابتن
+  // استبعاد إعلاناتي الشخصية من إرسال أي إشعار بالنظام في الخلفية إذا كان الخيار مفعلاً
+  if ((order.isOwnAd || (order as any).isFromMe) && filter?.excludeMyOwnAds !== false) {
+    return;
+  }
+
+  // حجب جهات الاتصال المحظورة (القائمة السوداء)
+  if (filter?.autoBlockBlacklist !== false && order.contactStatus === 'blacklist') {
+    return;
+  }
+
+  // حجب إعلانات نقل الركاب إذا كان خيار حجب الركاب مفعلاً
+  const isPassenger = order.passengerDetection?.level === 'confirmed_passenger' || order.passengerDetection?.level === 'suspicious_passenger';
+  if (isPassenger && filter?.blockPassengerDeliveries !== false) {
+    return; // حجب إشعار الركاب لأن الحجب مفعل
+  }
+
+  // حجب الطلبات غير المطابقة لشروط الكابتن فقط إذا كان خيار الحجب مفعلاً
+  // إذا كان الحجب معطلاً (ignoreNonMatching === false)، يُسمح بالإشعار وتنبيه الكابتن بالطلب!
   if (filter?.ignoreNonMatching) {
-    if (!order.match || order.match.score < 80 || !order.match.priceMatched || !order.match.distanceMatched || !order.match.startMatched) {
-      return; // حجب كامل لمنع إزعاج الكابتن بطلبات خارج نطاقه أو سعره
+    if (!order.match || order.match.score < 80) {
+      if (order.contactStatus !== 'vip') {
+        return; // حجب الطلب غير المطابق
+      }
     }
-  }
-
-  // منع إرسال إشعار في الخلفية إذا كانت نسبة المطابقة أقل من 80% (إلا إذا كان متجر VIP موثوق)
-  if (order.match && order.match.score < 80 && order.contactStatus !== 'vip') {
-    return;
   }
 
   try {
     const isVip = order.contactStatus === 'vip';
-    const isPassenger = order.passengerDetection?.level === 'confirmed_passenger';
     
     const priceText = (!order.price || order.price <= 0 || order.isPriceUnspecified)
       ? ''
@@ -145,11 +158,10 @@ export function sendBackgroundOrderNotification(order: ParsedOrder, filter?: Ord
     
     // Concise notification route text
     const routeText = `${order.from} ← ${order.to}${priceText}`;
-    const isBlockedPassenger = isPassenger && filter?.blockPassengerDeliveries !== false;
     
     let title = routeText;
-    if (isBlockedPassenger) {
-      title = `🚨 نقل ركاب • ${routeText} • تحذير 🚫`;
+    if (isPassenger) {
+      title = `👥 طلب توصيل راكب • ${routeText}`;
     } else if (isVip) {
       title = `⭐ VIP • ${routeText}`;
     }
@@ -175,6 +187,14 @@ export function sendBackgroundOrderNotification(order: ParsedOrder, filter?: Ord
         order,
       },
     };
+
+    // Track sent notification count in session
+    try {
+      if (typeof sessionStorage !== 'undefined') {
+        const prevCount = parseInt(sessionStorage.getItem('orderi_notifs_sent_count') || '0', 10);
+        sessionStorage.setItem('orderi_notifs_sent_count', String(prevCount + 1));
+      }
+    } catch {}
 
     // If Service Worker registration is available, use showNotification for better mobile background persistence
     if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
@@ -234,6 +254,48 @@ export function dismissBackgroundOrderNotification(orderId: string): void {
   }
 }
 
+/**
+ * Dismisses and cancels ALL active notifications in the OS bar / browser
+ */
+export function dismissAllBackgroundOrderNotifications(): void {
+  if (typeof window === 'undefined') return;
+
+  // 1. Service Worker: close all order notifications
+  if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+    navigator.serviceWorker.ready.then((reg) => {
+      reg.getNotifications().then((notifications) => {
+        notifications.forEach((notif) => {
+          if (notif.tag && notif.tag.startsWith('orderi-order-')) {
+            try {
+              notif.close();
+            } catch {}
+          }
+        });
+      }).catch(() => {});
+    }).catch(() => {});
+  }
+
+  // 2. Window events
+  window.dispatchEvent(new CustomEvent('orderi:dismiss_all_notifications'));
+  window.dispatchEvent(new CustomEvent('orderi:all_notifications_dismissed'));
+
+  // 3. Broadcast channel
+  try {
+    if (typeof BroadcastChannel !== 'undefined') {
+      const bc = new BroadcastChannel('orderi_notifications');
+      bc.postMessage({ type: 'ALL_NOTIFICATIONS_DISMISSED' });
+      bc.close();
+    }
+  } catch {}
+
+  // 4. Native Android cancelAll
+  if (isNativeAndroid()) {
+    try {
+      OrderiNotificationListener.cancelAllOrderNotifications().catch(() => {});
+    } catch {}
+  }
+}
+
 function createWindowNotification(title: string, options: any, order?: ParsedOrder) {
   let isProgrammaticClose = false;
   const notif = new Notification(title, options);
@@ -252,19 +314,6 @@ function createWindowNotification(title: string, options: any, order?: ParsedOrd
 
   notif.onclose = () => {
     window.removeEventListener('orderi:dismiss_notification', handleDismiss);
-    // If closed by user action (swiped away / closed from OS bar), notify Radar to delete order!
-    if (!isProgrammaticClose && order?.id) {
-      window.dispatchEvent(new CustomEvent('orderi:notification_dismissed', {
-        detail: { orderId: order.id }
-      }));
-      try {
-        if (typeof BroadcastChannel !== 'undefined') {
-          const bc = new BroadcastChannel('orderi_notifications');
-          bc.postMessage({ type: 'NOTIFICATION_DISMISSED', orderId: order.id });
-          bc.close();
-        }
-      } catch {}
-    }
   };
 
   notif.onclick = () => {

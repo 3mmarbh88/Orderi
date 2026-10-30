@@ -88,6 +88,17 @@ export function detectIsOwnAd(
   if (currentUser?.phone) {
     const normUser = normalizePhoneNumber(currentUser.phone);
     if (normUser.length >= 8) captainPhones.push(normUser.slice(-8));
+  } else {
+    try {
+      const stored = typeof localStorage !== 'undefined' ? (localStorage.getItem('orderi_current_user_v2') || localStorage.getItem('orderi_captain_auth_user')) : null;
+      if (stored) {
+        const u = JSON.parse(stored);
+        if (u?.phone) {
+          const norm = normalizePhoneNumber(u.phone);
+          if (norm.length >= 8) captainPhones.push(norm.slice(-8));
+        }
+      }
+    } catch {}
   }
 
   // 3. Match sender phone number

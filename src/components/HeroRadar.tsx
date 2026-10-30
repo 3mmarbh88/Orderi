@@ -258,17 +258,7 @@ export function HeroRadar({
               </button>
             )}
 
-            {/* Orderi Spider Button */}
-            {onOpenSpider && (
-              <button
-                onClick={onOpenSpider}
-                className="flex-1 sm:flex-none min-h-[44px] flex items-center justify-center gap-1.5 px-3 py-2.5 sm:px-3.5 rounded-xl bg-gradient-to-r from-emerald-600/30 to-teal-600/30 hover:from-emerald-600/40 hover:to-teal-600/40 text-emerald-300 border border-emerald-500/50 font-black text-xs transition-all active:scale-[0.98] cursor-pointer shadow-xs"
-                title="عنكبوت الأوردرات الذكي - زحف وفهرسة مجموعات الواتساب تلقائياً بالذكاء الاصطناعي الهجين"
-              >
-                <Bot className="w-4 h-4 text-emerald-400 shrink-0 animate-pulse" />
-                <span className="truncate">عنكبوت القروبات 🕷️</span>
-              </button>
-            )}
+            {/* Orderi Spider operates continuously in the background */}
 
             {/* 4. Filter Settings */}
             <button

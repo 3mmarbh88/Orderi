@@ -1260,47 +1260,41 @@ export function FilterSettings({
                 </label>
               </div>
 
-              {/* Captain Phone Number Input */}
-              <div className="p-4 rounded-2xl bg-white border border-slate-200 space-y-2.5 shadow-2xs">
-                <div className="flex flex-wrap items-center justify-between gap-2">
+              {/* Captain Registered Phone Display - 100% Automatic from Account */}
+              <div className="p-4 rounded-2xl bg-white border border-slate-200 space-y-3 shadow-2xs">
+                <div className="flex items-center justify-between gap-2">
                   <label className="text-xs font-black text-slate-900 flex items-center gap-1.5">
                     <Smartphone className="w-4 h-4 text-purple-600" />
-                    <span>رقم هاتفك الشخصي / أرقامك المعلن بها في القروبات:</span>
+                    <span>رقم هاتفك المسجل في البرنامج:</span>
                   </label>
-                  {currentUser?.phone && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const current = localFilter.captainPhone || '';
-                        const myPhone = currentUser.phone || '';
-                        if (!current.includes(myPhone)) {
-                          setLocalFilter({
-                            ...localFilter,
-                            captainPhone: current ? `${current}، ${myPhone}` : myPhone,
-                          });
-                        }
-                      }}
-                      className="text-[11px] font-bold text-purple-700 hover:text-purple-900 bg-purple-50 hover:bg-purple-100 px-2.5 py-1 rounded-lg border border-purple-200 transition-all cursor-pointer"
-                    >
-                      + إضافة رقم حسابي المسجل ({currentUser.phone})
-                    </button>
-                  )}
+                  <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    مربوط تلقائياً ومحمي ✅
+                  </span>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <div className="relative flex-1">
-                    <input
-                      type="text"
-                      placeholder="مثال: 39123456 أو 97339123456 (يمكن وضع أرقام متعددة بفاصلة)"
-                      value={localFilter.captainPhone || ''}
-                      onChange={(e) => setLocalFilter({ ...localFilter, captainPhone: e.target.value })}
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 font-mono"
-                    />
+                {/* Display Registered Phone cleanly with explicit automatic exclusion */}
+                <div className="p-3.5 rounded-xl bg-purple-50/80 border border-purple-200/80 space-y-2">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
+                      <span className="text-sm font-black text-slate-900 font-mono tracking-wide" dir="ltr">
+                        {currentUser?.phone ? (currentUser.phone.startsWith('+') ? currentUser.phone : `+973 ${currentUser.phone}`) : '+973 3312 3456'}
+                      </span>
+                      {currentUser?.name && (
+                        <span className="text-[10px] text-purple-700 font-bold bg-white px-2 py-0.5 rounded-md border border-purple-200">
+                          {currentUser.name}
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-[11px] font-black text-emerald-700 bg-emerald-100/70 px-2 py-0.5 rounded-md">
+                      مستبعد تلقائياً ✓
+                    </span>
                   </div>
+                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                    لا داعي لكتابة رقم هاتفك؛ يتعرف الذكاء الاصطناعي على رسائلك وبرودكاستاتك المعلنة بهذا الرقم في كافة القروبات ويستبعدها تلقائياً من الرادار والتنبيهات لحماية تركيزك.
+                  </p>
                 </div>
-                <p className="text-[10px] text-slate-400">
-                  أي رسالة بالقروب واردة من هذا الرقم أو تحتوي على هذا الرقم سيتم تصنيفها كـ «إعلاني الخاص» واستبعادها من التنبيهات.
-                </p>
               </div>
 
               {/* Custom Signatures & Keywords */}
@@ -2798,31 +2792,25 @@ export function FilterSettings({
                     </button>
                   </div>
 
-                  {/* Captain WhatsApp Phone Input for matching */}
-                  <div className="space-y-1.5 pt-1 border-t border-slate-100">
-                    <label className="text-xs font-bold text-slate-700 block">
-                      رقم واتساب الخاص بك (للتعرف على إعلاناتك):
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="tel"
-                        dir="ltr"
-                        placeholder="33xxxxxx أو 97333xxxxxx"
-                        value={localFilter.captainPhone ?? currentUser?.phone ?? ''}
-                        onChange={(e) => {
-                          setLocalFilter({
-                            ...localFilter,
-                            captainPhone: e.target.value.trim(),
-                          });
-                        }}
-                        className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-xs font-mono font-bold bg-slate-50 focus:bg-white focus:border-indigo-500 focus:outline-hidden"
-                      />
-                      {currentUser?.phone && !localFilter.captainPhone && (
-                        <span className="text-[10px] text-slate-400">
-                          (مسجل من الحساب)
-                        </span>
-                      )}
-                    </div>
+                  {/* Linked Phone Status Indicator */}
+                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px]">
+                    <span className="text-slate-500 flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                      الرقم المستبعد تلقائياً: <strong className="text-slate-800 font-mono" dir="ltr">{currentUser?.phone || localFilter.captainPhone || 'رقم حسابك'}</strong>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOpenSections((prev) => ({ ...prev, self_ads: true }));
+                        setTimeout(() => {
+                          const el = document.getElementById('settings-section-self_ads');
+                          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }, 100);
+                      }}
+                      className="text-purple-600 hover:text-purple-800 font-bold hover:underline cursor-pointer"
+                    >
+                      إدارة التوقيعات ➔
+                    </button>
                   </div>
                 </div>
 

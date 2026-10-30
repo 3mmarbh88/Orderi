@@ -21,8 +21,14 @@ export interface WhatsAppNativeEvent {
   conversationTitle?: string;
   groupName?: string;
   senderName?: string;
+  senderPhone?: string;
   summaryText?: string;
   category?: string;
+  tag?: string;
+  chatJid?: string;
+  isDirectPrivate?: boolean;
+  hasConversationTitle?: boolean;
+  isExplicitGroup?: boolean;
 }
 
 interface OrderiNotificationListenerPlugin {
@@ -64,8 +70,9 @@ interface OrderiNotificationListenerPlugin {
   getClickedOrder?(): Promise<{ order?: any }>;
   showOrderNotification(options: { orderId: string; from: string; to: string; price?: number; priceDisplay?: string; rawText?: string }): Promise<void>;
   cancelOrderNotification(options: { orderId: string }): Promise<void>;
+  cancelAllOrderNotifications(): Promise<void>;
   syncOrderNotifications(options: { orderIds: string[] }): Promise<void>;
-  getDismissedOrderIds(): Promise<{ orderIds: string[] }>;
+  getDismissedOrderIds(): Promise<{ orderIds: string[]; allDismissed?: boolean }>;
   moveToBackground(): Promise<void>;
   updateFilterSettings?(options: {
     ignoreNonMatching: boolean;
@@ -88,7 +95,11 @@ interface OrderiNotificationListenerPlugin {
   ): Promise<{ remove: () => Promise<void> }>;
   addListener(
     eventName: 'orderNotificationDismissed',
-    listenerFunc: (event: { orderId: string }) => void,
+    listenerFunc: (event: { orderId?: string; allDismissed?: boolean }) => void,
+  ): Promise<{ remove: () => Promise<void> }>;
+  addListener(
+    eventName: 'allOrderNotificationsDismissed',
+    listenerFunc: () => void,
   ): Promise<{ remove: () => Promise<void> }>;
 }
 

@@ -67,8 +67,11 @@ export function extractClosureKeywords(text: string): {
     const rxNorm = new RegExp(`(?:^|[\\s،,.:!؟-])${kw}(?:$|[\\s،,.:!؟-])`, 'i');
 
     if (rxClean.test(cleaned) || rxNorm.test(normalized)) {
-      if (!matchedWords.includes(kw)) {
-        matchedWords.push(kw);
+      // التحقق من أن الكلمة لم تُستخدم في سياق عادي غير مقصود به الإغلاق
+      if (!isFalsePositiveClosureUsage(text, kw)) {
+        if (!matchedWords.includes(kw)) {
+          matchedWords.push(kw);
+        }
       }
     }
   }
@@ -82,6 +85,150 @@ export function extractClosureKeywords(text: string): {
 
   const hasClosureIntent = matchedWords.length > 0 || matchedEmojis.length > 0;
   return { matchedWords, matchedEmojis, hasClosureIntent };
+}
+
+/**
+ * التمييز الدقيق بين ذكر الكلمة في سياق عادي وبين استخدامها فعلًا لإغلاق الطلب
+ * أمثلة مستبعدة: تمور سكري، سيتم التوصيل، تم تحديد السعر، هل تم مندوب؟
+ */
+export function isFalsePositiveClosureUsage(rawText: string, matchedKeyword?: string): boolean {
+  if (!rawText) return true;
+  const lower = rawText.toLowerCase();
+  const cleaned = cleanDialectText(rawText);
+  const kwClean = matchedKeyword ? cleanDialectText(matchedKeyword) : 'تم';
+
+  // 0. فحص عام لأي كلمة من مشتقات التمور أو زمن المستقبل أو الاستفسار
+  if (/(?:تمور|تمر|التمر|التمور|تمرية)/i.test(rawText)) {
+    return true;
+  }
+  if (/(?:سيتم|سوف\s*يتم)/i.test(rawText)) {
+    return true;
+  }
+  if (/(?:هل|أهل|مين|منو)\s*(?:تم|حصل|حصلت|انحجز)/i.test(rawText) || (/\?|؟/.test(rawText) && /(?:تم|حصلت|انحجز|taken|booked)/i.test(rawText))) {
+    return true;
+  }
+
+  // 1. فحص كلمة "تم" / "تمت"
+  if (!matchedKeyword || kwClean === 'تم' || kwClean === 'تمت' || kwClean === '') {
+    // جمل من قبيل: "تم تحديد السعر"، "تم الدفع"، "تم تحويل"، "تم تجهيز" في صلب نص الإعلان
+    if (/(?:تم|تمت)\s*(?:تحديد|تثبيت|دفع|تحويل|تجهيز|ارسال\s*الموقع|إرسال\s*الموقع|الاتفاق\s*مع\s*المحل|الاتفاق\s*مع\s*المطعم)/i.test(rawText) && !/^(?:تم|خلاص\s*تم|تم\s*خلاص)$/i.test(cleaned)) {
+      return true;
+    }
+    // وصف المسار في صلب الإعلان: "تم الاستلام من ... والتسليم في ..."
+    if (/(?:تم|يتم)\s*(?:الاستلام|استلام)\s*من/i.test(rawText) && /(?:التسليم|تسليم)\s*(?:في|الى|إلى)/i.test(rawText)) {
+      return true;
+    }
+    // الجمل الشرطية: "إذا تم / لو تم"
+    if (/(?:اذا|إذا|لو|في\s*حال|بحال)\s*(?:تم|حصلت|لقيت|انحجز)/i.test(rawText)) {
+      return true;
+    }
+  }
+
+  // 2. فحص كلمات "Taken / Booked" في سياقات إنجليزية عامة أو أسئلة
+  if (['taken', 'booked', 'done', 'completed'].includes(kwClean)) {
+    if (/\?|is\s+it\s+(?:taken|booked)/i.test(lower)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export interface StickerAnalysisResult {
+  isSticker: boolean;
+  isRecognized: boolean;
+  hasVisualContent: boolean;
+  isClosure: boolean;
+  isAmbiguous: boolean;
+  confidence: number;
+  label?: string;
+  diagnosticReason: string;
+}
+
+/**
+ * تحليل ملصقات واتساب والاستيكرات مع التحقق البصري والنصي
+ * عدم افتراض أن كل ملصق يعني إغلاق؛ إذا كان الملصق غير متاح للتحليل، يُسجل كحالة غير مؤكدة للتشخيص
+ */
+export function analyzeStickerSignal(
+  rawText: string,
+  stickerData?: { caption?: string; emoji?: string; visualLabel?: string; hasVisualData?: boolean }
+): StickerAnalysisResult {
+  const cleaned = cleanDialectText(rawText);
+  const isStickerTag = 
+    /^(?:sticker|ملصق|استيكر|ستيكر|صورهملصق|صورةملصق|🖼️sticker|📷ملصق|🖼️ملصق)$/i.test(cleaned) ||
+    /\[(?:ملصق|استيكر|ستيكر|sticker)\]/i.test(rawText) ||
+    Boolean(stickerData?.hasVisualData || stickerData?.caption || stickerData?.visualLabel);
+
+  if (!isStickerTag) {
+    return {
+      isSticker: false,
+      isRecognized: false,
+      hasVisualContent: false,
+      isClosure: false,
+      isAmbiguous: false,
+      confidence: 0,
+      diagnosticReason: 'الرسالة ليست ملصقاً',
+    };
+  }
+
+  const caption = (stickerData?.caption || stickerData?.visualLabel || '').trim();
+  const emoji = (stickerData?.emoji || '').trim();
+
+  // 1. ملصق يحتوي على علامة إنجاز أو شكر صريحة تم التعرف عليها
+  if (caption || emoji) {
+    const combined = `${caption} ${emoji}`.trim();
+    const closureCheck = extractClosureKeywords(combined);
+
+    if (closureCheck.hasClosureIntent || /^(?:تم|حصلت|مشكور|يعطيكم\s*العافية|مكتمل|done|ok|👍|✅|✔️|🤝)$/i.test(cleanDialectText(combined))) {
+      return {
+        isSticker: true,
+        isRecognized: true,
+        hasVisualContent: true,
+        isClosure: true,
+        isAmbiguous: false,
+        confidence: 95,
+        label: combined,
+        diagnosticReason: `تم التعرف بصرياً ونَصياً على محتوى الملصق: "${combined}" (يدل على الحجز والإغلاق)`,
+      };
+    }
+
+    // محتوى ملصق تم التعرف عليه ولا يدل على إغلاق
+    return {
+      isSticker: true,
+      isRecognized: true,
+      hasVisualContent: true,
+      isClosure: false,
+      isAmbiguous: false,
+      confidence: 90,
+      label: combined,
+      diagnosticReason: `تم التعرف على الملصق: "${combined}" (لا يدل على إغلاق الطلب)`,
+    };
+  }
+
+  // 2. نصوص مقتبسة مع الملصقات تفيد الإغلاق
+  if (/ملصق\s*(?:تم|حصلت|شكرا|مشكور|يعطيك)/i.test(rawText)) {
+    return {
+      isSticker: true,
+      isRecognized: true,
+      hasVisualContent: false,
+      isClosure: true,
+      isAmbiguous: false,
+      confidence: 90,
+      label: rawText.trim(),
+      diagnosticReason: `ملصق مصحوب بنص إغلاق مقتبس: "${rawText.trim()}"`,
+    };
+  }
+
+  // 3. ملصق غامض بدون محتوى متاح (حالة غير مؤكدة تُسجل للتشخيص)
+  return {
+    isSticker: true,
+    isRecognized: false,
+    hasVisualContent: false,
+    isClosure: false,
+    isAmbiguous: true,
+    confidence: 50,
+    diagnosticReason: 'الملصق لا يتضمن محتوى بصري أو نصي متاح للتحليل - تم تسجيله كحالة غير مؤكدة للتشخيص',
+  };
 }
 
 /**
@@ -143,15 +290,31 @@ export function checkIncomingMessageForClosure(
     timestamp?: Date | number;
     rawQuotedText?: string;
     messageId?: string;
+    isGroup?: boolean;
+    isDirectPrivate?: boolean;
   },
   activeOrders: ParsedOrder[]
 ): ClosureMatchResult | null {
   const rawText = (message.text || '').trim();
   if (!rawText) return null;
 
+  // STRICT PRIVACY & SOURCE RULE:
+  // A message from a 1-on-1 private chat can NEVER close or update an order in Radar!
+  // A friend saying "تم" or sending a sticker in a private chat must never touch delivery group orders.
+  const msgGroup = (message.groupName || '').trim();
+  if (
+    message.isDirectPrivate === true ||
+    message.isGroup === false ||
+    !msgGroup ||
+    msgGroup === 'محادثة خاصة 👤' ||
+    msgGroup.includes('خاصة') ||
+    msgGroup === 'واتساب'
+  ) {
+    return null;
+  }
+
   // منع التكرار ومعالجة الإشعارات المكررة
   const msgTime = message.timestamp ? new Date(message.timestamp).getTime() : Date.now();
-  const msgGroup = (message.groupName || '').trim();
   const msgSender = (message.senderName || '').trim();
   const msgPhone = (message.senderPhone || '').replace(/\D/g, '');
   const dedupeKey = message.messageId || `${msgGroup}::${msgSender}::${msgTime}::${rawText.slice(0, 30)}`;
