@@ -1,11 +1,12 @@
 package com.orderi.radar;
 
 import android.Manifest;
-import android.content.pm.PackageManager;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
-
+import android.provider.Settings;
+import android.net.Uri;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
@@ -14,25 +15,36 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(NotificationListenerPlugin.class);
         registerPlugin(OrderiLocalAIPlugin.class);
     }
-
-    @Override
-    public void onCreate(Bundle savedInstanceState) {
+    @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        // Re-enable the radar whenever the user opens Orderi. The native listener
-        // checks this persisted flag so it can stop processing after task dismissal.
         getSharedPreferences(BackgroundRadarService.PREFS, MODE_PRIVATE)
                 .edit().putBoolean(BackgroundRadarService.KEY_ENABLED, true).apply();
-        // The user explicitly requested not to show the persistent "الرادار يعمل حتى إزالة التطبيق" notification.
-        // WhatsAppNotificationListenerService runs independently via Android's NotificationListenerService.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
                 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 9001);
         }
+        startRadarService();
+        requestBatteryOptimizationExemptionIfNeeded();
         NotificationListenerPlugin.handleOrderIntent(getIntent());
     }
-
-    @Override
-    protected void onNewIntent(android.content.Intent intent) {
+    private void startRadarService() {
+        Intent service = new Intent(this, BackgroundRadarService.class);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(service);
+        else startService(service);
+    }
+    private void requestBatteryOptimizationExemptionIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return;
+        android.os.PowerManager pm = (android.os.PowerManager) getSystemService(POWER_SERVICE);
+        if (pm == null || pm.isIgnoringBatteryOptimizations(getPackageName())) return;
+        try {
+            startActivity(new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                    Uri.parse("package:" + getPackageName())));
+        } catch (Exception ignored) {
+            try { startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)); }
+            catch (Exception ignoredAgain) {}
+        }
+    }
+    @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
         NotificationListenerPlugin.handleOrderIntent(intent);
