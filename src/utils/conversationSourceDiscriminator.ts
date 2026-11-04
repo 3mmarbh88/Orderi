@@ -371,8 +371,8 @@ export function discriminateConversationSource(
     }
   }
 
-  // If isDirectPrivate is explicitly set and not confirmed as a group:
-  if (event.isDirectPrivate === true || event.isGroup === false) {
+  // If not confirmed as a group and isGroup is explicitly false:
+  if (event.isGroup === false) {
     return {
       sourceType: 'private_individual',
       isGroup: false,

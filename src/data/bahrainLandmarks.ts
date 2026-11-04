@@ -493,6 +493,7 @@ const BASE_BAHRAIN_LANDMARKS: BahrainLandmark[] = [
       'مطار البحرين',
       'مطار البحرين الدولي',
       'المطار',
+      'مطار',
       'مطار المحرق',
       'bahrain airport',
       'bahrain international airport',

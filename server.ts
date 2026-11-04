@@ -4,7 +4,7 @@ import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import QRCode from "qrcode";
-import { parseWhatsAppOrderText } from "./src/utils/orderParser";
+import { parseWhatsAppOrderText, parseMultipleWhatsAppOrders } from "./src/utils/orderParser";
 import { checkIncomingMessageForClosure, extractClosureKeywords } from "./src/utils/orderClosureDetector";
 import { classifyAdvertiserPrivateReply } from "./src/utils/advertiserReplyClassifier";
 import { classifyPrivateWhatsAppMessage, registerKnownGroupAdvertiser } from "./src/utils/personalChatClassifier";
@@ -453,6 +453,55 @@ const handleIncomingWebhook = (req: express.Request, res: express.Response) => {
     }
 
     // Parse order delivery attributes (pickup area, destination area, price, phone, notes)
+    const multiParsed = parseMultipleWhatsAppOrders(rawText);
+    if (multiParsed.length > 1) {
+      const createdOrders: any[] = [];
+      for (let idx = 0; idx < multiParsed.length; idx++) {
+        const seg = multiParsed[idx];
+        if (!seg.canCreateOrder && !seg.from && !seg.to) continue;
+        const subOrder = {
+          id: `ord-real-${Date.now()}-${Math.random().toString(36).substring(2, 7)}-part-${idx + 1}`,
+          from: seg.from || "البحرين",
+          to: seg.to || "البحرين",
+          price: seg.price > 0 ? seg.price : 0,
+          isPriceUnspecified: !seg.price || seg.price <= 0,
+          rawText: seg.rawSegment || rawText.trim(),
+          groupName: groupDisplayName,
+          senderName: sender,
+          senderPhone: phone || seg.phone || "97300000000",
+          receivedAt: new Date().toISOString(),
+          confidence: seg.confidence || 90,
+          type: isDirectChat ? "طلب مباشر (خاص)" : "طلب قروب واتساب",
+          notes: seg.notes || (isDirectChat ? "وارد في المحادثة الخاصة دايركت" : "وارد من قروب واتساب"),
+          status: "pending",
+          source: "webhook_real",
+          isDirectPrivate: isDirectChat,
+          crossPostedGroups: [groupDisplayName],
+          duplicateCount: 1,
+          passengerCount: seg.passengerCount,
+          passengerDetection: seg.passengerDetection,
+        };
+        recentWebhookOrders.unshift(subOrder);
+        createdOrders.push(subOrder);
+        const eventPayload = `data: ${JSON.stringify({ type: "NEW_ORDER", order: subOrder })}\n\n`;
+        sseClients.forEach((client) => {
+          try { client.write(eventPayload); } catch { sseClients.delete(client); }
+        });
+      }
+      if (recentWebhookOrders.length > 50) {
+        recentWebhookOrders.length = 50;
+      }
+      if (createdOrders.length > 0) {
+        return res.json({
+          success: true,
+          multiOrder: true,
+          ordersCount: createdOrders.length,
+          orders: createdOrders,
+          message: `تم رصد وتجزئة ${createdOrders.length} طلبات مستقلة من الرسالة بنجاح ⚡`,
+        });
+      }
+    }
+
     const parsed = parseWhatsAppOrderText(rawText);
 
     // استبعاد الفويس نوت والتسجيلات الصوتية بناءً على طلب المستخدم

@@ -388,7 +388,7 @@ function OrderiApp({
         try {
           const pending = await OrderiNotificationListener.getPending();
           if (pending?.events?.length) {
-            const { parseWhatsAppOrderWithLocalAi } = await import('./utils/localAiOrderParser');
+            const { parseMultipleWhatsAppOrdersWithLocalAi } = await import('./utils/localAiOrderParser');
             for (const event of pending.events.slice(-30)) {
               try {
                 // Strict Source Discrimination:
@@ -427,43 +427,48 @@ function OrderiApp({
                   }
                 }
 
-                const parsed = await parseWhatsAppOrderWithLocalAi(rawText || event.title || '', {
+                const parsedList = await parseMultipleWhatsAppOrdersWithLocalAi(rawText || event.title || '', {
                   hybridMode: filterRef.current.localAiConfig?.hybridMode !== false,
                   useCloudFallback: filterRef.current.useCloudAiFallback === true,
                   senderName: event.senderName || event.title,
                   groupName,
                 });
-                if (parsed.canCreateOrder) {
-                  if (event.isGroup && groupName && groupName !== 'محادثة خاصة 👤') {
-                    void OrderiNotificationListener.markGroupAsRead({ groupName }).catch((error) => {
-                      console.warn('[Orderi Native] Could not mark source WhatsApp group as read:', error);
-                    });
-                  }
-                  const phoneFromSender = (event.senderName || '').replace(/[^\d+]/g, '');
-                  const resolvedSenderName = (event.senderName && event.senderName.trim()) 
-                    ? event.senderName.trim() 
-                    : (parsed.advertiserName || (event.isGroup ? '' : event.title) || 'معلن بالقروب');
-                  const resolvedSenderPhone = parsed.phone || (phoneFromSender.length >= 8 ? phoneFromSender : '');
 
-                  handleProcessIncomingRawOrder({
-                    id: `android-wa-${event.id}`,
-                    from: parsed.from, to: parsed.to, price: parsed.price,
-                    orderCount: parsed.orderCount,
-                    isPriceUnspecified: parsed.isPriceUnspecified,
-                    scheduledTime: parsed.scheduledTime,
-                    scheduledTimeMinutes: parsed.scheduledTimeMinutes,
-                    isFutureSchedule: parsed.isFutureSchedule,
-                    rawText: rawText || event.title || '', groupName,
-                    senderName: resolvedSenderName,
-                    senderPhone: resolvedSenderPhone,
-                    receivedAt: new Date(event.receivedAt || Date.now()),
-                    confidence: parsed.confidence, type: 'whatsapp_notification',
-                    notes: parsed.notes, status: 'pending',
-                    source: 'android_notification',
-                    isDirectPrivate: !event.isGroup,
-                    aiTierUsed: parsed.parseMethod,
-                    passengerDetection: parsed.passengerDetection,
-                  }, true);
+                for (let idx = 0; idx < parsedList.length; idx++) {
+                  const parsed = parsedList[idx];
+                  if (parsed.canCreateOrder) {
+                    if (event.isGroup && groupName && groupName !== 'محادثة خاصة 👤') {
+                      void OrderiNotificationListener.markGroupAsRead({ groupName }).catch((error) => {
+                        console.warn('[Orderi Native] Could not mark source WhatsApp group as read:', error);
+                      });
+                    }
+                    const phoneFromSender = (event.senderName || '').replace(/[^\d+]/g, '');
+                    const resolvedSenderName = (event.senderName && event.senderName.trim()) 
+                      ? event.senderName.trim() 
+                      : (parsed.advertiserName || (event.isGroup ? '' : event.title) || 'معلن بالقروب');
+                    const resolvedSenderPhone = parsed.phone || (phoneFromSender.length >= 8 ? phoneFromSender : '');
+                    const orderIdSuffix = parsedList.length > 1 ? `-part-${idx + 1}` : '';
+
+                    handleProcessIncomingRawOrder({
+                      id: `android-wa-${event.id}${orderIdSuffix}`,
+                      from: parsed.from, to: parsed.to, price: parsed.price,
+                      orderCount: parsed.orderCount,
+                      isPriceUnspecified: parsed.isPriceUnspecified,
+                      scheduledTime: parsed.scheduledTime,
+                      scheduledTimeMinutes: parsed.scheduledTimeMinutes,
+                      isFutureSchedule: parsed.isFutureSchedule,
+                      rawText: (parsed as any).rawSegment || rawText || event.title || '', groupName,
+                      senderName: resolvedSenderName,
+                      senderPhone: resolvedSenderPhone,
+                      receivedAt: new Date(event.receivedAt || Date.now()),
+                      confidence: parsed.confidence, type: 'whatsapp_notification',
+                      notes: parsed.notes, status: 'pending',
+                      source: 'android_notification',
+                      isDirectPrivate: !event.isGroup,
+                      aiTierUsed: parsed.parseMethod,
+                      passengerDetection: parsed.passengerDetection,
+                    }, true);
+                  }
                 }
                 await OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] });
               } catch (singleEventErr) {
@@ -1609,62 +1614,67 @@ function OrderiApp({
         }).catch(() => {});
       }
 
-      import('./utils/localAiOrderParser').then(async ({ parseWhatsAppOrderWithLocalAi }) => {
-        const parsed = await parseWhatsAppOrderWithLocalAi(rawText || event.title || '', {
+      import('./utils/localAiOrderParser').then(async ({ parseMultipleWhatsAppOrdersWithLocalAi }) => {
+        const parsedList = await parseMultipleWhatsAppOrdersWithLocalAi(rawText || event.title || '', {
           hybridMode: filterRef.current.localAiConfig?.hybridMode !== false,
           useCloudFallback: filterRef.current.useCloudAiFallback === true && canForwardToCloudAI(sourceAnalysis),
           senderName: event.senderName || event.title,
           groupName,
         });
-        const order = {
-          id: `android-wa-${event.id}`,
-          from: parsed.from,
-          to: parsed.to,
-          price: parsed.price,
-          orderCount: parsed.orderCount,
-          isPriceUnspecified: parsed.isPriceUnspecified,
-          scheduledTime: parsed.scheduledTime,
-          scheduledTimeMinutes: parsed.scheduledTimeMinutes,
-          isFutureSchedule: parsed.isFutureSchedule,
-          rawText: rawText || event.title || '',
-          senderName: (event.senderName && event.senderName.trim()) 
-            ? event.senderName.trim() 
-            : (parsed.advertiserName || event.title || 'معلن بالقروب'),
-          senderPhone: parsed.phone || ((event.senderName || '').replace(/[^\d+]/g, '').length >= 8 ? (event.senderName || '').replace(/[^\d+]/g, '') : ''),
-          receivedAt: new Date(event.receivedAt || Date.now()),
-          confidence: parsed.confidence,
-          type: 'whatsapp_notification',
-          notes: parsed.notes || '',
-          status: 'pending' as const,
-          source: 'android_notification' as const,
-          isDirectPrivate: false,
-          aiTierUsed: parsed.parseMethod,
-          passengerDetection: parsed.passengerDetection,
-        };
 
-        const isPassengerRequest = parsed.passengerDetection?.level === 'confirmed_passenger' || parsed.passengerDetection?.level === 'suspicious_passenger';
-        // Only actionable delivery requests enter Radar. Pure voice notes, ordinary chat,
-        // general announcements, reactions and unparsed messages are silently ignored.
-        if (parsed.canCreateOrder || isPassengerRequest) {
-          if (!order.from) order.from = 'موقع الاستلام غير محدد 📍';
-          if (!order.to) order.to = 'وجهة التوصيل غير محددة 📍';
+        for (let idx = 0; idx < parsedList.length; idx++) {
+          const parsed = parsedList[idx];
+          const orderIdSuffix = parsedList.length > 1 ? `-part-${idx + 1}` : '';
+          const order = {
+            id: `android-wa-${event.id}${orderIdSuffix}`,
+            from: parsed.from,
+            to: parsed.to,
+            price: parsed.price,
+            orderCount: parsed.orderCount,
+            isPriceUnspecified: parsed.isPriceUnspecified,
+            scheduledTime: parsed.scheduledTime,
+            scheduledTimeMinutes: parsed.scheduledTimeMinutes,
+            isFutureSchedule: parsed.isFutureSchedule,
+            rawText: (parsed as any).rawSegment || rawText || event.title || '',
+            senderName: (event.senderName && event.senderName.trim()) 
+              ? event.senderName.trim() 
+              : (parsed.advertiserName || event.title || 'معلن بالقروب'),
+            senderPhone: parsed.phone || ((event.senderName || '').replace(/[^\d+]/g, '').length >= 8 ? (event.senderName || '').replace(/[^\d+]/g, '') : ''),
+            receivedAt: new Date(event.receivedAt || Date.now()),
+            confidence: parsed.confidence,
+            type: 'whatsapp_notification',
+            notes: parsed.notes || '',
+            status: 'pending' as const,
+            source: 'android_notification' as const,
+            isDirectPrivate: false,
+            aiTierUsed: parsed.parseMethod,
+            passengerDetection: parsed.passengerDetection,
+          };
 
-          // Once local AI confirms an order from a group, ask Android to use
-          // that group's own explicit WhatsApp "Mark as read" notification action.
-          // This intentionally does not open WhatsApp or touch unrelated chats.
-          if (isGroup && groupName && groupName !== 'قروب واتساب') {
-            OrderiNotificationListener.markGroupAsRead({ groupName }).then((result) => {
-              if (result.success) {
-                console.log('[Orderi Native] Source WhatsApp group marked as read:', groupName);
-              } else {
-                console.log('[Orderi Native] WhatsApp did not expose a matching Mark as read action for:', groupName);
-              }
-            }).catch((error) => {
-              console.warn('[Orderi Native] Could not mark source WhatsApp group as read:', error);
-            });
+          const isPassengerRequest = parsed.passengerDetection?.level === 'confirmed_passenger' || parsed.passengerDetection?.level === 'suspicious_passenger';
+          // Only actionable delivery requests enter Radar. Pure voice notes, ordinary chat,
+          // general announcements, reactions and unparsed messages are silently ignored.
+          if (parsed.canCreateOrder || isPassengerRequest) {
+            if (!order.from) order.from = 'موقع الاستلام غير محدد 📍';
+            if (!order.to) order.to = 'وجهة التوصيل غير محددة 📍';
+
+            // Once local AI confirms an order from a group, ask Android to use
+            // that group's own explicit WhatsApp "Mark as read" notification action.
+            // This intentionally does not open WhatsApp or touch unrelated chats.
+            if (isGroup && groupName && groupName !== 'قروب واتساب') {
+              OrderiNotificationListener.markGroupAsRead({ groupName }).then((result) => {
+                if (result.success) {
+                  console.log('[Orderi Native] Source WhatsApp group marked as read:', groupName);
+                } else {
+                  console.log('[Orderi Native] WhatsApp did not expose a matching Mark as read action for:', groupName);
+                }
+              }).catch((error) => {
+                console.warn('[Orderi Native] Could not mark source WhatsApp group as read:', error);
+              });
+            }
+
+            handleProcessIncomingRawOrder(order, false);
           }
-
-          handleProcessIncomingRawOrder(order, false);
         }
         // Messages that are validly analyzed but do not qualify as orders are
         // acknowledged too; transient parser errors intentionally remain queued.

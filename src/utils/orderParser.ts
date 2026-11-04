@@ -27,6 +27,8 @@ export interface RawParsedResult {
   advertisementReason?: string;
   passengerDetection: PassengerDetection;
   advertiserName?: string;
+  /** Substring/segment text when parsed from a multi-order message. */
+  rawSegment?: string;
 }
 
 /**
@@ -199,6 +201,13 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
       ...Array.from({ length: 30 }, (_, index) => `دوار رقم ${index + 1}`),
       ...Array.from({ length: 30 }, (_, index) => `roundabout ${index + 1}`),
     ],
+    bu_quwah: ['بو قوة', 'بو قوه', 'بوقوة', 'بوقوه', 'أبو قوة', 'أبو قوه', 'ابو قوة', 'ابو قوه', 'abu quwah', 'bu quwah'],
+    bu_kowarah: ['بو كوارة', 'بو كواره', 'بوكوارة', 'بوكواره', 'أبو كوارة', 'أبو كواره', 'ابو كوارة', 'ابو كواره', 'bu kowarah', 'bu kuwarah'],
+    al_lawzi: ['اللوزي', 'الوزي', 'لوزي', 'lawzi', 'al lawzi', 'al-lawzi'],
+    riffa: ['رفاع', 'الرفاع'],
+    riffa_sharqi: ['رفاع شرقي', 'الرفاع الشرقي'],
+    riffa_gharbi: ['رفاع غربي', 'الرفاع الغربي'],
+    adliya: ['عدلية', 'العدلية', 'عدليه', 'العدليه'],
     manama: ['منامه', 'المنامه'],
     muharraq: ['محرق', 'المحرق'],
   };
@@ -286,7 +295,7 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
   // "محرق محرق", "منامه منامه", "قلالي قلالي". Resolve only when no explicit route endpoint was found.
   let sameAreaShorthand = false;
   if (!fromArea && !toArea) {
-    const isArabicOrLatinWord = (ch: string | undefined) => !!ch && /[\\p{L}\\p{N}]/u.test(ch);
+    const isArabicOrLatinWord = (ch: string | undefined) => !!ch && /[\p{L}\p{N}]/u.test(ch);
     for (const area of BAHRAIN_AREAS) {
       const areaName = normalizeArabicText(area.name);
       const candidates = new Set([areaName, areaName.startsWith('ال') ? areaName.slice(2) : areaName]);
@@ -306,7 +315,7 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
             if (firstIndex >= 0) {
               const between = normalized.slice(firstIndex + candidate.length, idx);
               // Repeated area should be a compact shorthand, not two mentions far apart in a long advert.
-              if (between.length <= 12 && /^[\\s،,./-]*$/.test(between)) {
+              if (between.length <= 12 && /^[\s،,./-]*$/.test(between)) {
                 fromArea = area.name;
                 toArea = area.name;
                 sameAreaShorthand = true;
@@ -424,7 +433,11 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
 
     if (foundPlaces.length >= 2) {
       if (!fromArea && !toArea) {
-        if (foundPlaces[0].intentType === 'to' && foundPlaces[1].intentType !== 'to') {
+        if (foundPlaces[0].name === foundPlaces[1].name) {
+          fromArea = foundPlaces[0].name;
+          toArea = foundPlaces[0].name;
+          sameAreaShorthand = true;
+        } else if (foundPlaces[0].intentType === 'to' && foundPlaces[1].intentType !== 'to') {
           toArea = foundPlaces[0].name;
           fromArea = foundPlaces[1].name;
         } else {
@@ -433,10 +446,20 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
         }
       } else if (!fromArea) {
         const remaining = foundPlaces.find((f) => f.name !== toArea);
-        if (remaining) fromArea = remaining.name;
+        if (remaining) {
+          fromArea = remaining.name;
+        } else if (foundPlaces.length >= 2 && foundPlaces[0].name === toArea) {
+          fromArea = toArea;
+          sameAreaShorthand = true;
+        }
       } else if (!toArea) {
         const remaining = foundPlaces.find((f) => f.name !== fromArea);
-        if (remaining) toArea = remaining.name;
+        if (remaining) {
+          toArea = remaining.name;
+        } else if (foundPlaces.length >= 2 && foundPlaces[1].name === fromArea) {
+          toArea = fromArea;
+          sameAreaShorthand = true;
+        }
       }
     } else if (foundPlaces.length === 1) {
       const singlePlace = foundPlaces[0];
@@ -490,7 +513,7 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
   const hasPersonOrScheduleNumber = /(?:اشخاص|شخص|ركاب|راكب|ساعة|الساعة|هاتف|واتساب)/i.test(normalized);
   const trailingBareNumber = /(?:^|[\s،,])([1-9]\d?(?:\.\d+)?)\s*$/.exec(convertedText);
   if (price <= 0 && !orderCount && fromArea && toArea &&
-      fromArea !== toArea && !hasPersonOrScheduleNumber && trailingBareNumber) {
+      (fromArea !== toArea || sameAreaShorthand) && !hasPersonOrScheduleNumber && trailingBareNumber) {
     const shorthandFare = Number(trailingBareNumber[1]);
     if (shorthandFare > 0 && shorthandFare <= 100) price = shorthandFare;
   }
@@ -631,3 +654,112 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
     passengerDetection,
   };
 }
+
+/**
+ * Splits a composite WhatsApp message into independent delivery orders if it contains
+ * multiple trips or delivery destinations, and parses each one separately into a distinct order.
+ * If only one trip is present, returns an array containing that single order.
+ */
+export function parseMultipleWhatsAppOrders(rawText: string): RawParsedResult[] {
+  if (!rawText || typeof rawText !== 'string' || !rawText.trim()) {
+    return [parseWhatsAppOrderText(rawText)];
+  }
+
+  // 1. Initial single-pass parse
+  const singleParsed = parseWhatsAppOrderText(rawText);
+  if (singleParsed.isAdvertisement) {
+    return [singleParsed];
+  }
+
+  // 2. Identify potential multi-order segmentation by line breaks or bullets
+  const lines = rawText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+
+  if (lines.length >= 2) {
+    const candidateSegments: string[] = [];
+    let currentSegment = '';
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      // Check if line looks like an individual order bullet or route start:
+      const isBulletOrOrdinal = /^(?:[1-9][0-9]?[\.\-\)]\s*|(?:الاول|الأول|الثاني|الثالث|الرابع|الخامس|السادس|الطلب\s*الأول|الطلب\s*الاول|الطلب\s*الثاني|الطلب\s*الثالث|أوردر\s*[1-9]|اوردر\s*[1-9]|طلب\s*[1-9])\s*[:\-–]?\s*|[•\*\-–]\s*(?:من|استلام|توصيل|مشوار))/i.test(line);
+      const isTripLine = /(?:من|استلام|بيك\s*اب)\s+[^\n\r]+(?:\s+(?:الى|إلى|لي|لـ|لل|تسليم)\s+[^\n\r]+)/i.test(line);
+
+      if (isBulletOrOrdinal || isTripLine) {
+        if (currentSegment.trim()) {
+          candidateSegments.push(currentSegment.trim());
+        }
+        currentSegment = line;
+      } else {
+        if (currentSegment) {
+          currentSegment += ' ' + line;
+        } else {
+          if (!/(?:توصيل|أوردر|اوردر|طلب|مشوار)/i.test(line) || lines.length > 2) {
+            continue;
+          } else {
+            currentSegment = line;
+          }
+        }
+      }
+    }
+    if (currentSegment.trim()) {
+      candidateSegments.push(currentSegment.trim());
+    }
+
+    if (candidateSegments.length >= 2) {
+      const parsedList: RawParsedResult[] = [];
+      for (const seg of candidateSegments) {
+        const segParsed = parseWhatsAppOrderText(seg);
+        if (segParsed.canCreateOrder && (segParsed.from || segParsed.to)) {
+          if (!segParsed.phone && singleParsed.phone) {
+            segParsed.phone = singleParsed.phone;
+          }
+          parsedList.push(segParsed);
+        }
+      }
+      if (parsedList.length >= 2) {
+        return parsedList;
+      }
+    }
+  }
+
+  // Strategy B: Inline segmentation with ordinals (الاول / الثاني / الثالث)
+  const ordinalInlineRegex = /(?=(?:^|[\s،,])(?:الاول|الأول|الثاني|الثالث|الرابع|الخامس|الطلب\s*(?:الأول|الاول|الثاني|الثالث|الرابع|الخامس)|أوردر\s*[1-9]|اوردر\s*[1-9])\s*[:\-–]?\s*)/gi;
+  const inlineSplits = rawText.split(ordinalInlineRegex).map((s) => s.trim()).filter(Boolean);
+  if (inlineSplits.length >= 2) {
+    const inlineParsedList: RawParsedResult[] = [];
+    for (const chunk of inlineSplits) {
+      const chunkParsed = parseWhatsAppOrderText(chunk);
+      if (chunkParsed.canCreateOrder && (chunkParsed.from || chunkParsed.to)) {
+        if (!chunkParsed.phone && singleParsed.phone) {
+          chunkParsed.phone = singleParsed.phone;
+        }
+        inlineParsedList.push(chunkParsed);
+      }
+    }
+    if (inlineParsedList.length >= 2) {
+      return inlineParsedList;
+    }
+  }
+
+  // Strategy C: Multiple distinct "من ... الى ..." routes separated by "و" or semicolon
+  const multiRouteRegex = /(?=(?:^|[\s،,;؛])و?\s*(?:من|استلام من|بيك\s*اب من)\s+[^\s]+\s+(?:الى|إلى|تسليم الى|لـ|لل)[^\s]+)/gi;
+  const routeSplits = rawText.split(multiRouteRegex).map((s) => s.trim()).filter((s) => s.length > 10);
+  if (routeSplits.length >= 2) {
+    const routeParsedList: RawParsedResult[] = [];
+    for (const rChunk of routeSplits) {
+      const rParsed = parseWhatsAppOrderText(rChunk);
+      if (rParsed.canCreateOrder && rParsed.from && rParsed.to && rParsed.from !== rParsed.to) {
+        if (!rParsed.phone && singleParsed.phone) {
+          rParsed.phone = singleParsed.phone;
+        }
+        routeParsedList.push(rParsed);
+      }
+    }
+    if (routeParsedList.length >= 2) {
+      return routeParsedList;
+    }
+  }
+
+  return [singleParsed];
+}
+

@@ -65,6 +65,7 @@ export const BAHRAIN_AREAS: AreaLocation[] = [
   { id: 'sehla', name: 'السهلة', nameEn: 'Sehla', governorate: 'الشمالية', latitude: 26.2000, longitude: 50.5400 },
   { id: 'tashan', name: 'طشان', nameEn: 'Tashan', governorate: 'الشمالية', latitude: 26.2150, longitude: 50.5500 },
   { id: 'sadad', name: 'صدد', nameEn: 'Sadad', governorate: 'الشمالية', latitude: 26.1550, longitude: 50.4600 },
+  { id: 'al_lawzi', name: 'اللوزي', nameEn: 'Al Lawzi', governorate: 'الشمالية', latitude: 26.1550, longitude: 50.4900 },
 
   // الجنوبية (Southern Governorate)
   { id: 'bu_kowarah', name: 'بو كوارة', nameEn: 'Bu Kowarah', governorate: 'الجنوبية', latitude: 26.1381643, longitude: 50.5656984 },
@@ -146,6 +147,18 @@ const BAHRAIN_AREA_ALIASES: Record<string, string> = {
   'مدينة حمد': 'hamad_town',
   'hamad town': 'hamad_town',
   'hamad-town': 'hamad_town',
+  'اللوزي': 'al_lawzi',
+  'الوزي': 'al_lawzi',
+  'لوزي': 'al_lawzi',
+  'lawzi': 'al_lawzi',
+  'al lawzi': 'al_lawzi',
+  'al-lawzi': 'al_lawzi',
+  'رفاع': 'riffa',
+  'الرفاع': 'riffa',
+  'رفاع شرقي': 'riffa_sharqi',
+  'الرفاع الشرقي': 'riffa_sharqi',
+  'رفاع غربي': 'riffa_gharbi',
+  'الرفاع الغربي': 'riffa_gharbi',
 };
 
 function compactPlaceText(value: string): string {

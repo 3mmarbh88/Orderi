@@ -799,6 +799,14 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                     targetLat = 26.2708; targetLon = 50.6332; // مطار البحرين
                 } else if (normalized.contains("جسر") || normalized.contains("كوزواي")) {
                     targetLat = 26.1770; targetLon = 50.4610; // جسر الملك فهد
+                } else if (normalized.contains("مطار")) {
+                    targetLat = 26.2708; targetLon = 50.6332; // مطار البحرين
+                } else if (normalized.contains("لوزي") || normalized.contains("اللوزي") || normalized.contains("الوزي")) {
+                    targetLat = 26.1550; targetLon = 50.4900; // اللوزي
+                } else if (normalized.contains("بو قوة") || normalized.contains("ابو قوة") || normalized.contains("أبو قوة")) {
+                    targetLat = 26.2139; targetLon = 50.5186; // أبو قوة
+                } else if (normalized.contains("بو كوارة") || normalized.contains("بوكوارة") || normalized.contains("ابو كوارة") || normalized.contains("أبو كوارة")) {
+                    targetLat = 26.1360; targetLon = 50.5600; // بو كوارة
                 } else if (normalized.contains("منامه") || normalized.contains("المنامة")) {
                     targetLat = 26.2235; targetLon = 50.5876;
                 } else if (normalized.contains("محرق") || normalized.contains("المحرق")) {
@@ -847,6 +855,10 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         String fromArea = "البحرين";
         String toArea = "البحرين";
         if (normalized.contains("سيف")) fromArea = "السيف";
+        else if (normalized.contains("مطار")) fromArea = "مطار البحرين";
+        else if (normalized.contains("لوزي") || normalized.contains("اللوزي") || normalized.contains("الوزي")) fromArea = "اللوزي";
+        else if (normalized.contains("بو قوة") || normalized.contains("ابو قوة") || normalized.contains("أبو قوة")) fromArea = "أبو قوة";
+        else if (normalized.contains("بو كوارة") || normalized.contains("بوكوارة") || normalized.contains("ابو كوارة")) fromArea = "بو كوارة";
         else if (normalized.contains("منامه")) fromArea = "المنامة";
         else if (normalized.contains("محرق")) fromArea = "المحرق";
         else if (normalized.contains("عدلية") || normalized.contains("عدليه")) fromArea = "العدلية";
@@ -856,7 +868,11 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         else if (normalized.contains("حمد")) fromArea = "مدينة حمد";
         else if (normalized.contains("سار")) fromArea = "سار";
 
-        if (normalized.contains("الى رفاع") || normalized.contains("إلى الرفاع") || normalized.contains("للرفاع")) toArea = "الرفاع";
+        if (normalized.contains("الى مطار") || normalized.contains("إلى المطار") || normalized.contains("للمطار") || normalized.contains("مشوار مطار")) toArea = "مطار البحرين";
+        else if (normalized.contains("الى لوزي") || normalized.contains("إلى اللوزي") || normalized.contains("للوزي")) toArea = "اللوزي";
+        else if (normalized.contains("الى بو قوة") || normalized.contains("إلى أبو قوة") || normalized.contains("لأبو قوة")) toArea = "أبو قوة";
+        else if (normalized.contains("الى بو كوارة") || normalized.contains("إلى بوكوارة")) toArea = "بو كوارة";
+        else if (normalized.contains("الى رفاع") || normalized.contains("إلى الرفاع") || normalized.contains("للرفاع")) toArea = "الرفاع";
         else if (normalized.contains("الى محرق") || normalized.contains("إلى المحرق") || normalized.contains("للمحرق")) toArea = "المحرق";
         else if (normalized.contains("الى منامه") || normalized.contains("إلى المنامة") || normalized.contains("للمنامة")) toArea = "المنامة";
         else if (normalized.contains("الى سار") || normalized.contains("إلى سار") || normalized.contains("لسار")) toArea = "سار";

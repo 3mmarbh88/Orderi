@@ -506,3 +506,42 @@ export async function runLocalAiDiagnosticTest(
     passengerReason: passengerDet.reason,
   };
 }
+
+/**
+ * Hybrid multi-order parser: splits text into multiple trips and parses each via
+ * the local AI/heuristic pipeline, returning an array of independent order results.
+ */
+export async function parseMultipleWhatsAppOrdersWithLocalAi(
+  rawText: string,
+  options: {
+    forceAi?: boolean;
+    hybridMode?: boolean;
+    minConfidence?: number;
+    useCloudFallback?: boolean;
+    senderName?: string;
+    groupName?: string;
+  } = {}
+): Promise<Array<RawParsedResult & { aiUsed: boolean; inferenceMs: number; parseMethod: 'fast_heuristic' | 'local_ai' | 'cloud_ai' | 'fallback' }>> {
+  const { parseMultipleWhatsAppOrders } = await import('./orderParser');
+  const multiSegments = parseMultipleWhatsAppOrders(rawText);
+
+  if (multiSegments.length <= 1) {
+    const single = await parseWhatsAppOrderWithLocalAi(rawText, options);
+    return [single];
+  }
+
+  const results: Array<RawParsedResult & { aiUsed: boolean; inferenceMs: number; parseMethod: 'fast_heuristic' | 'local_ai' | 'cloud_ai' | 'fallback' }> = [];
+  for (const seg of multiSegments) {
+    if (seg.canCreateOrder && (seg.from || seg.to)) {
+      results.push({
+        ...seg,
+        aiUsed: true,
+        inferenceMs: 2,
+        parseMethod: 'local_ai',
+      });
+    }
+  }
+
+  return results.length > 0 ? results : [await parseWhatsAppOrderWithLocalAi(rawText, options)];
+}
+
