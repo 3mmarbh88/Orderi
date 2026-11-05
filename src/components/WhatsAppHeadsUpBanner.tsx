@@ -59,9 +59,23 @@ export const WhatsAppHeadsUpBanner: React.FC<WhatsAppHeadsUpBannerProps> = ({
 
   const isVip = order.contactStatus === 'vip';
   const cleanPhone = order.senderPhone ? order.senderPhone.replace(/[^\d+]/g, '') : '';
-  const courierMessage = customTemplate || `#مندوب_توصيل انا في (${driverAreaName})`;
-  const waUrl = cleanPhone
-    ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(courierMessage)}`
+  const phoneFromText = (order.rawText && /(?:973)?[\s-]*(3\d{7}|6\d{7}|17\d{6})/g.exec(order.rawText)?.[0]?.replace(/\D/g, '')) || '';
+  const effectivePhone = (cleanPhone && cleanPhone !== '97300000000' && cleanPhone.length >= 8)
+    ? cleanPhone
+    : phoneFromText ? (phoneFromText.startsWith('973') ? phoneFromText : '973' + phoneFromText)
+    : cleanPhone;
+
+  let courierMessage = customTemplate && customTemplate.trim()
+    ? customTemplate
+        .replace(/{area}/g, driverAreaName)
+        .replace(/{from}/g, order.from || 'الموقع المحدد')
+        .replace(/{to}/g, order.to || 'الموقع المحدد')
+        .replace(/{price}/g, order.price > 0 ? String(order.price) : 'بالاتفاق')
+        .replace(/{name}/g, order.senderName || 'صاحب الإعلان')
+    : `السلام عليكم، بخصوص طلبك (${order.from} ← ${order.to}):\n#مندوب_توصيل انا في (${driverAreaName}) ومستعد للاستلام فوراً 🚗`;
+
+  const waUrl = effectivePhone && effectivePhone !== '97300000000'
+    ? `https://wa.me/${effectivePhone}?text=${encodeURIComponent(courierMessage)}`
     : `https://api.whatsapp.com/send?text=${encodeURIComponent(courierMessage)}`;
 
   const cleanText = order.rawText
@@ -185,10 +199,10 @@ export const WhatsAppHeadsUpBanner: React.FC<WhatsAppHeadsUpBannerProps> = ({
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={() => onClose()}
-                className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-[#25D366] hover:bg-[#20ba5a] text-white font-black text-xs shadow-xs transition-all active:scale-95"
+                className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-[#25D366] hover:bg-[#20ba5a] text-white font-black text-xs shadow-xs transition-all active:scale-95"
               >
                 <MessageSquare className="w-4 h-4 fill-white shrink-0" />
-                <span>رد في واتساب 💬</span>
+                <span>رد خاص بالواتساب 💬</span>
               </a>
 
               <button
@@ -197,10 +211,10 @@ export const WhatsAppHeadsUpBanner: React.FC<WhatsAppHeadsUpBannerProps> = ({
                   onAccept(order);
                   onClose();
                 }}
-                className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-xs transition-all active:scale-95"
+                className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-xs transition-all active:scale-95"
               >
                 <Check className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>حجز في الرادار ✅</span>
+                <span>قبول الطلب والتواصل ⚡</span>
               </button>
             </div>
 

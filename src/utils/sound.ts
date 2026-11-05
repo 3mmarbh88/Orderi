@@ -18,11 +18,32 @@ function getAudioContext(): AudioContext | null {
       }
     }
     if (audioCtx && audioCtx.state === 'suspended') {
-      audioCtx.resume();
+      audioCtx.resume().catch(() => {});
     }
     return audioCtx;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Safely initializes, resumes, and unlocks Web Audio for mobile browsers and iframes
+ */
+export async function unlockAudio(): Promise<boolean> {
+  try {
+    const ctx = getAudioContext();
+    if (!ctx) return false;
+    if (ctx.state === 'suspended') {
+      await ctx.resume().catch(() => {});
+    }
+    const buffer = ctx.createBuffer(1, 1, 22050);
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(ctx.destination);
+    source.start(0);
+    return true;
+  } catch {
+    return false;
   }
 }
 
