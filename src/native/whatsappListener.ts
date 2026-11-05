@@ -94,14 +94,13 @@ export async function openWhatsAppPrivateConversation(options: {
 
   if (isNativeAndroid()) {
     try {
-      try {
-        return await OrderiNotificationListener.openWhatsAppPrivateConversation({
-          phone: phone || undefined,
-          memberName: memberName || undefined,
-        });
-      } catch {
-        return { success: false, method: 'private_chat_open_failed' };
-      }
+      return await OrderiNotificationListener.openWhatsAppPrivateConversation({
+        phone: phone || undefined,
+        memberName: memberName || undefined,
+      });
+    } catch {
+      return { success: false, method: 'private_chat_open_failed' };
+    }
   }
 
   // Web fallback: if phone number is present, open wa.me link directly with optional message
