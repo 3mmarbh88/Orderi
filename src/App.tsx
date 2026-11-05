@@ -201,7 +201,7 @@ function OrderiApp({
               )
             : [];
 
-          return { ...DEFAULT_FILTER, ...parsed, contacts: existingContacts };
+          return { ...DEFAULT_FILTER, ...parsed, allJoinedGroupsMode: false, contacts: existingContacts };
         }
       }
     } catch {}
