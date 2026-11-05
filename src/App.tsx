@@ -253,6 +253,8 @@ function OrderiApp({
               !o.id?.startsWith('ord-showcase-') && 
               !o.id?.startsWith('ord-preview-') &&
               !o.id?.startsWith('ord-sample-') &&
+              !o.id?.startsWith('ord-test-') &&
+              !o.id?.startsWith('ord-stream-') &&
               !isSimulatedMockGroup(o.groupName) &&
               !o.notes?.includes('سحبه تلقائياً فور ربط')
             )
@@ -313,21 +315,6 @@ function OrderiApp({
   // Quick WhatsApp Ad Paste & Diagnostic Modal
   const [isPasteModalOpen, setIsPasteModalOpen] = useState(false);
   const [pastedWhatsAppText, setPastedWhatsAppText] = useState('');
-
-  // Continuous live delivery feed toggle (for web preview / active radar simulation)
-  const [isLiveFeedActive, setIsLiveFeedActive] = useState<boolean>(() => {
-    try {
-      const saved = localStorage.getItem('orderi_live_feed_active');
-      if (saved !== null) return saved === 'true';
-    } catch {}
-    return true; // Default ON so driver immediately sees and hears real radar orders
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('orderi_live_feed_active', String(isLiveFeedActive));
-    } catch {}
-  }, [isLiveFeedActive]);
 
   // Self-healing purge: Clean old simulation artifacts, mock groups, and discovered simulator links
   useEffect(() => {
@@ -2278,72 +2265,6 @@ function OrderiApp({
   };
 
   // 10. Radar Diagnostic & Live Verification Handlers
-  const handleSendLiveTestOrder = async () => {
-    await unlockAudio();
-
-    // Request native browser notification permission if not yet granted
-    if (isNotificationSupported() && Notification.permission !== 'granted' && !isInIframe()) {
-      try {
-        await requestNotificationPermission();
-      } catch {}
-    }
-
-    const testScenarios = [
-      {
-        id: `ord-test-${Date.now()}-1`,
-        from: 'المنامة',
-        to: 'الرفاع',
-        price: 2.5,
-        groupName: 'قروب كباتن وتوصيل البحرين 🇧🇭',
-        senderName: 'أبو فهد - متجر الأناقة',
-        senderPhone: '97339123456',
-        rawText: 'مطلوب مندوب توصيل فوري من المنامة إلى الرفاع الشرقي، السعر 2.5 د.ب، التواصل واتساب: 39123456',
-        receivedAt: new Date(),
-        source: 'webhook_auto',
-      },
-      {
-        id: `ord-test-${Date.now()}-2`,
-        from: 'السيف',
-        to: 'سار',
-        price: 3.0,
-        groupName: 'طلبات التوصيل السريع 🚗',
-        senderName: 'حلويات المملكة',
-        senderPhone: '97336987654',
-        rawText: 'مطلوب كابتن استلام كيكة من السيف وتوصيلها إلى سار، الأجرة 3 دينار كاش، التواصل: 36987654',
-        receivedAt: new Date(),
-        source: 'webhook_auto',
-      },
-      {
-        id: `ord-test-${Date.now()}-3`,
-        from: 'المحرق',
-        to: 'مدينة عيسى',
-        price: 2.8,
-        groupName: 'شبكة مناديب البحرين للتوصيل 📦',
-        senderName: 'مخبز الدانة',
-        senderPhone: '97333554433',
-        rawText: 'طلب مستعجل: استلام من المحرق إلى مدينة عيسى، السعر 2.8 د.ب، اتصال أو واتساب 33554433',
-        receivedAt: new Date(),
-        source: 'webhook_auto',
-      },
-      {
-        id: `ord-test-${Date.now()}-4`,
-        from: 'الجفير',
-        to: 'توبلي',
-        price: 2.2,
-        groupName: 'قروب توصيل كباتن المنامة 🇧🇭',
-        senderName: 'كافيه الورد',
-        senderPhone: '97338877665',
-        rawText: 'أوردر كافيه جاهز من الجفير إلى توبلي، الحساب مدفوع، الأجرة 2.200 د.ب، التواصل: 38877665',
-        receivedAt: new Date(),
-        source: 'webhook_auto',
-      },
-    ];
-
-    const chosen = testScenarios[Math.floor(Math.random() * testScenarios.length)];
-    handleProcessIncomingRawOrder(chosen, false);
-    showToast(`🔔 تم إرسال طلب تجريبي وتفعيل نغمة التنبيه والإشعار بنجاح! الرادار يعمل 100% ⚡`);
-  };
-
   const handleTestSound = async () => {
     await unlockAudio();
     const tone = filter.alertTone || 'whatsapp';
@@ -2373,7 +2294,7 @@ function OrderiApp({
       price: parsed.price || 0,
       isPriceUnspecified: parsed.isPriceUnspecified,
       senderName: parsed.advertiserName || 'معلن واتساب',
-      senderPhone: parsed.phone ? (parsed.phone.startsWith('973') ? parsed.phone : `973${parsed.phone}`) : '97339123456',
+      senderPhone: parsed.phone ? (parsed.phone.startsWith('973') ? parsed.phone : `973${parsed.phone}`) : '',
       groupName: 'قروب واتساب',
       rawText: pastedWhatsAppText.trim(),
       receivedAt: new Date(),
@@ -2385,54 +2306,6 @@ function OrderiApp({
     setPastedWhatsAppText('');
     showToast(`✅ تم رصد وتحليل الإعلان في الرادار بنجاح: ${parsed.from} ← ${parsed.to} (${parsed.price ? `${parsed.price} د.ب` : 'بالاتفاق'})`);
   };
-
-  // Periodic realistic Bahrain live delivery ad feeder (active live radar feed for web / waiting mode)
-  useEffect(() => {
-    if (!isLiveFeedActive || !liveRadarActive) return;
-
-    // Send first order after 4 seconds if radar has 0 orders
-    const initialTimer = setTimeout(() => {
-      if (ordersRef.current.length === 0) {
-        handleSendLiveTestOrder();
-      }
-    }, 4000);
-
-    const intervalTimer = setInterval(() => {
-      const areas = ['المنامة', 'الرفاع', 'المحرق', 'السيف', 'سار', 'مدينة عيسى', 'مدينة حمد', 'البديع', 'الجفير', 'سترة', 'أم الحصم', 'الحد', 'سند', 'توبلي', 'الجنبية'];
-      const from = areas[Math.floor(Math.random() * areas.length)];
-      let to = areas[Math.floor(Math.random() * areas.length)];
-      while (to === from) {
-        to = areas[Math.floor(Math.random() * areas.length)];
-      }
-      const prices = [2.0, 2.2, 2.5, 2.8, 3.0, 3.2, 3.5];
-      const price = prices[Math.floor(Math.random() * prices.length)];
-      const merchants = ['متجر فاشن البحرين', 'أبو عبد الله - هدايا', 'مخبز وحلويات الريان', 'إلكترونيات السيف', 'زهور المحرق', 'سوق باب البحرين', 'مطعم برجر الرفاع'];
-      const senderName = merchants[Math.floor(Math.random() * merchants.length)];
-      const groups = ['قروب كباتن وتوصيل البحرين 🇧🇭', 'قروب مناديب المنامة والرفاع 🚗', 'طلبات التوصيل السريع 📦', 'شبكة كباتن التوصيل الفوري'];
-      const groupName = groups[Math.floor(Math.random() * groups.length)];
-      const randomPhone = `973${['39', '36', '33', '38'][Math.floor(Math.random() * 4)]}${Math.floor(100000 + Math.random() * 900000)}`;
-
-      const ad = {
-        id: `ord-stream-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-        from,
-        to,
-        price,
-        groupName,
-        senderName,
-        senderPhone: randomPhone,
-        rawText: `مطلوب مندوب استلام وتوصيل فوري:\nمن: ${from}\nإلى: ${to}\nالأجرة: ${price} د.ب\nالطلب جاهز للاستلام 🚗 للتواصل: ${randomPhone.replace('973', '')}`,
-        receivedAt: new Date(),
-        source: 'webhook_auto',
-      };
-
-      handleProcessIncomingRawOrder(ad, false);
-    }, 38000); // Fresh order every 38 seconds while active
-
-    return () => {
-      clearTimeout(initialTimer);
-      clearInterval(intervalTimer);
-    };
-  }, [isLiveFeedActive, liveRadarActive]);
 
   // Live Vehicle Movement Tracking: updates driver location automatically when moving in car
   useEffect(() => {
@@ -3574,15 +3447,7 @@ function OrderiApp({
 
                 {/* Instant Verification Buttons */}
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={handleSendLiveTestOrder}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs shadow-xs transition-all active:scale-95 cursor-pointer"
-                    title="إرسال طلب توصيل فوري لفحص الصوت والاهتزاز وشريط الإشعار وتطابق الرادار"
-                  >
-                    <BellRing className="w-3.5 h-3.5 text-amber-300 animate-bounce" />
-                    <span>تجربة وصول طلب وإشعار 🔔</span>
-                  </button>
+                  
 
                   <button
                     type="button"
@@ -3604,23 +3469,7 @@ function OrderiApp({
                     <span>لصق إعلان 📋</span>
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const next = !isLiveFeedActive;
-                      setIsLiveFeedActive(next);
-                      showToast(next ? '⚡ تم تفعيل بث إعلانات الواتساب الحية للرادار' : 'تم إيقاف بث إعلانات الواتساب مؤقتاً');
-                    }}
-                    className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border text-xs font-bold transition-all active:scale-95 cursor-pointer ${
-                      isLiveFeedActive 
-                        ? 'bg-amber-50 text-amber-900 border-amber-300' 
-                        : 'bg-slate-50 text-slate-600 border-slate-200'
-                    }`}
-                    title="تشغيل أو إيقاف وصول إعلانات قروبات البحرين الحية تلقائياً كل 35 ثانية"
-                  >
-                    <span>البث الحي:</span>
-                    <span className="font-black">{isLiveFeedActive ? 'مفعّل 🟢' : 'معطّل ⏸️'}</span>
-                  </button>
+                  
                 </div>
               </div>
             </div>
@@ -3713,14 +3562,7 @@ function OrderiApp({
 
                     {/* Action Verification Buttons */}
                     <div className="space-y-2 pt-1">
-                      <button
-                        type="button"
-                        onClick={handleSendLiveTestOrder}
-                        className="w-full min-h-[46px] flex items-center justify-center gap-2 py-3 px-4 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs sm:text-sm shadow-md transition-all active:scale-[0.98] cursor-pointer"
-                      >
-                        <BellRing className="w-4 h-4 text-amber-300 animate-bounce" />
-                        <span>إرسال طلب تجريبي لفحص الصوت والإشعار الآن ⚡</span>
-                      </button>
+                      
 
                       <div className="grid grid-cols-2 gap-2">
                         <button
