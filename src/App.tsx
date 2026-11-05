@@ -2173,12 +2173,13 @@ function OrderiApp({
       const count = res.markedCount || 0;
 
       // Update Orderi's internal order read state
+      const linkedGroupSet = new Set(linkedGroups.map((group) => group.trim().toLocaleLowerCase()));
       setOrders((prev) =>
-        prev.map((ord) => ({
-          ...ord,
-          isRead: true,
-          readStatus: 'read',
-        }))
+        prev.map((ord) => {
+          const orderGroup = (ord.groupName || '').trim().toLocaleLowerCase();
+          if (!linkedGroupSet.has(orderGroup)) return ord;
+          return { ...ord, isRead: true, readStatus: 'read' };
+        })
       );
 
       if (filter.soundEnabled) {
