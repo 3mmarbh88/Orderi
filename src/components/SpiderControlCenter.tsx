@@ -331,7 +331,7 @@ export const SpiderControlCenter: React.FC<SpiderControlCenterProps> = ({
                   {stats?.isActive ? 'الزحف المستمر نشط 🟢' : 'متوقف مؤقتاً ⏸️'}
                 </span>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/10 text-indigo-300 border border-indigo-500/30">
-                  Gemma 3 1B + Gemini 3.8 ⚡
+                  تحليل محلي بالقواعد + Gemma عند استيراده والتحقق منه
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-1 leading-relaxed">
