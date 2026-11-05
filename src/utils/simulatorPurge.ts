@@ -135,7 +135,9 @@ export function purgeSimulatorArtifactsFromStorage(): {
               !o.id?.startsWith('ord-spider-') &&
               !o.id?.startsWith('ord-showcase-') &&
               !o.id?.startsWith('ord-preview-') &&
-              !o.id?.startsWith('ord-sample-')
+              !o.id?.startsWith('ord-sample-') &&
+              !o.id?.startsWith('ord-test-') &&
+              !o.id?.startsWith('ord-stream-')
             );
             purgedOrdersCount += (parsed.length - cleaned.length);
             localStorage.setItem(key, JSON.stringify(cleaned));
