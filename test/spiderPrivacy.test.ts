@@ -1,4 +1,4 @@
-import { runSpiderCatchupRecovery, evaluateSubsequentThreadClosure } from '../src/utils/spiderCatchupRecovery';
+import { runSpiderCatchupRecovery, evaluateSubsequentThreadClosure, evaluateCatchupCandidate } from '../src/utils/spiderCatchupRecovery';
 import { spiderIngestMessage } from '../src/utils/spiderCrawler';
 import { ParsedOrder } from '../src/types';
 
@@ -52,6 +52,27 @@ async function main() {
     id: 'duplicate-1',
   }], [{ id: 'spider-rec-duplicate-1' } as ParsedOrder]);
   assert(duplicateReport.recoveredOrders.length === 0, 'Catch-up detects an existing spider-rec prefixed order');
+
+  // Verified group events are parsed from their real text; no placeholder route or price is allowed.
+  const validCatchupReport = await runSpiderCatchupRecovery([{
+    id: 'valid-catchup-1',
+    rawText: 'مطلوب توصيل من المنامة إلى المحرق 2 دينار',
+    groupName: 'قروب التوصيل',
+    senderName: 'أحمد',
+    timestamp: Date.now(),
+    isGroup: true,
+    isDirectPrivate: false,
+    chatId: '120363000000000000@g.us',
+  }]);
+  assert(validCatchupReport.recoveredOrders.length === 1, 'Catch-up recovers a verified group message when the real parser finds a route');
+  assert(validCatchupReport.recoveredOrders[0]?.from === 'المنامة' && validCatchupReport.recoveredOrders[0]?.to === 'المحرق', 'Catch-up uses the real parsed pickup and destination');
+  assert(validCatchupReport.recoveredOrders[0]?.price === 2, 'Catch-up preserves the actual advertised price instead of a hard-coded amount');
+
+  const compatibilityResult = evaluateCatchupCandidate({
+    ...originalAd,
+    id: 'sync-helper-1',
+  }, [originalAd]);
+  assert(!compatibilityResult.recoveredOrder, 'Synchronous compatibility helper never fabricates a Radar order');
 
   // A different member saying "تم" must not close another advertiser's order.
   const unrelatedFollowup = evaluateSubsequentThreadClosure(originalAd, [{
