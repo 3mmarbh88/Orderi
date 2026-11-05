@@ -138,14 +138,13 @@ export async function parseWhatsAppOrderWithLocalAi(
     return { ...fastResult, aiUsed: false, inferenceMs: Math.round(performance.now() - startTime), parseMethod: 'fast_heuristic' };
   }
 
-  // If local parsing is complete and confident, return immediately as Local AI (Zero lag on-device)
+  // A complete heuristic result is still a heuristic result; never label it as Gemma.
   if (fastResult.canCreateOrder && fastResult.from && fastResult.to) {
-    const elapsed = Math.round(performance.now() - startTime);
     return {
       ...fastResult,
-      aiUsed: true,
-      inferenceMs: Math.max(1, elapsed),
-      parseMethod: 'local_ai',
+      aiUsed: false,
+      inferenceMs: Math.round(performance.now() - startTime),
+      parseMethod: 'fast_heuristic',
     };
   }
 
@@ -260,8 +259,8 @@ export async function parseWhatsAppOrderWithLocalAi(
       }
     }
 
-    // Step 3: Embedded Gemma 3 1B INT4 Semantic Neural Engine + HERE WeGo Knowledge Graph
-    // Zero-download, zero-import built-in inference running locally with microsecond latency
+    // Step 3: Deterministic local fallback using area/landmark/price rules.
+    // This path is not neural inference and must never be reported as Gemma.
     const elapsed = Math.max(12, Math.round(performance.now() - startTime));
     let refinedFrom = fastResult.from;
     let refinedTo = fastResult.to;
@@ -305,9 +304,9 @@ export async function parseWhatsAppOrderWithLocalAi(
     const isPassenger = passengerDet.level === 'confirmed_passenger' || passengerDet.level === 'suspicious_passenger';
     const finalConfidence = Math.max(fastResult.confidence, refinedFrom && refinedTo ? 94 : 75);
 
-    const notesSummary = detectedPlaceName 
-      ? `تم التعرف على معلم [${detectedPlaceName}] عبر HERE WeGo وربطه بنموذج Gemma 3 1B INT4 المدمج`
-      : 'استدلال فوري عبر نموذج Gemma 3 1B INT4 المدمج مع قاعدة معالم وخرائط HERE WeGo';
+    const notesSummary = detectedPlaceName
+      ? `تم التعرف على معلم [${detectedPlaceName}] عبر قاعدة معالم HERE WeGo المحلية`
+      : 'تحليل احتياطي محلي بالقواعد ومطابقة المناطق والمعالم؛ لم يُستخدم نموذج Gemma';
 
     return {
       ...fastResult,
@@ -318,9 +317,9 @@ export async function parseWhatsAppOrderWithLocalAi(
       confidence: finalConfidence,
       canCreateOrder: Boolean(!isPassenger && refinedFrom && refinedTo && refinedFrom !== refinedTo && finalConfidence >= minConfidence),
       passengerDetection: passengerDet,
-      aiUsed: true,
+      aiUsed: false,
       inferenceMs: elapsed,
-      parseMethod: 'local_ai',
+      parseMethod: 'fallback',
     };
   }
 
@@ -344,53 +343,53 @@ export async function checkLocalAIStatus(): Promise<{
   if (!isAndroid) {
     return {
       isNativeAndroid: false,
-      modelAvailable: true,
-      modelName: 'Gemma 3 1B INT4 (محرك الاستدلال الفوري)',
+      modelAvailable: false,
+      modelName: DEFAULT_LOCAL_AI_CONFIG.modelName,
       modelPath: DEFAULT_LOCAL_AI_CONFIG.modelPath,
       hereWeGoPlacesCount,
       hereWeGoActive: true,
-      status: 'ready',
-      detail: `نموذج Gemma 3 1B INT4 جاهز للاستدلال ومدمج مع قاعدة معالم وخرائط HERE WeGo البحرين (${hereWeGoPlacesCount} معلماً ومجمعاً تجارياً).`,
-      architecture: 'استدلال محلي فوري فائق السرعة + HERE WeGo Places',
+      status: 'unloaded',
+      detail: 'نسخة الويب تستخدم المحلل المحلي بالقواعد؛ تشغيل Gemma الفعلي متاح فقط عبر محرك Android المدعوم.',
+      architecture: 'محلل قواعد محلي + قاعدة معالم HERE WeGo؛ لا يوجد استدلال Gemma في المتصفح',
     };
   }
 
   try {
     const res = await OrderiLocalAIPlugin.isModelAvailable();
+    const ready = res.available === true && res.inferenceReady === true;
     return {
       isNativeAndroid: true,
-      modelAvailable: true, // Local engine active
+      modelAvailable: ready,
       modelName: DEFAULT_LOCAL_AI_CONFIG.modelName,
       modelPath: res.modelPath || DEFAULT_LOCAL_AI_CONFIG.modelPath,
       hereWeGoPlacesCount,
       hereWeGoActive: true,
-      status: 'ready',
-      detail: res.available
-        ? `تم تحميل Gemma واجتياز اختبار استدلال حقيقي بنجاح مع معالم HERE WeGo.`
-        : `محرك Gemma 3 1B وقاعدة خرائط HERE WeGo (${hereWeGoPlacesCount} معلماً) نشطة وجاهزة للاستدلال الفوري.`,
-      architecture: 'جسر استدلال Gemma 3 1B + معالم HERE WeGo',
+      status: ready ? 'ready' : 'unloaded',
+      detail: ready
+        ? 'محرك Gemma محمّل واجتاز اختبار الاستدلال الفعلي.'
+        : 'Gemma غير جاهز؛ سيستخدم Orderi المحلل المحلي بالقواعد دون الادعاء بأنه ذكاء اصطناعي.',
+      architecture: ready ? 'استدلال Gemma عبر LiteRT-LM + معالم HERE WeGo' : 'محلل قواعد محلي + معالم HERE WeGo',
     };
   } catch (err: any) {
     return {
       isNativeAndroid: true,
-      modelAvailable: true,
+      modelAvailable: false,
       modelName: DEFAULT_LOCAL_AI_CONFIG.modelName,
       modelPath: DEFAULT_LOCAL_AI_CONFIG.modelPath,
       hereWeGoPlacesCount,
       hereWeGoActive: true,
-      status: 'ready',
-      detail: `محرك التحليل وقاعدة HERE WeGo (${hereWeGoPlacesCount} معلماً) جاهزان ونشطان للاستدلال.`,
-      architecture: 'استدلال تكيفي محلي + HERE WeGo',
+      status: 'unloaded',
+      detail: 'تعذر التحقق من محرك Gemma؛ يعمل المحلل المحلي بالقواعد فقط.',
+      architecture: 'محلل قواعد احتياطي؛ استدلال Gemma غير متحقق',
     };
   }
 }
 
 export async function importGemmaModel(): Promise<{ success: boolean; cancelled?: boolean; fileSizeMb?: number; message?: string }> {
   if (Capacitor.getPlatform() !== 'android') {
-    return { 
-      success: true, 
-      fileSizeMb: 584,
-      message: 'تم تفعيل وربط نموذج Gemma 3 1B INT4 بنجاح (جاهز للاستدلال).' 
+    return {
+      success: false,
+      message: 'استيراد Gemma غير مدعوم في نسخة الويب؛ استخدم تطبيق Android.',
     };
   }
   try {
@@ -402,11 +401,11 @@ export async function importGemmaModel(): Promise<{ success: boolean; cancelled?
 
 export async function loadGemmaModel(): Promise<{ success: boolean; status: string; inferenceReady?: boolean; message?: string }> {
   if (Capacitor.getPlatform() !== 'android') {
-    return { 
-      success: true, 
-      status: 'ready', 
-      inferenceReady: true, 
-      message: 'تم تفعيل واختبار استدلال Gemma 3 1B INT4 بنجاح مع قاعدة HERE WeGo 🚀' 
+    return {
+      success: false,
+      status: 'unsupported',
+      inferenceReady: false,
+      message: 'استدلال Gemma غير متاح في نسخة الويب؛ المحلل الاحتياطي بالقواعد فقط.',
     };
   }
   try {
@@ -477,11 +476,13 @@ export async function runLocalAiDiagnosticTest(
 
   const elapsed = Math.max(12, Math.round(performance.now() - start));
 
-  let engineUsed = 'Gemma 3 1B INT4 المدمج + HERE WeGo';
+  let engineUsed = 'المحلل المحلي بالقواعد + HERE WeGo';
   if (parsed.parseMethod === 'cloud_ai') {
-    engineUsed = 'Gemini 3.8 Flash (سحابي)';
+    engineUsed = 'Gemini (سحابي - بطلب صريح)';
+  } else if (parsed.parseMethod === 'local_ai') {
+    engineUsed = 'Gemma 3 1B INT4 عبر LiteRT-LM';
   } else if (parsed.parseMethod === 'fast_heuristic') {
-    engineUsed = 'المحرك الهجين الفوري + معالم HERE WeGo';
+    engineUsed = 'المحلل السريع بالقواعد';
   }
 
   steps.push({
@@ -490,7 +491,7 @@ export async function runLocalAiDiagnosticTest(
     success: Boolean(parsed.from || parsed.to || parsed.price > 0),
   });
 
-  const tokensPerSec = '48 tok/s (استدلال فوري)';
+  const tokensPerSec = parsed.parseMethod === 'local_ai' ? 'لم يتم قياسه في هذا الاختبار' : 'غير منطبق؛ لم يعمل نموذج لغوي';
 
   return {
     timestamp: new Date().toLocaleTimeString('ar-BH'),
@@ -499,7 +500,7 @@ export async function runLocalAiDiagnosticTest(
     hereWeGoMatch: matchedHwg,
     engineUsed,
     inferenceMs: elapsed,
-    memoryFootprint: '340 MB (نواة مدمجة INT4 خفيفة)',
+    memoryFootprint: 'غير مقاس',
     tokensPerSec,
     executionSteps: steps,
     isPassengerFlagged: isPassenger,
@@ -535,9 +536,9 @@ export async function parseMultipleWhatsAppOrdersWithLocalAi(
     if (seg.canCreateOrder && (seg.from || seg.to)) {
       results.push({
         ...seg,
-        aiUsed: true,
-        inferenceMs: 2,
-        parseMethod: 'local_ai',
+        aiUsed: false,
+        inferenceMs: 0,
+        parseMethod: 'fast_heuristic',
       });
     }
   }
