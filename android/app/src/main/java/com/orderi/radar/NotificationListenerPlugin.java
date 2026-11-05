@@ -510,9 +510,20 @@ public class NotificationListenerPlugin extends Plugin {
             String phone = call.getString("phone", "");
             String memberName = call.getString("memberName", "");
             String message = call.getString("message", "");
+            boolean autoSend = call.getBoolean("autoSend", true);
 
             if (android.text.TextUtils.isEmpty(message)) {
                 call.reject("Message is empty");
+                return;
+            }
+
+            if (!autoSend) {
+                JSObject ret = new JSObject();
+                ret.put("success", false);
+                ret.put("submitted", false);
+                ret.put("deliveryConfirmed", false);
+                ret.put("method", "auto_send_disabled");
+                call.resolve(ret);
                 return;
             }
 
