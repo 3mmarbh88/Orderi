@@ -1,6 +1,7 @@
 import { runSpiderCatchupRecovery, evaluateSubsequentThreadClosure, evaluateCatchupCandidate } from '../src/utils/spiderCatchupRecovery';
 import { spiderIngestMessage } from '../src/utils/spiderCrawler';
 import { ParsedOrder } from '../src/types';
+import { shouldReturnFastHeuristic } from '../src/utils/localAiOrderParser';
 
 let total = 0;
 let failed = 0;
@@ -25,6 +26,10 @@ const originalAd = {
 };
 
 async function main() {
+  const completeHeuristic = { sameAreaShorthand: false, canCreateOrder: true, from: 'المنامة', to: 'المحرق' } as any;
+  assert(shouldReturnFastHeuristic(completeHeuristic), 'Hybrid mode returns a complete deterministic route without invoking Gemma');
+  assert(!shouldReturnFastHeuristic(completeHeuristic, true), 'AI-first mode does not bypass Gemma for a complete deterministic route');
+  assert(shouldReturnFastHeuristic({ ...completeHeuristic, sameAreaShorthand: true }, true), 'Explicit same-area shorthand remains on the deterministic safe path');
   // Private and unidentified messages must never enter catch-up recovery.
   const privateReport = await runSpiderCatchupRecovery([{
     id: 'private-1',
