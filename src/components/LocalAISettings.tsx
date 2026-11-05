@@ -345,7 +345,7 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
                 onChange={(e) => onUpdateFilter({ ...filter, useCloudAiFallback: e.target.checked })}
                 className="w-4 h-4 text-violet-600 rounded border-slate-300 focus:ring-violet-500"
               />
-              <span className="text-[11px] text-slate-500">{filter.useCloudAiFallback !== false ? 'نشطة' : 'متوقفة'}</span>
+              <span className="text-[11px] text-slate-500">{filter.useCloudAiFallback === true ? 'مفعّلة' : 'متوقفة افتراضياً'}</span>
             </label>
           </div>
         </div>
