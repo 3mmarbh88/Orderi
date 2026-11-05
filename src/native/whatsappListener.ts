@@ -63,24 +63,7 @@ export async function openWhatsAppGroupConversation(
     }
   }
 
-  // Web fallback: open WhatsApp Web or app scheme
-  if (typeof window !== 'undefined') {
-    const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
-    if (isMobile) {
-      try {
-        window.location.href = 'whatsapp://';
-        return { success: true, method: 'mobile_whatsapp_scheme' };
-      } catch {}
-    }
-    try {
-      window.open('https://web.whatsapp.com', '_blank');
-      return { success: true, method: 'web_whatsapp' };
-    } catch {
-      window.location.href = 'https://web.whatsapp.com';
-      return { success: true, method: 'web_location' };
-    }
-  }
-  return { success: false, method: 'not_supported' };
+  return { success: false, method: 'exact_group_link_unavailable' };
 }
 
 export async function openWhatsAppPrivateConversation(options: {
@@ -120,26 +103,7 @@ export async function openWhatsAppPrivateConversation(options: {
     }
   }
 
-  // If no phone is known, open WhatsApp app or web interface
-  if (typeof window !== 'undefined') {
-    const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
-    if (isMobile) {
-      try {
-        const textQuery = message ? `?text=${encodeURIComponent(message)}` : '';
-        window.location.href = `whatsapp://send${textQuery}`;
-        return { success: true, method: 'mobile_whatsapp_scheme' };
-      } catch {}
-    }
-    try {
-      window.open('https://web.whatsapp.com', '_blank');
-      return { success: true, method: 'web_whatsapp' };
-    } catch {
-      window.location.href = 'https://web.whatsapp.com';
-      return { success: true, method: 'web_location' };
-    }
-  }
-
-  return { success: false, method: 'not_supported' };
+  return { success: false, method: 'exact_private_destination_unavailable' };
 }
 
 export async function sendNativeQuickReply(options: {
