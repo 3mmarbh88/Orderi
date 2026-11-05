@@ -59,6 +59,8 @@ interface OrderCardProps {
   onRestoreOrder?: (orderId: string) => void;
   onConfirmClosure?: (orderId: string) => void;
   onDismissClosureSuspicion?: (orderId: string) => void;
+  isOnSameActiveRoute?: boolean;
+  onSameRouteReason?: string;
 }
 
 export function OrderCard({
@@ -72,6 +74,8 @@ export function OrderCard({
   onRestoreOrder,
   onConfirmClosure,
   onDismissClosureSuspicion,
+  isOnSameActiveRoute,
+  onSameRouteReason,
 }: OrderCardProps) {
   const [showFullText, setShowFullText] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -718,6 +722,14 @@ export function OrderCard({
                     <span>خاص دايركت 👤</span>
                   </span>
                 )}
+                {isOnSameActiveRoute && (
+                  <span 
+                    className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-blue-600 text-white shadow-xs border border-blue-400 animate-pulse"
+                    title={onSameRouteReason || 'طلب يقع على نفس طريق مشوارك النشط المقبول'}
+                  >
+                    <span>على نفس مسارك 🛣️</span>
+                  </span>
+                )}
                 {order.outreachStatus === 'chat_opened_pending_send' && (
                   <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-blue-100 text-blue-900 border border-blue-300 shadow-2xs">
                     <MessageCircle className="w-3 h-3 text-blue-700" />
@@ -918,20 +930,6 @@ export function OrderCard({
                 </p>
                 <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
                   <div className="inline-flex items-center gap-1.5 p-1 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-950 font-bold shadow-xs">
-                    {/* الضغط على كلمة "المعلن" يفتح القروب الذي نُشر فيه الإعلان */}
-                    <button
-                      type="button"
-                      onClick={handleOpenOrderGroup}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs transition-all active:scale-95 cursor-pointer shadow-2xs"
-                      title={`انقر على كلمة «المعلن» لفتح القروب الذي تم الإعلان فيه (${order.groupName || 'واتساب'}) 👥`}
-                    >
-                      <Users className="w-3.5 h-3.5 shrink-0" />
-                      <span>المعلن</span>
-                      <span className="text-[10px] bg-emerald-700/80 px-1.5 py-0.5 rounded font-normal">فتح القروب 👥</span>
-                    </button>
-
-                    <span className="text-slate-400 font-black text-sm px-0.5">:</span>
-
                     {/* الضغط على اسمه يفتح رسالة واتساب خاصة مع الذي كتب الإعلان في القروب */}
                     <button
                       type="button"
@@ -957,65 +955,6 @@ export function OrderCard({
                     </button>
                   )}
                 </div>
-
-                {onToggleContact && order.senderPhone && (
-                  <div className="mt-2.5 pt-2 border-t border-slate-200/60 flex items-center justify-between gap-2">
-                    <span className="text-[10px] text-slate-400 font-bold">تصنيف صاحب الإعلان:</span>
-                    <div className="flex items-center gap-1.5">
-                      {order.contactStatus !== 'vip' ? (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onToggleContact(order, 'vip');
-                          }}
-                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 text-[10px] font-bold border border-amber-200 transition-colors cursor-pointer"
-                        >
-                          <Star className="w-3 h-3 fill-amber-400 text-amber-500" />
-                          <span>⭐ تمييز كـ VIP</span>
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onToggleContact(order, 'vip');
-                          }}
-                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-100 text-amber-900 text-[10px] font-black border border-amber-300 transition-colors cursor-pointer"
-                        >
-                          <Star className="w-3 h-3 fill-amber-500 text-amber-600" />
-                          <span>متجر موثوق VIP ✓</span>
-                        </button>
-                      )}
-
-                      {order.contactStatus !== 'blacklist' ? (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onToggleContact(order, 'blacklist');
-                          }}
-                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 text-[10px] font-bold border border-rose-200 transition-colors cursor-pointer"
-                        >
-                          <ShieldAlert className="w-3 h-3 text-rose-600" />
-                          <span>🚫 حظر (قائمة سوداء)</span>
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onToggleContact(order, 'blacklist');
-                          }}
-                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-100 text-rose-900 text-[10px] font-black border border-rose-300 transition-colors cursor-pointer"
-                        >
-                          <ShieldAlert className="w-3 h-3 text-rose-600" />
-                          <span>في القائمة السوداء ✗</span>
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )}
               </div>
             )}
           </div>
@@ -1122,35 +1061,10 @@ export function OrderCard({
                   )}
                 </button>
               )}
-
-              {/* View Message Template / Dialog */}
-              <button
-                type="button"
-                onClick={() => setShowAcceptDialog(true)}
-                title={isConfirmedPassenger ? "معاينة نص الإعلان وتفاصيل الحظر" : "معاينة نص الرسالة وخيارات القبول بالخاص"}
-                className={`min-h-[48px] px-3 flex items-center justify-center rounded-xl sm:rounded-2xl border transition-all active:scale-95 cursor-pointer shrink-0 ${
-                  isConfirmedPassenger
-                    ? 'bg-red-50 hover:bg-red-100 text-red-800 border-red-200'
-                    : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-200'
-                }`}
-              >
-                <MessageCircle className={`w-4 h-4 ${isConfirmedPassenger ? 'text-red-700' : 'text-emerald-700'}`} />
-              </button>
             </div>
 
             {/* Secondary Touch Actions Row */}
             <div className="flex items-center gap-1.5 sm:gap-2">
-              {/* Direct WhatsApp chat with advertiser in Private */}
-              <button
-                type="button"
-                onClick={handleOpenDirectWhatsAppChat}
-                title="إرسال رسالة القبول الخاصة في الخلفية مباشرة للمعلن دون فتح واتساب"
-                className="min-h-[44px] flex-1 flex items-center justify-center gap-1.5 py-2 px-2 sm:px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[11px] sm:text-xs font-bold border border-emerald-300 hover:border-emerald-400 transition-all active:scale-95 cursor-pointer whitespace-nowrap shadow-xs"
-              >
-                <MessageCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-600 shrink-0" />
-                <span>خاص واتساب (خلفية)</span>
-              </button>
-
               {/* Direct Phone Call if available */}
               {effectivePhone && (
                 <a
@@ -1169,7 +1083,7 @@ export function OrderCard({
                 onClick={() => onIgnore(order.id)}
                 title="مسح الطلب من الرادار وتحديده كمقروء (تمت قراءتها ✓✓) في الواتساب"
                 aria-label="مسح الطلب وتحديده كمقروء في الواتساب"
-                className="min-h-[44px] px-3 sm:px-4 flex items-center justify-center gap-1 rounded-xl bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 border border-slate-200 hover:border-rose-200 transition-all active:scale-95 cursor-pointer shrink-0"
+                className="min-h-[44px] flex-1 px-3 sm:px-4 flex items-center justify-center gap-1 rounded-xl bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 border border-slate-200 hover:border-rose-200 transition-all active:scale-95 cursor-pointer"
               >
                 <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-500 shrink-0" />
                 <span className="text-[10px] sm:text-[11px] font-bold flex items-center gap-0.5 whitespace-nowrap">

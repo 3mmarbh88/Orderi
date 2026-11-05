@@ -222,7 +222,7 @@ export function HeroRadar({
               </button>
             )}
 
-            {/* 2. Background Mode Trigger - عند الضغط يغلق ويخفي البرنامج للعمل في الخلفية */}
+            {/* 2. Background Mode Trigger - عند الضغط يفعّل الرادار والإشعارات ويصغّر التطبيق للعمل في الخلفية */}
             {(onRunInBackground || onOpenBackgroundModal) && (
               <button
                 onClick={async () => {
@@ -232,10 +232,20 @@ export function HeroRadar({
                     onOpenBackgroundModal();
                   }
                 }}
-                className="flex-1 sm:flex-none min-h-[44px] flex items-center justify-center gap-1.5 px-3 py-2.5 sm:px-3.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 font-bold text-xs transition-all active:scale-[0.98] cursor-pointer"
-                title="إغلاق وإخفاء البرنامج للعمل في الخلفية لمراقبة الطلبات"
+                className={`flex-1 sm:flex-none min-h-[44px] flex items-center justify-center gap-1.5 px-3 py-2.5 sm:px-3.5 rounded-xl border font-bold text-xs transition-all active:scale-[0.98] cursor-pointer shadow-xs ${
+                  liveRadarActive
+                    ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border-emerald-500/40 ring-1 ring-emerald-500/20'
+                    : 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30'
+                }`}
+                title="تشغيل الرادار والإشعارات في الخلفية وتصغير التطبيق لمواصلة رصد الطلبات"
               >
-                <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                {liveRadarActive && (
+                  <span className="relative flex h-2 w-2 shrink-0">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                  </span>
+                )}
+                <Zap className={`w-3.5 h-3.5 shrink-0 ${liveRadarActive ? 'text-emerald-400' : 'text-amber-400'}`} />
                 <span className="truncate">في الخلفية ⚡</span>
               </button>
             )}

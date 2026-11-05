@@ -170,12 +170,12 @@ export function BroadcastPublisher({
   onClearInitialReplayBroadcastId,
 }: BroadcastPublisherProps) {
   // Form fields for Quick Order Builder
-  const [pickupArea, setPickupArea] = useState(driverLocation?.areaName || 'المنامة');
+  const [pickupArea, setPickupArea] = useState(driverLocation?.areaName || '');
   const [deliveryArea, setDeliveryArea] = useState('الرفاع');
-  const [price, setPrice] = useState('3.0');
+  const [price, setPrice] = useState('2');
   const [timing, setTiming] = useState('فوري ⚡');
-  const [phone, setPhone] = useState('3');
-  const [notes, setNotes] = useState('أغراض خفيفة - استلام وتسليم مباشر');
+  const [phone, setPhone] = useState('');
+  const [notes, setNotes] = useState('');
 
   // Active builder mode: 'builder' | 'freeform'
   const [editorMode, setEditorMode] = useState<'builder' | 'freeform'>('builder');
@@ -249,17 +249,25 @@ export function BroadcastPublisher({
   }, [pickupArea, deliveryArea, price, timing, phone, notes]);
 
   const generateFormattedText = () => {
-    const formatted = `🚀 *طلب توصيل جديد* 🇧🇭
-📍 *الاستلام من:* ${pickupArea}
-🏁 *التسليم إلى:* ${deliveryArea}
-💰 *السعر:* ${price} د.ب
-⏱️ *التوقيت:* ${timing}
-📞 *للتواصل:* ${phone ? phone : 'واتساب مباشر'}
-${notes ? `📝 *ملاحظات:* ${notes}` : ''}
+    const fromText = pickupArea.trim() || 'مكان الاستلام';
+    const toText = deliveryArea.trim() || 'مكان التسليم';
+    const phoneLine = phone.trim() ? `📞 *للتواصل:* ${phone.trim()}` : '';
+    const notesLine = notes.trim() ? `📝 *ملاحظات:* ${notes.trim()}` : '';
 
-#مطلوب_مندوب #توصيل_البحرين #دليفري`;
+    const lines = [
+      '🚀 *طلب توصيل جديد* 🇧🇭',
+      `📍 *الاستلام من:* ${fromText}`,
+      `🏁 *التسليم إلى:* ${toText}`,
+      `💰 *السعر:* ${price || '2'} د.ب`,
+      `⏱️ *التوقيت:* ${timing}`,
+    ];
 
-    setBroadcastText(formatted);
+    if (phoneLine) lines.push(phoneLine);
+    if (notesLine) lines.push(notesLine);
+
+    lines.push('', '#مطلوب_مندوب #توصيل_البحرين #دليفري');
+
+    setBroadcastText(lines.join('\n'));
   };
 
   // Dynamic Custom Templates
@@ -289,10 +297,10 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
   const applyCustomTemplate = (tmpl: BroadcastCustomTemplate) => {
     setEditorMode('freeform');
     const filled = tmpl.text
-      .replace(/{from}/g, pickupArea || 'المنامة')
-      .replace(/{to}/g, deliveryArea || 'المحرق')
-      .replace(/{price}/g, price || '3.0')
-      .replace(/{phone}/g, phone || '3XXXXXXX');
+      .replace(/{from}/g, pickupArea.trim() || 'مكان الاستلام')
+      .replace(/{to}/g, deliveryArea.trim() || 'مكان التسليم')
+      .replace(/{price}/g, price || '2')
+      .replace(/{phone}/g, phone.trim() || 'واتساب مباشر');
     setBroadcastText(filled);
     onToast(`✅ تم تطبيق قالب «${tmpl.title}»`);
   };
@@ -800,42 +808,6 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
   return (
     <div className="space-y-4 sm:space-y-8 animate-in fade-in duration-300 w-full max-w-full overflow-x-hidden min-w-0">
       
-      {/* Top Banner / Header */}
-      <div className="p-4 sm:p-6 rounded-2xl sm:rounded-3xl bg-gradient-to-r from-emerald-600 via-emerald-700 to-teal-800 text-white shadow-xl shadow-emerald-700/15 flex flex-col md:flex-row md:items-center justify-between gap-4 w-full max-w-full overflow-hidden">
-        <div className="space-y-1.5 min-w-0">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-10 h-10 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white shrink-0">
-              <Share2 className="w-5 h-5" />
-            </div>
-            <div className="min-w-0">
-              <h2 className="text-base sm:text-xl font-black tracking-tight truncate">نشر وإعلان طلب في قروبات الواتساب</h2>
-              <p className="text-[11px] sm:text-xs text-emerald-100 font-medium">
-                اكتب صيغة الطلب، اختر القروبات المستهدفة، وانشر رد (تم) فور العثور على مندوب
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
-          <button
-            type="button"
-            onClick={handleCopyText}
-            className="min-h-[44px] flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-2xl bg-white/15 hover:bg-white/25 text-white text-xs font-black transition-all border border-white/20 shadow-2xs backdrop-blur-md active:scale-95"
-          >
-            {copied ? <Check className="w-4 h-4 text-emerald-300" /> : <Copy className="w-4 h-4" />}
-            <span>{copied ? 'تم النسخ!' : 'نسخ النص'}</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={handlePublishToWhatsApp}
-            className="min-h-[44px] flex items-center justify-center gap-2 px-6 py-2.5 rounded-2xl bg-white hover:bg-emerald-50 text-emerald-900 text-xs font-black transition-all shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-[0.98]"
-          >
-            <Send className="w-4 h-4 text-emerald-600" />
-            <span>نشر في الواتساب الآن 🚀</span>
-          </button>
-        </div>
-      </div>
 
       {/* Active Broadcasts Waiting For Courier (اذا حصلت مندوب انشر تم) */}
       {activeWaitingBroadcasts.length > 0 && (
@@ -999,19 +971,40 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
                 {/* From & To Row */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-700 flex items-center gap-1">
-                      <MapPin className="w-3.5 h-3.5 text-blue-600" />
-                      <span>مكان الاستلام (من)</span>
-                    </label>
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                        <MapPin className="w-3.5 h-3.5 text-blue-600" />
+                        <span>مكان الاستلام (من)</span>
+                      </label>
+                      {driverLocation?.areaName && pickupArea !== driverLocation.areaName && (
+                        <button
+                          type="button"
+                          onClick={() => setPickupArea(driverLocation.areaName)}
+                          className="text-[10px] text-blue-600 hover:text-blue-800 font-bold underline cursor-pointer"
+                        >
+                          موقعي الحالي ({driverLocation.areaName})
+                        </button>
+                      )}
+                    </div>
                     <div className="relative">
                       <input
                         type="text"
                         list="bahrain-areas-list-from"
                         value={pickupArea}
                         onChange={(e) => setPickupArea(e.target.value)}
-                        placeholder="مثلاً: المحرق، المنامة، السيف"
-                        className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-900 focus:ring-2 focus:ring-blue-500/20"
+                        placeholder="اكتب مكان الاستلام بحرية (مثلاً: المحرق، المنامة، السيف...)"
+                        className="w-full pl-8 pr-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-900 focus:ring-2 focus:ring-blue-500/20"
                       />
+                      {pickupArea && (
+                        <button
+                          type="button"
+                          onClick={() => setPickupArea('')}
+                          className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
+                          title="مسح"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                       <datalist id="bahrain-areas-list-from">
                         {BAHRAIN_AREAS.map((a) => (
                           <option key={'from-' + a.id} value={a.name} />
@@ -1031,9 +1024,19 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
                         list="bahrain-areas-list-to"
                         value={deliveryArea}
                         onChange={(e) => setDeliveryArea(e.target.value)}
-                        placeholder="مثلاً: الرفاع، سار، مدينة عيسى"
-                        className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-900 focus:ring-2 focus:ring-blue-500/20"
+                        placeholder="مثلاً: الرفاع، سار، مدينة عيسى..."
+                        className="w-full pl-8 pr-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-900 focus:ring-2 focus:ring-blue-500/20"
                       />
+                      {deliveryArea && (
+                        <button
+                          type="button"
+                          onClick={() => setDeliveryArea('')}
+                          className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
+                          title="مسح"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                       <datalist id="bahrain-areas-list-to">
                         {BAHRAIN_AREAS.map((a) => (
                           <option key={'to-' + a.id} value={a.name} />
@@ -1046,12 +1049,15 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
                 {/* Price, Timing & Phone Row */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   
-                  {/* Price: Quick prices 1, 1.5, 2, 2.5, 3, 3.5 BHD or manual input */}
+                  {/* Price: Quick prices 1, 1.5, 2 (default), 2.5, 3, 3.5, 4, 5 BHD or manual input */}
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-700 flex items-center gap-1">
-                      <Coins className="w-3.5 h-3.5 text-emerald-600" />
-                      <span>السعر (د.ب)</span>
-                    </label>
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                        <Coins className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>السعر (د.ب)</span>
+                      </label>
+                      <span className="text-[10px] text-slate-400 font-semibold">(يبتدئ من 1 د.ب)</span>
+                    </div>
                     <div className="space-y-1.5">
                       <input
                         type="number"
@@ -1060,11 +1066,11 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
                         max="50"
                         value={price}
                         onChange={(e) => setPrice(e.target.value)}
-                        placeholder="أدخل السعر يدوياً"
+                        placeholder="2"
                         className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-black text-slate-900 focus:ring-2 focus:ring-blue-500/20"
                       />
                       <div className="flex gap-1 overflow-x-auto no-scrollbar py-0.5">
-                        {['1', '1.5', '2', '2.5', '3', '3.5'].map((p) => (
+                        {['1', '1.5', '2', '2.5', '3', '3.5', '4', '5'].map((p) => (
                           <button
                             key={p}
                             type="button"
@@ -1073,7 +1079,7 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
                               price === p ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
                             }`}
                           >
-                            {p}
+                            {p} د.ب
                           </button>
                         ))}
                       </div>
@@ -1108,7 +1114,7 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
                       type="tel"
                       value={phone}
                       onChange={(e) => setPhone(e.target.value)}
-                      placeholder="39XXXXXX"
+                      placeholder="اكتب رقم التواصل (مثال: 33XXXXXX)"
                       className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-900 focus:ring-2 focus:ring-blue-500/20"
                     />
                   </div>
@@ -1116,12 +1122,15 @@ ${notes ? `📝 *ملاحظات:* ${notes}` : ''}
 
                 {/* Notes Field */}
                 <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-700">ملاحظات إضافية على الطلب</label>
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-700">ملاحظات إضافية على الطلب</label>
+                    <span className="text-[10px] text-slate-400">فارغ لكتابة أي تفاصيل إضافية</span>
+                  </div>
                   <input
                     type="text"
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
-                    placeholder="مثال: كرتون خفيف، باقة ورد، حلويات مبردة، استلام مبلغ..."
+                    placeholder="اكتب ملاحظات إضافية على الطلب هنا (اختياري)..."
                     className="w-full px-3.5 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-blue-500/20"
                   />
                 </div>

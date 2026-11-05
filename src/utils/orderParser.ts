@@ -710,6 +710,12 @@ export function parseMultipleWhatsAppOrders(rawText: string): RawParsedResult[] 
       for (const seg of candidateSegments) {
         const segParsed = parseWhatsAppOrderText(seg);
         if (segParsed.canCreateOrder && (segParsed.from || segParsed.to)) {
+          if (!segParsed.from && singleParsed.from) {
+            segParsed.from = singleParsed.from;
+          }
+          if (!segParsed.to && singleParsed.to) {
+            segParsed.to = singleParsed.to;
+          }
           if (!segParsed.phone && singleParsed.phone) {
             segParsed.phone = singleParsed.phone;
           }
@@ -730,6 +736,12 @@ export function parseMultipleWhatsAppOrders(rawText: string): RawParsedResult[] 
     for (const chunk of inlineSplits) {
       const chunkParsed = parseWhatsAppOrderText(chunk);
       if (chunkParsed.canCreateOrder && (chunkParsed.from || chunkParsed.to)) {
+        if (!chunkParsed.from && singleParsed.from) {
+          chunkParsed.from = singleParsed.from;
+        }
+        if (!chunkParsed.to && singleParsed.to) {
+          chunkParsed.to = singleParsed.to;
+        }
         if (!chunkParsed.phone && singleParsed.phone) {
           chunkParsed.phone = singleParsed.phone;
         }

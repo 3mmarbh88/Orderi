@@ -48,6 +48,8 @@ import { OrderCard } from './components/OrderCard';
 import { FilterSettings } from './components/FilterSettings';
 import { AcceptedLedger } from './components/AcceptedLedger';
 import { BahrainRouteMap } from './components/BahrainRouteMap';
+import { OnTheWayOrdersBanner } from './components/OnTheWayOrdersBanner';
+import { ActiveRoute, findOrdersOnSameRoute, checkOrderOnSameRoute } from './utils/routeCorridor';
 import { BroadcastPublisher } from './components/BroadcastPublisher';
 import { BackgroundModeModal } from './components/BackgroundModeModal';
 import { WhatsAppAutoSyncModal } from './components/WhatsAppAutoSyncModal';
@@ -261,6 +263,27 @@ function OrderiApp({
     } catch {}
     return [];
   });
+
+  // Active accepted route tracking (for on-the-way corridor alerts)
+  const [activeAcceptedRoute, setActiveAcceptedRoute] = useState<ActiveRoute | null>(() => {
+    try {
+      const saved = localStorage.getItem('orderi_active_accepted_route');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return null;
+  });
+  const activeAcceptedRouteRef = useRef(activeAcceptedRoute);
+  activeAcceptedRouteRef.current = activeAcceptedRoute;
+
+  useEffect(() => {
+    try {
+      if (activeAcceptedRoute) {
+        localStorage.setItem('orderi_active_accepted_route', JSON.stringify(activeAcceptedRoute));
+      } else {
+        localStorage.removeItem('orderi_active_accepted_route');
+      }
+    } catch {}
+  }, [activeAcceptedRoute]);
 
   // 5. Radar Live Engine (Persisted state)
   const [liveRadarActive, setLiveRadarActive] = useState<boolean>(() => {
@@ -771,8 +794,8 @@ function OrderiApp({
       if (isNativeAndroid() && OrderiNotificationListener.updateFilterSettings) {
         OrderiNotificationListener.updateFilterSettings({
           ignoreNonMatching: filter.ignoreNonMatching,
-          minPrice: filter.minPrice,
-          coverageKm: filter.maxDistanceKm,
+          minPrice: filter.minimumPrice,
+          coverageKm: filter.coverageKm,
           driverLat: driverLocation?.latitude,
           driverLon: driverLocation?.longitude,
           blockPassenger: filter.blockPassengerDeliveries !== false,
@@ -1178,6 +1201,17 @@ function OrderiApp({
         showToast(`⚡ ${orderKindLabel} وارد من واتساب (${newOrder.isDirectPrivate ? 'خاص 👤' : 'قروب 👥'}) • ${newOrder.from} ← ${newOrder.to}`);
         if (isDestinationHunted && filterRef.current.destinationSniperAlert !== false && filterRef.current.soundEnabled) {
           playAlertTone('cash_register', 90);
+        }
+
+        // Check if new incoming order is on the same route as the active accepted trip!
+        if (activeAcceptedRouteRef.current) {
+          const routeCheck = checkOrderOnSameRoute(newOrder, activeAcceptedRouteRef.current);
+          if (routeCheck.isSameRoute) {
+            if (filterRef.current.soundEnabled) {
+              playAlertTone('cash_register', 95);
+            }
+            showToast(`🛣️ طلب إضافي على نفس طريقك (${activeAcceptedRouteRef.current.from} ← ${activeAcceptedRouteRef.current.to}): ${newOrder.from} ← ${newOrder.to} (+${newOrder.price || 0} د.ب)!`);
+          }
         }
       } else {
         // الطلب غير مطابق لشروط الكابتن
@@ -2153,19 +2187,33 @@ function OrderiApp({
       setLiveRadarActive(true);
     }
 
+    // 2. تفعيل الإشعارات بالخلفية لضمان عمل الرادار والإشعارات معاً
+    if (filter.notificationsEnabled === false || filter.backgroundNotificationsEnabled === false) {
+      const updatedFilter: OrderFilter = {
+        ...filter,
+        notificationsEnabled: true,
+        backgroundNotificationsEnabled: true,
+      };
+      setFilter(updatedFilter);
+      try {
+        localStorage.setItem('orderi_filter_settings', JSON.stringify(updatedFilter));
+      } catch {}
+      syncNativeFilter(updatedFilter, driverLocation);
+    }
+
     // تهيئة الصوت لفك قيود المتصفح وتمكين التنبيهات الصوتية في الخلفية
     primeBackgroundAudio();
     startBackgroundHeartbeat();
 
-    // 2. طلب إذن الإشعارات إذا لم يتم منحه مسبقاً
+    // 3. طلب إذن الإشعارات إذا لم يتم منحه مسبقاً
     try {
       await requestNotificationPermission();
     } catch {}
 
-    // 3. إرسال إشعار تأكيد للرادار في الخلفية
+    // 4. إرسال إشعار تأكيد للرادار في الخلفية
     if (isNotificationSupported() && Notification.permission === 'granted' && !isInIframe()) {
       try {
-        new Notification('🟢 رادار أورداري نشط في الخلفية', {
+        new Notification('🟢 رادار أورداري والإشعارات نشطة في الخلفية', {
           body: 'نظام المراقبة يعمل في الخلفية وسيقوم بتنبيهك بالصوت والاهتزاز فور وصول أي طلب مطابق.',
           icon: '/pwa-192x192.png',
           tag: 'orderi-bg-ready',
@@ -2173,7 +2221,7 @@ function OrderiApp({
       } catch {}
     }
 
-    showToast('تم إخفاء التطبيق وتشغيل الرادار في الخلفية ⚡🟢');
+    showToast('تم تفعيل الرادار والإشعارات في الخلفية وتصغير التطبيق ⚡🟢');
 
     // 4. إغلاق / إخفاء التطبيق إلى الخلفية على أندرويد (moveTaskToBack)
     if (isNativeAndroid()) {
@@ -2282,10 +2330,9 @@ function OrderiApp({
     } catch {}
     syncNativeFilter(updatedFilter, driverLocation);
     if (nextVal) {
-      const hiddenCount = orders.filter((o) => o.match.score < 80).length;
-      showToast(`🚫 تم تفعيل حجب غير المطابق (حجب تام حتى في النوتيفيكيشن في الخلفية)`);
+      showToast(`🚫 تم تفعيل حجب غير المطابق: حجب الطلبات والإشعارات الأقل من 80% وفق شروط الفلتر`);
     } else {
-      showToast('تم إيقاف مفتاح الحجب: تظهر جميع الطلبات الواردة');
+      showToast('تم إيقاف مفتاح الحجب: السماح بظهور وتنبيه جميع الطلبات الواردة');
     }
   };
 
@@ -2665,10 +2712,29 @@ function OrderiApp({
       setOrders((prev) => prev.filter((o) => o.id !== order.id));
       setAcceptedOrders((prev) => [updated, ...prev]);
 
-      const priceText = (!order.price || order.price <= 0 || order.isPriceUnspecified)
-        ? '(بالاتفاق مع العميل 🤝)'
-        : `(+${order.price.toFixed(1)} د.ب)`;
-      showToast(`✅ تم قبول الطلب وإرسال رسالة القبول بالخاص للمعلن (${order.senderName || 'صاحب الإعلان'}) بالخلفية ${priceText} ⚡`);
+      // Set active route for on-the-way corridor alerts
+      const newActiveRoute: ActiveRoute = {
+        id: order.id,
+        from: order.from,
+        to: order.to,
+        price: order.price || 0,
+        acceptedAt: new Date().toLocaleTimeString('ar-BH', { hour: '2-digit', minute: '2-digit' }),
+      };
+      setActiveAcceptedRoute(newActiveRoute);
+
+      const remainingOrders = orders.filter((o) => o.id !== order.id);
+      const onSameRoute = findOrdersOnSameRoute(remainingOrders, newActiveRoute);
+      if (onSameRoute.length > 0) {
+        if (filterRef.current.soundEnabled) {
+          playAlertTone('cash_register', 90);
+        }
+        showToast(`🛣️ تم رصد ${onSameRoute.length} طلبات إضافية على نفس طريقك (${order.from} ← ${order.to})!`);
+      } else {
+        const priceText = (!order.price || order.price <= 0 || order.isPriceUnspecified)
+          ? '(بالاتفاق مع العميل 🤝)'
+          : `(+${order.price.toFixed(1)} د.ب)`;
+        showToast(`✅ تم قبول الطلب وإرسال رسالة القبول بالخاص للمعلن (${order.senderName || 'صاحب الإعلان'}) بالخلفية ${priceText} ⚡`);
+      }
     } catch (error) {
       console.error('[Orderi] Private WhatsApp outreach error:', error);
       dismissBackgroundOrderNotification(order.id);
@@ -2678,6 +2744,16 @@ function OrderiApp({
       const updated = { ...order, status: 'accepted' as const };
       setOrders((prev) => prev.filter((o) => o.id !== order.id));
       setAcceptedOrders((prev) => [updated, ...prev]);
+
+      const newActiveRoute: ActiveRoute = {
+        id: order.id,
+        from: order.from,
+        to: order.to,
+        price: order.price || 0,
+        acceptedAt: new Date().toLocaleTimeString('ar-BH', { hour: '2-digit', minute: '2-digit' }),
+      };
+      setActiveAcceptedRoute(newActiveRoute);
+
       showToast(`✅ تم قبول الطلب ونقله إلى سجل المقبول بنجاح`);
     }
   };
@@ -2946,8 +3022,8 @@ function OrderiApp({
     if (feedFilter === 'vip') return ord.match.score >= 90;
     if (feedFilter === 'trusted_vip') return ord.contactStatus === 'vip';
     if (feedFilter === 'passengers') return isPassengerOrder;
-    if (feedFilter === 'all' && filter.ignoreNonMatching && ord.match.score < 80 && ord.contactStatus !== 'vip') {
-      // In 'all' feed when ignoreNonMatching is active, let captain see all available orders with their match status
+    if (filter.ignoreNonMatching && ord.match.score < 80 && ord.contactStatus !== 'vip') {
+      return false;
     }
     return true;
   });
@@ -3255,14 +3331,18 @@ function OrderiApp({
                 <div className="flex items-center gap-2 shrink-0">
                   <button
                     onClick={handleToggleIgnoreNonMatching}
-                    title="مفتاح حجب الطلبات غير المطابقة"
-                    className={`flex items-center gap-1.5 sm:gap-2 px-3 py-2 rounded-xl border text-xs font-bold transition-all ${
+                    title={
                       filter.ignoreNonMatching
-                        ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100/70'
+                        ? 'مفتاح حجب غير المطابق مفعّل: يحجب الطلبات والإشعارات الصوتية الأقل من 80% وفق شروط الفلتر'
+                        : 'مفتاح حجب غير المطابق معطّل: يسمح بعرض وتنبيه جميع الطلبات الواردة'
+                    }
+                    className={`flex items-center gap-1.5 sm:gap-2 px-3 py-2 rounded-xl border text-xs font-bold transition-all active:scale-95 ${
+                      filter.ignoreNonMatching
+                        ? 'bg-rose-50 text-rose-700 border-rose-300 shadow-2xs hover:bg-rose-100/80 ring-1 ring-rose-400/20'
                         : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                     }`}
                   >
-                    <FilterX className={`w-3.5 h-3.5 ${filter.ignoreNonMatching ? 'text-rose-600' : 'text-slate-400'}`} />
+                    <FilterX className={`w-3.5 h-3.5 shrink-0 ${filter.ignoreNonMatching ? 'text-rose-600' : 'text-slate-400'}`} />
                     <span className="hidden sm:inline">حجب غير المطابق:</span>
                     <span className="sm:hidden">حجب:</span>
                     <span className={`px-1.5 py-0.5 rounded text-[10px] font-black ${
@@ -3275,6 +3355,22 @@ function OrderiApp({
 
               </div>
             </div>
+
+            {/* Active Accepted Route & On-The-Way Corridor Alert Banner */}
+            {activeAcceptedRoute && (
+              <OnTheWayOrdersBanner
+                activeRoute={activeAcceptedRoute}
+                matchedOrders={findOrdersOnSameRoute(orders, activeAcceptedRoute)}
+                onAcceptOrder={handleAcceptOrder}
+                onClearActiveRoute={() => {
+                  setActiveAcceptedRoute(null);
+                  showToast('تم إنهاء تتبع المسار الحالي بنجاح ✓');
+                }}
+                onViewOrderOnMap={() => {
+                  setActiveTab('map');
+                }}
+              />
+            )}
 
             {/* Orders Feed Grid */}
             {displayedOrders.length === 0 ? (
@@ -3329,21 +3425,29 @@ function OrderiApp({
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-                {displayedOrders.map((order) => (
-                  <OrderCard
-                    key={order.id}
-                    order={order}
-                    driverLocation={driverLocation}
-                    customTemplate={filter.customResponseTemplate}
-                    onAccept={handleAcceptOrder}
-                    onIgnore={handleIgnoreOrder}
-                    onToggleContact={handleToggleContact}
-                    onEvaluateAi={handleEvaluateAiOrder}
-                    onRestoreOrder={handleRestoreOrder}
-                    onConfirmClosure={handleConfirmClosure}
-                    onDismissClosureSuspicion={handleDismissClosureSuspicion}
-                  />
-                ))}
+                {displayedOrders.map((order) => {
+                  const sameRouteResult = activeAcceptedRoute
+                    ? checkOrderOnSameRoute(order, activeAcceptedRoute)
+                    : null;
+
+                  return (
+                    <OrderCard
+                      key={order.id}
+                      order={order}
+                      driverLocation={driverLocation}
+                      customTemplate={filter.customResponseTemplate}
+                      onAccept={handleAcceptOrder}
+                      onIgnore={handleIgnoreOrder}
+                      onToggleContact={handleToggleContact}
+                      onEvaluateAi={handleEvaluateAiOrder}
+                      onRestoreOrder={handleRestoreOrder}
+                      onConfirmClosure={handleConfirmClosure}
+                      onDismissClosureSuspicion={handleDismissClosureSuspicion}
+                      isOnSameActiveRoute={sameRouteResult?.isSameRoute}
+                      onSameRouteReason={sameRouteResult?.reason}
+                    />
+                  );
+                })}
               </div>
             )}
 
