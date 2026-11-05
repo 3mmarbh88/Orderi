@@ -99,6 +99,15 @@ function snapToOfficialBahrainArea(candidate: string): string {
  * 1. Fast Tier 1 (Heuristics & RegEx): runs in <2ms. If confidence >= minConfidence and not forceAi, returns immediately.
  * 2. Smart Tier 2 (Local AI on device): runs if text is ambiguous or complex.
  */
+/** Decide whether a deterministic result may bypass local AI inference. */
+export function shouldReturnFastHeuristic(
+  result: Pick<RawParsedResult, 'sameAreaShorthand' | 'canCreateOrder' | 'from' | 'to'>,
+  forceAi = false,
+): boolean {
+  if (result.sameAreaShorthand && result.canCreateOrder) return true;
+  return !forceAi && Boolean(result.canCreateOrder && result.from && result.to);
+}
+
 export async function parseWhatsAppOrderWithLocalAi(
   rawText: string,
   options: {
@@ -111,7 +120,6 @@ export async function parseWhatsAppOrderWithLocalAi(
   } = {}
 ): Promise<RawParsedResult & { aiUsed: boolean; inferenceMs: number; parseMethod: 'fast_heuristic' | 'local_ai' | 'cloud_ai' | 'fallback' }> {
   const startTime = performance.now();
-  const hybridMode = options.hybridMode !== false;
   const minConfidence = options.minConfidence ?? 85;
   // Privacy-first: WhatsApp content is parsed locally and is never sent to a third-party AI.
 
@@ -135,13 +143,9 @@ export async function parseWhatsAppOrderWithLocalAi(
   // Step 1: Run Fast Tier 1 Heuristics
   const fastResult = parseWhatsAppOrderText(rawText);
 
-  // Same-area shorthand is an explicit route signal; don't let an AI tier rewrite it or send it to cloud fallback.
-  if (fastResult.sameAreaShorthand && fastResult.canCreateOrder) {
-    return { ...fastResult, aiUsed: false, inferenceMs: Math.round(performance.now() - startTime), parseMethod: 'fast_heuristic' };
-  }
-
-  // A complete heuristic result is still a heuristic result; never label it as Gemma.
-  if (fastResult.canCreateOrder && fastResult.from && fastResult.to) {
+  // Preserve explicit same-area shorthand, but honor AI-first mode for other complete
+  // heuristic results so Android can attempt real on-device Gemma inference first.
+  if (shouldReturnFastHeuristic(fastResult, options.forceAi === true)) {
     return {
       ...fastResult,
       aiUsed: false,
