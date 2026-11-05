@@ -98,7 +98,7 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         java.util.HashSet<PendingIntent> sentIntents = new java.util.HashSet<>();
         int count = 0;
         for (MarkAsReadHolder holder : MARK_AS_READ_ACTIONS.values()) {
-            if (holder == null || holder.pendingIntent == null || TextUtils.isEmpty(holder.title)) continue;
+            if (holder == null || !holder.isGroup || holder.pendingIntent == null || TextUtils.isEmpty(holder.title)) continue;
             String normalizedTitle = holder.title.trim().toLowerCase(java.util.Locale.ROOT);
             if (!normalizedTitle.equals(normalizedTarget)) continue;
             if (sentIntents.contains(holder.pendingIntent)) continue;
@@ -114,111 +114,87 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
     }
 
     public static int markAllWhatsAppAsRead(android.content.Context context) {
-        return markAllWhatsAppAsRead(context, null);
+        return 0; // Never perform an unscoped "mark all" operation.
     }
 
+    /**
+     * Marks only explicitly requested group notifications as read.
+     * Does not clear, dismiss, or execute actions for unrelated chats.
+     */
     public static int markAllWhatsAppAsRead(android.content.Context context, java.util.List<String> targetGroups) {
-        int count = 0;
+        if (targetGroups == null || targetGroups.isEmpty()) return 0;
+        java.util.HashSet<String> wantedGroups = new java.util.HashSet<>();
+        for (String group : targetGroups) {
+            if (group != null && !group.trim().isEmpty()) {
+                wantedGroups.add(group.trim().toLowerCase(java.util.Locale.ROOT).replaceAll("\\s+", " "));
+            }
+        }
+        if (wantedGroups.isEmpty()) return 0;
+
         java.util.HashSet<PendingIntent> sentIntents = new java.util.HashSet<>();
+        int count = 0;
 
-        // 1. Send cached Mark As Read actions for tracked groups
-        for (java.util.Map.Entry<String, MarkAsReadHolder> entry : MARK_AS_READ_ACTIONS.entrySet()) {
+        // Use cached actions only when their resolved group title exactly matches a requested group.
+        for (MarkAsReadHolder holder : MARK_AS_READ_ACTIONS.values()) {
+            if (holder == null || !holder.isGroup || holder.pendingIntent == null || TextUtils.isEmpty(holder.title)) continue;
+            String title = holder.title.trim().toLowerCase(java.util.Locale.ROOT).replaceAll("\\s+", " ");
+            if (!wantedGroups.contains(title) || sentIntents.contains(holder.pendingIntent)) continue;
             try {
-                String groupTitle = entry.getKey();
-                boolean matches = true;
-                if (targetGroups != null && !targetGroups.isEmpty()) {
-                    matches = false;
-                    String normTitle = groupTitle != null ? groupTitle.toLowerCase().trim() : "";
-                    for (String tg : targetGroups) {
-                        String normTg = tg != null ? tg.toLowerCase().trim() : "";
-                        if (!normTg.isEmpty() && (normTitle.contains(normTg) || normTg.contains(normTitle))) {
-                            matches = true;
-                            break;
-                        }
-                    }
-                }
-
-                if (matches) {
-                    PendingIntent pi = entry.getValue().pendingIntent;
-                    if (pi != null && !sentIntents.contains(pi)) {
-                        pi.send();
-                        sentIntents.add(pi);
-                        count++;
-                    }
-                }
-            } catch (Exception ignored) {}
-        }
-        if (targetGroups == null || targetGroups.isEmpty()) {
-            MARK_AS_READ_ACTIONS.clear();
+                holder.pendingIntent.send();
+                sentIntents.add(holder.pendingIntent);
+                count++;
+            } catch (Exception e) {
+                android.util.Log.w("WhatsAppNotificationListenerService", "Could not mark requested group as read", e);
+            }
         }
 
-        // 2. Scan active status bar notifications for WhatsApp & WhatsApp Business
+        // Inspect active notifications and execute only an explicit Mark-as-read action
+        // on an exact matching group conversation. Never cancel unrelated notifications.
         if (instance != null) {
             try {
                 StatusBarNotification[] active = instance.getActiveNotifications();
                 if (active != null) {
                     for (StatusBarNotification sbn : active) {
-                        if (isWhatsAppPackage(sbn.getPackageName())) {
-                            Notification n = sbn.getNotification();
-                            if (n != null) {
-                                // Extract standard and wearable actions
-                                java.util.List<Notification.Action> actionsList = new java.util.ArrayList<>();
-                                if (n.actions != null) {
-                                    for (Notification.Action a : n.actions) {
-                                        if (a != null) actionsList.add(a);
-                                    }
-                                }
-                                if (n.extras != null) {
-                                    android.os.Bundle wearableBundle = n.extras.getBundle("android.wearable.EXTENSIONS");
-                                    if (wearableBundle != null) {
-                                        java.util.ArrayList<Notification.Action> wActions = wearableBundle.getParcelableArrayList("actions");
-                                        if (wActions != null) {
-                                            actionsList.addAll(wActions);
-                                        }
-                                    }
-                                }
+                        if (sbn == null || !isWhatsAppPackage(sbn.getPackageName())) continue;
+                        Notification notification = sbn.getNotification();
+                        if (notification == null || notification.extras == null) continue;
+                        android.os.Bundle extras = notification.extras;
+                        CharSequence conversationTitle = extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE);
+                        if (TextUtils.isEmpty(conversationTitle)) conversationTitle = extras.getCharSequence(Notification.EXTRA_TITLE);
+                        String resolvedTitle = conversationTitle == null ? "" : conversationTitle.toString().trim();
+                        boolean isGroup = extras.getBoolean(Notification.EXTRA_IS_GROUP_CONVERSATION, false)
+                                || extras.getBoolean("is_group_conversation", false);
+                        String normalizedTitle = resolvedTitle.toLowerCase(java.util.Locale.ROOT).replaceAll("\\s+", " ");
+                        if (!isGroup || !wantedGroups.contains(normalizedTitle)) continue;
 
-                                for (Notification.Action act : actionsList) {
-                                    if (act != null && act.actionIntent != null) {
-                                        // Only execute an action whose title clearly indicates marking as read.
-                                        // Other no-input actions can archive, mute, or dismiss a chat.
-                                        String actTitle = act.title != null ? act.title.toString().toLowerCase() : "";
-                                        boolean isMarkReadTitle = actTitle.contains("read") || 
-                                                                  actTitle.contains("مقروء") || 
-                                                                  actTitle.contains("قراءة") || 
-                                                                  actTitle.contains("mark") || 
-                                                                  actTitle.contains("تعيين") || 
-                                                                  actTitle.contains("تمييز") ||
-                                                                  actTitle.contains("gelesen") ||
-                                                                  actTitle.contains("lu");
-
-                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                                            if (act.getSemanticAction() == Notification.Action.SEMANTIC_ACTION_MARK_AS_READ) {
-                                                isMarkReadTitle = true;
-                                            }
-                                        }
-
-                                        if (isMarkReadTitle) {
-                                            try {
-                                                if (!sentIntents.contains(act.actionIntent)) {
-                                                    act.actionIntent.send();
-                                                    sentIntents.add(act.actionIntent);
-                                                    count++;
-                                                }
-                                            } catch (Exception ignored) {}
-                                        }
-                                    }
-                                }
-
-                                // Cancel notification from status bar
-                                try {
-                                    instance.cancelNotification(sbn.getKey());
-                                } catch (Exception ignored) {}
+                        java.util.List<Notification.Action> actions = new java.util.ArrayList<>();
+                        if (notification.actions != null) {
+                            for (Notification.Action action : notification.actions) if (action != null) actions.add(action);
+                        }
+                        for (Notification.Action action : actions) {
+                            if (action.actionIntent == null || sentIntents.contains(action.actionIntent)) continue;
+                            String label = action.title == null ? "" : action.title.toString().toLowerCase(java.util.Locale.ROOT);
+                            boolean markRead = label.contains("read") || label.contains("مقروء")
+                                    || label.contains("قراءة") || label.contains("تمييز")
+                                    || label.contains("تعليم") || label.contains("mark");
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P
+                                    && action.getSemanticAction() == Notification.Action.SEMANTIC_ACTION_MARK_AS_READ) {
+                                markRead = true;
+                            }
+                            if (!markRead) continue;
+                            try {
+                                action.actionIntent.send();
+                                sentIntents.add(action.actionIntent);
+                                count++;
+                            } catch (Exception e) {
+                                android.util.Log.w("WhatsAppNotificationListenerService", "Could not execute group mark-as-read action", e);
                             }
                         }
                     }
                 }
-            } catch (Exception ignored) {}
+            } catch (Exception e) {
+                android.util.Log.w("WhatsAppNotificationListenerService", "Could not inspect active WhatsApp notifications", e);
+            }
         }
         return count;
     }
@@ -675,6 +651,7 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                             readHolder.key = sbn.getKey();
                             readHolder.timestamp = sbn.getPostTime();
                             readHolder.title = resolvedTitle;
+                            readHolder.isGroup = looksLikeGroup;
                             if (!TextUtils.isEmpty(resolvedTitle)) MARK_AS_READ_ACTIONS.put(resolvedTitle, readHolder);
                             if (!TextUtils.isEmpty(title)) MARK_AS_READ_ACTIONS.put(title, readHolder);
                             if (!TextUtils.isEmpty(conversationTitle)) MARK_AS_READ_ACTIONS.put(conversationTitle, readHolder);

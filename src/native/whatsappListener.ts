@@ -37,9 +37,11 @@ export async function openWhatsAppGroupConversation(
   const name = (groupName || '').trim();
   if (isNativeAndroid()) {
     try {
-      const res = await OrderiNotificationListener.openWhatsAppGroupConversation({ groupName: name || 'واتساب' });
-      if (res && res.success) return res;
-    } catch {}
+      const res = await OrderiNotificationListener.openWhatsAppGroupConversation({ groupName: name });
+      return res || { success: false, method: 'group_not_found' };
+    } catch {
+      return { success: false, method: 'group_open_failed' };
+    }
   }
 
   // Check if an invite link was passed or exists in rawText
@@ -61,24 +63,7 @@ export async function openWhatsAppGroupConversation(
     }
   }
 
-  // Web fallback: open WhatsApp Web or app scheme
-  if (typeof window !== 'undefined') {
-    const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
-    if (isMobile) {
-      try {
-        window.location.href = 'whatsapp://';
-        return { success: true, method: 'mobile_whatsapp_scheme' };
-      } catch {}
-    }
-    try {
-      window.open('https://web.whatsapp.com', '_blank');
-      return { success: true, method: 'web_whatsapp' };
-    } catch {
-      window.location.href = 'https://web.whatsapp.com';
-      return { success: true, method: 'web_location' };
-    }
-  }
-  return { success: false, method: 'not_supported' };
+  return { success: false, method: 'exact_group_link_unavailable' };
 }
 
 export async function openWhatsAppPrivateConversation(options: {
@@ -92,12 +77,13 @@ export async function openWhatsAppPrivateConversation(options: {
 
   if (isNativeAndroid()) {
     try {
-      const res = await OrderiNotificationListener.openWhatsAppPrivateConversation({
+      return await OrderiNotificationListener.openWhatsAppPrivateConversation({
         phone: phone || undefined,
         memberName: memberName || undefined,
       });
-      if (res && res.success) return res;
-    } catch {}
+    } catch {
+      return { success: false, method: 'private_chat_open_failed' };
+    }
   }
 
   // Web fallback: if phone number is present, open wa.me link directly with optional message
@@ -117,26 +103,7 @@ export async function openWhatsAppPrivateConversation(options: {
     }
   }
 
-  // If no phone is known, open WhatsApp app or web interface
-  if (typeof window !== 'undefined') {
-    const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
-    if (isMobile) {
-      try {
-        const textQuery = message ? `?text=${encodeURIComponent(message)}` : '';
-        window.location.href = `whatsapp://send${textQuery}`;
-        return { success: true, method: 'mobile_whatsapp_scheme' };
-      } catch {}
-    }
-    try {
-      window.open('https://web.whatsapp.com', '_blank');
-      return { success: true, method: 'web_whatsapp' };
-    } catch {
-      window.location.href = 'https://web.whatsapp.com';
-      return { success: true, method: 'web_location' };
-    }
-  }
-
-  return { success: false, method: 'not_supported' };
+  return { success: false, method: 'exact_private_destination_unavailable' };
 }
 
 export async function sendNativeQuickReply(options: {
@@ -172,9 +139,9 @@ export async function reachNativeAdvertiserPrivateChat(options: {
 }
 
 /**
- * Executes "Mark as Read" (تمييز كمقروء) across all connected WhatsApp groups and chats.
- * In Android Native: executes the native Notification.Action PendingIntents to mark WhatsApp chats as read on the device.
- * Also synchronizes and clears orders across the backend and client state.
+ * Executes "Mark as Read" only for explicitly supplied, active WhatsApp groups.
+ * Archived chats and unrelated private conversations are intentionally excluded.
+ * Server bookkeeping is synchronized separately and is not treated as device-level read confirmation.
  */
 export async function markAllWhatsAppAsRead(
   groupNames?: string[],
@@ -184,14 +151,16 @@ export async function markAllWhatsAppAsRead(
   let archivedAutomationStarted = false;
   let accessibilityRequired = false;
   let whatsAppOpened = false;
+  let nativeReadSucceeded = false;
 
   if (isNativeAndroid()) {
     try {
       const res = await OrderiNotificationListener.markAllAsRead({
         groupNames: groupNames || [],
-        includeArchived: options?.includeArchived !== false,
+        includeArchived: false,
       });
       markedCount = res.markedCount || 0;
+      nativeReadSucceeded = !!res.success;
       archivedAutomationStarted = !!res.archivedAutomationStarted;
       accessibilityRequired = !!res.accessibilityRequired;
       whatsAppOpened = !!res.whatsAppOpened;
@@ -211,7 +180,7 @@ export async function markAllWhatsAppAsRead(
   } catch {}
 
   return {
-    success: true,
+    success: nativeReadSucceeded,
     markedCount,
     archivedAutomationStarted,
     accessibilityRequired,
@@ -229,7 +198,7 @@ export async function getNativePrivateOutreachStatus(timeoutMs = 30000): Promise
   while (Date.now() - started < timeoutMs) {
     try {
       const result = await OrderiNotificationListener.getPrivateOutreachStatus();
-      if (result.status === 'sent_confirmed' || result.status === 'failed' || result.status === 'verification_required') {
+      if (result.status === 'sent_confirmed' || result.status === 'submitted' || result.status === 'failed' || result.status === 'verification_required') {
         return result;
       }
     } catch {}
