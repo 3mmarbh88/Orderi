@@ -184,14 +184,16 @@ export async function markAllWhatsAppAsRead(
   let archivedAutomationStarted = false;
   let accessibilityRequired = false;
   let whatsAppOpened = false;
+  let nativeReadSucceeded = false;
 
   if (isNativeAndroid()) {
     try {
       const res = await OrderiNotificationListener.markAllAsRead({
         groupNames: groupNames || [],
-        includeArchived: options?.includeArchived !== false,
+        includeArchived: false,
       });
       markedCount = res.markedCount || 0;
+      nativeReadSucceeded = !!res.success;
       archivedAutomationStarted = !!res.archivedAutomationStarted;
       accessibilityRequired = !!res.accessibilityRequired;
       whatsAppOpened = !!res.whatsAppOpened;
@@ -211,7 +213,7 @@ export async function markAllWhatsAppAsRead(
   } catch {}
 
   return {
-    success: true,
+    success: nativeReadSucceeded,
     markedCount,
     archivedAutomationStarted,
     accessibilityRequired,
@@ -229,7 +231,7 @@ export async function getNativePrivateOutreachStatus(timeoutMs = 30000): Promise
   while (Date.now() - started < timeoutMs) {
     try {
       const result = await OrderiNotificationListener.getPrivateOutreachStatus();
-      if (result.status === 'sent_confirmed' || result.status === 'failed' || result.status === 'verification_required') {
+      if (result.status === 'sent_confirmed' || result.status === 'submitted' || result.status === 'failed' || result.status === 'verification_required') {
         return result;
       }
     } catch {}
