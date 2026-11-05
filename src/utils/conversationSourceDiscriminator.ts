@@ -201,11 +201,9 @@ export function isGroupAuthorizedByFilter(
   const name = (groupName || '').trim();
   if (!name || isPrivateChatPlaceholder(name)) return false;
 
-  // Platform default fallback label (e.g. from crawler/webhook stream)
   const normName = name.toLowerCase();
-  if (normName === 'واتساب' || normName === 'whatsapp') {
-    return true;
-  }
+  // Generic platform labels are not verified group identities and are never
+  // sufficient to authorize a message as a delivery-group source.
 
   // Check archived group policy
   const isArchived = name.includes('مؤرشف') || name.toLowerCase().includes('archive');
