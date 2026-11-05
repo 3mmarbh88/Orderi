@@ -267,9 +267,14 @@ export function evaluateSubsequentThreadClosure(
 /**
  * تقييم رسالة مرشحة واحدة للاستعادة في Catch-up Recovery
  */
+/**
+ * Synchronous compatibility guard only.
+ * Recovery must use runSpiderCatchupRecovery(), which awaits the real local parser.
+ * This helper deliberately never fabricates a route, price, confidence, or Radar order.
+ */
 export function evaluateCatchupCandidate(
   candidate: CatchupCandidateMessage,
-  allMessages: Array<CatchupCandidateMessage | any>,
+  _allMessages: Array<CatchupCandidateMessage | any>,
   existingIds: Set<string> = new Set(),
   dismissedIds: Set<string> = new Set()
 ): {
@@ -283,116 +288,19 @@ export function evaluateCatchupCandidate(
   if (!rawText) {
     return { status: 'IGNORED_NON_ORDER', reason: 'رسالة فارغة', diagnostic: 'تم تخطي رسالة بدون نص' };
   }
-
-  // 0. فحص مصدر المحادثة واستبعاد المحادثات الخاصة الفردية لحماية الخصوصية
-  const group = (candidate.groupName || '').trim();
-  const isDirectPrivate = candidate.isDirectPrivate === true || candidate.isGroup !== true;
-  const isPrivateLabel = !group || group === 'محادثة خاصة 👤' || group.includes('خاصة') || group === 'واتساب';
-  const isUserJid = candidate.chatId ? candidate.chatId.includes('@s.whatsapp.net') : false;
-
-  if (isDirectPrivate || isPrivateLabel || isUserJid) {
-    return {
-      status: 'IGNORED_NON_ORDER',
-      reason: 'محادثة شخصية خاصة (مستبعدة نهائياً لحماية الخصوصية)',
-      diagnostic: 'استبعاد رسالة شخصية فردية من الظهور كطلب في Radar',
-    };
+  if (!hasVerifiedCatchupGroupSource(candidate)) {
+    return { status: 'IGNORED_NON_ORDER', reason: 'مصدر القروب غير مؤكد', diagnostic: 'لا يمكن ترقية رسالة خاصة أو مجهولة المصدر إلى طلب' };
   }
-
-  // 1. مكرر أو موجود مسبقاً
-  if (existingIds.has(candidate.id) || dismissedIds.has(candidate.id) || isOrderPermanentlyClosed(candidate.id)) {
-    return { status: 'EXCLUDED_DUPLICATE', reason: 'مكرر أو مسجل مسبقاً', diagnostic: `الطلب ${candidate.id} موجود مسبقاً أو مغلق نهائياً` };
+  const recoveredId = candidate.id.startsWith('spider-') ? candidate.id : `spider-rec-${candidate.id}`;
+  if (existingIds.has(candidate.id) || existingIds.has(recoveredId) ||
+      dismissedIds.has(candidate.id) || dismissedIds.has(recoveredId) ||
+      isOrderPermanentlyClosed(candidate.id) || isOrderPermanentlyClosed(recoveredId)) {
+    return { status: 'EXCLUDED_DUPLICATE', reason: 'مكرر أو مغلق مسبقاً', diagnostic: `الطلب ${candidate.id} موجود أو مغلق` };
   }
-
-  // 2. إعلان تجاري أو سبام
-  const spam = detectAdvertisementMessage(rawText);
-  if (spam.isAdvertisement) {
-    return { status: 'IGNORED_NON_ORDER', reason: spam.reason || 'إعلان تجاري', diagnostic: 'إعلان تجاري مستبعد' };
-  }
-
-  // 3. نقل ركاب
-  const passenger = detectPassengerDelivery(rawText);
-  if (passenger.level === 'confirmed_passenger') {
-    return { status: 'IGNORED_NON_ORDER', reason: passenger.reason || 'نقل ركاب', diagnostic: 'إعلان نقل ركاب محظور' };
-  }
-
-  // 4. إغلاق ذاتي في نص الإعلان نفسه
-  const selfClosed = checkSelfClosedInAdText(rawText);
-  if (selfClosed.isClosed) {
-    return {
-      status: 'EXCLUDED_CLOSED',
-      reason: selfClosed.reason || 'إغلاق ذاتي في نص الإعلان',
-      diagnostic: 'الإعلان يحتوي علامة إغلاق صريحة أو مشطوب'
-    };
-  }
-
-  // 5. فحص سياق المحادثة والرسائل اللاحقة
-  const normalizedMessages: CatchupCandidateMessage[] = allMessages.map((m, idx) => ({
-    id: m.id || `msg-${idx}`,
-    rawText: m.rawText || m.text || '',
-    groupName: m.groupName || candidate.groupName,
-    senderName: m.senderName || m.sender || '',
-    senderPhone: m.senderPhone || m.phone || '',
-    timestamp: m.timestamp || Date.now(),
-    rawQuotedText: m.rawQuotedText || m.quotedText,
-    stickerData: m.stickerData || (m.stickerUrl ? { caption: m.caption, emoji: m.visualEmoji } : undefined),
-    isGroup: m.isGroup,
-    isDirectPrivate: m.isDirectPrivate,
-    chatId: m.chatId,
-  }));
-
-  const threadCheck = evaluateSubsequentThreadClosure(candidate, normalizedMessages);
-  if (threadCheck.isClosed) {
-    return {
-      status: 'EXCLUDED_CLOSED',
-      reason: threadCheck.reason,
-      closureEvidence: threadCheck.evidence,
-      diagnostic: threadCheck.diagnostic
-    };
-  }
-
-  if (threadCheck.isAmbiguous) {
-    return {
-      status: 'FLAGGED_AMBIGUOUS',
-      reason: threadCheck.reason,
-      diagnostic: threadCheck.diagnostic
-    };
-  }
-
-  // متاح ومؤهل للاستعادة
-  const recoveredOrder: ParsedOrder = {
-    id: candidate.id.startsWith('spider-') ? candidate.id : `spider-rec-${candidate.id}`,
-    from: 'البحرين',
-    to: 'الوجهة المطلوبة',
-    price: 2.5,
-    isPriceUnspecified: false,
-    rawText,
-    groupName: candidate.groupName,
-    senderName: candidate.senderName,
-    senderPhone: candidate.senderPhone || '',
-    receivedAt: new Date(candidate.timestamp),
-    confidence: 85,
-    type: 'طلب مستعاد (Catch-up)',
-    notes: 'تمت استعادته عبر Spider Catch-up Recovery بعد التحقق التام 🟢',
-    status: 'pending',
-    source: 'android_notification',
-    match: {
-      score: 85,
-      startMatched: true,
-      destinationMatched: true,
-      priceMatched: true,
-      distanceMatched: true,
-      timeMatched: true,
-      distanceKm: null,
-      statusLabel: 'مطابق جداً',
-      statusColor: 'emerald',
-    },
-  };
-
   return {
-    status: 'AVAILABLE_OPEN',
-    reason: 'طلب متاح وغير محجوز أو مغلق',
-    recoveredOrder,
-    diagnostic: 'اجتاز جميع اختبارات عدم الإغلاق وسياق المحادثة نظيف'
+    status: 'IGNORED_NON_ORDER',
+    reason: 'يلزم التحليل غير المتزامن قبل الاستعادة',
+    diagnostic: 'استخدم runSpiderCatchupRecovery لتحليل نص الإعلان الحقيقي؛ لم يتم إنشاء بيانات افتراضية',
   };
 }
 
