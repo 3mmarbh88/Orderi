@@ -500,7 +500,9 @@ public class NotificationListenerPlugin extends Plugin {
         }
         boolean sent = WhatsAppNotificationListenerService.sendGroupNotificationReply(getContext(), targetGroup, message);
         ret.put("success", sent);
-        ret.put("method", sent ? "group_notification_remote_input" : "no_recent_exact_group_reply_action");
+        ret.put("method", sent ? "group_notification_remote_input_submitted" : "no_recent_exact_group_reply_action");
+        ret.put("submitted", sent);
+        ret.put("deliveryConfirmed", false);
         ret.put("targetGroup", targetGroup);
         ret.put("message", message);
         call.resolve(ret);
@@ -513,12 +515,14 @@ public class NotificationListenerPlugin extends Plugin {
         JSObject ret = new JSObject();
         boolean sent = WhatsAppNotificationListenerService.sendPrivateNotificationReply(getContext(), target, message);
         ret.put("success", sent);
-        ret.put("method", sent ? "private_notification_remote_input" : "no_exact_private_reply_action");
+        ret.put("method", sent ? "private_notification_remote_input_submitted" : "no_exact_private_reply_action");
+        ret.put("submitted", sent);
+        ret.put("deliveryConfirmed", false);
         if (sent) {
             getContext().getSharedPreferences("orderi_private_outreach", Context.MODE_PRIVATE)
                 .edit()
-                .putString("status", "sent_confirmed")
-                .putString("status_label", "تم تنفيذ الرد من إشعار المحادثة الخاصة دون فتح واتساب")
+                .putString("status", "submitted")
+                .putString("status_label", "تم تمرير إجراء الرد من إشعار المحادثة الخاصة؛ لم يتم التحقق من التسليم")
                 .putLong("updated_at", System.currentTimeMillis())
                 .apply();
         }
