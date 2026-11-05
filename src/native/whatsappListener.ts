@@ -37,9 +37,11 @@ export async function openWhatsAppGroupConversation(
   const name = (groupName || '').trim();
   if (isNativeAndroid()) {
     try {
-      const res = await OrderiNotificationListener.openWhatsAppGroupConversation({ groupName: name || 'واتساب' });
-      if (res && res.success) return res;
-    } catch {}
+      const res = await OrderiNotificationListener.openWhatsAppGroupConversation({ groupName: name });
+      return res || { success: false, method: 'group_not_found' };
+    } catch {
+      return { success: false, method: 'group_open_failed' };
+    }
   }
 
   // Check if an invite link was passed or exists in rawText
@@ -92,12 +94,14 @@ export async function openWhatsAppPrivateConversation(options: {
 
   if (isNativeAndroid()) {
     try {
-      const res = await OrderiNotificationListener.openWhatsAppPrivateConversation({
-        phone: phone || undefined,
-        memberName: memberName || undefined,
-      });
-      if (res && res.success) return res;
-    } catch {}
+      try {
+        return await OrderiNotificationListener.openWhatsAppPrivateConversation({
+          phone: phone || undefined,
+          memberName: memberName || undefined,
+        });
+      } catch {
+        return { success: false, method: 'private_chat_open_failed' };
+      }
   }
 
   // Web fallback: if phone number is present, open wa.me link directly with optional message
