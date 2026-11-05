@@ -885,29 +885,25 @@ function OrderiApp({
 
   // Check if a group is allowed by driver filter
   const isOrderGroupAllowedRef = (groupName?: string) => {
-    if (!groupName) return true; // Default fallback to allow order if group is unspecified
+    if (!groupName || !groupName.trim()) return false;
     const clean = groupName.trim();
-    if (clean === 'محادثة خاصة 👤' || clean === 'محادثة خاصة' || clean === 'خاص 👤' || clean === 'محادثة فردية') {
-      return false; // المحادثات الفردية الشخصية مستبعدة نهائياً من الرادار
+    if (clean === 'محادثة خاصة 👤' || clean === 'محادثة خاصة' || clean === 'خاص 👤' || clean === 'محادثة فردية' || clean.includes('خاصة')) {
+      return false;
     }
 
-    // البث المباشر وقناة الرادار العامة
-    if (clean === 'واتساب' || clean.toLowerCase() === 'whatsapp') {
-      return true;
-    }
+    // Archived chats remain subject to the same delivery-group authorization policy.
+    const isArchived = clean.includes('مؤرشف') || clean.toLowerCase().includes('archive');
+    if (isArchived && filterRef.current.monitorArchivedGroups === false) return false;
 
-    // رصد قروبات الواتساب المؤرشفة تلقائياً إذا كان الخيار مفعلاً
-    if (filterRef.current.monitorArchivedGroups !== false) {
-      const isArchived = clean.includes('مؤرشف') || clean.toLowerCase().includes('archive');
-      if (isArchived) return true;
-    }
-
-    if (!filterRef.current.selectedGroups || filterRef.current.selectedGroups.length === 0) return true;
-
-    return filterRef.current.selectedGroups.some(g =>
-      clean.toLowerCase().includes(g.toLowerCase()) ||
-      g.toLowerCase().includes(clean.toLowerCase())
-    );
+    // All-group monitoring is an explicit opt-in; otherwise require a selected group.
+    if (filterRef.current.allJoinedGroupsMode === true) return true;
+    const selectedGroups = filterRef.current.selectedGroups || [];
+    if (selectedGroups.length === 0) return false;
+    return selectedGroups.some((g) => {
+      const selected = (g || '').trim().toLowerCase();
+      const incoming = clean.toLowerCase();
+      return selected && (incoming === selected || incoming.includes(selected) || selected.includes(incoming));
+    });
   };
 
   // Track processed order IDs to prevent duplicate alerts
