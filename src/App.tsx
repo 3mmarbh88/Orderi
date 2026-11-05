@@ -2169,7 +2169,7 @@ function OrderiApp({
         ])
       ).filter(Boolean);
 
-      const res = await markAllWhatsAppAsRead(linkedGroups, { includeArchived: true });
+      const res = await markAllWhatsAppAsRead(linkedGroups, { includeArchived: false });
       const count = res.markedCount || 0;
 
       // Update Orderi's internal order read state
@@ -2193,9 +2193,9 @@ function OrderiApp({
       } else if (res.archivedAutomationStarted) {
         showToast('⚡ جاري فحص قروبات واتساب المؤرشفة، سحب الإعلانات الجديدة، وتمييزها كمقروءة...');
       } else if (count > 0) {
-        showToast(`✅ تم استخراج الطلبات وتمييز ${count} محادثة وقروب كمقروءة ✓✓`);
+        showToast(`تم تمرير إجراء تمييز كمقروء إلى ${count} إشعاراً مطابقاً للقروبات المحددة`);
       } else {
-        showToast('✅ تم فحص المحادثات والقروبات المؤرشفة وجلب أحدث الطلبات كمقروءة ✓✓');
+        showToast('تم تحديث حالة الطلبات داخل Orderi؛ لم يتوفر إجراء واتساب لتمييز القروبات المحددة كمقروءة');
       }
     } catch (e) {
       console.warn('[Orderi] Mark-all-read failed:', e);
