@@ -98,7 +98,7 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         java.util.HashSet<PendingIntent> sentIntents = new java.util.HashSet<>();
         int count = 0;
         for (MarkAsReadHolder holder : MARK_AS_READ_ACTIONS.values()) {
-            if (holder == null || holder.pendingIntent == null || TextUtils.isEmpty(holder.title)) continue;
+            if (holder == null || !holder.isGroup || holder.pendingIntent == null || TextUtils.isEmpty(holder.title)) continue;
             String normalizedTitle = holder.title.trim().toLowerCase(java.util.Locale.ROOT);
             if (!normalizedTitle.equals(normalizedTarget)) continue;
             if (sentIntents.contains(holder.pendingIntent)) continue;
