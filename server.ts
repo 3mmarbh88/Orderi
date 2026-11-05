@@ -922,7 +922,9 @@ app.post("/api/whatsapp/purge-simulator-groups", (req, res) => {
         o.source === "simulation" ||
         o.source === "spider_crawler" ||
         o.id?.startsWith("ord-spider-") ||
-        o.id?.startsWith("ord-showcase-")
+        o.id?.startsWith("ord-showcase-") ||
+        o.id?.startsWith("ord-preview-") ||
+        o.id?.startsWith("ord-sample-")
       ) {
         recentWebhookOrders.splice(i, 1);
       }

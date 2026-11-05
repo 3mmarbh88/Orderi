@@ -26,7 +26,9 @@ import {
   Reply,
   Power,
   X,
-  Target
+  Target,
+  Package,
+  Plus
 } from 'lucide-react';
 import { OrderFilter, ParsedOrder, AreaLocation, StoreContact, OrderBroadcast } from './types';
 import { BAHRAIN_AREAS, findNearestArea } from './data/bahrainAreas';
@@ -226,8 +228,7 @@ function OrderiApp({
     return 'all';
   });
 
-  // 4. Orders State (Persisted real orders only - pure live feeds)
-  // 4. Orders State (Persisted real orders only - pure live feeds)
+  // 4. Orders State (Pure real WhatsApp feeds only - No mock or simulator orders)
   const [orders, setOrders] = useState<ParsedOrder[]>(() => {
     try {
       const closedIds = getPermanentlyClosedOrderIds();
@@ -241,6 +242,9 @@ function OrderiApp({
               o.source !== 'spider_crawler' &&
               !o.id?.startsWith('ord-spider-') && 
               !o.id?.startsWith('ord-showcase-') && 
+              !o.id?.startsWith('ord-preview-') &&
+              !o.id?.startsWith('ord-sample-') &&
+              !isSimulatedMockGroup(o.groupName) &&
               !o.notes?.includes('سحبه تلقائياً فور ربط')
             )
             .map((o: any) => ({
@@ -253,7 +257,7 @@ function OrderiApp({
       }
     } catch {}
 
-    // Clean initial state
+    // Clean initial state: pure live feeds
     return [];
   });
   const [acceptedOrders, setAcceptedOrders] = useState<ParsedOrder[]>(() => {
@@ -311,7 +315,9 @@ function OrderiApp({
           o.source !== 'simulation' && 
           o.source !== 'spider_crawler' &&
           !o.id?.startsWith('ord-spider-') &&
-          !o.id?.startsWith('ord-showcase-')
+          !o.id?.startsWith('ord-showcase-') &&
+          !o.id?.startsWith('ord-preview-') &&
+          !o.id?.startsWith('ord-sample-')
         )
       );
 
@@ -2954,8 +2960,8 @@ function OrderiApp({
     if (clean === 'محادثة خاصة 👤' || clean === 'محادثة خاصة' || clean === 'خاص 👤' || clean === 'محادثة فردية') {
       return false; // المحادثات الفردية الشخصية مستبعدة نهائياً من الرادار
     }
-    // البث المباشر وقناة الرادار العامة
-    if (clean === 'واتساب' || clean.toLowerCase() === 'whatsapp') {
+    // البث المباشر وقناة الرادار العامة وقروبات المعاينة
+    if (clean === 'واتساب' || clean.toLowerCase() === 'whatsapp' || clean.includes('توصيل البحرين') || clean.includes('معاينة')) {
       return true;
     }
     // Default: monitor and allow ALL delivery groups in WhatsApp!

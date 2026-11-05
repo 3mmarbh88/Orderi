@@ -348,19 +348,23 @@ export function OrderCard({
       }
 
       const myArea = driverLocation?.areaName || 'البحرين';
-      const baseCourierText = template
-        ? template.replace(/\{area\}/g, myArea)
-        : `#مندوب_توصيل انا في (${myArea})`;
-
       let messageToSend: string;
-      if (template && (template.includes('{from}') || template.includes('{to}'))) {
+
+      if (template) {
+        // تنسيق نص الرد حسب ضبط الفلتر مع استبدال المتغيرات
         messageToSend = template
           .replace(/\{area\}/g, myArea)
           .replace(/\{from\}/g, order.from || 'الموقع المحدد')
           .replace(/\{to\}/g, order.to || 'الموقع المحدد')
           .replace(/\{price\}/g, order.price > 0 && !order.isPriceUnspecified ? String(order.price) : 'بالاتفاق')
           .replace(/\{name\}/g, advertiserName);
+
+        // إذا لم يكن القالب يحتوي على إشارة للمسار، نرفق سياق الطلب كإشعار واضح للمعلن في الخاص
+        if (!template.includes('{from}') && !template.includes(order.from)) {
+          messageToSend = `السلام عليكم، بخصوص طلبك (${order.from} ← ${order.to}):\n${messageToSend}`;
+        }
       } else {
+        const baseCourierText = `#مندوب_توصيل انا في (${myArea})`;
         messageToSend = `السلام عليكم، بخصوص طلبك (${order.from} ← ${order.to}):\n${baseCourierText} ومستعد للاستلام والتوصيل فوراً 🚗`;
       }
 
@@ -371,7 +375,7 @@ export function OrderCard({
         } catch {}
       }
 
-      // 4. Android native dispatch or Web private chat (strictly to private 1-on-1 chat, never group!)
+      // 4. إرسال رسالة خاصة في الواتساب للمعلن حصراً وليس بالقروب
       if (isNativeAndroid()) {
         try {
           if (targetPhone || order.senderName) {
@@ -386,13 +390,25 @@ export function OrderCard({
             await reachNativeAdvertiserPrivateChat({
               phone: targetPhone || undefined,
               memberName: advertiserName,
-              groupName: '', // Strictly empty: never open a group conversation!
+              groupName: '', // Strictly empty: never open or send in a group conversation!
               message: messageToSend,
               autoSend: true,
             });
           } catch {}
         } catch (err) {
-          console.warn('[Orderi] Native background outreach error:', err);
+          console.warn('[Orderi] Native private outreach error:', err);
+        }
+      } else {
+        // في الويب ومتصفح الهاتف: فتح رسالة واتساب خاصة ومباشرة مع المعلن حصراً
+        try {
+          const { openWhatsAppPrivateConversation } = await import('../native/whatsappListener');
+          await openWhatsAppPrivateConversation({
+            phone: targetPhone || undefined,
+            memberName: advertiserName,
+            message: messageToSend,
+          });
+        } catch (err) {
+          console.warn('[Orderi] Web private chat opener error:', err);
         }
       }
 
@@ -766,17 +782,19 @@ export function OrderCard({
                   <span>{timeAgo(order.receivedAt)}</span>
                 </span>
                 <span>•</span>
-                <span 
-                  className="flex items-center gap-1 truncate max-w-[140px] sm:max-w-[200px]" 
-                  title={order.crossPostedGroups && order.crossPostedGroups.length > 1 ? order.crossPostedGroups.join(' • ') : order.groupName}
+                <button 
+                  type="button"
+                  onClick={handleOpenOrderGroup}
+                  className="flex items-center gap-1 truncate max-w-[140px] sm:max-w-[200px] text-slate-500 hover:text-blue-600 hover:underline cursor-pointer transition-colors" 
+                  title={order.crossPostedGroups && order.crossPostedGroups.length > 1 ? order.crossPostedGroups.join(' • ') : `انقر لفتح قروب (${order.groupName || 'واتساب'}) في تطبيق واتساب 👥`}
                 >
-                  <Users className="w-3 h-3 text-slate-400" />
-                  <span>
+                  <Users className="w-3 h-3 text-blue-600 shrink-0" />
+                  <span className="truncate">
                     {order.crossPostedGroups && order.crossPostedGroups.length > 1
                       ? `${order.crossPostedGroups.length} قروبات: ${order.crossPostedGroups.join('، ')}`
                       : order.groupName}
                   </span>
-                </span>
+                </button>
                 <span>•</span>
                 <span 
                   className="inline-flex items-center gap-1 text-[10px] text-slate-400 bg-slate-100 hover:bg-rose-50 hover:text-rose-600 px-1.5 py-0.5 rounded-md select-none transition-colors"
@@ -929,31 +947,21 @@ export function OrderCard({
                   {order.rawText}
                 </p>
                 <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
-                  <div className="inline-flex items-center gap-1.5 p-1 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-950 font-bold shadow-xs">
-                    {/* الضغط على اسمه يفتح رسالة واتساب خاصة مع الذي كتب الإعلان في القروب */}
+                  {/* معلن الطلب (اسمه ورقم هاتفه): النقر يفتح محادثة واتساب خاصة مع المعلن */}
+                  <div className="flex flex-wrap items-center gap-1.5">
                     <button
                       type="button"
                       onClick={handleOpenAdvertiserPrivateChat}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white hover:bg-emerald-100 text-emerald-950 border border-emerald-200 font-black text-xs underline decoration-emerald-500 hover:text-emerald-700 transition-all active:scale-95 cursor-pointer shadow-2xs"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-950 border border-emerald-300 font-black text-xs transition-all active:scale-95 cursor-pointer shadow-2xs group"
                       title={`انقر على اسم المعلن «${order.senderName || 'صاحب الإعلان'}» لفتح رسالة خاصة معه في واتساب 💬`}
                     >
                       <User className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                      <span>{order.senderName || 'صاحب الإعلان'}</span>
-                      <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">محادثة خاصة 💬</span>
+                      <span className="group-hover:underline decoration-emerald-500">{order.senderName || 'صاحب الإعلان'}</span>
+                      <span className="text-[10px] text-emerald-700 font-bold bg-white px-1.5 py-0.5 rounded border border-emerald-200">
+                        محادثة خاصة 💬
+                      </span>
                     </button>
                   </div>
-                  {order.senderPhone && (
-                    <button
-                      type="button"
-                      onClick={handleExecuteBackgroundAccept}
-                      dir="ltr"
-                      className="font-mono text-emerald-700 hover:text-emerald-800 font-bold bg-white hover:bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-300 cursor-pointer transition-all active:scale-95 flex items-center gap-1.5 text-xs shadow-2xs"
-                      title="قبول وإرسال رسالة القبول بالخاص في الخلفية دون فتح واتساب"
-                    >
-                      <Phone className="w-3.5 h-3.5 text-emerald-600" />
-                      +{order.senderPhone}
-                    </button>
-                  )}
                 </div>
               </div>
             )}
@@ -1054,7 +1062,7 @@ export function OrderCard({
                           <span className="text-[11px] font-bold text-amber-200">👤⚡</span>
                         </span>
                         <span className="text-[10px] font-normal text-emerald-100">
-                          (إرسال خاص للمعلن بالخلفية دون فتح واتساب أو روابط 🔒)
+                          (إرسال رسالة خاصة للمعلن بالواتساب وليس بالقروب 💬)
                         </span>
                       </div>
                     </>

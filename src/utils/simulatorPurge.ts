@@ -121,22 +121,31 @@ export function purgeSimulatorArtifactsFromStorage(): {
       }
     }
 
-    // 6. Purge orderi_real_orders
-    const savedOrders = localStorage.getItem('orderi_real_orders');
-    if (savedOrders) {
-      const parsed = JSON.parse(savedOrders);
-      if (Array.isArray(parsed)) {
-        const cleaned = parsed.filter((o: any) =>
-          !isSimulatedMockGroup(o.groupName) &&
-          o.source !== 'simulation' &&
-          o.source !== 'spider_crawler' &&
-          !o.id?.startsWith('ord-spider-') &&
-          !o.id?.startsWith('ord-showcase-')
-        );
-        purgedOrdersCount += (parsed.length - cleaned.length);
-        localStorage.setItem('orderi_real_orders', JSON.stringify(cleaned));
+    // 6. Purge orderi_real_orders & orderi_cached_orders
+    const purgeOrderList = (key: string) => {
+      const savedOrders = localStorage.getItem(key);
+      if (savedOrders) {
+        try {
+          const parsed = JSON.parse(savedOrders);
+          if (Array.isArray(parsed)) {
+            const cleaned = parsed.filter((o: any) =>
+              !isSimulatedMockGroup(o.groupName) &&
+              o.source !== 'simulation' &&
+              o.source !== 'spider_crawler' &&
+              !o.id?.startsWith('ord-spider-') &&
+              !o.id?.startsWith('ord-showcase-') &&
+              !o.id?.startsWith('ord-preview-') &&
+              !o.id?.startsWith('ord-sample-')
+            );
+            purgedOrdersCount += (parsed.length - cleaned.length);
+            localStorage.setItem(key, JSON.stringify(cleaned));
+          }
+        } catch {}
       }
-    }
+    };
+
+    purgeOrderList('orderi_real_orders');
+    purgeOrderList('orderi_cached_orders');
   } catch (e) {
     console.warn('[SimulatorPurge] Storage purge error:', e);
   }
