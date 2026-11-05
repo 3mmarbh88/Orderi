@@ -51,11 +51,13 @@ export const OrderiLocalAIPlugin = registerPlugin<OrderiLocalAIPluginType>('Orde
 
 export const DEFAULT_LOCAL_AI_CONFIG = {
   enabled: true,
-  modelName: 'Gemma 3 1B INT4 (مدمج وجاهز للاستدلال)',
-  modelPath: 'embedded://gemma3-1b-it-int4',
+  modelName: 'Gemma 3 1B INT4 (يتطلب استيراد ملف النموذج والتحقق من جاهزيته)',
+  modelPath: 'user-imported://gemma3-1b-it-int4',
   hybridMode: true,
   minConfidenceForFastPass: 85,
-  status: 'ready' as const,
+  // The model is not bundled in the APK by default; readiness is set only
+  // after the native runtime confirms that inference can actually run.
+  status: 'unloaded' as const,
 };
 
 /**

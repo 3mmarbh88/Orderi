@@ -57,6 +57,7 @@ import {
   getAmbiguousSourceDiagnostics, 
   getExcludedPrivateChatsCount,
   clearAmbiguousSourceDiagnostics,
+  isGroupAuthorizedByFilter,
   AmbiguousSourceDiagnostic
 } from '../utils/conversationSourceDiscriminator';
 import { isNativeAndroid, OrderiNotificationListener } from '../native/orderiNotificationListener';
@@ -182,14 +183,22 @@ export const SpiderControlCenter: React.FC<SpiderControlCenterProps> = ({
             pending.events.forEach((ev: any) => {
               const raw = (ev.rawText || ev.bigText || ev.text || ev.title || '').trim();
               if (raw) {
-                candidates.push({
-                  id: ev.id ? `native-catchup-${ev.id}` : `catchup-${Date.now()}-${Math.random()}`,
-                  rawText: raw,
-                  groupName: ev.groupName || ev.conversationTitle || 'قروب واتساب',
-                  senderName: ev.senderName || ev.title || 'معلن بالقروب',
-                  senderPhone: (ev.senderName || '').replace(/[^\d+]/g, ''),
-                  timestamp: ev.receivedAt || Date.now(),
-                });
+                const chatId = String(ev.chatJid || ev.chatId || ev.key || ev.tag || '');
+              const verifiedGroup = ev.isGroup === true || ev.isExplicitGroup === true || chatId.toLowerCase().includes('@g.us');
+              const groupName = String(ev.groupName || ev.conversationTitle || '').trim();
+              // Never invent a group label or promote an event whose source is not explicitly a group.
+              if (!verifiedGroup || !groupName || ev.isDirectPrivate === true || !isGroupAuthorizedByFilter(groupName, filter)) return;
+              candidates.push({
+                id: String(ev.messageId || ev.sourceMessageId || ev.id || `native-catchup-${chatId}-${ev.receivedAt || 0}`),
+                rawText: raw,
+                groupName,
+                senderName: String(ev.senderName || '').trim(),
+                senderPhone: String(ev.senderPhone || '').replace(/[^\d+]/g, ''),
+                timestamp: ev.receivedAt || Date.now(),
+                isGroup: true,
+                isDirectPrivate: false,
+                chatId,
+              });
               }
             });
           }
@@ -205,18 +214,29 @@ export const SpiderControlCenter: React.FC<SpiderControlCenterProps> = ({
           const parsed = JSON.parse(storedLogs);
           if (Array.isArray(parsed)) {
             parsed.forEach((item: any) => {
-              if (item?.rawText && !candidates.some((c) => c.rawText === item.rawText)) {
-                candidates.push({
-                  id: item.id || `hist-${Date.now()}-${Math.random()}`,
-                  rawText: item.rawText,
-                  groupName: item.groupName || 'قروبات الواتساب',
-                  senderName: item.senderName || 'معلن واتساب',
-                  senderPhone: item.senderPhone || '',
-                  timestamp: item.timestamp || Date.now() - 15 * 60 * 1000,
-                  rawQuotedText: item.rawQuotedText,
-                  stickerData: item.stickerData,
-                });
-              }
+              const chatId = String(item?.chatJid || item?.chatId || item?.key || '');
+              const verifiedGroup = item?.isGroup === true || item?.isExplicitGroup === true || chatId.toLowerCase().includes('@g.us');
+              const groupName = String(item?.groupName || item?.conversationTitle || '').trim();
+              const messageId = String(item?.messageId || item?.sourceMessageId || item?.id || '');
+              if (!item?.rawText || !verifiedGroup || !groupName || item?.isDirectPrivate === true || !isGroupAuthorizedByFilter(groupName, filter)) return;
+              if (candidates.some((candidate) => candidate.id === messageId || (
+                candidate.rawText === item.rawText && candidate.groupName === groupName &&
+                candidate.senderName === String(item.senderName || '') &&
+                new Date(candidate.timestamp).getTime() === new Date(item.timestamp || 0).getTime()
+              ))) return;
+              candidates.push({
+                id: messageId || `history-${groupName}-${item.timestamp || 0}-${String(item.rawText).slice(0, 24)}`,
+                rawText: item.rawText,
+                groupName,
+                senderName: String(item.senderName || item.sender || '').trim(),
+                senderPhone: String(item.senderPhone || '').replace(/[^\d+]/g, ''),
+                timestamp: item.timestamp || Date.now() - 15 * 60 * 1000,
+                rawQuotedText: item.rawQuotedText,
+                stickerData: item.stickerData,
+                isGroup: true,
+                isDirectPrivate: false,
+                chatId,
+              });
             });
           }
         }
@@ -311,7 +331,7 @@ export const SpiderControlCenter: React.FC<SpiderControlCenterProps> = ({
                   {stats?.isActive ? 'الزحف المستمر نشط 🟢' : 'متوقف مؤقتاً ⏸️'}
                 </span>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/10 text-indigo-300 border border-indigo-500/30">
-                  Gemma 3 1B + Gemini 3.8 ⚡
+                  تحليل محلي بالقواعد + Gemma عند استيراده والتحقق منه
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-1 leading-relaxed">

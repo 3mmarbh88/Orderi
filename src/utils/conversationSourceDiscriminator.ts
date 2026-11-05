@@ -201,11 +201,10 @@ export function isGroupAuthorizedByFilter(
   const name = (groupName || '').trim();
   if (!name || isPrivateChatPlaceholder(name)) return false;
 
-  // Platform default fallback label (e.g. from crawler/webhook stream)
   const normName = name.toLowerCase();
-  if (normName === 'واتساب' || normName === 'whatsapp') {
-    return true;
-  }
+  // Generic platform labels are not verified group identities and are never
+  // sufficient to authorize a message as a delivery-group source.
+  if (normName === 'واتساب' || normName === 'whatsapp') return false;
 
   // Check archived group policy
   const isArchived = name.includes('مؤرشف') || name.toLowerCase().includes('archive');
@@ -213,23 +212,20 @@ export function isGroupAuthorizedByFilter(
     return false;
   }
 
-  // ALL JOINED GROUPS MODE (Default & Recommended):
-  // When allJoinedGroupsMode !== false, the driver wants Orderi to monitor ALL delivery groups
-  // they are joined in on WhatsApp!
-  if (filter?.allJoinedGroupsMode !== false) {
-    return true;
-  }
+  // Monitoring every WhatsApp group is an explicit opt-in. The safe default is
+  // a whitelist, because WhatsApp group metadata cannot tell delivery groups from
+  // family/friends/social groups.
+  if (filter?.allJoinedGroupsMode === true) return true;
 
-  // If driver explicitly disabled allJoinedGroupsMode to restrict to a whitelist of selected groups:
+  // In restricted mode, only explicitly selected delivery groups are authorized.
   if (filter?.selectedGroups && filter.selectedGroups.length > 0) {
     return filter.selectedGroups.some((g) => {
       const normG = (g || '').trim().toLowerCase();
-      return normG && (normName.includes(normG) || normG.includes(normName));
+      return normG && (normName === normG || normName.includes(normG) || normG.includes(normName));
     });
   }
 
-  // Default: Any genuine non-private group is allowed
-  return true;
+  return false;
 }
 
 /**
