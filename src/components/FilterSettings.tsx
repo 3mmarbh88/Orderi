@@ -796,13 +796,15 @@ export function FilterSettings({
                 {/* Quick status pill */}
                 <div className="flex items-center gap-2">
                   <span className={`text-[11px] font-bold px-3 py-1 rounded-full border ${
-                    localFilter.selectedGroups.length === 0
-                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    localFilter.allJoinedGroupsMode === true
+                      ? 'bg-amber-50 text-amber-700 border-amber-200'
                       : 'bg-blue-50 text-blue-700 border-blue-200'
                   }`}>
-                    {localFilter.selectedGroups.length === 0 
-                      ? '✓ يراقب جميع قروباتي في الواتساب' 
-                      : `يراقب ${localFilter.selectedGroups.length} قروبات محددة`}
+                    {localFilter.allJoinedGroupsMode === true
+                      ? 'مراقبة شاملة: قد تشمل قروبات شخصية'
+                      : localFilter.selectedGroups.length === 0
+                        ? 'لا توجد قروبات مفعلة'
+                        : 'يراقب ' + localFilter.selectedGroups.length + ' قروبات محددة'}
                   </span>
                 </div>
               </div>
@@ -989,11 +991,11 @@ export function FilterSettings({
             }`}
           >
             <div className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 mt-0.5 ${
-              localFilter.allJoinedGroupsMode !== false 
+              localFilter.allJoinedGroupsMode === true 
                 ? 'border-emerald-600 bg-emerald-600 text-white' 
                 : 'border-slate-300 bg-white'
             }`}>
-              {localFilter.allJoinedGroupsMode !== false && <Check className="w-3 h-3 stroke-[3]" />}
+              {localFilter.allJoinedGroupsMode === true && <Check className="w-3 h-3 stroke-[3]" />}
             </div>
             <div>
               <span className="text-xs font-black text-slate-900 block">
@@ -1032,7 +1034,7 @@ export function FilterSettings({
           </button>
         </div>
 
-        {localFilter.allJoinedGroupsMode !== false && (
+        {localFilter.allJoinedGroupsMode === true && (
           <div className="p-3 bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-xl flex items-center gap-2 text-xs font-bold text-emerald-900">
             <Check className="w-4 h-4 text-emerald-600 shrink-0" />
             <span>وضع «المراقبة الشاملة» مفعّل: الرادار يلتقط الطلبات من كافة القروبات التي تشترك فيها بالواتساب تلقائياً فور نشرها.</span>
@@ -1174,7 +1176,7 @@ export function FilterSettings({
               <div className="col-span-full p-4 rounded-2xl bg-white border border-dashed border-slate-200 text-center">
                 <p className="text-xs font-bold text-slate-700">لا توجد قروبات مسجلة في القائمة</p>
                 <p className="text-[11px] text-slate-400 mt-1">
-                  اكتب اسم قروب واتسابك في خانة "إضافة اسم قروب" أعلاه لإضافته ومراقبته، أو اترك الخيار مفعلاً على "مراقبة جميع قروبات واتساب" لمراقبة كل شيء دون الحاجة لتسميتها.
+                  أضف أسماء قروبات التوصيل ثم اخترها للمراقبة، أو فعّل المراقبة الشاملة إذا كنت تقبل مراقبة القروبات الشخصية أيضاً.
                 </p>
               </div>
             ) : (
