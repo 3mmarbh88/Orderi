@@ -250,7 +250,8 @@ export function isAdvertiserSenderMatch(
   msgSender: string, 
   msgPhone: string, 
   orderSenderName: string, 
-  orderSenderPhone?: string
+  orderSenderPhone?: string,
+  orderRawText?: string
 ): boolean {
   // 1. مطابقة أرقام الهواتف (آخر 8 أرقام لهواتف البحرين والخليج لتجاوز مفاتيح الدول +973 و 00973 والفواصل)
   const p1 = (msgPhone || msgSender || '').replace(/\D/g, '');
@@ -258,6 +259,15 @@ export function isAdvertiserSenderMatch(
 
   if (p1.length >= 8 && p2.length >= 8) {
     if (p1.slice(-8) === p2.slice(-8)) {
+      return true;
+    }
+  }
+
+  // 1.1 فحص رقم الهاتف في نص الإعلان الأصلي (في حال ذُكر رقم التواصل بصلب الإعلان)
+  if (p1.length >= 8 && orderRawText) {
+    const last8 = p1.slice(-8);
+    const textNumbers = orderRawText.replace(/\D/g, '');
+    if (textNumbers.includes(last8)) {
       return true;
     }
   }
@@ -270,6 +280,14 @@ export function isAdvertiserSenderMatch(
       if (s1 === s2) return true;
       if (s1.length >= 3 && s2.includes(s1)) return true;
       if (s2.length >= 3 && s1.includes(s2)) return true;
+    }
+  }
+
+  // 2.1 في حال كان اسم المعلن مذكوراً بصلب الإعلان الأصلي
+  if (msgSender && orderRawText) {
+    const s1 = cleanSenderText(msgSender);
+    if (s1 && s1.length >= 4 && cleanSenderText(orderRawText).includes(s1)) {
+      return true;
     }
   }
 
@@ -326,12 +344,14 @@ export function checkIncomingMessageForClosure(
   // رصد الملصقات والاستيكرات والرموز التعبيرية والكلمات التأكيدية
   const cleanedSignal = cleanDialectText(rawText).replace(/[\s.,،.!؟?؛:؛\u200e\u200f]+/g, '').trim();
   const isPureSticker = 
-    /^(?:sticker|ملصق|استيكر|ستيكر|صورهملصق|صورةملصق|🖼️sticker|📷ملصق|🖼️ملصق|ملصقمتحرك|animatedsticker)$/i.test(cleanedSignal) ||
-    /ملصق|استيكر|ستيكر|sticker/i.test(cleanedSignal);
+    /^(?:sticker|ملصق|استيكر|ستيكر|صورهملصق|صورةملصق|🖼️sticker|📷ملصق|🖼️ملصق|ملصقمتحرك|animatedsticker|صورة|صوره|gif)$/i.test(cleanedSignal) ||
+    /ملصق|استيكر|ستيكر|sticker|\[ملصق\]|\[sticker\]|\[استيكر\]|\[ستيكر\]/i.test(rawText);
 
+  // الكلمات والرموز والملصقات السريعة دون ريبلي
   const isMinimalCompletionSignal =
     isPureSticker ||
-    /^(?:تم|تمت|حصلت|حصل|حصلنا|لقيت|لقينا|خلاص|خلص|انحجز|انحجزت|اخذت|اخذته|اخذوه|أخذوه|شالوه|انشال|مشكور|مشكورين|يعطيكالعافيه|يعطيكمالعافيه|تسلم|تسلمون|قواكمالله|👍+|👌+|🙏+|✅+|✔️+|🤝+|👏+|🎯+|💐+|🌷+|🤍+|✨+|📦+|🛵+|🚗+|🔒+|💯+|🎉+)$/iu.test(cleanedSignal);
+    /^(?:تم|تمت|حصلت|حصل|حصلنا|لقيت|لقينا|خلاص|خلص|انحجز|انحجزت|اخذت|اخذته|اخذوه|أخذوه|شالوه|انشال|مشكور|مشكورين|يعطيكالعافيه|يعطيكمالعافيه|تسلم|تسلمون|قواكمالله|تمخلاص|خلاصتم|حصلتخلاص|خلاصحصلت|تممشكورين|حصلتمشكورين|انحجزخلاص|خلاصانحجز|تماخذالطلب|تمالاتفاق|توفرمندوب|حصلتمندوب|تمالتوصيل|تمالطلب|👍+|👌+|🙏+|✅+|✔️+|🤝+|👏+|🎯+|💐+|🌷+|🤍+|✨+|📦+|🛵+|🚗+|🔒+|💯+|🎉+|🌹+|🤲+|🏁+)$/iu.test(cleanedSignal) ||
+    (/^[\p{Emoji}\s.,!؟👍✅👌🙏🤝👏🎯💐🌷🤍✨📦🛵🚗🔒💯🎉🌹🤲]+$/iu.test(rawText.trim()) && /[\p{Extended_Pictographic}👍✅👌🙏🤝👏🎯💐🌷🤍✨📦🛵🚗🔒💯🎉🌹🤲]/u.test(rawText));
 
   const { matchedWords, matchedEmojis, hasClosureIntent } = extractClosureKeywords(rawText);
   if (!hasClosureIntent && !isMinimalCompletionSignal) return null;
@@ -387,7 +407,7 @@ export function checkIncomingMessageForClosure(
       rawText.includes(orderSnippet) ||
       ((fromMention && toMention) || (fromMention && priceMention) || (toMention && priceMention));
 
-    const isSenderMatch = isAdvertiserSenderMatch(msgSender, msgPhone, order.senderName, order.senderPhone);
+    const isSenderMatch = isAdvertiserSenderMatch(msgSender, msgPhone, order.senderName, order.senderPhone, order.rawText);
 
     // إذا وُجد اقتباس للطلب، أو إذا كان ريبلي من صاحب الطلب نفسه
     if (isQuoted && isSenderMatch) {
@@ -419,7 +439,7 @@ export function checkIncomingMessageForClosure(
   // ويبقى طلب معلن 2 ومعلن 3 نشطين بالرادار دون أي تأثير!
   // =========================================================================
   const matchingAdvertiserOrders = candidateOrders.filter((order) =>
-    isAdvertiserSenderMatch(msgSender, msgPhone, order.senderName, order.senderPhone)
+    isAdvertiserSenderMatch(msgSender, msgPhone, order.senderName, order.senderPhone, order.rawText)
   );
 
   if (matchingAdvertiserOrders.length > 0) {
@@ -465,7 +485,7 @@ export function checkIncomingMessageForClosure(
 
   if (hasExplicitCourierFound) {
     // إذا كان هناك طلب وحيد نشط في القروب
-    if (candidateOrders.length === 1 && isAdvertiserSenderMatch(msgSender, msgPhone, candidateOrders[0].senderName, candidateOrders[0].senderPhone)) {
+    if (candidateOrders.length === 1 && isAdvertiserSenderMatch(msgSender, msgPhone, candidateOrders[0].senderName, candidateOrders[0].senderPhone, candidateOrders[0].rawText)) {
       const targetOrder = candidateOrders[0];
       processedMessageHashes.add(dedupeKey);
       markOrderPermanentlyClosed(targetOrder.id);
@@ -528,7 +548,7 @@ export async function checkIncomingMessageForClosureWithAI(
       (msgGroup && order.groupName && (order.groupName.includes(msgGroup) || msgGroup.includes(order.groupName))) ||
       (order.crossPostedGroups && order.crossPostedGroups.some((g) => g.includes(msgGroup) || msgGroup.includes(g)));
     if (!msgGroup || !inSameGroup) return false;
-    return isAdvertiserSenderMatch(msgSender, msgPhone, order.senderName, order.senderPhone);
+    return isAdvertiserSenderMatch(msgSender, msgPhone, order.senderName, order.senderPhone, order.rawText);
   });
 
   // AI must never guess which advertiser owns a closure. Without an exact
