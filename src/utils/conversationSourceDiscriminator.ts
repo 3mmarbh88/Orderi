@@ -204,6 +204,7 @@ export function isGroupAuthorizedByFilter(
   const normName = name.toLowerCase();
   // Generic platform labels are not verified group identities and are never
   // sufficient to authorize a message as a delivery-group source.
+  if (normName === 'واتساب' || normName === 'whatsapp') return false;
 
   // Check archived group policy
   const isArchived = name.includes('مؤرشف') || name.toLowerCase().includes('archive');
