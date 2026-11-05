@@ -57,6 +57,7 @@ import {
   getAmbiguousSourceDiagnostics, 
   getExcludedPrivateChatsCount,
   clearAmbiguousSourceDiagnostics,
+  isGroupAuthorizedByFilter,
   AmbiguousSourceDiagnostic
 } from '../utils/conversationSourceDiscriminator';
 import { isNativeAndroid, OrderiNotificationListener } from '../native/orderiNotificationListener';
@@ -186,7 +187,7 @@ export const SpiderControlCenter: React.FC<SpiderControlCenterProps> = ({
               const verifiedGroup = ev.isGroup === true || ev.isExplicitGroup === true || chatId.toLowerCase().includes('@g.us');
               const groupName = String(ev.groupName || ev.conversationTitle || '').trim();
               // Never invent a group label or promote an event whose source is not explicitly a group.
-              if (!verifiedGroup || !groupName || ev.isDirectPrivate === true) return;
+              if (!verifiedGroup || !groupName || ev.isDirectPrivate === true || !isGroupAuthorizedByFilter(groupName, filter)) return;
               candidates.push({
                 id: String(ev.messageId || ev.sourceMessageId || ev.id || `native-catchup-${chatId}-${ev.receivedAt || 0}`),
                 rawText: raw,
@@ -217,7 +218,7 @@ export const SpiderControlCenter: React.FC<SpiderControlCenterProps> = ({
               const verifiedGroup = item?.isGroup === true || item?.isExplicitGroup === true || chatId.toLowerCase().includes('@g.us');
               const groupName = String(item?.groupName || item?.conversationTitle || '').trim();
               const messageId = String(item?.messageId || item?.sourceMessageId || item?.id || '');
-              if (!item?.rawText || !verifiedGroup || !groupName || item?.isDirectPrivate === true) return;
+              if (!item?.rawText || !verifiedGroup || !groupName || item?.isDirectPrivate === true || !isGroupAuthorizedByFilter(groupName, filter)) return;
               if (candidates.some((candidate) => candidate.id === messageId || (
                 candidate.rawText === item.rawText && candidate.groupName === groupName &&
                 candidate.senderName === String(item.senderName || '') &&
