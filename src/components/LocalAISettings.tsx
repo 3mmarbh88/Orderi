@@ -65,7 +65,7 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
     try {
       const res = await parseWhatsAppOrderWithLocalAi(textToRun, {
         hybridMode: true,
-        useCloudFallback: filter.useCloudAiFallback !== false,
+        useCloudFallback: filter.useCloudAiFallback === true,
       });
       setTestResult(res);
     } catch (e: any) {
@@ -88,90 +88,61 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
     fetchStatus();
   }, []);
 
-  /**
-   * إجراء فحص شامل ونشط لجميع أجزاء منظومة الذكاء الاصطناعي وخريطة HERE WeGo
-   * وعرض تقرير الجاهزية اللحظي
-   */
+  /** Run real diagnostics; never report an unverified model or cloud service as ready. */
   const handleCheckReadiness = async () => {
     setIsCheckingStatus(true);
     const t0 = performance.now();
-
     try {
-      // 1. فحص قاعدة خرائط HERE WeGo البحرين
-      const hwgStart = performance.now();
-      findHereWeGoPlaceInText('طلب من سيتي سنتر السيف إلى المحرق');
-      const hwgLatency = Math.max(1, Math.round(performance.now() - hwgStart));
-
-      // 2. فحص رادار كشف الركاب
-      const pStart = performance.now();
+      const mapStart = performance.now();
+      const mapMatch = findHereWeGoPlaceInText('طلب من سيتي سنتر السيف إلى المحرق');
+      const mapLatency = Math.round(performance.now() - mapStart);
+      const passengerStart = performance.now();
       detectPassengerDelivery('توصيل شخصين من المنامة إلى سار');
-      const pLatency = Math.max(1, Math.round(performance.now() - pStart));
-
-      // 3. فحص استدلال نموذج Gemma 3 1B INT4 المدمج
-      const gStart = performance.now();
+      const passengerLatency = Math.round(performance.now() - passengerStart);
+      const modelStart = performance.now();
       const statusRes = await checkLocalAIStatus();
       setModelStatus(statusRes);
-      const gLatency = Math.max(2, Math.round(performance.now() - gStart));
+      const modelLatency = Math.round(performance.now() - modelStart);
 
-      // 4. فحص اتصال وجاهزية سحابة الذكاء الاصطناعي Gemini 3.8 Flash
-      let cloudLatency = 14;
-      let cloudDetail = 'سحابة Gemini 3.8 Flash متصلة وجاهزة بنسبة 100% للتحليل التكيفي للرسائل المعقدة.';
-
-      try {
-        const cStart = performance.now();
-        const aiStatusRes = await fetch('/api/ai/status', { signal: AbortSignal.timeout(3000) });
-        cloudLatency = Math.max(5, Math.round(performance.now() - cStart));
-        if (aiStatusRes.ok) {
-          const aiJson = await aiStatusRes.json();
-          cloudDetail = aiJson.message || cloudDetail;
+      let cloudDetail = filter.useCloudAiFallback === true
+        ? 'تم تفعيل خيار السحابة؛ لم يتم إرسال أي رسالة ضمن هذا الفحص.'
+        : 'متوقف افتراضياً؛ لا تُرسل رسائل واتساب إلى خدمة سحابية.';
+      let cloudLatency = 0;
+      let cloudReady = false;
+      if (filter.useCloudAiFallback === true) {
+        const cloudStart = performance.now();
+        try {
+          const response = await fetch('/api/ai/status', { signal: AbortSignal.timeout(3000) });
+          cloudLatency = Math.round(performance.now() - cloudStart);
+          cloudReady = response.ok;
+          cloudDetail = response.ok
+            ? 'واجهة حالة الخادم تستجيب؛ هذا لا يثبت نجاح استدلال Gemini.'
+            : `واجهة حالة الخادم أعادت HTTP ${response.status}.`;
+        } catch {
+          cloudLatency = Math.round(performance.now() - cloudStart);
+          cloudDetail = 'تعذر الوصول إلى واجهة حالة الخادم.';
         }
-      } catch {
-        cloudLatency = 18;
       }
 
-      const totalElapsed = Math.round(performance.now() - t0);
       const isAndroid = Capacitor.getPlatform() === 'android';
-
-      const audit: ReadinessAudit = {
+      const items: ReadinessAuditItem[] = [
+        { id: 'gemma3_model', name: 'استدلال Gemma المحلي', detail: statusRes.detail, latencyMs: modelLatency, status: statusRes.status === 'ready' ? 'passed' : 'warning' },
+        { id: 'here_we_go', name: 'قاعدة معالم البحرين المحلية', detail: mapMatch ? `تم العثور على تطابق محلي: ${mapMatch.name}.` : 'لم يُعثر على تطابق للاختبار المحدد.', latencyMs: mapLatency, status: mapMatch ? 'passed' : 'warning' },
+        { id: 'passenger_radar', name: 'اختبار تصنيف رسائل الركاب', detail: 'تم تنفيذ اختبار محلي؛ لا يثبت ذلك خلو جميع الرسائل من أخطاء التصنيف.', latencyMs: passengerLatency, status: 'passed' },
+        { id: 'cloud_gemini', name: 'واجهة الخادم السحابية (اختيارية)', detail: cloudDetail, latencyMs: cloudLatency, status: cloudReady ? 'passed' : 'warning' },
+      ];
+      const warningCount = items.filter((item) => item.status === 'warning').length;
+      setReadinessAudit({
         timestamp: new Date().toLocaleTimeString('ar-BH'),
-        totalElapsedMs: totalElapsed,
-        environment: isAndroid ? 'تطبيق أندرويد الأصلي (APK) - معالجة فورية' : 'المتصفح - المحرك الهجين الفوري المدمج',
-        items: [
-          {
-            id: 'gemma3_model',
-            name: 'نموذج Gemma 3 1B INT4 المدمج',
-            detail: 'مدمج في نواة التطبيق وجاهز للاستدلال السريع مباشرة بدون تحميل أو استيراد خارجي.',
-            latencyMs: gLatency,
-            status: 'passed',
-          },
-          {
-            id: 'here_we_go',
-            name: 'خريطة ومعالم HERE WeGo البحرين',
-            detail: `مفهرسة ونشطة في الخلفية (${HERE_WE_GO_BAHRAIN_PLACES.length}+ معلماً ومجمعاً تجارياً مدمجاً)`,
-            latencyMs: hwgLatency,
-            status: 'passed',
-          },
-          {
-            id: 'passenger_radar',
-            name: 'رادار حماية الركاب (Passenger Safety)',
-            detail: '28 نمط كشف ذكي لمنع مخالفات نقل الركاب وتأكيد نقل البضائع والطلبات فقط.',
-            latencyMs: pLatency,
-            status: 'passed',
-          },
-          {
-            id: 'cloud_gemini',
-            name: 'سحابة الذكاء التكيفي (Gemini 3.8 Flash)',
-            detail: cloudDetail,
-            latencyMs: cloudLatency,
-            status: 'passed',
-          },
-        ],
-        summary: `المنظومة الهجينة الشاملة (Gemma 3 + معالم HERE WeGo + السحابة التكيفية) جاهزة ونشطة بنسبة 100% للرادار والعنكبوت.`,
-      };
-
-      setReadinessAudit(audit);
-    } catch (e) {
-      console.warn('Error running readiness audit', e);
+        totalElapsedMs: Math.round(performance.now() - t0),
+        environment: isAndroid ? 'Android' : 'المتصفح',
+        items,
+        summary: warningCount === 0
+          ? 'اكتملت الفحوص المحددة؛ يلزم اختبار الهاتف الفعلي للتحقق من السلوك أثناء الخلفية.'
+          : `اكتملت الفحوص مع ${warningCount} حالة تحتاج إلى انتباه. لا يعني ذلك أن المنظومة كلها جاهزة.`,
+      });
+    } catch (error) {
+      console.warn('Error running readiness audit', error);
     } finally {
       setIsCheckingStatus(false);
     }
@@ -203,11 +174,11 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
               </h3>
               <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/30 text-white border border-emerald-400/40 flex items-center gap-1">
                 <CheckCircle2 className="w-3 h-3 text-emerald-300" />
-                <span>جاهز ومدمج 100%</span>
+                <span>{modelStatus?.status === 'ready' ? 'Gemma جاهز بعد اختبار فعلي' : modelStatus?.status === 'loading' ? 'جارٍ التحقق' : 'Gemma غير متحقق من جاهزيته'}</span>
               </span>
             </div>
             <p className="text-xs text-white/90 mt-0.5 leading-relaxed">
-              نموذج Gemma 3 1B INT4 مدمج تلقائياً مع قاعدة خرائط HERE WeGo البحرين بدون تحميل أو استيراد خارجي
+              Gemma يحتاج إلى استيراد ملف النموذج واجتياز اختبار استدلال حقيقي؛ قواعد البحرين المحلية تعمل بصورة مستقلة.
             </p>
           </div>
         </div>
@@ -251,13 +222,13 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
         <div className="p-3 rounded-xl bg-white border border-slate-200/80 shadow-2xs space-y-1">
           <div className="flex items-center justify-between">
             <span className="text-[10px] text-slate-400 font-bold">النموذج المحلي</span>
-            <span className="w-2 h-2 rounded-full bg-emerald-500" />
+            <span className={`w-2 h-2 rounded-full ${modelStatus?.status === 'ready' ? 'bg-emerald-500' : 'bg-amber-500'}`} />
           </div>
           <div className="text-xs font-black text-slate-900 flex items-center gap-1">
             <Cpu className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
             <span>Gemma 3 1B INT4</span>
           </div>
-          <p className="text-[10px] text-slate-500">نواة مدمجة جاهزة للاستدلال بدون تحميل</p>
+          <p className="text-[10px] text-slate-500">{modelStatus?.detail || 'يتطلب استيراد النموذج والتحقق من جاهزية الاستدلال'}</p>
         </div>
 
         {/* Pillar 2: HERE WeGo Maps */}
@@ -329,7 +300,7 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
                   key={item.id}
                   className="p-2.5 rounded-lg bg-slate-50 border border-slate-200/80 flex items-start gap-2"
                 >
-                  <div className="w-4 h-4 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0 mt-0.5">
+                  <div className={`w-4 h-4 rounded-full ${item.status === 'passed' ? 'bg-emerald-500' : 'bg-amber-500'} text-white flex items-center justify-center shrink-0 mt-0.5`}>
                     <Check className="w-3 h-3 stroke-[3]" />
                   </div>
                   <div className="flex-1">
@@ -337,7 +308,7 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
                       <span className="text-[11px] font-black text-slate-900">
                         {item.name}
                       </span>
-                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded text-emerald-700 bg-emerald-100/70 font-mono">
+                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded font-mono ${item.status === 'passed' ? 'text-emerald-700 bg-emerald-100/70' : 'text-amber-800 bg-amber-100/70'}`}>
                         {item.latencyMs} ms
                       </span>
                     </div>
@@ -360,7 +331,7 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
             <div>
               <span className="font-black text-indigo-950 block">هندسة الاستدلال المتعدد (Multi-Tier Cascade)</span>
               <span className="text-[11px] text-indigo-800/80">
-                المسار الأول: قواعد اللهجة البحرينية (1ms) ➔ المسار الثاني: Gemma 3 1B INT4 + معالم HERE WeGo (12ms) ➔ المسار الثالث: Gemini 3.8 Flash
+                تحليل محلي بالقواعد، ثم Gemma عند توفر النموذج؛ لا يُستخدم التحليل السحابي إلا بعد تفعيله صراحةً.
               </span>
             </div>
           </div>
@@ -370,7 +341,7 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
               <span>السحابة التكيفية:</span>
               <input
                 type="checkbox"
-                checked={filter.useCloudAiFallback !== false}
+                checked={filter.useCloudAiFallback === true}
                 onChange={(e) => onUpdateFilter({ ...filter, useCloudAiFallback: e.target.checked })}
                 className="w-4 h-4 text-violet-600 rounded border-slate-300 focus:ring-violet-500"
               />
