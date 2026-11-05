@@ -766,7 +766,7 @@ export function FilterSettings({
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-500 truncate mt-0.5">
-                  {localFilter.selectedGroups.length === 0 ? '✓ يراقب جميع قروباتي في الواتساب' : `يراقب ${localFilter.selectedGroups.length} قروبات محددة`}
+                  {localFilter.allJoinedGroupsMode === true ? 'يراقب جميع القروبات (قد تشمل قروبات شخصية)' : localFilter.selectedGroups.length === 0 ? 'لا توجد قروبات محددة للمراقبة' : `يراقب ${localFilter.selectedGroups.length} قروبات محددة`}
                 </p>
               </div>
             </div>
@@ -983,7 +983,7 @@ export function FilterSettings({
             type="button"
             onClick={() => setLocalFilter({ ...localFilter, allJoinedGroupsMode: true, selectedGroups: [] })}
             className={`p-3.5 rounded-2xl border text-right transition-all flex items-start gap-3 cursor-pointer ${
-              localFilter.allJoinedGroupsMode !== false
+              localFilter.allJoinedGroupsMode === true
                 ? 'bg-emerald-500/10 border-emerald-500 ring-2 ring-emerald-500/20 text-slate-900'
                 : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-600'
             }`}
@@ -997,17 +997,17 @@ export function FilterSettings({
             </div>
             <div>
               <span className="text-xs font-black text-slate-900 block">
-                مراقبة جميع قروبات واتسابي تلقائياً ⚡ (موصى به)
+                مراقبة جميع قروبات واتساب ⚠️ (تشمل الشخصية)
               </span>
               <span className="text-[11px] text-slate-500 mt-0.5 block">
-                يلتقط الطلبات من أي قروب أنت عضو فيه بهاتفك تلقائياً فور نشر أي طلب
+                يسمح لكل القروبات، بما فيها العائلية والشخصية؛ استخدمه فقط إذا كنت تريد ذلك
               </span>
             </div>
           </button>
 
           <button
             type="button"
-            onClick={() => setLocalFilter({ ...localFilter, allJoinedGroupsMode: false, selectedGroups: myGroups })}
+            onClick={() => setLocalFilter({ ...localFilter, allJoinedGroupsMode: false, selectedGroups: [] })}
             className={`p-3.5 rounded-2xl border text-right transition-all flex items-start gap-3 cursor-pointer ${
               localFilter.allJoinedGroupsMode === false
                 ? 'bg-blue-500/10 border-blue-500 ring-2 ring-blue-500/20 text-slate-900'
@@ -1174,12 +1174,12 @@ export function FilterSettings({
               <div className="col-span-full p-4 rounded-2xl bg-white border border-dashed border-slate-200 text-center">
                 <p className="text-xs font-bold text-slate-700">لا توجد قروبات مسجلة في القائمة</p>
                 <p className="text-[11px] text-slate-400 mt-1">
-                  اكتب اسم قروب واتسابك في خانة "إضافة اسم قروب" أعلاه لإضافته ومراقبته، أو اترك الخيار مفعلاً على "مراقبة جميع قروبات واتسابي تلقائياً" لمراقبة كل شيء دون الحاجة لتسميتها.
+                  اكتب اسم قروب واتسابك في خانة "إضافة اسم قروب" أعلاه لإضافته ومراقبته، أو اترك الخيار مفعلاً على "مراقبة جميع قروبات واتساب" لمراقبة كل شيء دون الحاجة لتسميتها.
                 </p>
               </div>
             ) : (
               myGroups.map((group) => {
-                const isSelected = localFilter.selectedGroups.length === 0 || localFilter.selectedGroups.includes(group);
+                const isSelected = localFilter.selectedGroups.includes(group);
                 return (
                   <div
                     key={group}
