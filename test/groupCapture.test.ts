@@ -48,6 +48,24 @@ assert(
   'Authorizes "أكلات وأسر منتجة سترة" under allJoinedGroupsMode'
 );
 
+// Privacy-first default: a genuine WhatsApp group is not automatically a delivery group.
+const safeDefaultFilter: Partial<OrderFilter> = {
+  allJoinedGroupsMode: false,
+  selectedGroups: [],
+};
+assert(
+  isGroupAuthorizedByFilter('قروب العائلة', safeDefaultFilter) === false,
+  'Rejects an unselected social group by default'
+);
+assert(
+  isGroupAuthorizedByFilter('واتساب', safeDefaultFilter) === false,
+  'Rejects generic WhatsApp source labels without an approved group'
+);
+assert(
+  isGroupAuthorizedByFilter('قروب كباتن المنامة', restrictedFilter) === true,
+  'Still allows an explicitly selected delivery group'
+);
+
 // 2. Private 1-on-1 chats are always excluded
 assert(
   isGroupAuthorizedByFilter('محادثة خاصة 👤', defaultFilter) === false,
