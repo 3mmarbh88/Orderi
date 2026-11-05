@@ -157,7 +157,7 @@ const DEFAULT_FILTER: OrderFilter = {
   vibrationPattern: 'standard',
   excellentAlertEnabled: true,
   ignoreNonMatching: false,
-  allJoinedGroupsMode: true, // مراقبة كافة قروبات الواتساب المُنضم إليها افتراضياً لضمان التقاط جميع الطلبات
+  allJoinedGroupsMode: false, // الخصوصية أولاً: راقب القروبات المحددة، والسماح بكل القروبات خيار اختياري
   selectedGroups: [],
   customResponseTemplate: '#مندوب_توصيل انا في {area} ومستعد للاستلام فوراً',
   contacts: DEFAULT_CONTACTS,
@@ -3020,25 +3020,20 @@ function OrderiApp({
 
   // Helper to verify if an order's WhatsApp group is allowed by driver's group filter
   const isOrderGroupAllowed = (groupName?: string) => {
-    if (!groupName) return true;
+    if (!groupName || !groupName.trim()) return false;
     const clean = groupName.trim();
-    if (clean === 'محادثة خاصة 👤' || clean === 'محادثة خاصة' || clean === 'خاص 👤' || clean === 'محادثة فردية') {
-      return false; // المحادثات الفردية الشخصية مستبعدة نهائياً من الرادار
+    if (clean === 'محادثة خاصة 👤' || clean === 'محادثة خاصة' || clean === 'خاص 👤' || clean === 'محادثة فردية' || clean.includes('خاصة')) {
+      return false;
     }
-    // البث المباشر وقناة الرادار العامة وقروبات المعاينة
-    if (clean === 'واتساب' || clean.toLowerCase() === 'whatsapp' || clean.includes('توصيل البحرين') || clean.includes('معاينة')) {
-      return true;
-    }
-    // Default: monitor and allow ALL delivery groups in WhatsApp!
-    if (filter.allJoinedGroupsMode !== false) {
-      return true;
-    }
-    // If driver explicitly restricted monitoring to specific groups:
-    if (!filter.selectedGroups || filter.selectedGroups.length === 0) return true;
-    return filter.selectedGroups.some(g => 
-      clean.toLowerCase().includes(g.toLowerCase()) || 
-      g.toLowerCase().includes(clean.toLowerCase())
-    );
+    // Monitoring every joined group is an explicit opt-in; generic WhatsApp labels
+    // are never treated as proof that a message came from an approved delivery group.
+    if (filter.allJoinedGroupsMode === true) return true;
+    if (!filter.selectedGroups || filter.selectedGroups.length === 0) return false;
+    return filter.selectedGroups.some((g) => {
+      const selected = (g || '').trim().toLowerCase();
+      const incoming = clean.toLowerCase();
+      return selected && (incoming === selected || incoming.includes(selected) || selected.includes(incoming));
+    });
   };
 
   const detectedIncomingGroups = Array.from(
