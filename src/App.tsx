@@ -476,6 +476,7 @@ function OrderiApp({
 
                 const parsedList = await parseMultipleWhatsAppOrdersWithLocalAi(rawText || event.title || '', {
                   hybridMode: filterRef.current.localAiConfig?.hybridMode !== false,
+                  forceAi: filterRef.current.localAiConfig?.hybridMode === false,
                   useCloudFallback: filterRef.current.useCloudAiFallback === true,
                   senderName: event.senderName || event.title,
                   groupName,
@@ -1674,6 +1675,7 @@ function OrderiApp({
       import('./utils/localAiOrderParser').then(async ({ parseMultipleWhatsAppOrdersWithLocalAi }) => {
         const parsedList = await parseMultipleWhatsAppOrdersWithLocalAi(rawText || event.title || '', {
           hybridMode: filterRef.current.localAiConfig?.hybridMode !== false,
+          forceAi: filterRef.current.localAiConfig?.hybridMode === false,
           useCloudFallback: filterRef.current.useCloudAiFallback === true && canForwardToCloudAI(sourceAnalysis),
           senderName: event.senderName || event.title,
           groupName,
