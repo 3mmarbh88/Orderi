@@ -2200,7 +2200,7 @@ function OrderiApp({
       }
     } catch (e) {
       console.warn('[Orderi] Mark-all-read failed:', e);
-      showToast('✅ تم تمييز محادثات وقروبات واتساب كمقروءة');
+      showToast('تعذر تنفيذ تمييز القروبات كمقروءة في واتساب؛ لم يتم تأكيد أي إجراء');
     }
   };
 
