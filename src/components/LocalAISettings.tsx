@@ -64,7 +64,8 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
     setIsTesting(true);
     try {
       const res = await parseWhatsAppOrderWithLocalAi(textToRun, {
-        hybridMode: true,
+        hybridMode: filter.localAiConfig?.hybridMode !== false,
+        forceAi: filter.localAiConfig?.hybridMode === false,
         useCloudFallback: filter.useCloudAiFallback === true,
       });
       setTestResult(res);
@@ -321,6 +322,34 @@ export const LocalAISettings: React.FC<LocalAISettingsProps> = ({
             </div>
           </div>
         )}
+
+        {/* Spider parsing strategy: hybrid fast-pass or local AI-first */}
+        <div className="p-3.5 rounded-2xl bg-white border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-xs font-black text-slate-900">طريقة تحليل رسائل Spider</div>
+            <p className="text-[11px] text-slate-500 mt-1">
+              {filter.localAiConfig?.hybridMode === false
+                ? 'يحاول Gemma المحلي تحليل الرسالة أولاً على Android؛ إذا لم يكن جاهزاً يعود Orderi إلى القواعد المحلية. لا تُرسل الرسائل للسحابة إلا عند تفعيل الخيار بشكل منفصل.'
+                : 'الوضع الهجين: القواعد المحلية تعالج الطلبات الواضحة بسرعة، ويُستدعى Gemma عند الحاجة إذا كان محمّلاً وجاهزاً.'}
+            </p>
+          </div>
+          <label className="flex items-center gap-2 shrink-0 cursor-pointer text-xs font-bold text-slate-700">
+            <span>{filter.localAiConfig?.hybridMode === false ? 'الذكاء الاصطناعي أولاً' : 'الوضع الهجين السريع'}</span>
+            <input
+              type="checkbox"
+              checked={filter.localAiConfig?.hybridMode === false}
+              onChange={(event) => onUpdateFilter({
+                ...filter,
+                localAiConfig: {
+                  ...(filter.localAiConfig || DEFAULT_LOCAL_AI_CONFIG),
+                  enabled: filter.localAiConfig?.enabled ?? true,
+                  hybridMode: !event.target.checked,
+                },
+              })}
+              className="w-4 h-4 text-indigo-600 rounded border-slate-300"
+            />
+          </label>
+        </div>
 
         {/* Architecture Mode Description Bar */}
         <div className="p-3.5 rounded-2xl bg-indigo-50/50 border border-indigo-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
