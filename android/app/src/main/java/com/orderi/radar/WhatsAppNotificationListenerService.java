@@ -136,7 +136,7 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
 
         // Use cached actions only when their resolved group title exactly matches a requested group.
         for (MarkAsReadHolder holder : MARK_AS_READ_ACTIONS.values()) {
-            if (holder == null || holder.pendingIntent == null || TextUtils.isEmpty(holder.title)) continue;
+            if (holder == null || !holder.isGroup || holder.pendingIntent == null || TextUtils.isEmpty(holder.title)) continue;
             String title = holder.title.trim().toLowerCase(java.util.Locale.ROOT).replaceAll("\\s+", " ");
             if (!wantedGroups.contains(title) || sentIntents.contains(holder.pendingIntent)) continue;
             try {
@@ -651,6 +651,7 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                             readHolder.key = sbn.getKey();
                             readHolder.timestamp = sbn.getPostTime();
                             readHolder.title = resolvedTitle;
+                            readHolder.isGroup = looksLikeGroup;
                             if (!TextUtils.isEmpty(resolvedTitle)) MARK_AS_READ_ACTIONS.put(resolvedTitle, readHolder);
                             if (!TextUtils.isEmpty(title)) MARK_AS_READ_ACTIONS.put(title, readHolder);
                             if (!TextUtils.isEmpty(conversationTitle)) MARK_AS_READ_ACTIONS.put(conversationTitle, readHolder);
