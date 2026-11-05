@@ -453,30 +453,29 @@ public class NotificationListenerPlugin extends Plugin {
                 return;
             }
 
-            // Single execution: queueGroupBroadcast iterates through each unique group strictly ONCE
-            boolean queued = false;
-            try {
-                queued = OrderiAccessibilityService.queueGroupBroadcast(getContext(), groups, message);
-            } catch (Exception ignored) {}
-
-            // Mark private outreach status as confirmed
+            boolean submitted = OrderiAccessibilityService.queueGroupBroadcast(getContext(), groups, message);
             getContext().getSharedPreferences("orderi_private_outreach", Context.MODE_PRIVATE)
                     .edit()
-                    .putString("status", "sent_confirmed")
-                    .putString("status_label", "تم إطلاق النشر في الخلفية إلى " + groups.size() + " قروب")
+                    .putString("status", submitted ? "submitted" : "failed")
+                    .putString("status_label", submitted
+                            ? "تم تمرير إجراء الرد إلى واتساب؛ لم يتم التحقق من التسليم أو القراءة"
+                            : "لم يتم إرسال أي رسالة؛ لا يوجد إجراء رد صالح وحديث للقروبات المحددة")
                     .putLong("updated_at", System.currentTimeMillis())
                     .apply();
 
             JSObject ret = new JSObject();
-            ret.put("success", true);
-            ret.put("method", "background_group_broadcast");
+            ret.put("success", submitted);
+            ret.put("submitted", submitted);
+            ret.put("deliveryConfirmed", false);
+            ret.put("method", submitted ? "group_notification_remote_input_submitted" : "no_exact_group_reply_action");
             ret.put("groupCount", groups.size());
-            ret.put("directSentCount", queued ? groups.size() : 0);
             call.resolve(ret);
         } catch (Exception e) {
             JSObject ret = new JSObject();
-            ret.put("success", true);
-            ret.put("method", "background_fallback");
+            ret.put("success", false);
+            ret.put("submitted", false);
+            ret.put("deliveryConfirmed", false);
+            ret.put("method", "group_broadcast_failed");
             call.resolve(ret);
         }
     }
@@ -534,53 +533,50 @@ public class NotificationListenerPlugin extends Plugin {
         try {
             String phone = call.getString("phone", "");
             String memberName = call.getString("memberName", "");
-            String groupName = call.getString("groupName", "");
             String message = call.getString("message", "");
-            boolean autoSend = call.getBoolean("autoSend", true);
 
             if (android.text.TextUtils.isEmpty(message)) {
                 call.reject("Message is empty");
                 return;
             }
 
-            // Case A: Phone number exists directly or inside memberName
             String targetPhone = phone;
             if (android.text.TextUtils.isEmpty(targetPhone) && !android.text.TextUtils.isEmpty(memberName)) {
                 String memberDigits = memberName.replaceAll("\\D", "");
-                if (memberDigits.length() >= 8 && memberDigits.length() <= 15) {
-                    targetPhone = memberDigits;
-                }
+                if (memberDigits.length() >= 8 && memberDigits.length() <= 15) targetPhone = memberDigits;
             }
 
-            // Attempt silent background notification reply first
-            boolean sent = false;
+            boolean submitted = false;
             if (!android.text.TextUtils.isEmpty(targetPhone)) {
                 String cleanPhone = targetPhone.replaceAll("\\D", "");
-                if (cleanPhone.length() == 8) {
-                    cleanPhone = "973" + cleanPhone;
-                }
-                sent = WhatsAppNotificationListenerService.sendPrivateNotificationReply(getContext(), cleanPhone, message);
+                if (cleanPhone.length() == 8) cleanPhone = "973" + cleanPhone;
+                submitted = WhatsAppNotificationListenerService.sendPrivateNotificationReply(getContext(), cleanPhone, message);
             }
-            if (!sent && !android.text.TextUtils.isEmpty(memberName)) {
-                sent = WhatsAppNotificationListenerService.sendPrivateNotificationReply(getContext(), memberName, message);
+            if (!submitted && !android.text.TextUtils.isEmpty(memberName)) {
+                submitted = WhatsAppNotificationListenerService.sendPrivateNotificationReply(getContext(), memberName, message);
             }
 
-            // Mark status in SharedPreferences (pure background, zero foreground switch)
             getContext().getSharedPreferences("orderi_private_outreach", Context.MODE_PRIVATE)
                     .edit()
-                    .putString("status", "sent_confirmed")
-                    .putString("status_label", sent ? "تم إرسال رسالة القبول بالخاص للمعلن بالخلفية دون فتح واتساب" : "تم تجهيز رسالة القبول بالخاص للمعلن بالخلفية")
+                    .putString("status", submitted ? "submitted" : "failed")
+                    .putString("status_label", submitted
+                            ? "تم تمرير إجراء الرد إلى إشعار المحادثة الخاصة؛ لم يتم التحقق من التسليم"
+                            : "لم تُرسل الرسالة: لا يوجد إشعار خاص حديث مطابق للمعلن")
                     .putLong("updated_at", System.currentTimeMillis())
                     .apply();
 
             JSObject ret = new JSObject();
-            ret.put("success", true);
-            ret.put("method", sent ? "background_notification_private_reply" : "background_private_outreach_ready");
+            ret.put("success", submitted);
+            ret.put("submitted", submitted);
+            ret.put("deliveryConfirmed", false);
+            ret.put("method", submitted ? "private_notification_reply_submitted" : "no_exact_private_reply_action");
             call.resolve(ret);
         } catch (Exception e) {
             JSObject ret = new JSObject();
-            ret.put("success", true);
-            ret.put("method", "private_outreach_fallback");
+            ret.put("success", false);
+            ret.put("submitted", false);
+            ret.put("deliveryConfirmed", false);
+            ret.put("method", "private_outreach_failed");
             call.resolve(ret);
         }
     }
@@ -639,10 +635,38 @@ public class NotificationListenerPlugin extends Plugin {
             if (groups != null) {
                 for (int i = 0; i < groups.length(); i++) {
                     try {
-                        String g = groups.getString(i);
-                        if (g != null && !g.trim().isEmpty()) {
-                            targetGroups.add(g.trim());
-                        }
+                        String group = groups.getString(i);
+                        if (group != null && !group.trim().isEmpty()) targetGroups.add(group.trim());
+                    } catch (Exception ignored) {}
+                }
+            }
+
+            JSObject ret = new JSObject();
+            if (targetGroups.isEmpty()) {
+                ret.put("success", false);
+                ret.put("markedCount", 0);
+                ret.put("method", "no_target_groups");
+                ret.put("whatsAppOpened", false);
+                ret.put("archivedAutomationStarted", false);
+                call.resolve(ret);
+                return;
+            }
+
+            // Only mark notifications belonging to the active, explicitly supplied Radar groups.
+            // Archived chats are deliberately excluded; this action never launches WhatsApp.
+            int count = WhatsAppNotificationListenerService.markAllWhatsAppAsRead(getContext(), targetGroups);
+            ret.put("success", count > 0);
+            ret.put("markedCount", count);
+            ret.put("method", count > 0 ? "target_groups_marked_read" : "no_matching_mark_as_read_action");
+            ret.put("archivedAutomationStarted", false);
+            ret.put("accessibilityRequired", false);
+            ret.put("whatsAppOpened", false);
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("Failed to mark selected WhatsApp groups as read", e);
+        }
+    }
+}}
                     } catch (Exception ignored) {}
                 }
             }
