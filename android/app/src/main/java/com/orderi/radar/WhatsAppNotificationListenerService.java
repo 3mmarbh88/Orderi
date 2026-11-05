@@ -60,6 +60,7 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         public String key;
         public long timestamp;
         public String title;
+        public boolean isGroup;
     }
     private static final java.util.concurrent.ConcurrentHashMap<String, MarkAsReadHolder> MARK_AS_READ_ACTIONS = new java.util.concurrent.ConcurrentHashMap<>();
     private static volatile WhatsAppNotificationListenerService instance;
