@@ -61,6 +61,11 @@ assert(
   isGroupAuthorizedByFilter('واتساب', safeDefaultFilter) === false,
   'Rejects generic WhatsApp source labels without an approved group'
 );
+assert(
+  isGroupAuthorizedByFilter('واتساب', defaultFilter) === false,
+  'Rejects generic WhatsApp labels even when all-groups mode is enabled'
+);
+
 // 2. Private 1-on-1 chats are always excluded
 assert(
   isGroupAuthorizedByFilter('محادثة خاصة 👤', defaultFilter) === false,
