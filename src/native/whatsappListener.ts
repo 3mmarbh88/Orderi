@@ -146,49 +146,52 @@ export async function reachNativeAdvertiserPrivateChat(options: {
 export async function markAllWhatsAppAsRead(
   groupNames?: string[],
   options?: { includeArchived?: boolean }
-): Promise<{ success: boolean; markedCount: number; archivedAutomationStarted?: boolean; accessibilityRequired?: boolean; whatsAppOpened?: boolean }> {
+): Promise<{ success: boolean; markedCount: number; archivedAutomationStarted?: boolean; accessibilityRequired?: boolean; whatsAppOpened?: boolean; archivedChatsVisited?: number }> {
   const explicitGroups = Array.from(new Set((groupNames || []).map((name) => (name || '').trim()).filter(Boolean)));
-  if (explicitGroups.length === 0) {
-    return { success: false, markedCount: 0, archivedAutomationStarted: false, accessibilityRequired: false, whatsAppOpened: false };
-  }
+  const includeArchived = options?.includeArchived === true;
   let markedCount = 0;
   let archivedAutomationStarted = false;
   let accessibilityRequired = false;
   let whatsAppOpened = false;
   let nativeReadSucceeded = false;
+  let archivedChatsVisited = 0;
 
   if (isNativeAndroid()) {
     try {
       const res = await OrderiNotificationListener.markAllAsRead({
         groupNames: explicitGroups,
-        includeArchived: false,
+        includeArchived,
       });
       markedCount = res.markedCount || 0;
       nativeReadSucceeded = !!res.success;
       archivedAutomationStarted = !!res.archivedAutomationStarted;
       accessibilityRequired = !!res.accessibilityRequired;
       whatsAppOpened = !!res.whatsAppOpened;
+      archivedChatsVisited = res.archivedChatsVisited || 0;
     } catch (err) {
       console.warn('Native markAllAsRead error:', err);
     }
   }
 
-  // Keep server-side group bookkeeping in sync, but do not count server-cleared
-  // records as WhatsApp chats actually marked read on the device.
-  try {
-    await fetch('/api/whatsapp/mark-all-groups-read', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ groupNames: explicitGroups }),
-    });
-  } catch {}
+  // Server bookkeeping is only safe for an explicit group list. Empty means
+  // "all device groups" to the native notification listener, not a server-wide mutation.
+  if (explicitGroups.length > 0) {
+    try {
+      await fetch('/api/whatsapp/mark-all-groups-read', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ groupNames: explicitGroups }),
+      });
+    } catch {}
+  }
 
   return {
-    success: nativeReadSucceeded,
+    success: nativeReadSucceeded || archivedAutomationStarted,
     markedCount,
     archivedAutomationStarted,
     accessibilityRequired,
     whatsAppOpened,
+    archivedChatsVisited,
   };
 }
 
