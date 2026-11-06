@@ -568,12 +568,13 @@ public class OrderiAccessibilityService extends AccessibilityService {
                 }
             }
 
-            // STEP 6: Finished! All archived chats are 100% read. Return to Orderi!
-            Log.i(TAG, "Archived read pass complete! All archived chats are read. Total opened: " + archivedChatsVisited);
+            // STEP 6: No more unread rows with an explicit group marker are visible. Do not claim
+            // that private/ambiguous rows or groups hidden by WhatsApp were processed.
+            Log.i(TAG, "Archived group read pass reached the end of its bounded scan. Group chats opened: " + archivedChatsVisited);
             performGlobalAction(GLOBAL_ACTION_BACK);
             new Handler(Looper.getMainLooper()).postDelayed(() -> {
                 returnToOrderi();
-                finishArchivedReadPass("All archived chats marked as read successfully");
+                finishArchivedReadPass("No more explicitly identified unread archived group rows were found");
             }, 250L);
 
         } catch (Exception e) {
@@ -846,6 +847,11 @@ public class OrderiAccessibilityService extends AccessibilityService {
         archivedSectionOpened = false;
         waitingForChatToClose = false;
         archivedReadEventRetries = 0;
+        // If the pass stopped early (for example, Accessibility could not identify
+        // the archive list), do not leave the user stranded in WhatsApp.
+        if (!reason.startsWith("No more explicitly identified unread archived group rows")) {
+            new Handler(Looper.getMainLooper()).postDelayed(this::returnToOrderi, 300L);
+        }
     }
 
     private void returnToOrderi() {
