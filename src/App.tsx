@@ -168,7 +168,7 @@ const DEFAULT_FILTER: OrderFilter = {
   autoCloseAmbiguousAction: 'flag',
   excludeMyOwnAds: true,
   captainPhone: '',
-  monitorArchivedGroups: false, // الأرشيف غير مشمول افتراضياً لحماية الخصوصية
+  monitorArchivedGroups: true, // التقاط إشعارات جميع القروبات الموثقة في الخلفية دون فتح واتساب
   // Cloud AI Deep Analysis enabled for WhatsApp orders
   useCloudAiFallback: false,
 };
@@ -201,14 +201,16 @@ function OrderiApp({
               )
             : [];
 
-          const privacyMigrationKey = 'orderi_privacy_archived_readall_v1';
-          let migratedArchivedSetting = parsed.monitorArchivedGroups;
+          const archivedMonitoringMigrationKey = 'orderi_verified_group_notification_monitoring_v1';
+          let migratedArchivedSetting = parsed.monitorArchivedGroups === undefined ? true : parsed.monitorArchivedGroups;
           try {
-            if (localStorage.getItem(privacyMigrationKey) !== 'done') {
-              migratedArchivedSetting = false;
-              localStorage.setItem(privacyMigrationKey, 'done');
+            if (localStorage.getItem(archivedMonitoringMigrationKey) !== 'done') {
+              // User explicitly requested all verified WhatsApp groups, including unselected
+              // archived groups, to be monitored from notification events without opening WhatsApp.
+              migratedArchivedSetting = true;
+              localStorage.setItem(archivedMonitoringMigrationKey, 'done');
             }
-          } catch { migratedArchivedSetting = false; }
+          } catch { migratedArchivedSetting = true; }
           return { ...DEFAULT_FILTER, ...parsed, allJoinedGroupsMode: parsed.allJoinedGroupsMode === true, monitorArchivedGroups: migratedArchivedSetting === true, contacts: existingContacts };
         }
       }
@@ -448,7 +450,9 @@ function OrderiApp({
               try {
                 // Strict Source Discrimination:
                 // Only authorized delivery groups can be restored or checked for closures
-                const sourceAnalysis = discriminateConversationSource(event, filterRef.current);
+                const sourceAnalysis = discriminateConversationSource(event, filterRef.current, {
+                  allowAllVerifiedGroups: event.source === 'whatsapp_notification' && filterRef.current.monitorArchivedGroups === true,
+                });
                 if (!canMessageCreateRadarOrder(sourceAnalysis)) {
                   if (sourceAnalysis.isPrivateIndividual) {
                     incrementExcludedPrivateChatsCounter();
@@ -903,6 +907,12 @@ function OrderiApp({
     // Archived chats remain subject to the same delivery-group authorization policy.
     const isArchived = clean.includes('مؤرشف') || clean.toLowerCase().includes('archive');
     if (isArchived && filterRef.current.monitorArchivedGroups === false) return false;
+
+    // Explicitly enabled Android notification monitoring accepts any verified WhatsApp
+    // group, including groups not selected in Orderi. Private/ambiguous chats are rejected
+    // earlier by discriminateConversationSource and never reach this order-ingestion gate.
+    // Keep all other ingestion sources under the normal selected-groups policy.
+    if (filterRef.current.monitorArchivedGroups === true) return true;
 
     // All-group monitoring is an explicit opt-in; otherwise require a selected group.
     if (filterRef.current.allJoinedGroupsMode === true) return true;
@@ -1513,7 +1523,9 @@ function OrderiApp({
 
       // 1. Strict Conversation Source Discrimination:
       // Identifies authorized delivery groups vs personal 1-on-1 private chats vs ambiguous sources
-      const sourceAnalysis = discriminateConversationSource(event, filterRef.current);
+      const sourceAnalysis = discriminateConversationSource(event, filterRef.current, {
+        allowAllVerifiedGroups: event.source === 'whatsapp_notification' && filterRef.current.monitorArchivedGroups === true,
+      });
 
       if (sourceAnalysis.sourceType === 'private_individual') {
         incrementExcludedPrivateChatsCounter();
