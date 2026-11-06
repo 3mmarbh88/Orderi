@@ -851,14 +851,14 @@ export function FilterSettings({
               <div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs sm:text-sm font-black text-slate-900 block">
-                    رصد قروبات الواتساب المؤرشفة 📦
+                    التقاط إشعارات جميع قروبات واتساب 📦
                   </span>
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-900 border border-amber-200">
-                    رصد آلي ومستمر ⚡
+                    دون فتح واتساب
                   </span>
                 </div>
                 <span className="text-[11px] text-slate-600 block mt-0.5">
-                  جلب واستخراج طلبات التوصيل من القروبات النشطة الموجودة بأرشيف واتساب تلقائياً دون الحاجة لإلغاء أرشفتها
+                  التقاط إشعارات أندرويد من جميع القروبات الموثّقة، بما فيها غير المحددة والمؤرشفة، عندما يرسل واتساب إشعاراً
                 </span>
               </div>
             </div>
@@ -875,105 +875,14 @@ export function FilterSettings({
           </div>
 
           {localFilter.monitorArchivedGroups !== false && (
-            <div className="px-4 pb-4 pt-1 space-y-3 border-t border-amber-200/60 bg-amber-50/40">
-              {/* WhatsApp System Explanation Card */}
-              <div className="p-3.5 rounded-xl bg-white/95 border border-amber-300/80 shadow-2xs space-y-2.5">
-                <div className="flex items-center gap-2 text-xs font-black text-amber-950">
-                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-                  <span>💡 سر استقبال طلبات الأرشيف فوراً بلحظتها (0 ثانية) دون الضغط على «قراءة الكل»:</span>
-                </div>
+            <div className="px-4 pb-4 pt-1 border-t border-amber-200/60 bg-amber-50/40">
+              <div className="p-3.5 rounded-xl bg-white/95 border border-amber-300/80 space-y-2">
                 <p className="text-[11px] text-slate-700 leading-relaxed">
-                  <strong className="text-amber-950 font-black">السبب:</strong> تطبيق واتساب الرسمي يقوم بكتم إشعارات المحادثات المؤرشفة تماماً عند تفعيل خيار <em>«إبقاء الدردشات مؤرشفة»</em> في إعدادات واتساب، لذلك لا يرسل واتساب أي إشعار لهاتفك حتى تضغط زر «قراءة الكل» ليقوم المساعد بفتح الأرشيف واستخراجها.
+                  يلتقط Orderi إشعارات القروبات الموثّقة الجديدة من مستمع إشعارات أندرويد، حتى لو لم تكن القروبات محددة داخل Orderi، ولا يفتح واتساب أو يتنقل بين المحادثات.
                 </p>
-
-                {/* 4 Alternative Solutions Grid */}
-                <div className="space-y-2 pt-1 border-t border-amber-200/60">
-                  <span className="text-xs font-black text-slate-900 block">
-                    🌟 4 طرق وبدائل مريحة لاستقبال طلبات القروبات فوراً:
-                  </span>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px]">
-                    {/* Method 1: Mute without Archive (Recommended) */}
-                    <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-950 space-y-1">
-                      <div className="font-black text-emerald-800 flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-emerald-600 shrink-0" />
-                        <span>الطريقة 1 (الأسهل والأفضل): كتم القروب «دائماً» بدون أرشفته</span>
-                      </div>
-                      <p className="text-[10px] text-slate-700 leading-relaxed">
-                        اترك القروب في قائمة واتساب العادية واعمل له <strong>«كتم الإشعارات ➔ دائماً»</strong>. لن يصدر واتساب أي صوت رنين أو إزعاج، بينما يقوم Orderi بالتقاط كل طلب فوراً في <strong>0 ثانية</strong> وإطلاق نغمتك المخصصة فقط للطلبات المطابقة!
-                      </p>
-                    </div>
-
-                    {/* Method 2: Turn off Keep Chats Archived */}
-                    <div className="p-2.5 rounded-xl bg-blue-50 border border-blue-300 text-blue-950 space-y-1">
-                      <div className="font-black text-blue-800 flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-blue-600 shrink-0" />
-                        <span>الطريقة 2: إيقاف «إبقاء الدردشات مؤرشفة» في واتساب</span>
-                      </div>
-                      <p className="text-[10px] text-slate-700 leading-relaxed">
-                        من <strong>واتساب ➔ الإعدادات ➔ الدردشات ➔ أوقف خيار «إبقاء الدردشات مؤرشفة»</strong>. ستبقى القروبات في الأرشيف وستصل إشعاراتها لرادار Orderi فور نشرها دون تأخير!
-                      </p>
-                    </div>
-
-                    {/* Method 3: Android Silent Notification Channel */}
-                    <div className="p-2.5 rounded-xl bg-purple-50 border border-purple-300 text-purple-950 space-y-1">
-                      <div className="font-black text-purple-800 flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-purple-600 shrink-0" />
-                        <span>الطريقة 3: قنوات إشعارات أندرويد الصامتة (Silent Channel)</span>
-                      </div>
-                      <p className="text-[10px] text-slate-700 leading-relaxed">
-                        من إعدادات الهاتف ➔ التطبيقات ➔ WhatsApp ➔ الإشعارات ➔ إشعارات المجموعات ➔ اختر <strong>«صامت»</strong>. لن يرن الهاتف لرسائل القروبات، وسيلتقطها Orderi فورياً.
-                      </p>
-                    </div>
-
-                    {/* Method 4: Auto-Sweep & Webhook */}
-                    <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-950 space-y-1">
-                      <div className="font-black text-amber-800 flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-amber-600 shrink-0" />
-                        <span>الطريقة 4: المسح الدوري التلقائي المدمج (Auto-Sweep)</span>
-                      </div>
-                      <p className="text-[10px] text-slate-700 leading-relaxed">
-                        تفعيل خيار <strong>«المسح الدوري التلقائي للأرشيف»</strong> أدناه، ليقوم Orderi بفحص الأرشيف واستخراج الطلبات تلقائياً بالخلفية دون الحاجة لضغط زر قراءة الكل.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Automated Background Polling Controls */}
-              <div className="p-3 rounded-xl bg-white/90 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                <div>
-                  <span className="text-xs font-black text-slate-900 block">
-                    المسح والتحديث الدوري التلقائي للأرشيف 🔄
-                  </span>
-                  <span className="text-[11px] text-slate-500 block">
-                    يقوم البرنامج بالمسح الدوري التلقائي للأرشيف وفحص الرسائل الجديدة بالخلفية دون الحاجة لضغط زر قراءة الكل
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-2 self-end sm:self-auto">
-                  <select
-                    value={localFilter.archivedPollingIntervalMinutes || 2}
-                    onChange={(e) => setLocalFilter({ ...localFilter, archivedPollingIntervalMinutes: Number(e.target.value) })}
-                    disabled={localFilter.autoArchivedChatsPolling === false}
-                    aria-label="فاصل المسح الدوري للأرشيف"
-                    className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-xs font-bold text-slate-800 focus:outline-none focus:ring-1 focus:ring-amber-500 disabled:opacity-50"
-                  >
-                    <option value={1}>كل دقيقة ⚡</option>
-                    <option value={2}>كل دقيقتين ⏱️</option>
-                    <option value={5}>كل 5 دقائق 🕒</option>
-                  </select>
-
-                  <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                    <input
-                      type="checkbox"
-                      checked={localFilter.autoArchivedChatsPolling !== false}
-                      onChange={(e) => setLocalFilter({ ...localFilter, autoArchivedChatsPolling: e.target.checked })}
-                      className="sr-only peer"
-                    />
-                    <div className="w-9 h-5 bg-slate-200 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
-                  </label>
-                </div>
+                <p className="text-[11px] text-amber-900 leading-relaxed font-semibold">
+                  تنبيه: إذا منع واتساب إرسال إشعارات القروب المؤرشف، فلن تصل الرسالة إلى Orderi. هذا الخيار لا يسترجع الرسائل القديمة ولا يقرأ محتوى المحادثات التي لم يصدر عنها إشعار.
+                </p>
               </div>
             </div>
           )}
