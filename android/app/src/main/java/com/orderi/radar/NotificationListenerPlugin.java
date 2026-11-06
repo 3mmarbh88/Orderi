@@ -659,4 +659,5 @@ public class NotificationListenerPlugin extends Plugin {
         } catch (Exception e) {
             call.reject("Failed to mark all WhatsApp groups as read", e);
         }
-    }}
+    }
+}
