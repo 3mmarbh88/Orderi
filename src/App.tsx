@@ -657,12 +657,12 @@ function OrderiApp({
     }
   }, [currentUser]);
 
-  // Licensing & Activation: Permanently unlocked for all captains without trial limits
-  const isActivated = true;
-  const isActivatedRef = useRef(true);
+  // Activation is derived from the signed-in account and its actual expiry.
+  const isActivated = isProgramActivated(currentUser);
+  const isActivatedRef = useRef(isActivated);
   useEffect(() => {
-    isActivatedRef.current = true;
-  }, []);
+    isActivatedRef.current = isActivated;
+  }, [isActivated]);
 
   // Orderi Spider Googlebot-style WhatsApp Crawler Modal State
   const [isSpiderModalOpen, setIsSpiderModalOpen] = useState(false);
@@ -3035,6 +3035,17 @@ function OrderiApp({
     });
   };
 
+  // Use the same verified-notification exception for insertion, counters and rendering.
+  // Otherwise an order can be accepted from a real WhatsApp group but hidden here
+  // because that group is not in selectedGroups.
+  const isOrderVisibleByGroupPolicy = (order: ParsedOrder): boolean => {
+    const isVerifiedNativeGroupNotification =
+      order.source === 'android_notification' &&
+      order.isDirectPrivate === false &&
+      filter.monitorArchivedGroups === true;
+    return isOrderGroupAllowed(order.groupName) || isVerifiedNativeGroupNotification;
+  };
+
   const detectedIncomingGroups = Array.from(
     new Set([
       ...persistedDetectedGroups,
@@ -3052,7 +3063,7 @@ function OrderiApp({
   };
 
   // Non-matching count (respecting group filter)
-  const groupFilteredOrders = orders.filter((o) => isOrderGroupAllowed(o.groupName));
+  const groupFilteredOrders = orders.filter(isOrderVisibleByGroupPolicy);
   const closedCount = groupFilteredOrders.filter((o) => o.status === 'closed_taken').length;
   const availableOrders = groupFilteredOrders.filter((o) => o.status !== 'closed_taken');
   const nonMatchingCount = availableOrders.filter((o) => o.match.score < 80).length;
@@ -3066,7 +3077,7 @@ function OrderiApp({
   // Filtered Orders View: strictly enforce WhatsApp group filter, ignoreNonMatching and blacklist switches
   const displayedOrders = orders.filter((ord) => {
     if (filter.autoBlockBlacklist && ord.contactStatus === 'blacklist') return false;
-    if (!isOrderGroupAllowed(ord.groupName)) return false;
+    if (!isOrderVisibleByGroupPolicy(ord)) return false;
 
     // If viewing Closed Tab: show only closed/taken orders
     if (feedFilter === 'closed') {

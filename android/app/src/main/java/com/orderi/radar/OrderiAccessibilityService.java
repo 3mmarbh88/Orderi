@@ -536,12 +536,15 @@ public class OrderiAccessibilityService extends AccessibilityService {
                 AccessibilityNodeInfo unreadActiveGroup = findUnreadChatInArchived(root);
                 if (unreadActiveGroup != null) {
                     String signature = nodeSignature(unreadActiveGroup);
-                    archivedUnreadChatsVisited.add(signature);
                     lastArchivedActionAt = now;
                     if (unreadActiveGroup.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                        // Record a row only after Android confirms the click action.
+                        archivedUnreadChatsVisited.add(signature);
                         archivedChatsVisited++;
                         waitingForChatToClose = true;
                         Log.i(TAG, "Opened unread active WhatsApp group #" + archivedChatsVisited);
+                    } else {
+                        Log.w(TAG, "Could not click unread active group row; leaving it eligible for retry");
                     }
                     return;
                 }
@@ -593,12 +596,15 @@ public class OrderiAccessibilityService extends AccessibilityService {
                     return;
                 }
                 String signature = nodeSignature(unreadChatRow);
-                archivedUnreadChatsVisited.add(signature);
                 lastArchivedActionAt = now;
                 if (unreadChatRow.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                    // Only suppress this row from future scans after the UI accepted the click.
+                    archivedUnreadChatsVisited.add(signature);
                     archivedChatsVisited++;
                     waitingForChatToClose = true;
                     Log.i(TAG, "Opened unread archived chat #" + archivedChatsVisited + " to mark it read");
+                } else {
+                    Log.w(TAG, "Could not click unread archived row; leaving it eligible for retry");
                 }
                 return;
             }
