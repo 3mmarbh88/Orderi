@@ -908,12 +908,6 @@ function OrderiApp({
     const isArchived = clean.includes('مؤرشف') || clean.toLowerCase().includes('archive');
     if (isArchived && filterRef.current.monitorArchivedGroups === false) return false;
 
-    // Explicitly enabled Android notification monitoring accepts any verified WhatsApp
-    // group, including groups not selected in Orderi. Private/ambiguous chats are rejected
-    // earlier by discriminateConversationSource and never reach this order-ingestion gate.
-    // Keep all other ingestion sources under the normal selected-groups policy.
-    if (filterRef.current.monitorArchivedGroups === true) return true;
-
     // All-group monitoring is an explicit opt-in; otherwise require a selected group.
     if (filterRef.current.allJoinedGroupsMode === true) return true;
     const selectedGroups = filterRef.current.selectedGroups || [];
@@ -1055,8 +1049,15 @@ function OrderiApp({
       return;
     }
 
-    // Check if WhatsApp group is allowed by driver's group filter
-    if (!isOrderGroupAllowedRef(raw.groupName)) {
+    // All verified Android WhatsApp notification groups are included when the user
+    // enables background monitoring, even if they are not selected in Orderi.
+    // This exception is limited to events already verified as real groups by the
+    // source discriminator; private and ambiguous chats never reach this point.
+    const isVerifiedNativeGroupNotification =
+      raw.source === 'android_notification' &&
+      raw.isDirectPrivate === false &&
+      filterRef.current.monitorArchivedGroups === true;
+    if (!isOrderGroupAllowedRef(raw.groupName) && !isVerifiedNativeGroupNotification) {
       return;
     }
 
