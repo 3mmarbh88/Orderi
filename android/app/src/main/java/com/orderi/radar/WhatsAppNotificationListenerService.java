@@ -147,9 +147,11 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
      * while strictly protecting and excluding personal private chats.
      */
     public static int markAllWhatsAppAsRead(android.content.Context context, java.util.List<String> targetGroups) {
-        boolean matchAnyGroup = (targetGroups == null || targetGroups.isEmpty());
+        // Empty or missing targets must be a no-op; never interpret them as all groups.
+        if (targetGroups == null || targetGroups.isEmpty()) return 0;
+        boolean matchAnyGroup = false;
         java.util.HashSet<String> wantedGroups = new java.util.HashSet<>();
-        if (!matchAnyGroup) {
+        {
             for (String group : targetGroups) {
                 if (group != null && !group.trim().isEmpty()) {
                     String cleaned = cleanGroupTitle(group);
@@ -157,9 +159,7 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                 }
             }
         }
-        if (!matchAnyGroup && wantedGroups.isEmpty()) {
-            matchAnyGroup = true;
-        }
+        if (wantedGroups.isEmpty()) return 0;
 
         java.util.HashSet<PendingIntent> sentIntents = new java.util.HashSet<>();
         int count = 0;

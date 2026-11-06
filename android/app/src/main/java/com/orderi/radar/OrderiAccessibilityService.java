@@ -492,9 +492,7 @@ public class OrderiAccessibilityService extends AccessibilityService {
                     waitingForChatToClose = false;
                     archivedReadEventRetries = 0;
 
-                    // Scrape conversation title & ad messages from archived chat before closing
-                    scrapeAndDispatchArchivedConversation(root);
-
+                    // Do not scrape or forward archived conversation contents to Radar.
                     new Handler(Looper.getMainLooper()).postDelayed(() -> {
                         performGlobalAction(GLOBAL_ACTION_BACK);
                     }, 140L);
