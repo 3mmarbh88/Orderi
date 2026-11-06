@@ -154,35 +154,28 @@ export async function initDeviceTrial(associatedPhone?: string): Promise<DeviceT
     return cached;
   }
 
-  // أول تشغيل دون اتصال: إنشاء فترة 7 أيام تبدأ الآن
-  const firstInstalledAt = Date.now();
-  const expiresAt = firstInstalledAt + 7 * 24 * 60 * 60 * 1000;
-  const rem = computeRemaining(expiresAt, false);
-
-  const fallbackStatus: DeviceTrialStatus = {
+  // Do not create a fresh trial while offline: that would let reinstalling or
+  // clearing local storage bypass the server's device-trial registry.
+  const now = Date.now();
+  const unavailableStatus: DeviceTrialStatus = {
     deviceId: identity.deviceId,
     hardwareFingerprint: identity.hardwareFingerprint,
     model: identity.model,
-    firstInstalledAt,
-    expiresAt,
-    daysRemaining: rem.days,
-    hoursRemaining: rem.hours,
-    minutesRemaining: rem.minutes,
-    isTrialActive: true,
-    isExpired: false,
+    firstInstalledAt: now,
+    expiresAt: now,
+    daysRemaining: 0,
+    hoursRemaining: 0,
+    minutesRemaining: 0,
+    isTrialActive: false,
+    isExpired: true,
     isActivated: false,
     activationType: 'trial',
     installCount: 1,
-    lastCheckedAt: Date.now(),
-    formattedRemaining: rem.formatted,
+    lastCheckedAt: now,
+    formattedRemaining: 'يلزم الاتصال بالسيرفر للتحقق من الفترة التجريبية',
   };
-
-  try {
-    localStorage.setItem(LOCAL_TRIAL_CACHE_KEY, JSON.stringify(fallbackStatus));
-  } catch {}
-
-  notifyListeners(fallbackStatus);
-  return fallbackStatus;
+  notifyListeners(unavailableStatus);
+  return unavailableStatus;
 }
 
 /**
