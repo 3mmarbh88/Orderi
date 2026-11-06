@@ -1613,12 +1613,9 @@ function OrderiApp({
       // IMMEDIATE GROUP REGISTRATION & AUTO-ADOPTION: Always bind and monitor the group automatically
       if (groupName && groupName !== 'محادثة خاصة 👤' && !groupName.includes('محادثة خاصة') && !isSimulatedMockGroup(groupName)) {
         autoAdoptDetectedGroups([groupName]);
-        setFilter((prev) => {
-          if (!prev.selectedGroups.includes(groupName)) {
-            return { ...prev, selectedGroups: [...prev.selectedGroups, groupName] };
-          }
-          return prev;
-        });
+        // Keep the user's selectedGroups whitelist unchanged. Notification-only
+        // all-group monitoring is authorized separately and must not silently
+        // rewrite their manual group selections.
         try {
           const saved = localStorage.getItem('orderi_my_whatsapp_groups');
           const list = saved ? JSON.parse(saved) : [];
