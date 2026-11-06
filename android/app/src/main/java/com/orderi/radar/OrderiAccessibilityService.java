@@ -61,6 +61,8 @@ public class OrderiAccessibilityService extends AccessibilityService {
     private static volatile boolean markArchivedChatsRequested = false;
     private boolean archivedSectionOpened = false;
     private boolean waitingForChatToClose = false;
+    private boolean archivedBackRequested = false;
+    private boolean activeChatsProcessed = false;
     private int archivedReadEventRetries = 0;
     private int archivedChatsVisited = 0;
     private int archivedScrollAttempts = 0;
@@ -344,6 +346,8 @@ public class OrderiAccessibilityService extends AccessibilityService {
         markArchivedChatsRequested = true;
         instance.archivedSectionOpened = false;
         instance.waitingForChatToClose = false;
+        instance.archivedBackRequested = false;
+        instance.activeChatsProcessed = false;
         instance.archivedReadEventRetries = 0;
         instance.archivedChatsVisited = 0;
         instance.archivedScrollAttempts = 0;
@@ -485,25 +489,67 @@ public class OrderiAccessibilityService extends AccessibilityService {
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null) return;
         try {
-            // STEP 1: If waiting for a chat we clicked to open, wait for it to render, scrape recent orders, then press back
+            // STEP 1: Wait until the selected conversation is actually visible.
+            // Do not treat the chat-list search box as a conversation composer.
+            // Keep the state active until the Back transition returns to a chat list.
             if (waitingForChatToClose) {
                 if (isConversationOpen(root)) {
-                    lastArchivedActionAt = now;
-                    waitingForChatToClose = false;
                     archivedReadEventRetries = 0;
-
-                    // Do not scrape or forward archived conversation contents to Radar.
-                    new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                        performGlobalAction(GLOBAL_ACTION_BACK);
-                    }, 140L);
-                } else if (++archivedReadEventRetries > 8) {
-                    waitingForChatToClose = false;
-                    archivedReadEventRetries = 0;
+                    if (!archivedBackRequested) {
+                        archivedBackRequested = true;
+                        lastArchivedActionAt = now;
+                        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                            if (markArchivedChatsRequested) {
+                                performGlobalAction(GLOBAL_ACTION_BACK);
+                            }
+                        }, 450L);
+                    }
+                    return;
                 }
-                return;
+
+                if (archivedBackRequested) {
+                    // The conversation has closed and WhatsApp has returned to its list.
+                    waitingForChatToClose = false;
+                    archivedBackRequested = false;
+                    archivedReadEventRetries = 0;
+                    lastArchivedActionAt = 0L;
+                } else if (++archivedReadEventRetries > 12) {
+                    // A row that did not open is skipped; do not pretend it was read.
+                    waitingForChatToClose = false;
+                    archivedReadEventRetries = 0;
+                    Log.w(TAG, "Could not confirm the opened group conversation; skipping it without marking success");
+                    return;
+                } else {
+                    return;
+                }
             }
 
-            // STEP 2: Navigate into Archived section if not already open
+            // STEP 2: Sweep unread groups in the main chat list first. WhatsApp may
+            // reopen on its last screen, so return from an already-open chat/archive.
+            if (!activeChatsProcessed) {
+                if (isArchivedScreen(root) || isConversationOpen(root)) {
+                    lastArchivedActionAt = now;
+                    performGlobalAction(GLOBAL_ACTION_BACK);
+                    return;
+                }
+
+                AccessibilityNodeInfo unreadActiveGroup = findUnreadChatInArchived(root);
+                if (unreadActiveGroup != null) {
+                    String signature = nodeSignature(unreadActiveGroup);
+                    archivedUnreadChatsVisited.add(signature);
+                    lastArchivedActionAt = now;
+                    if (unreadActiveGroup.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                        archivedChatsVisited++;
+                        waitingForChatToClose = true;
+                        Log.i(TAG, "Opened unread active WhatsApp group #" + archivedChatsVisited);
+                    }
+                    return;
+                }
+                activeChatsProcessed = true;
+                Log.i(TAG, "Active WhatsApp group-list sweep finished; moving to Archived");
+            }
+
+            // STEP 3: Navigate into Archived section if not already open
             if (!archivedSectionOpened) {
                 if (isArchivedScreen(root)) {
                     archivedSectionOpened = true;
@@ -643,14 +689,18 @@ public class OrderiAccessibilityService extends AccessibilityService {
 
     private boolean isConversationOpen(AccessibilityNodeInfo root) {
         if (root == null) return false;
-        if (findInputField(root) != null) return true;
+        // Never use the generic EditText finder here: WhatsApp's main chat list
+        // also exposes a search field, which previously caused an immediate Back
+        // before the selected unread conversation could be confirmed.
         String[] ids = new String[]{
                 "com.whatsapp:id/conversation_contact_name",
                 "com.whatsapp:id/conversation_contact_name_container",
                 "com.whatsapp:id/entry",
                 "com.whatsapp:id/voice_note_btn",
                 "com.whatsapp:id/send",
-                "com.whatsapp:id/conversation_layout"
+                "com.whatsapp:id/conversation_layout",
+                "com.whatsapp:id/conversation_toolbar",
+                "com.whatsapp:id/conversation_contact_name_container"
         };
         for (String id : ids) {
             List<AccessibilityNodeInfo> list = root.findAccessibilityNodeInfosByViewId(id);
@@ -721,12 +771,14 @@ public class OrderiAccessibilityService extends AccessibilityService {
         String viewId = node.getViewIdResourceName();
         String id = viewId == null ? "" : viewId.toLowerCase(java.util.Locale.ROOT);
         if (id.contains("group_chat") || id.contains("group_icon")
-                || id.contains("group_indicator") || id.contains("group_avatar")) return true;
+                || id.contains("group_indicator") || id.contains("group_avatar")
+                || id.contains("group_badge") || id.contains("group_type")) return true;
 
         CharSequence description = node.getContentDescription();
         String desc = description == null ? "" : description.toString().toLowerCase(java.util.Locale.ROOT);
-        if (desc.contains("group chat") || desc.contains("group icon")
-                || desc.contains("مجموعة") || desc.contains("قروب") || desc.contains("جروب")) return true;
+        if (desc.contains("group chat") || desc.contains("group icon") || desc.contains("group conversation")
+                || desc.contains("مجموعة") || desc.contains("قروب") || desc.contains("جروب")
+                || desc.contains("محادثة جماعية") || desc.contains("دردشة جماعية")) return true;
 
         for (int i = 0; i < node.getChildCount(); i++) {
             if (containsExplicitGroupMarker(node.getChild(i), depth + 1)) return true;
@@ -738,7 +790,9 @@ public class OrderiAccessibilityService extends AccessibilityService {
         if (node == null) return null;
 
         String vid = node.getViewIdResourceName();
-        boolean isBadgeId = vid != null && (vid.contains("badge") || vid.contains("unread") || vid.contains("counter"));
+        boolean isBadgeId = vid != null && (vid.contains("badge") || vid.contains("unread") || vid.contains("counter")
+                || vid.contains("unread_count") || vid.contains("message_count")
+                || vid.contains("row_message_count") || vid.contains("conversation_row_unread_count"));
         if (isBadgeId) {
             CharSequence text = node.getText();
             CharSequence desc = node.getContentDescription();
@@ -758,7 +812,10 @@ public class OrderiAccessibilityService extends AccessibilityService {
         CharSequence desc = node.getContentDescription();
         if (desc != null && desc.length() > 0) {
             String descLower = desc.toString().toLowerCase(java.util.Locale.ROOT);
-            if (descLower.contains("unread") || descLower.contains("غير مقروء") || descLower.contains("غير مقروءة") || descLower.contains("رسائل غير مقروءة")) {
+            if (descLower.contains("unread") || descLower.contains("new messages")
+                    || descLower.contains("غير مقروء") || descLower.contains("غير مقروءة")
+                    || descLower.contains("رسائل غير مقروءة") || descLower.contains("رسائل جديدة")
+                    || descLower.contains("رسالة جديدة")) {
                 AccessibilityNodeInfo row = clickableAncestor(node, 6);
                 if (row != null) {
                     String sig = nodeSignature(row);
@@ -846,6 +903,8 @@ public class OrderiAccessibilityService extends AccessibilityService {
         markArchivedChatsRequested = false;
         archivedSectionOpened = false;
         waitingForChatToClose = false;
+        archivedBackRequested = false;
+        activeChatsProcessed = false;
         archivedReadEventRetries = 0;
         // If the pass stopped early (for example, Accessibility could not identify
         // the archive list), do not leave the user stranded in WhatsApp.
