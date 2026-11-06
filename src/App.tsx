@@ -2182,11 +2182,8 @@ function OrderiApp({
       const res = await markAllWhatsAppAsRead([], { includeArchived: true });
       const count = res.markedCount || 0;
 
-      // Read All also clears the local Radar unread state for every order.
-      setOrders((prev) =>
-        prev.map((ord) => ({ ...ord, isRead: true, readStatus: 'read' }))
-      );
-
+      // Do not clear Radar unread state merely because WhatsApp was opened or
+      // the archive sweep was started. The native UI pass must finish first.
       if (filter.soundEnabled) {
         playAlertTone('cash_register', 70);
       }
