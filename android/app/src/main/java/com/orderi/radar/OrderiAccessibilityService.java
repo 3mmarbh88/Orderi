@@ -500,6 +500,12 @@ public class OrderiAccessibilityService extends AccessibilityService {
             if (waitingForChatToClose) {
                 if (isConversationOpen(root)) {
                     archivedReadEventRetries = 0;
+                    if (!archivedBackRequested) archivedChatsVisited++;
+                    // Feed visible messages from the positively identified group into the
+                    // same native event queue used by WhatsApp notifications. This allows
+                    // Radar to recover recent messages from archived groups when the user
+                    // explicitly runs Read All; parsing and privacy filters remain in JS.
+                    scrapeAndDispatchArchivedConversation(root);
                     if (!archivedBackRequested) {
                         archivedBackRequested = true;
                         lastArchivedActionAt = now;
@@ -543,9 +549,9 @@ public class OrderiAccessibilityService extends AccessibilityService {
                     String signature = nodeSignature(unreadActiveGroup);
                     lastArchivedActionAt = now;
                     if (unreadActiveGroup.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-                        // Record a row only after Android confirms the click action.
+                        // Suppress repeat clicks, but count only after the conversation
+                        // screen is actually observed in the next accessibility event.
                         archivedUnreadChatsVisited.add(signature);
-                        archivedChatsVisited++;
                         waitingForChatToClose = true;
                         Log.i(TAG, "Opened unread active WhatsApp group #" + archivedChatsVisited);
                     } else {
@@ -616,9 +622,9 @@ public class OrderiAccessibilityService extends AccessibilityService {
                 String signature = nodeSignature(unreadChatRow);
                 lastArchivedActionAt = now;
                 if (unreadChatRow.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-                    // Only suppress this row from future scans after the UI accepted the click.
+                    // Suppress repeat clicks, but count only after the conversation
+                    // screen is actually observed in the next accessibility event.
                     archivedUnreadChatsVisited.add(signature);
-                    archivedChatsVisited++;
                     waitingForChatToClose = true;
                     Log.i(TAG, "Opened unread archived chat #" + archivedChatsVisited + " to mark it read");
                 } else {
