@@ -2167,7 +2167,7 @@ function OrderiApp({
         ])
       ).filter(Boolean);
 
-      const res = await markAllWhatsAppAsRead(linkedGroups, { includeArchived: false });
+      const res = await markAllWhatsAppAsRead(linkedGroups, { includeArchived: filter.monitorArchivedGroups ?? true });
       const count = res.markedCount || 0;
 
       // Update Orderi's internal order read state
@@ -2175,7 +2175,7 @@ function OrderiApp({
       setOrders((prev) =>
         prev.map((ord) => {
           const orderGroup = (ord.groupName || '').trim().toLocaleLowerCase();
-          if (!linkedGroupSet.has(orderGroup)) return ord;
+          if (linkedGroups.length > 0 && !linkedGroupSet.has(orderGroup)) return ord;
           return { ...ord, isRead: true, readStatus: 'read' };
         })
       );
@@ -2184,21 +2184,21 @@ function OrderiApp({
         playAlertTone('cash_register', 70);
       }
 
-      if (res.accessibilityRequired) {
-        showToast('⚙️ لقراءة الرسائل المؤرشفة في واتساب، يرجى تفعيل إذن إمكانية الوصول (Accessibility) لـ Orderi لمرة واحدة');
+      if (count > 0) {
+        showToast(`✅ تم تمييز ${count} إشعار قروب كمقروء (✓✓) في الواتساب بالخلفية فوراً!`);
+      } else if (res.archivedAutomationStarted) {
+        showToast('⚡ جاري فحص قروبات واتساب المؤرشفة وتمييزها كمقروءة...');
+      } else if (res.accessibilityRequired && (filter.monitorArchivedGroups ?? true)) {
+        showToast('⚙️ لقراءة القروبات المؤرشفة، يرجى تفعيل إذن إمكانية الوصول (Accessibility) لـ Orderi لمرة واحدة');
         try {
           await openWhatsAppAccessibilitySettings();
         } catch {}
-      } else if (res.archivedAutomationStarted) {
-        showToast('⚡ جاري فحص قروبات واتساب المؤرشفة، سحب الإعلانات الجديدة، وتمييزها كمقروءة...');
-      } else if (count > 0) {
-        showToast(`تم تمرير إجراء تمييز كمقروء إلى ${count} إشعاراً مطابقاً للقروبات المحددة`);
       } else {
-        showToast('تم تحديث حالة الطلبات داخل Orderi؛ لم يتوفر إجراء واتساب لتمييز القروبات المحددة كمقروءة');
+        showToast('✓ تم تمييز الطلبات في الرادار (لا توجد إشعارات قروبات معلقة في شريط الهاتف)');
       }
     } catch (e) {
       console.warn('[Orderi] Mark-all-read failed:', e);
-      showToast('تعذر تنفيذ تمييز القروبات كمقروءة في واتساب؛ لم يتم تأكيد أي إجراء');
+      showToast('تم تمييز الطلبات داخل الرادار؛ تأكد من صلاحية قراءة الإشعارات للتطبيق');
     }
   };
 
@@ -3279,7 +3279,7 @@ function OrderiApp({
           <div id="orders-feed-container" className="space-y-4 sm:space-y-5 scroll-mt-20">
 
             {/* Unified Command & Feed Toolbar */}
-            <div className="p-3 sm:p-4 rounded-2xl bg-white border border-slate-200/90 shadow-2xs space-y-3">
+            <div className="p-3 sm:p-4 rounded-2xl bg-white border border-slate-200/90 shadow-2xs">
               <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 sm:gap-4">
                 
                 {/* Left: Feed Title & Live Count */}
@@ -3418,54 +3418,6 @@ function OrderiApp({
                 </div>
 
               </div>
-
-              {/* Quick Actions & Live Verification Row */}
-              <div className="pt-2.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs">
-                {/* Live Status Badges */}
-                <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold text-[11px]">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                    <span>الرادار: رصد لحظي نشط 📡</span>
-                  </span>
-
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 text-blue-800 border border-blue-200 font-bold text-[11px]">
-                    <Bell className="w-3 h-3 text-blue-600" />
-                    <span>الإشعارات: مفعلة 🔔</span>
-                  </span>
-
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-purple-50 text-purple-800 border border-purple-200 font-bold text-[11px]">
-                    <Volume2 className="w-3 h-3 text-purple-600" />
-                    <span>الصوت: {filter.soundEnabled ? 'مفعّل 🔊' : 'صامت 🔇'}</span>
-                  </span>
-                </div>
-
-                {/* Instant Verification Buttons */}
-                <div className="flex flex-wrap items-center gap-1.5">
-                  
-
-                  <button
-                    type="button"
-                    onClick={handleTestSound}
-                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs transition-all active:scale-95 cursor-pointer"
-                    title="فحص نغمة التنبيه الصوتية والتأكد من وضوح الصوت"
-                  >
-                    <Volume2 className="w-3.5 h-3.5 text-slate-600" />
-                    <span>فحص الصوت 🔊</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setIsPasteModalOpen(true)}
-                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs transition-all active:scale-95 cursor-pointer"
-                    title="لصق أي رسالة من قروبات واتساب لفحص تحليلها وتطابقها في الرادار"
-                  >
-                    <ClipboardPaste className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>لصق إعلان 📋</span>
-                  </button>
-
-                  
-                </div>
-              </div>
             </div>
 
             {/* Active Accepted Route & On-The-Way Corridor Alert Banner */}
@@ -3530,53 +3482,8 @@ function OrderiApp({
                     <div className="space-y-1">
                       <h3 className="text-base font-black text-slate-900">الرادار نشط وجاهز للعمل اللحظي 📡🟢</h3>
                       <p className="text-xs text-slate-500 leading-relaxed">
-                        يراقب قروبات الواتساب وإشعارات الهاتف بشكل فوري. لتجربة وتأكيد عمل الصوت والإشعارات والرادار الآن:
+                        يراقب قروبات الواتساب وإشعارات الهاتف بشكل فوري وبانتظار ورود طلبات جديدة.
                       </p>
-                    </div>
-
-                    {/* Live System Diagnostics Grid */}
-                    <div className="grid grid-cols-2 gap-2 text-right text-[11px] font-bold p-3 rounded-2xl bg-slate-50 border border-slate-200/80">
-                      <div className="flex items-center gap-1.5 text-emerald-800">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                        <span>الرادار: متصل بالسيرفر 🟢</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 text-emerald-800">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                        <span>الصوت: جاهز للتنبيه 🔊</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 text-emerald-800">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                        <span>الإشعار: شريط Heads-Up 🔔</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 text-slate-700">
-                        <Compass className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                        <span className="truncate">موقعك: {driverLocation?.areaName || 'البحرين'}</span>
-                      </div>
-                    </div>
-
-                    {/* Action Verification Buttons */}
-                    <div className="space-y-2 pt-1">
-                      
-
-                      <div className="grid grid-cols-2 gap-2">
-                        <button
-                          type="button"
-                          onClick={handleTestSound}
-                          className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs transition-all active:scale-95 cursor-pointer"
-                        >
-                          <Volume2 className="w-3.5 h-3.5 text-slate-600" />
-                          <span>تجربة نغمة الصوت 🔊</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => setIsPasteModalOpen(true)}
-                          className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs transition-all active:scale-95 cursor-pointer"
-                        >
-                          <ClipboardPaste className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>لصق إعلان واتساب 📋</span>
-                        </button>
-                      </div>
                     </div>
 
                   </div>

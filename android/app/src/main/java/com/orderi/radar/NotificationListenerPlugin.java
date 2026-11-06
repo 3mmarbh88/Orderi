@@ -628,29 +628,31 @@ public class NotificationListenerPlugin extends Plugin {
                 }
             }
 
-            JSObject ret = new JSObject();
-            if (targetGroups.isEmpty()) {
-                ret.put("success", false);
-                ret.put("markedCount", 0);
-                ret.put("method", "no_target_groups");
-                ret.put("whatsAppOpened", false);
-                ret.put("archivedAutomationStarted", false);
-                call.resolve(ret);
-                return;
+            boolean includeArchived = Boolean.TRUE.equals(call.getBoolean("includeArchived", false));
+            boolean archivedAutomationStarted = false;
+            boolean accessibilityRequired = false;
+
+            if (includeArchived) {
+                if (OrderiAccessibilityService.isServiceRunning() && OrderiAccessibilityService.isAccessibilityEnabled(getContext())) {
+                    archivedAutomationStarted = OrderiAccessibilityService.requestMarkArchivedChatsRead(getContext());
+                } else {
+                    accessibilityRequired = true;
+                }
             }
 
-            // Only mark notifications belonging to the active, explicitly supplied Radar groups.
-            // Archived chats are deliberately excluded; this action never launches WhatsApp.
+            // Mark notifications belonging to active groups in the Android notification shade in background
             int count = WhatsAppNotificationListenerService.markAllWhatsAppAsRead(getContext(), targetGroups);
-            ret.put("success", count > 0);
+
+            JSObject ret = new JSObject();
+            ret.put("success", count > 0 || archivedAutomationStarted);
             ret.put("markedCount", count);
-            ret.put("method", count > 0 ? "target_groups_marked_read" : "no_matching_mark_as_read_action");
-            ret.put("archivedAutomationStarted", false);
-            ret.put("accessibilityRequired", false);
-            ret.put("whatsAppOpened", false);
+            ret.put("method", count > 0 ? "target_groups_marked_read" : (archivedAutomationStarted ? "archived_automation_started" : "no_matching_mark_as_read_action"));
+            ret.put("archivedAutomationStarted", archivedAutomationStarted);
+            ret.put("accessibilityRequired", accessibilityRequired);
+            ret.put("whatsAppOpened", archivedAutomationStarted);
             call.resolve(ret);
         } catch (Exception e) {
-            call.reject("Failed to mark selected WhatsApp groups as read", e);
+            call.reject("Failed to mark WhatsApp groups as read", e);
         }
     }
 }

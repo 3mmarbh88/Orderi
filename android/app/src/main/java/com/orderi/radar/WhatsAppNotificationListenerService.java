@@ -114,32 +114,61 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         return count;
     }
 
+    private static String cleanGroupTitle(String s) {
+        if (s == null) return "";
+        return s.trim().toLowerCase(java.util.Locale.ROOT)
+                .replaceAll("[إأآا]", "ا")
+                .replaceAll("ة", "ه")
+                .replaceAll("ى", "ي")
+                .replaceAll("[^\\p{L}\\p{N}\\s]", "")
+                .replaceAll("\\s+", " ").trim();
+    }
+
+    private static boolean matchesTargetGroup(String title, java.util.HashSet<String> wantedGroups) {
+        if (wantedGroups == null || wantedGroups.isEmpty()) return true;
+        String clean = cleanGroupTitle(title);
+        if (clean.isEmpty()) return false;
+        if (wantedGroups.contains(clean)) return true;
+        for (String w : wantedGroups) {
+            if (w.isEmpty()) continue;
+            if (clean.contains(w) || w.contains(clean)) return true;
+        }
+        return false;
+    }
+
     public static int markAllWhatsAppAsRead(android.content.Context context) {
-        return 0; // Never perform an unscoped "mark all" operation.
+        return markAllWhatsAppAsRead(context, null);
     }
 
     /**
-     * Marks only explicitly requested group notifications as read.
-     * Does not clear, dismiss, or execute actions for unrelated chats.
+     * Marks group notifications as read.
+     * When targetGroups is provided, matches those groups flexibly.
+     * When targetGroups is empty or null, marks all active WhatsApp group notifications as read,
+     * while strictly protecting and excluding personal private chats.
      */
     public static int markAllWhatsAppAsRead(android.content.Context context, java.util.List<String> targetGroups) {
-        if (targetGroups == null || targetGroups.isEmpty()) return 0;
+        boolean matchAnyGroup = (targetGroups == null || targetGroups.isEmpty());
         java.util.HashSet<String> wantedGroups = new java.util.HashSet<>();
-        for (String group : targetGroups) {
-            if (group != null && !group.trim().isEmpty()) {
-                wantedGroups.add(group.trim().toLowerCase(java.util.Locale.ROOT).replaceAll("\\s+", " "));
+        if (!matchAnyGroup) {
+            for (String group : targetGroups) {
+                if (group != null && !group.trim().isEmpty()) {
+                    String cleaned = cleanGroupTitle(group);
+                    if (!cleaned.isEmpty()) wantedGroups.add(cleaned);
+                }
             }
         }
-        if (wantedGroups.isEmpty()) return 0;
+        if (!matchAnyGroup && wantedGroups.isEmpty()) {
+            matchAnyGroup = true;
+        }
 
         java.util.HashSet<PendingIntent> sentIntents = new java.util.HashSet<>();
         int count = 0;
 
-        // Use cached actions only when their resolved group title exactly matches a requested group.
+        // 1. Use cached actions for active WhatsApp groups
         for (MarkAsReadHolder holder : MARK_AS_READ_ACTIONS.values()) {
             if (holder == null || !holder.isGroup || holder.pendingIntent == null || TextUtils.isEmpty(holder.title)) continue;
-            String title = holder.title.trim().toLowerCase(java.util.Locale.ROOT).replaceAll("\\s+", " ");
-            if (!wantedGroups.contains(title) || sentIntents.contains(holder.pendingIntent)) continue;
+            if (!matchAnyGroup && !matchesTargetGroup(holder.title, wantedGroups)) continue;
+            if (sentIntents.contains(holder.pendingIntent)) continue;
             try {
                 holder.pendingIntent.send();
                 sentIntents.add(holder.pendingIntent);
@@ -149,8 +178,7 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
             }
         }
 
-        // Inspect active notifications and execute only an explicit Mark-as-read action
-        // on an exact matching group conversation. Never cancel unrelated notifications.
+        // 2. Inspect active notifications and execute explicit Mark-as-read action on matching groups
         if (instance != null) {
             try {
                 StatusBarNotification[] active = instance.getActiveNotifications();
@@ -165,8 +193,9 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                         String resolvedTitle = conversationTitle == null ? "" : conversationTitle.toString().trim();
                         boolean isGroup = extras.getBoolean(Notification.EXTRA_IS_GROUP_CONVERSATION, false)
                                 || extras.getBoolean("is_group_conversation", false);
-                        String normalizedTitle = resolvedTitle.toLowerCase(java.util.Locale.ROOT).replaceAll("\\s+", " ");
-                        if (!isGroup || !wantedGroups.contains(normalizedTitle)) continue;
+                        // Strictly protect private 1-on-1 personal chats from being mass-marked
+                        if (!isGroup) continue;
+                        if (!matchAnyGroup && !matchesTargetGroup(resolvedTitle, wantedGroups)) continue;
 
                         java.util.List<Notification.Action> actions = new java.util.ArrayList<>();
                         if (notification.actions != null) {

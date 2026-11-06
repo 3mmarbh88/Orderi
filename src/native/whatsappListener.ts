@@ -157,7 +157,7 @@ export async function markAllWhatsAppAsRead(
     try {
       const res = await OrderiNotificationListener.markAllAsRead({
         groupNames: groupNames || [],
-        includeArchived: false,
+        includeArchived: options?.includeArchived ?? true,
       });
       markedCount = res.markedCount || 0;
       nativeReadSucceeded = !!res.success;
