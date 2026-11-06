@@ -631,7 +631,10 @@ export function parseWhatsAppOrderText(rawText: string): RawParsedResult {
   if (advertisementDetection.isAdvertisement) confidence = 0;
 
   // Service promotions must never become radar orders just because they mention routes, items or prices.
-  const canCreateOrder = !advertisementDetection.isAdvertisement && !!fromArea && !!toArea;
+  // Two place names alone are not proof of a delivery request. Keep the user's
+  // explicit same-area shorthand, but require clear order intent for other routes.
+  const canCreateOrder = !advertisementDetection.isAdvertisement &&
+    !!fromArea && !!toArea && (hasOrderIntent || sameAreaShorthand);
   const isPriceUnspecified = !price || price <= 0;
 
   return {
