@@ -168,7 +168,7 @@ const DEFAULT_FILTER: OrderFilter = {
   autoCloseAmbiguousAction: 'flag',
   excludeMyOwnAds: true,
   captainPhone: '',
-  monitorArchivedGroups: true, // رصد ومراقبة قروبات الواتساب المؤرشفة تلقائياً
+  monitorArchivedGroups: false, // الأرشيف غير مشمول افتراضياً لحماية الخصوصية
   // Cloud AI Deep Analysis enabled for WhatsApp orders
   useCloudAiFallback: false,
 };
@@ -201,7 +201,15 @@ function OrderiApp({
               )
             : [];
 
-          return { ...DEFAULT_FILTER, ...parsed, allJoinedGroupsMode: false, contacts: existingContacts };
+          const privacyMigrationKey = 'orderi_privacy_archived_readall_v1';
+          let migratedArchivedSetting = parsed.monitorArchivedGroups;
+          try {
+            if (localStorage.getItem(privacyMigrationKey) !== 'done') {
+              migratedArchivedSetting = false;
+              localStorage.setItem(privacyMigrationKey, 'done');
+            }
+          } catch { migratedArchivedSetting = false; }
+          return { ...DEFAULT_FILTER, ...parsed, allJoinedGroupsMode: parsed.allJoinedGroupsMode === true, monitorArchivedGroups: migratedArchivedSetting === true, contacts: existingContacts };
         }
       }
     } catch {}
@@ -2167,15 +2175,21 @@ function OrderiApp({
         ])
       ).filter(Boolean);
 
-      const res = await markAllWhatsAppAsRead(linkedGroups, { includeArchived: filter.monitorArchivedGroups ?? true });
+      if (linkedGroups.length === 0) {
+        showToast('⚠️ لم يتم تحديد أي مجموعة مرتبطة؛ لم يتم تغيير حالة أي محادثة');
+        return;
+      }
+
+      // Read only explicitly linked active groups. Archived chats are never opened or scraped here.
+      const res = await markAllWhatsAppAsRead(linkedGroups, { includeArchived: false });
       const count = res.markedCount || 0;
 
-      // Update Orderi's internal order read state
+      // Update only orders belonging to the explicitly selected groups.
       const linkedGroupSet = new Set(linkedGroups.map((group) => group.trim().toLocaleLowerCase()));
       setOrders((prev) =>
         prev.map((ord) => {
           const orderGroup = (ord.groupName || '').trim().toLocaleLowerCase();
-          if (linkedGroups.length > 0 && !linkedGroupSet.has(orderGroup)) return ord;
+          if (!linkedGroupSet.has(orderGroup)) return ord;
           return { ...ord, isRead: true, readStatus: 'read' };
         })
       );
@@ -2186,13 +2200,6 @@ function OrderiApp({
 
       if (count > 0) {
         showToast(`✅ تم تمييز ${count} إشعار قروب كمقروء (✓✓) في الواتساب بالخلفية فوراً!`);
-      } else if (res.archivedAutomationStarted) {
-        showToast('⚡ جاري فحص قروبات واتساب المؤرشفة وتمييزها كمقروءة...');
-      } else if (res.accessibilityRequired && (filter.monitorArchivedGroups ?? true)) {
-        showToast('⚙️ لقراءة القروبات المؤرشفة، يرجى تفعيل إذن إمكانية الوصول (Accessibility) لـ Orderi لمرة واحدة');
-        try {
-          await openWhatsAppAccessibilitySettings();
-        } catch {}
       } else {
         showToast('✓ تم تمييز الطلبات في الرادار (لا توجد إشعارات قروبات معلقة في شريط الهاتف)');
       }
