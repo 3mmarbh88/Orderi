@@ -168,7 +168,7 @@ const DEFAULT_FILTER: OrderFilter = {
   autoCloseAmbiguousAction: 'flag',
   excludeMyOwnAds: true,
   captainPhone: '',
-  monitorArchivedGroups: false, // الأرشيف غير مشمول افتراضياً لحماية الخصوصية
+  monitorArchivedGroups: true, // التقاط إشعارات جميع القروبات الموثقة في الخلفية دون فتح واتساب
   // Cloud AI Deep Analysis enabled for WhatsApp orders
   useCloudAiFallback: false,
 };
@@ -201,14 +201,16 @@ function OrderiApp({
               )
             : [];
 
-          const privacyMigrationKey = 'orderi_privacy_archived_readall_v1';
-          let migratedArchivedSetting = parsed.monitorArchivedGroups;
+          const archivedMonitoringMigrationKey = 'orderi_verified_group_notification_monitoring_v1';
+          let migratedArchivedSetting = parsed.monitorArchivedGroups === undefined ? true : parsed.monitorArchivedGroups;
           try {
-            if (localStorage.getItem(privacyMigrationKey) !== 'done') {
-              migratedArchivedSetting = false;
-              localStorage.setItem(privacyMigrationKey, 'done');
+            if (localStorage.getItem(archivedMonitoringMigrationKey) !== 'done') {
+              // User explicitly requested all verified WhatsApp groups, including unselected
+              // archived groups, to be monitored from notification events without opening WhatsApp.
+              migratedArchivedSetting = true;
+              localStorage.setItem(archivedMonitoringMigrationKey, 'done');
             }
-          } catch { migratedArchivedSetting = false; }
+          } catch { migratedArchivedSetting = true; }
           return { ...DEFAULT_FILTER, ...parsed, allJoinedGroupsMode: parsed.allJoinedGroupsMode === true, monitorArchivedGroups: migratedArchivedSetting === true, contacts: existingContacts };
         }
       }
@@ -448,7 +450,9 @@ function OrderiApp({
               try {
                 // Strict Source Discrimination:
                 // Only authorized delivery groups can be restored or checked for closures
-                const sourceAnalysis = discriminateConversationSource(event, filterRef.current);
+                const sourceAnalysis = discriminateConversationSource(event, filterRef.current, {
+                  allowAllVerifiedGroups: event.source === 'whatsapp_notification' && filterRef.current.monitorArchivedGroups === true,
+                });
                 if (!canMessageCreateRadarOrder(sourceAnalysis)) {
                   if (sourceAnalysis.isPrivateIndividual) {
                     incrementExcludedPrivateChatsCounter();
@@ -1045,8 +1049,15 @@ function OrderiApp({
       return;
     }
 
-    // Check if WhatsApp group is allowed by driver's group filter
-    if (!isOrderGroupAllowedRef(raw.groupName)) {
+    // All verified Android WhatsApp notification groups are included when the user
+    // enables background monitoring, even if they are not selected in Orderi.
+    // This exception is limited to events already verified as real groups by the
+    // source discriminator; private and ambiguous chats never reach this point.
+    const isVerifiedNativeGroupNotification =
+      raw.source === 'android_notification' &&
+      raw.isDirectPrivate === false &&
+      filterRef.current.monitorArchivedGroups === true;
+    if (!isOrderGroupAllowedRef(raw.groupName) && !isVerifiedNativeGroupNotification) {
       return;
     }
 
@@ -1513,7 +1524,9 @@ function OrderiApp({
 
       // 1. Strict Conversation Source Discrimination:
       // Identifies authorized delivery groups vs personal 1-on-1 private chats vs ambiguous sources
-      const sourceAnalysis = discriminateConversationSource(event, filterRef.current);
+      const sourceAnalysis = discriminateConversationSource(event, filterRef.current, {
+        allowAllVerifiedGroups: event.source === 'whatsapp_notification' && filterRef.current.monitorArchivedGroups === true,
+      });
 
       if (sourceAnalysis.sourceType === 'private_individual') {
         incrementExcludedPrivateChatsCounter();
@@ -1600,12 +1613,9 @@ function OrderiApp({
       // IMMEDIATE GROUP REGISTRATION & AUTO-ADOPTION: Always bind and monitor the group automatically
       if (groupName && groupName !== 'محادثة خاصة 👤' && !groupName.includes('محادثة خاصة') && !isSimulatedMockGroup(groupName)) {
         autoAdoptDetectedGroups([groupName]);
-        setFilter((prev) => {
-          if (!prev.selectedGroups.includes(groupName)) {
-            return { ...prev, selectedGroups: [...prev.selectedGroups, groupName] };
-          }
-          return prev;
-        });
+        // Keep the user's selectedGroups whitelist unchanged. Notification-only
+        // all-group monitoring is authorized separately and must not silently
+        // rewrite their manual group selections.
         try {
           const saved = localStorage.getItem('orderi_my_whatsapp_groups');
           const list = saved ? JSON.parse(saved) : [];
