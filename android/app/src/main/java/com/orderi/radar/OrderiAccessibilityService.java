@@ -541,6 +541,11 @@ public class OrderiAccessibilityService extends AccessibilityService {
             // STEP 4: Search for unread chat in the Archived list
             AccessibilityNodeInfo unreadChatRow = findUnreadChatInArchived(root);
             if (unreadChatRow != null) {
+                if (archivedChatsVisited >= MAX_ARCHIVED_CHATS_TO_VISIT) {
+                    performGlobalAction(GLOBAL_ACTION_BACK);
+                    finishArchivedReadPass("Safety limit reached; remaining archived group chats were not processed");
+                    return;
+                }
                 String signature = nodeSignature(unreadChatRow);
                 archivedUnreadChatsVisited.add(signature);
                 lastArchivedActionAt = now;
@@ -554,7 +559,7 @@ public class OrderiAccessibilityService extends AccessibilityService {
 
             // STEP 5: No unread chat visible on current screen. Attempt scroll forward.
             AccessibilityNodeInfo scrollable = findScrollableNode(root);
-            if (scrollable != null && archivedScrollAttempts < 4) {
+            if (scrollable != null && archivedScrollAttempts < 40) {
                 archivedScrollAttempts++;
                 lastArchivedActionAt = now;
                 boolean scrolled = scrollable.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD);
@@ -563,12 +568,13 @@ public class OrderiAccessibilityService extends AccessibilityService {
                 }
             }
 
-            // STEP 6: Finished! All archived chats are 100% read. Return to Orderi!
-            Log.i(TAG, "Archived read pass complete! All archived chats are read. Total opened: " + archivedChatsVisited);
+            // STEP 6: No more unread rows with an explicit group marker are visible. Do not claim
+            // that private/ambiguous rows or groups hidden by WhatsApp were processed.
+            Log.i(TAG, "Archived group read pass reached the end of its bounded scan. Group chats opened: " + archivedChatsVisited);
             performGlobalAction(GLOBAL_ACTION_BACK);
             new Handler(Looper.getMainLooper()).postDelayed(() -> {
                 returnToOrderi();
-                finishArchivedReadPass("All archived chats marked as read successfully");
+                finishArchivedReadPass("No more explicitly identified unread archived group rows were found");
             }, 250L);
 
         } catch (Exception e) {
@@ -700,6 +706,34 @@ public class OrderiAccessibilityService extends AccessibilityService {
         return searchUnreadInNode(root);
     }
 
+    /**
+     * Fail closed for archived rows: only open a row when WhatsApp's Accessibility
+     * tree explicitly identifies it as a group. Never infer "group" from a chat name,
+     * unread badge, message preview, or participant-like text.
+     */
+    private boolean isExplicitGroupChatRow(AccessibilityNodeInfo row) {
+        if (row == null) return false;
+        return containsExplicitGroupMarker(row, 0);
+    }
+
+    private boolean containsExplicitGroupMarker(AccessibilityNodeInfo node, int depth) {
+        if (node == null || depth > 10) return false;
+        String viewId = node.getViewIdResourceName();
+        String id = viewId == null ? "" : viewId.toLowerCase(java.util.Locale.ROOT);
+        if (id.contains("group_chat") || id.contains("group_icon")
+                || id.contains("group_indicator") || id.contains("group_avatar")) return true;
+
+        CharSequence description = node.getContentDescription();
+        String desc = description == null ? "" : description.toString().toLowerCase(java.util.Locale.ROOT);
+        if (desc.contains("group chat") || desc.contains("group icon")
+                || desc.contains("مجموعة") || desc.contains("قروب") || desc.contains("جروب")) return true;
+
+        for (int i = 0; i < node.getChildCount(); i++) {
+            if (containsExplicitGroupMarker(node.getChild(i), depth + 1)) return true;
+        }
+        return false;
+    }
+
     private AccessibilityNodeInfo searchUnreadInNode(AccessibilityNodeInfo node) {
         if (node == null) return null;
 
@@ -714,7 +748,7 @@ public class OrderiAccessibilityService extends AccessibilityService {
                 AccessibilityNodeInfo row = clickableAncestor(node, 6);
                 if (row != null) {
                     String sig = nodeSignature(row);
-                    if (!archivedUnreadChatsVisited.contains(sig)) {
+                    if (isExplicitGroupChatRow(row) && !archivedUnreadChatsVisited.contains(sig)) {
                         return row;
                     }
                 }
@@ -728,7 +762,7 @@ public class OrderiAccessibilityService extends AccessibilityService {
                 AccessibilityNodeInfo row = clickableAncestor(node, 6);
                 if (row != null) {
                     String sig = nodeSignature(row);
-                    if (!archivedUnreadChatsVisited.contains(sig)) {
+                    if (isExplicitGroupChatRow(row) && !archivedUnreadChatsVisited.contains(sig)) {
                         return row;
                     }
                 }
@@ -813,6 +847,11 @@ public class OrderiAccessibilityService extends AccessibilityService {
         archivedSectionOpened = false;
         waitingForChatToClose = false;
         archivedReadEventRetries = 0;
+        // If the pass stopped early (for example, Accessibility could not identify
+        // the archive list), do not leave the user stranded in WhatsApp.
+        if (!reason.startsWith("No more explicitly identified unread archived group rows")) {
+            new Handler(Looper.getMainLooper()).postDelayed(this::returnToOrderi, 300L);
+        }
     }
 
     private void returnToOrderi() {

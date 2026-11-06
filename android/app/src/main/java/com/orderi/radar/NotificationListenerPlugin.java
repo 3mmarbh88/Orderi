@@ -628,33 +628,36 @@ public class NotificationListenerPlugin extends Plugin {
                 }
             }
 
-            if (targetGroups.isEmpty()) {
-                JSObject ret = new JSObject();
-                ret.put("success", false);
-                ret.put("markedCount", 0);
-                ret.put("method", "no_explicit_groups");
-                ret.put("archivedAutomationStarted", false);
-                ret.put("accessibilityRequired", false);
-                ret.put("whatsAppOpened", false);
-                call.resolve(ret);
-                return;
+            boolean includeArchived = call.getBoolean("includeArchived", false);
+            // Empty targets are intentional here: the user pressed Read All, so
+            // include every group notification Android positively identifies.
+            int count = WhatsAppNotificationListenerService.markAllWhatsAppAsRead(
+                    getContext(), targetGroups.isEmpty() ? null : targetGroups);
+
+            boolean archivedStarted = false;
+            boolean accessibilityRequired = false;
+            boolean whatsAppOpened = false;
+            if (includeArchived) {
+                accessibilityRequired = !OrderiAccessibilityService.isAccessibilityEnabled(getContext())
+                        || !OrderiAccessibilityService.isServiceRunning();
+                if (!accessibilityRequired) {
+                    archivedStarted = OrderiAccessibilityService.requestMarkArchivedChatsRead(getContext());
+                    whatsAppOpened = archivedStarted;
+                    if (!archivedStarted) accessibilityRequired = true;
+                }
             }
 
-            // Read only explicitly named active groups. The archived-chat accessibility
-            // sweep is intentionally not invoked by Read All: it opens WhatsApp and
-            // may expose private archived conversations to the scraper.
-            int count = WhatsAppNotificationListenerService.markAllWhatsAppAsRead(getContext(), targetGroups);
-
             JSObject ret = new JSObject();
-            ret.put("success", count > 0);
+            ret.put("success", count > 0 || archivedStarted);
             ret.put("markedCount", count);
-            ret.put("method", count > 0 ? "target_groups_marked_read" : "no_matching_mark_as_read_action");
-            ret.put("archivedAutomationStarted", false);
-            ret.put("accessibilityRequired", false);
-            ret.put("whatsAppOpened", false);
+            ret.put("method", archivedStarted ? "all_group_notifications_and_archived_sweep_started"
+                    : (count > 0 ? "all_group_notifications_marked_read" : "no_matching_group_read_actions"));
+            ret.put("archivedAutomationStarted", archivedStarted);
+            ret.put("accessibilityRequired", accessibilityRequired);
+            ret.put("whatsAppOpened", whatsAppOpened);
             call.resolve(ret);
         } catch (Exception e) {
-            call.reject("Failed to mark WhatsApp groups as read", e);
+            call.reject("Failed to mark all WhatsApp groups as read", e);
         }
     }
 }
