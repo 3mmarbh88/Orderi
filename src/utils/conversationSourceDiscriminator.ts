@@ -196,7 +196,8 @@ export function isPrivateChatPlaceholder(name?: string): boolean {
  */
 export function isGroupAuthorizedByFilter(
   groupName: string, 
-  filter?: Partial<FilterSettings> | null
+  filter?: Partial<FilterSettings> | null,
+  allowAllVerifiedGroups = false
 ): boolean {
   const name = (groupName || '').trim();
   if (!name || isPrivateChatPlaceholder(name)) return false;
@@ -212,9 +213,14 @@ export function isGroupAuthorizedByFilter(
     return false;
   }
 
-  // Monitoring every WhatsApp group is an explicit opt-in. The safe default is
-  // a whitelist, because WhatsApp group metadata cannot tell delivery groups from
-  // family/friends/social groups.
+  // A verified Android WhatsApp notification may be accepted from any real group
+  // when the user explicitly enabled background monitoring of all groups. This
+  // does not authorize private chats or ambiguous notification sources.
+  if (allowAllVerifiedGroups) return true;
+
+  // Monitoring every WhatsApp group from non-notification sources remains a
+  // separate explicit opt-in. WhatsApp metadata cannot distinguish delivery groups
+  // from family/friends/social groups.
   if (filter?.allJoinedGroupsMode === true) return true;
 
   // In restricted mode, only explicitly selected delivery groups are authorized.
@@ -247,8 +253,10 @@ export function discriminateConversationSource(
     senderPhone?: string;
     packageName?: string;
     rawText?: string;
+    source?: string;
   },
-  filter?: Partial<FilterSettings> | null
+  filter?: Partial<FilterSettings> | null,
+  options: { allowAllVerifiedGroups?: boolean } = {}
 ): ConversationSourceAnalysis {
   const rawGroup = (event.groupName || '').trim();
   const rawConvTitle = (event.conversationTitle || '').trim();
@@ -334,7 +342,11 @@ export function discriminateConversationSource(
     canonicalGroupName = canonicalGroupName.replace(/\s*\(\d+[^)]*\)$/, '').trim();
 
     // Check if the group is authorized according to driver filter settings
-    const isAuthorized = isGroupAuthorizedByFilter(canonicalGroupName, filter);
+    const isAuthorized = isGroupAuthorizedByFilter(
+      canonicalGroupName,
+      filter,
+      options.allowAllVerifiedGroups === true
+    );
 
     if (isAuthorized) {
       return {
