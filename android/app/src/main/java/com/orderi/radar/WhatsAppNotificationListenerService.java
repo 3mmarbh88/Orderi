@@ -935,11 +935,12 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
 
         String clean = rawText.length() > 90 ? rawText.substring(0, 90) + "..." : rawText;
 
-        String notifTitle = isPassenger 
-            ? "🚨 نقل ركاب " + (passengerCount > 0 ? "(" + passengerCount + " ركاب) " : "") + "• تحذير 🚫"
-            : "🚗 طلب جديد: " + fromArea + " ← " + toArea;
-
+        // Keep the notification compact and consistent with the Radar card.
+        // The route and price are the primary information; avoid verbose prefixes.
         String routeText = fromArea + " ← " + toArea + (priceDisplay.isEmpty() ? "" : " " + priceDisplay);
+        String notifTitle = isPassenger
+            ? "🚨 طلب نقل ركاب"
+            : routeText;
         String notifBody = routeText;
 
         Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
