@@ -26,20 +26,31 @@ const listeners = new Set<(status: DeviceTrialStatus) => void>();
 
 let currentStatus: DeviceTrialStatus | null = null;
 
-function computeRemaining(_expiresAt: number, _isActivated: boolean): {
+function computeRemaining(expiresAt: number, isActivated: boolean): {
   days: number;
   hours: number;
   minutes: number;
   isExpired: boolean;
   formatted: string;
 } {
-  return {
-    days: 9999,
-    hours: 99999,
-    minutes: 999999,
-    isExpired: false,
-    formatted: 'البرنامج مفعل بالكامل وبشكل دائم 🇧🇭',
-  };
+  if (isActivated) {
+    return { days: 0, hours: 0, minutes: 0, isExpired: false, formatted: 'الاشتراك مفعل 🇧🇭' };
+  }
+  const expiry = Number(expiresAt);
+  if (!Number.isFinite(expiry) || expiry <= 0) {
+    return { days: 0, hours: 0, minutes: 0, isExpired: true, formatted: 'تاريخ انتهاء الفترة غير صالح' };
+  }
+  const diff = expiry - Date.now();
+  if (diff <= 0) {
+    return { days: 0, hours: 0, minutes: 0, isExpired: true, formatted: 'انتهت الفترة التجريبية' };
+  }
+  const days = Math.floor(diff / 86400000);
+  const hours = Math.floor((diff % 86400000) / 3600000);
+  const minutes = Math.floor((diff % 3600000) / 60000);
+  const formatted = days > 0 ? `${days} يوم و ${hours} ساعة`
+    : hours > 0 ? `${hours} ساعة و ${minutes} دقيقة`
+    : `${minutes} دقيقة`;
+  return { days, hours, minutes, isExpired: false, formatted };
 }
 
 
@@ -237,43 +248,9 @@ export async function activateDeviceTrial(
     }
 
     return { success: false, message: data.error || 'كود التفعيل غير صالح' };
-  } catch (netErr) {
-    // التحقق المحلي في حال غياب الاتصال
-    const validLocalCodes = ['ORDERI-VIP-2026', 'ORDERI7', 'BAHRAIN-PRO-2026', 'ORD-PRO-2026'];
-    if (validLocalCodes.includes(trimmed) || (trimmed.startsWith('ORD-') && trimmed.length >= 10)) {
-      const current = currentStatus || getCachedDeviceTrialStatus();
-      const updated: DeviceTrialStatus = {
-        ...(current || {
-          deviceId: identity.deviceId,
-          hardwareFingerprint: identity.hardwareFingerprint,
-          model: identity.model,
-          firstInstalledAt: Date.now(),
-          expiresAt: Date.now() + 365 * 24 * 3600 * 1000,
-          daysRemaining: 999,
-          hoursRemaining: 999,
-          minutesRemaining: 999,
-          isTrialActive: false,
-          isExpired: false,
-          isActivated: true,
-          installCount: 1,
-          lastCheckedAt: Date.now(),
-          formattedRemaining: 'الاشتراك مفعل بالكامل 🇧🇭',
-        }),
-        isActivated: true,
-        isExpired: false,
-        isTrialActive: false,
-        activationCode: trimmed,
-        activationType: 'lifetime',
-        formattedRemaining: 'الاشتراك مفعل بالكامل 🇧🇭',
-      };
-      try {
-        localStorage.setItem(LOCAL_TRIAL_CACHE_KEY, JSON.stringify(updated));
-      } catch {}
-      notifyListeners(updated);
-      return { success: true, message: 'تم تفعيل البرنامج محلياً بنجاح! 🚀', status: updated };
-    }
-
-    return { success: false, message: 'تعذر الاتصال بالسيرفر للتحقق من كود التفعيل' };
+  } catch {
+    // Never grant a license from a client-side code or prefix while offline.
+    return { success: false, message: 'تعذر الاتصال بالسيرفر للتحقق من كود التفعيل. لم يتم تفعيل الاشتراك.' };
   }
 }
 
