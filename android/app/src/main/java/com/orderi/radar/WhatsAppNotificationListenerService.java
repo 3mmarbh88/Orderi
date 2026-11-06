@@ -152,7 +152,7 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         // Private 1-on-1 notifications remain excluded by the isGroup checks below.
         boolean matchAnyGroup = targetGroups == null || targetGroups.isEmpty();
         java.util.HashSet<String> wantedGroups = new java.util.HashSet<>();
-        {
+        if (targetGroups != null) {
             for (String group : targetGroups) {
                 if (group != null && !group.trim().isEmpty()) {
                     String cleaned = cleanGroupTitle(group);
