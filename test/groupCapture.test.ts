@@ -66,6 +66,44 @@ assert(
   'Rejects generic WhatsApp labels even when all-groups mode is enabled'
 );
 
+// The user-approved Android notification mode accepts every positively verified
+// WhatsApp group, including unselected archived groups, without opening WhatsApp.
+assert(
+  isGroupAuthorizedByFilter('قروب العائلة المؤرشف', safeDefaultFilter, true) === true,
+  'Allows an unselected verified group notification when all-group background capture is enabled'
+);
+assert(
+  isGroupAuthorizedByFilter('واتساب', safeDefaultFilter, true) === false,
+  'Still rejects generic WhatsApp labels without a real group identity'
+);
+const unselectedArchivedNotification = {
+  source: 'whatsapp_notification',
+  isGroup: true,
+  isExplicitGroup: true,
+  title: 'قروب العائلة المؤرشف: بو علي',
+  rawText: 'مطلوب مندوب من المحرق إلى الرفاع 2 دينار',
+};
+const archivedNotificationAnalysis = discriminateConversationSource(
+  unselectedArchivedNotification,
+  safeDefaultFilter,
+  { allowAllVerifiedGroups: true }
+);
+assert(
+  archivedNotificationAnalysis.sourceType === 'authorized_group' &&
+  canMessageCreateRadarOrder(archivedNotificationAnalysis),
+  'Accepts an unselected archived group only through a verified Android WhatsApp notification'
+);
+const privateNotificationWithOptIn = discriminateConversationSource(
+  { source: 'whatsapp_notification', isGroup: false, isDirectPrivate: true, title: 'صديق', rawText: 'توصيل المحرق للرفاع' },
+  safeDefaultFilter,
+  { allowAllVerifiedGroups: true }
+);
+assert(
+  privateNotificationWithOptIn.sourceType === 'private_individual' &&
+  !canMessageCreateRadarOrder(privateNotificationWithOptIn),
+  'Never allows private 1-on-1 notifications even when all-group capture is enabled'
+);
+
 // 2. Private 1-on-1 chats are always excluded
 assert(
   isGroupAuthorizedByFilter('محادثة خاصة 👤', defaultFilter) === false,
