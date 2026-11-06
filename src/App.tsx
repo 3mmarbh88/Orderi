@@ -2176,46 +2176,33 @@ function OrderiApp({
 
   const handleMarkAllWhatsAppAsRead = async () => {
     try {
-      const linkedGroups = Array.from(
-        new Set([
-          ...(filter.selectedGroups || []),
-          ...(filter.customGroups || []),
-          ...(persistedDetectedGroups || []),
-          ...(getWhatsAppConnection()?.groups || []),
-        ])
-      ).filter(Boolean);
-
-      if (linkedGroups.length === 0) {
-        showToast('⚠️ لم يتم تحديد أي مجموعة مرتبطة؛ لم يتم تغيير حالة أي محادثة');
-        return;
-      }
-
-      // Read only explicitly linked active groups. Archived chats are never opened or scraped here.
-      const res = await markAllWhatsAppAsRead(linkedGroups, { includeArchived: false });
+      // Empty groupNames is intentional: native Android treats this as all
+      // positively identified WhatsApp group notifications, not a whitelist.
+      // includeArchived starts a bounded Accessibility pass through archived chats.
+      const res = await markAllWhatsAppAsRead([], { includeArchived: true });
       const count = res.markedCount || 0;
 
-      // Update only orders belonging to the explicitly selected groups.
-      const linkedGroupSet = new Set(linkedGroups.map((group) => group.trim().toLocaleLowerCase()));
+      // Read All also clears the local Radar unread state for every order.
       setOrders((prev) =>
-        prev.map((ord) => {
-          const orderGroup = (ord.groupName || '').trim().toLocaleLowerCase();
-          if (!linkedGroupSet.has(orderGroup)) return ord;
-          return { ...ord, isRead: true, readStatus: 'read' };
-        })
+        prev.map((ord) => ({ ...ord, isRead: true, readStatus: 'read' }))
       );
 
       if (filter.soundEnabled) {
         playAlertTone('cash_register', 70);
       }
 
-      if (count > 0) {
-        showToast(`✅ تم تمييز ${count} إشعار قروب كمقروء (✓✓) في الواتساب بالخلفية فوراً!`);
+      if (res.archivedAutomationStarted) {
+        showToast(`بدأت قراءة إشعارات جميع القروبات (${count})؛ سيفتح واتساب لفحص القروبات المؤرشفة غير المقروءة`);
+      } else if (res.accessibilityRequired) {
+        showToast(`تمت معالجة ${count} إشعار قروب نشط. لتعليم القروبات المؤرشفة كمقروءة، فعّل خدمة إمكانية الوصول لـ Orderi`);
+      } else if (count > 0) {
+        showToast(`تم تعليم ${count} إشعار قروب نشط كمقروء. لم يبدأ فحص الأرشيف`);
       } else {
-        showToast('✓ تم تمييز الطلبات في الرادار (لا توجد إشعارات قروبات معلقة في شريط الهاتف)');
+        showToast('تم تعليم طلبات الرادار كمقروءة؛ لم تتوفر إجراءات قراءة للقروبات في إشعارات أندرويد');
       }
     } catch (e) {
       console.warn('[Orderi] Mark-all-read failed:', e);
-      showToast('تم تمييز الطلبات داخل الرادار؛ تأكد من صلاحية قراءة الإشعارات للتطبيق');
+      showToast('تم تحديث حالة القراءة في الرادار؛ تعذر تنفيذ قراءة واتساب، تحقق من الصلاحيات');
     }
   };
 
