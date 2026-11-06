@@ -606,10 +606,21 @@ export async function checkServerSubscription(): Promise<{
  */
 
 export function isProgramActivated(
-  _user?: CaptainUser | null
+  user: CaptainUser | null = getCurrentUser()
 ): boolean {
-  // البرنامج مفعل بالكامل وبشكل دائم لجميع الكباتن بدون قيود تجريبية
-  return true;
+  if (!user || user.isActivated !== true) return false;
+
+  if (user.isTrial) {
+    const trialExpiry = user.trialExpiresAt || user.expiresAt;
+    if (!trialExpiry) return false;
+    const expiryMs = new Date(trialExpiry).getTime();
+    return Number.isFinite(expiryMs) && expiryMs > Date.now();
+  }
+
+  // A server-issued lifetime license may have no expiry; dated licenses must be current.
+  if (!user.expiresAt) return true;
+  const expiryMs = new Date(user.expiresAt).getTime();
+  return Number.isFinite(expiryMs) && expiryMs > Date.now();
 }
 
 /*
