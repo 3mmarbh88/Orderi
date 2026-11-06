@@ -84,6 +84,7 @@ interface OrderiNotificationListenerPlugin {
     notificationsEnabled?: boolean;
   }): Promise<void>;
   markAllAsRead(options?: { groupNames?: string[]; includeArchived?: boolean }): Promise<{ success: boolean; markedCount: number; archivedAutomationStarted?: boolean; accessibilityRequired?: boolean; whatsAppOpened?: boolean; archivedChatsVisited?: number }>;
+  getReadAllStatus(): Promise<{ status: string; visited: number; detail?: string; updatedAt?: number }>;
   markGroupAsRead(options: { groupName: string }): Promise<{ success: boolean; markedCount: number; method: string }>;
   addListener(
     eventName: 'whatsappNotification',

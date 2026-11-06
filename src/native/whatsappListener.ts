@@ -197,6 +197,29 @@ export async function markAllWhatsAppAsRead(
 
 
 
+/** Wait for the Android Accessibility sweep to finish; a started scan is not success. */
+export async function waitForWhatsAppReadAllCompletion(timeoutMs = 300000): Promise<{
+  status: 'completed' | 'partial' | 'timeout' | 'unavailable';
+  visited: number;
+  detail?: string;
+}> {
+  if (!isNativeAndroid()) return { status: 'unavailable', visited: 0, detail: 'يلزم تشغيل Orderi على أندرويد' };
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    try {
+      const result = await OrderiNotificationListener.getReadAllStatus();
+      if (result.status === 'completed' || result.status === 'partial') {
+        return { status: result.status, visited: result.visited || 0, detail: result.detail || '' };
+      }
+    } catch {
+      return { status: 'unavailable', visited: 0, detail: 'تعذر قراءة حالة خدمة واتساب' };
+    }
+    await new Promise((resolve) => setTimeout(resolve, 900));
+  }
+  return { status: 'timeout', visited: 0, detail: 'لم يصل تأكيد اكتمال الفحص خلال المهلة' };
+}
+
+
 
 /** Wait for the native accessibility service to report the actual send-button action. */
 export async function getNativePrivateOutreachStatus(timeoutMs = 30000): Promise<{ status: string; statusLabel?: string }> {

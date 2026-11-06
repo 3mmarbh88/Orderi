@@ -96,7 +96,7 @@ import {
   autoAdoptDetectedGroups 
 } from './utils/whatsappConnection';
 import { isNativeAndroid, OrderiNotificationListener, WhatsAppNativeEvent } from './native/orderiNotificationListener';
-import { getWhatsAppListenerStatus, markAllWhatsAppAsRead, openWhatsAppAccessibilitySettings } from './native/whatsappListener';
+import { getWhatsAppListenerStatus, markAllWhatsAppAsRead, openWhatsAppAccessibilitySettings, waitForWhatsAppReadAllCompletion } from './native/whatsappListener';
 import { executePrivateAdvertiserOutreach } from './utils/whatsappPrivateOutreach';
 import { isDuplicateOrder, findDuplicateOrderMatch, rememberOrderFingerprint, registerOrderInDedupRegistry } from './utils/orderDedup';
 import { computeClientAiEvaluation } from './utils/aiEvaluator';
@@ -2176,30 +2176,32 @@ function OrderiApp({
 
   const handleMarkAllWhatsAppAsRead = async () => {
     try {
-      // Empty groupNames is intentional: native Android treats this as all
-      // positively identified WhatsApp group notifications, not a whitelist.
-      // includeArchived starts a bounded Accessibility pass through archived chats.
       const res = await markAllWhatsAppAsRead([], { includeArchived: true });
       const count = res.markedCount || 0;
+      if (filter.soundEnabled) playAlertTone('cash_register', 70);
 
-      // Do not clear Radar unread state merely because WhatsApp was opened or
-      // the archive sweep was started. The native UI pass must finish first.
-      if (filter.soundEnabled) {
-        playAlertTone('cash_register', 70);
+      if (res.accessibilityRequired) {
+        showToast('تعذر بدء قراءة القروبات: فعّل خدمة إمكانية الوصول لـ Orderi وإذن الإشعارات ثم أعد المحاولة');
+        return;
       }
-
       if (res.archivedAutomationStarted) {
-        showToast(`بدأت قراءة إشعارات جميع القروبات (${count})؛ سيفتح واتساب لفحص القروبات المؤرشفة غير المقروءة`);
-      } else if (res.accessibilityRequired) {
-        showToast(`تمت معالجة ${count} إشعار قروب نشط. لتعليم القروبات المؤرشفة كمقروءة، فعّل خدمة إمكانية الوصول لـ Orderi`);
+        showToast('بدأت قراءة القروبات النشطة والمؤرشفة. سيعود Orderi بعد انتهاء الفحص...');
+        const completion = await waitForWhatsAppReadAllCompletion();
+        if (completion.status === 'completed') {
+          showToast(`اكتملت قراءة القروبات. تمت معالجة ${completion.visited} محادثة عبر واتساب، إضافة إلى ${count} إجراء قراءة من الإشعارات.`);
+        } else if (completion.status === 'partial') {
+          showToast(`انتهى الفحص جزئياً: تمت معالجة ${completion.visited} محادثة. ${completion.detail || 'قد تبقى قروبات لم يتمكن واتساب من إظهارها لخدمة الوصول.'}`);
+        } else {
+          showToast('لم يصل تأكيد اكتمال قراءة واتساب. لا يمكن ضمان خلو القروبات من الرسائل غير المقروءة؛ افتح Orderi وتحقق من صلاحية خدمة الوصول.');
+        }
       } else if (count > 0) {
-        showToast(`تم تعليم ${count} إشعار قروب نشط كمقروء. لم يبدأ فحص الأرشيف`);
+        showToast(`تم تنفيذ إجراءات قراءة لـ ${count} قروب من الإشعارات، لكن لم يبدأ فحص بقية القروبات. فعّل خدمة إمكانية الوصول لإكمال قراءة الكل.`);
       } else {
-        showToast('تم تعليم طلبات الرادار كمقروءة؛ لم تتوفر إجراءات قراءة للقروبات في إشعارات أندرويد');
+        showToast('لم تتوفر إجراءات قراءة من الإشعارات ولم يبدأ فحص واتساب. تحقق من تفعيل خدمة إمكانية الوصول.');
       }
     } catch (e) {
       console.warn('[Orderi] Mark-all-read failed:', e);
-      showToast('تم تحديث حالة القراءة في الرادار؛ تعذر تنفيذ قراءة واتساب، تحقق من الصلاحيات');
+      showToast('تعذرت قراءة جميع قروبات واتساب. تحقق من صلاحيات الإشعارات وإمكانية الوصول ثم أعد المحاولة.');
     }
   };
 

@@ -66,6 +66,8 @@ public class OrderiAccessibilityService extends AccessibilityService {
     private int archivedReadEventRetries = 0;
     private int archivedChatsVisited = 0;
     private int archivedScrollAttempts = 0;
+    private int activeScrollAttempts = 0;
+    private boolean activeScanIncomplete = false;
     private long lastArchivedActionAt = 0L;
     private final java.util.HashSet<String> archivedUnreadChatsVisited = new java.util.HashSet<>();
     private static final int MAX_ARCHIVED_CHATS_TO_VISIT = 100;
@@ -351,7 +353,10 @@ public class OrderiAccessibilityService extends AccessibilityService {
         instance.archivedReadEventRetries = 0;
         instance.archivedChatsVisited = 0;
         instance.archivedScrollAttempts = 0;
+        instance.activeScrollAttempts = 0;
+        instance.activeScanIncomplete = false;
         instance.lastArchivedActionAt = 0L;
+        writeReadAllStatus(context, "running", 0, "بدأ فحص قروبات واتساب النشطة والمؤرشفة");
         instance.archivedUnreadChatsVisited.clear();
 
         try {
@@ -548,8 +553,21 @@ public class OrderiAccessibilityService extends AccessibilityService {
                     }
                     return;
                 }
+                AccessibilityNodeInfo activeScrollable = findScrollableNode(root);
+                if (activeScrollable != null && activeScrollAttempts < 100) {
+                    activeScrollAttempts++;
+                    lastArchivedActionAt = now;
+                    boolean activeScrolled = activeScrollable.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD);
+                    if (activeScrolled) {
+                        Log.i(TAG, "Scrolled active WhatsApp group list page " + activeScrollAttempts);
+                        return;
+                    }
+                } else if (activeScrollAttempts >= 100) {
+                    activeScanIncomplete = true;
+                    Log.w(TAG, "Active group-list scan reached its safety scroll limit");
+                }
                 activeChatsProcessed = true;
-                Log.i(TAG, "Active WhatsApp group-list sweep finished; moving to Archived");
+                Log.i(TAG, "Active WhatsApp group-list sweep finished after " + activeScrollAttempts + " scroll attempts; moving to Archived");
             }
 
             // STEP 3: Navigate into Archived section if not already open
@@ -611,7 +629,7 @@ public class OrderiAccessibilityService extends AccessibilityService {
 
             // STEP 5: No unread chat visible on current screen. Attempt scroll forward.
             AccessibilityNodeInfo scrollable = findScrollableNode(root);
-            if (scrollable != null && archivedScrollAttempts < 40) {
+            if (scrollable != null && archivedScrollAttempts < 100) {
                 archivedScrollAttempts++;
                 lastArchivedActionAt = now;
                 boolean scrolled = scrollable.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD);
@@ -905,7 +923,11 @@ public class OrderiAccessibilityService extends AccessibilityService {
     }
 
     private void finishArchivedReadPass(String reason) {
-        Log.i(TAG, "Archived read pass finished: " + reason + "; chats opened=" + archivedChatsVisited);
+        Log.i(TAG, "WhatsApp read-all pass finished: " + reason + "; group chats opened=" + archivedChatsVisited);
+        String finalStatus = reason.startsWith("No more explicitly identified unread archived group rows") && !activeScanIncomplete
+                ? "completed" : "partial";
+        writeReadAllStatus(this, finalStatus, archivedChatsVisited,
+                (activeScanIncomplete ? "اكتمل الفحص بحدود التمرير؛ " : "") + reason);
         markArchivedChatsRequested = false;
         archivedSectionOpened = false;
         waitingForChatToClose = false;
@@ -917,6 +939,16 @@ public class OrderiAccessibilityService extends AccessibilityService {
         if (!reason.startsWith("No more explicitly identified unread archived group rows")) {
             new Handler(Looper.getMainLooper()).postDelayed(this::returnToOrderi, 300L);
         }
+    }
+
+    private static void writeReadAllStatus(Context context, String status, int visited, String detail) {
+        if (context == null) return;
+        context.getSharedPreferences("orderi_read_all_status", Context.MODE_PRIVATE).edit()
+                .putString("status", status)
+                .putInt("visited", visited)
+                .putString("detail", detail == null ? "" : detail)
+                .putLong("updated_at", System.currentTimeMillis())
+                .apply();
     }
 
     private void returnToOrderi() {

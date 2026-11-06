@@ -597,6 +597,18 @@ public class NotificationListenerPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void getReadAllStatus(PluginCall call) {
+        android.content.SharedPreferences prefs = getContext().getSharedPreferences(
+                "orderi_read_all_status", android.content.Context.MODE_PRIVATE);
+        JSObject ret = new JSObject();
+        ret.put("status", prefs.getString("status", "not_started"));
+        ret.put("visited", prefs.getInt("visited", 0));
+        ret.put("detail", prefs.getString("detail", ""));
+        ret.put("updatedAt", prefs.getLong("updated_at", 0L));
+        call.resolve(ret);
+    }
+
+    @PluginMethod
     public void markGroupAsRead(PluginCall call) {
         String groupName = call.getString("groupName", "").trim();
         JSObject ret = new JSObject();
