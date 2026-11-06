@@ -657,12 +657,12 @@ function OrderiApp({
     }
   }, [currentUser]);
 
-  // Licensing & Activation: Permanently unlocked for all captains without trial limits
-  const isActivated = true;
-  const isActivatedRef = useRef(true);
+  // Activation is derived from the signed-in account and its actual expiry.
+  const isActivated = isProgramActivated(currentUser);
+  const isActivatedRef = useRef(isActivated);
   useEffect(() => {
-    isActivatedRef.current = true;
-  }, []);
+    isActivatedRef.current = isActivated;
+  }, [isActivated]);
 
   // Orderi Spider Googlebot-style WhatsApp Crawler Modal State
   const [isSpiderModalOpen, setIsSpiderModalOpen] = useState(false);
