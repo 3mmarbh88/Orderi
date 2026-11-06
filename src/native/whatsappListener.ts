@@ -147,6 +147,10 @@ export async function markAllWhatsAppAsRead(
   groupNames?: string[],
   options?: { includeArchived?: boolean }
 ): Promise<{ success: boolean; markedCount: number; archivedAutomationStarted?: boolean; accessibilityRequired?: boolean; whatsAppOpened?: boolean }> {
+  const explicitGroups = Array.from(new Set((groupNames || []).map((name) => (name || '').trim()).filter(Boolean)));
+  if (explicitGroups.length === 0) {
+    return { success: false, markedCount: 0, archivedAutomationStarted: false, accessibilityRequired: false, whatsAppOpened: false };
+  }
   let markedCount = 0;
   let archivedAutomationStarted = false;
   let accessibilityRequired = false;
@@ -156,8 +160,8 @@ export async function markAllWhatsAppAsRead(
   if (isNativeAndroid()) {
     try {
       const res = await OrderiNotificationListener.markAllAsRead({
-        groupNames: groupNames || [],
-        includeArchived: options?.includeArchived ?? true,
+        groupNames: explicitGroups,
+        includeArchived: false,
       });
       markedCount = res.markedCount || 0;
       nativeReadSucceeded = !!res.success;
@@ -175,7 +179,7 @@ export async function markAllWhatsAppAsRead(
     await fetch('/api/whatsapp/mark-all-groups-read', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ groupNames: groupNames || [] }),
+      body: JSON.stringify({ groupNames: explicitGroups }),
     });
   } catch {}
 
