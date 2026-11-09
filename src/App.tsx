@@ -532,10 +532,9 @@ function OrderiApp({
                 }
                 await OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] });
               } catch (singleEventErr) {
-                console.warn('[Orderi] Error parsing single pending event, proceeding with next:', singleEventErr);
-                try {
-                  await OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] });
-                } catch {}
+                // Keep failed events in the native queue. Acknowledge only after the
+                // event was successfully classified/processed; the next refresh can retry.
+                console.warn('[Orderi] Pending event processing failed; retaining it for retry:', event.id, singleEventErr);
               }
             }
           }
