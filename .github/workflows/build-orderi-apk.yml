@@ -53,7 +53,7 @@ jobs:
         run: npm run lint
 
       - name: Run privacy and Spider regression tests
-        run: npm run test:group-capture && npm run test:spider-privacy
+        run: npm run test:group-capture && npm run test:spider-privacy && npm run test:whatsapp-connection
 
       - name: Build web application
         run: npm run build
