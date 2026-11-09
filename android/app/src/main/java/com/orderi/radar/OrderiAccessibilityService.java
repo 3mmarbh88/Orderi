@@ -861,35 +861,35 @@ public class OrderiAccessibilityService extends AccessibilityService {
 
     private boolean isGroupChatRow(AccessibilityNodeInfo rowNode) {
         if (rowNode == null) return false;
-        String desc = describeNode(rowNode).toLowerCase(java.util.Locale.ROOT);
 
-        // Explicit private chat indicators - NEVER process private chats
+        // WhatsApp exposes the row container with empty text on several versions;
+        // the title, sender preview and unread badge are often child nodes.
+        // Inspect the complete row tree rather than only the clickable container.
+        StringBuilder rowText = new StringBuilder();
+        appendNodeText(rowNode, rowText, 0);
+        String desc = rowText.toString().toLowerCase(java.util.Locale.ROOT)
+                .replaceAll("\\s+", " ").trim();
+
+        // Explicit private-chat indicators always win over heuristic group signals.
         if (desc.contains("محادثة خاصة") || desc.contains("دردشة خاصة") || desc.contains("محادثه خاصه")) {
             return false;
         }
 
-        // WhatsApp group snippet separator: contains sender name with colon e.g. "أحمد: سلام عليكم" or "~Ali: order"
-        boolean hasSenderColon = desc.matches(".*[\\u0600-\\u06FFa-zA-Z0-9_]{2,}\\s*:\\s+.*") || desc.contains("~");
-
-        // Positive indicators: group names usually contain group keywords, multiple participants preview ("Sender: text"), or emojis
+        boolean hasSenderColon = desc.matches(".*[\\u0600-\\u06FFa-zA-Z0-9_]{2,}\\s*:\\s+.*")
+                || desc.contains("~");
         boolean hasGroupKeyword = desc.contains("قروب") || desc.contains("توصيل") || desc.contains("مندوب")
                 || desc.contains("طلبات") || desc.contains("بحرين") || desc.contains("delivery")
                 || desc.contains("order") || desc.contains("group") || desc.contains("سائق")
                 || desc.contains("مشاوير") || desc.contains("مطاعم") || desc.contains("شحن");
 
-        List<AccessibilityNodeInfo> groupIcons = rowNode.findAccessibilityNodeInfosByViewId("com.whatsapp:id/chat_item_group_icon");
+        List<AccessibilityNodeInfo> groupIcons =
+                rowNode.findAccessibilityNodeInfosByViewId("com.whatsapp:id/chat_item_group_icon");
         if (groupIcons != null && !groupIcons.isEmpty()) return true;
 
-        // If the row contains a group keyword or sender prefix ("name: msg"), it is confirmed as a group
         if (hasGroupKeyword || hasSenderColon) return true;
 
-        // If it starts with a standard phone number like +973, 00973, 3xxxxxxx and has NO group indicators,
-        // it is a private individual chat - strictly exclude it.
-        boolean looksLikeDirectPhoneNumber = desc.matches("^(\\+?\\d[\\d\\s-]{6,}|[369]\\d{7}).*");
-        if (looksLikeDirectPhoneNumber && !hasGroupKeyword && !hasSenderColon) {
-            return false;
-        }
-
+        boolean looksLikeDirectPhoneNumber =
+                desc.matches("^(\\+?\\d[\\d\\s-]{6,}|[369]\\d{7}).*");
         return false;
     }
 
@@ -1073,6 +1073,10 @@ public class OrderiAccessibilityService extends AccessibilityService {
 
         markArchivedChatsRequested = false;
         readAllHandler.removeCallbacks(readAllWatchdog);
+        // Every terminal path (including selector mismatch / timeout) must leave
+        // WhatsApp and return control to Orderi. A partial result must never be
+        // presented as successful completion.
+        returnToOrderi();
         archivedSectionOpened = false;
         activeGroupsSweepDone = false;
         waitingForChatToClose = false;
