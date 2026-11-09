@@ -3755,8 +3755,10 @@ function OrderiApp({
           setActiveTab('settings');
         }}
         onSessionConnected={(sessionData, initialOrders) => {
-          setIsWhatsAppConnected(true);
-          setIsStreamConnected(true);
+          // Saving a phone number or enabling notification access is not a
+          // verified message-receiving event. Only a session verified by an
+          // actual WhatsApp group notification may set this flag.
+          setIsWhatsAppConnected(sessionData.status === 'connected');
           setActiveTab('radar');
           if (initialOrders && Array.isArray(initialOrders) && initialOrders.length > 0) {
             initialOrders.forEach((rawOrd) => {

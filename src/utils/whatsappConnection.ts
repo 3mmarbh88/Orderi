@@ -1,9 +1,13 @@
 export type WhatsAppConnectionStatus = 'disconnected' | 'pending' | 'connected';
 
+// `connected` means a real WhatsApp group notification was received by Orderi.
+// It never means WhatsApp Link Devices authentication or a companion-device session.
+
 export interface WhatsAppConnection {
   phoneNumber: string;
   deviceId: string;
   status: WhatsAppConnectionStatus;
+  verificationSource?: 'notification' | null;
   connectedAt: string | null;
   lastSeenAt: string | null;
   groups: string[];
@@ -46,12 +50,21 @@ export function getWhatsAppConnection(): WhatsAppConnection | null {
     if (!raw) return null;
     const value = JSON.parse(raw);
     if (!value || typeof value !== 'object') return null;
+    // Older app versions could persist "connected" merely because a phone
+    // number was saved or account details were synchronized. Trust only an
+    // explicit verification written after a real notification was processed.
+    const verifiedByNotification = value.status === 'connected'
+      && value.verificationSource === 'notification';
+    const status: WhatsAppConnectionStatus = value.status === 'disconnected'
+      ? 'disconnected'
+      : verifiedByNotification ? 'connected' : 'pending';
     return {
       phoneNumber: String(value.phoneNumber || ''),
       deviceId: String(value.deviceId || getDeviceId()),
-      status: value.status || 'disconnected',
-      connectedAt: value.connectedAt || null,
-      lastSeenAt: value.lastSeenAt || null,
+      status,
+      verificationSource: verifiedByNotification ? 'notification' : null,
+      connectedAt: verifiedByNotification ? (value.connectedAt || null) : null,
+      lastSeenAt: verifiedByNotification ? (value.lastSeenAt || null) : null,
       groups: Array.isArray(value.groups) ? value.groups.filter(Boolean) : [],
     };
   } catch {
@@ -70,13 +83,16 @@ function save(connection: WhatsAppConnection): WhatsAppConnection {
 export function registerWhatsAppNumber(phoneNumber: string): WhatsAppConnection {
   const phone = normalizeWhatsAppPhone(phoneNumber);
   const previous = getWhatsAppConnection();
+  const samePhone = previous?.phoneNumber === phone;
   return save({
     phoneNumber: phone,
     deviceId: previous?.deviceId || getDeviceId(),
     status: 'pending',
-    connectedAt: previous?.connectedAt || null,
-    lastSeenAt: previous?.lastSeenAt || null,
-    groups: previous?.groups || [],
+    verificationSource: null,
+    // A newly registered phone must be verified by a fresh notification.
+    connectedAt: null,
+    lastSeenAt: samePhone ? (previous?.lastSeenAt || null) : null,
+    groups: samePhone ? (previous?.groups || []) : [],
   });
 }
 
@@ -97,6 +113,7 @@ export function markWhatsAppVerified(groupName?: string): WhatsAppConnection {
     phoneNumber: previous?.phoneNumber || '',
     deviceId: previous?.deviceId || getDeviceId(),
     status: 'connected',
+    verificationSource: 'notification',
     connectedAt: previous?.connectedAt || now,
     lastSeenAt: now,
     groups,
@@ -115,13 +132,20 @@ export function addWhatsAppGroup(groupName: string): WhatsAppConnection | null {
 export function setWhatsAppConnectionStatus(status: WhatsAppConnectionStatus): WhatsAppConnection | null {
   const previous = getWhatsAppConnection();
   if (!previous) return null;
-  return save({ ...previous, status });
+  const verified = status === 'connected' && previous.verificationSource === 'notification';
+  return save({
+    ...previous,
+    status: status === 'connected' && !verified ? 'pending' : status,
+    verificationSource: verified ? 'notification' : null,
+    connectedAt: verified ? previous.connectedAt : null,
+    lastSeenAt: verified ? previous.lastSeenAt : null,
+  });
 }
 
 export function disconnectWhatsApp(): WhatsAppConnection | null {
   const previous = getWhatsAppConnection();
   if (!previous) return null;
-  return save({ ...previous, status: 'disconnected' });
+  return save({ ...previous, status: 'disconnected', verificationSource: null, connectedAt: null });
 }
 
 /**
@@ -130,14 +154,16 @@ export function disconnectWhatsApp(): WhatsAppConnection | null {
 export function syncWhatsAppPhoneWithAccount(accountPhone: string): WhatsAppConnection {
   const phone = normalizeWhatsAppPhone(accountPhone);
   const previous = getWhatsAppConnection();
-  const now = new Date().toISOString();
+  const samePhone = previous?.phoneNumber === phone;
   return save({
     phoneNumber: phone,
     deviceId: previous?.deviceId || getDeviceId(),
-    status: previous?.status === 'disconnected' ? 'connected' : (previous?.status || 'connected'),
-    connectedAt: previous?.connectedAt || now,
-    lastSeenAt: now,
-    groups: previous?.groups || [],
+    // Syncing an account phone is bookkeeping only, not listener verification.
+    status: samePhone && previous?.verificationSource === 'notification' ? 'connected' : 'pending',
+    verificationSource: samePhone && previous?.verificationSource === 'notification' ? 'notification' : null,
+    connectedAt: samePhone && previous?.verificationSource === 'notification' ? (previous?.connectedAt || null) : null,
+    lastSeenAt: samePhone && previous?.verificationSource === 'notification' ? (previous?.lastSeenAt || null) : null,
+    groups: samePhone ? (previous?.groups || []) : [],
   });
 }
 
@@ -157,9 +183,11 @@ export function autoAdoptDetectedGroups(incomingGroups: string[]): WhatsAppConne
   return save({
     phoneNumber: previous?.phoneNumber || '',
     deviceId: previous?.deviceId || getDeviceId(),
-    status: previous?.status || 'connected',
-    connectedAt: previous?.connectedAt || new Date().toISOString(),
-    lastSeenAt: new Date().toISOString(),
+    // Discovering a group name is not proof of a live WhatsApp listener.
+    status: previous?.verificationSource === 'notification' ? 'connected' : (previous?.status || 'pending'),
+    verificationSource: previous?.verificationSource === 'notification' ? 'notification' : null,
+    connectedAt: previous?.verificationSource === 'notification' ? (previous?.connectedAt || null) : null,
+    lastSeenAt: previous?.verificationSource === 'notification' ? (previous?.lastSeenAt || null) : null,
     groups: mergedGroups,
   });
 }
