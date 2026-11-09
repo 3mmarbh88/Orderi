@@ -354,6 +354,12 @@ public class OrderiAccessibilityService extends AccessibilityService {
         if (!isAccessibilityEnabled(context)) return false;
 
         markArchivedChatsRequested = true;
+        context.getSharedPreferences("orderi_read_all_status", Context.MODE_PRIVATE).edit()
+                .putString("status", "running")
+                .putInt("visited", 0)
+                .putString("detail", "بدأ فحص قروبات واتساب النشطة والمؤرشفة")
+                .putLong("updated_at", System.currentTimeMillis())
+                .commit();
         instance.archivedSectionOpened = false;
         instance.activeGroupsSweepDone = false;
         instance.waitingForChatToClose = false;
@@ -623,16 +629,19 @@ public class OrderiAccessibilityService extends AccessibilityService {
 
             // STEP 8: No unread group visible on current screen in Archived. Attempt scroll forward.
             AccessibilityNodeInfo scrollable = findScrollableNode(root);
-            if (scrollable != null && archivedScrollAttempts < 4) {
+            if (scrollable != null && archivedScrollAttempts < MAX_ARCHIVED_CHATS_TO_VISIT) {
                 archivedScrollAttempts++;
                 lastArchivedActionAt = now;
                 boolean scrolled = scrollable.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD);
                 if (scrolled) {
                     return;
                 }
+            } else if (scrollable != null && archivedScrollAttempts >= MAX_ARCHIVED_CHATS_TO_VISIT) {
+                finishArchivedReadPass("تم الوصول إلى حد التمرير الآمن؛ لم يمكن التحقق من بقية القروبات المؤرشفة");
+                return;
             }
 
-            // STEP 9: Finished! Both active groups and archived groups are 100% swept and read. Return to Orderi!
+            // No further scroll is available: finish only after the visible list is exhausted.
             Log.i(TAG, "Read-all pass complete! Active groups read: " + activeChatsVisited
                     + ", Archived groups read: " + archivedChatsVisited + ", Failed: " + failedChatsCount);
             performGlobalAction(GLOBAL_ACTION_BACK);
@@ -817,7 +826,7 @@ public class OrderiAccessibilityService extends AccessibilityService {
             return false;
         }
 
-        return true;
+        return false;
     }
 
     /**
@@ -971,11 +980,22 @@ public class OrderiAccessibilityService extends AccessibilityService {
 
     private void finishArchivedReadPass(String reason) {
         int totalMarked = activeChatsVisited + archivedChatsVisited;
-        Log.i(TAG, "Sweep read pass finished: " + reason + "; total=" + totalMarked
+        boolean fullyCompleted = failedChatsCount == 0
+                && "All delivery groups marked as read successfully".equals(reason);
+        String finalStatus = fullyCompleted ? "completed" : "partial";
+        Log.i(TAG, "Sweep read pass finished: " + reason + "; status=" + finalStatus + "; total=" + totalMarked
                 + " (active=" + activeChatsVisited + ", archived=" + archivedChatsVisited + ", failed=" + failedChatsCount + ")");
 
+        getSharedPreferences("orderi_read_all_status", Context.MODE_PRIVATE).edit()
+                .putString("status", finalStatus)
+                .putInt("visited", totalMarked)
+                .putString("detail", reason + (failedChatsCount > 0 ? "؛ تعذر التحقق من " + failedChatsCount + " قروب" : ""))
+                .putLong("updated_at", System.currentTimeMillis())
+                .commit();
+
         JSObject payload = new JSObject();
-        payload.put("success", true);
+        payload.put("success", fullyCompleted);
+        payload.put("status", finalStatus);
         payload.put("reason", reason);
         payload.put("markedCount", totalMarked);
         payload.put("activeCount", activeChatsVisited);
