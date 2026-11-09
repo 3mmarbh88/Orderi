@@ -2215,15 +2215,17 @@ function OrderiApp({
         const completion = await waitForWhatsAppReadAllCompletion();
         if (completion.status === 'completed') {
           showToast(`✅ اكتملت قراءة القروبات بنجاح! تم فتح ومعالجة ${completion.visited} قروباً والتأكد من إزالة شارة غير المقروء.`);
-        } else if (completion.status === 'partial') {
-          showToast(`انتهى الفحص جزئياً: تمت معالجة ${completion.visited} قروباً. ${completion.detail || ''}`);
         } else {
-          showToast(`اكتمل إجراء قراءة القروبات. عاد Orderi لشاشة الرادار بنجاح.`);
+          // Timeout/unavailable is not a successful read-all result.
+          showToast(`تعذر تأكيد قراءة جميع القروبات (${completion.status}). تمت معالجة ${completion.visited} قروباً فقط. ${completion.detail || ''}`);
         }
       } else if (count > 0) {
         showToast(`✅ تم تمييز ${count} قروباً كمقروء عبر أندرويد فوراً!`);
       } else {
-        showToast('✓ جميع القروبات مقروءة بالفعل ولا توجد إشعارات معلقة');
+        // Notification-shade state cannot prove that every WhatsApp chat is read.
+        showToast(unreadCheck.hasUnread
+          ? 'لم يتم تأكيد قراءة القروبات غير المقروءة. فعّل إمكانية الوصول ثم أعد المحاولة.'
+          : 'لا توجد إشعارات واتساب غير مقروءة ظاهرة؛ لم يتم تأكيد حالة جميع المحادثات.');
       }
     } catch (e) {
       console.warn('[Orderi] Mark-all-read failed:', e);
