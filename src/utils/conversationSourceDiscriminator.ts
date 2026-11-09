@@ -194,6 +194,18 @@ export function isPrivateChatPlaceholder(name?: string): boolean {
 /**
  * Check whether an identified group is authorized under the driver's current FilterSettings
  */
+/**
+ * Only Android-verified WhatsApp group sources may use the background all-groups
+ * capture opt-in. Keep archived Accessibility scraping behind the same explicit
+ * archived-monitoring setting; private and ambiguous sources are still rejected
+ * by discriminateConversationSource before this option can authorize them.
+ */
+export function allowsVerifiedBackgroundGroupCapture(source?: string, monitorArchivedGroups?: boolean): boolean {
+  return monitorArchivedGroups === true && (
+    source === 'whatsapp_notification' || source === 'whatsapp_archived_scraper'
+  );
+}
+
 export function isGroupAuthorizedByFilter(
   groupName: string, 
   filter?: Partial<FilterSettings> | null,
