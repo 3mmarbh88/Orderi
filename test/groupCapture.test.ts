@@ -6,7 +6,7 @@
 import { 
   isGroupAuthorizedByFilter, 
   discriminateConversationSource,
-  canMessageCreateRadarOrder 
+  canMessageCreateRadarOrder,
   allowsVerifiedBackgroundGroupCapture,
 } from '../src/utils/conversationSourceDiscriminator';
 import { OrderFilter } from '../src/types';
