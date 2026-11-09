@@ -670,7 +670,6 @@ public class OrderiAccessibilityService extends AccessibilityService {
                     + ", Archived groups read: " + archivedChatsVisited + ", Failed: " + failedChatsCount);
             performGlobalAction(GLOBAL_ACTION_BACK);
             new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                returnToOrderi();
                 finishArchivedReadPass("All delivery groups marked as read successfully");
             }, 250L);
 
@@ -888,8 +887,6 @@ public class OrderiAccessibilityService extends AccessibilityService {
 
         if (hasGroupKeyword || hasSenderColon) return true;
 
-        boolean looksLikeDirectPhoneNumber =
-                desc.matches("^(\\+?\\d[\\d\\s-]{6,}|[369]\\d{7}).*");
         return false;
     }
 
