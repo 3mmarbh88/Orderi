@@ -1042,16 +1042,12 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                 if (queued != null && eventId.equals(queued.optString("id"))) return false;
             }
 
-            // Keep oldest unacknowledged events when possible; the queue is bounded
-            // to protect device storage. Queue overflow is explicitly logged.
+            // Never evict an unacknowledged WhatsApp event: dropping the oldest
+            // item silently loses a real order or closure. Keep the queue durable
+            // and emit a warning so unusually large backlogs can be diagnosed.
             if (existing.length() >= 500) {
-                android.util.Log.e("OrderiSpider", "Persistent notification queue full; dropping oldest unacknowledged event");
-                JSONArray trimmed = new JSONArray();
-                for (int i = 1; i < existing.length(); i++) {
-                    JSONObject queued = existing.optJSONObject(i);
-                    if (queued != null) trimmed.put(queued);
-                }
-                existing = trimmed;
+                android.util.Log.w("OrderiSpider", "Persistent notification queue has "
+                        + existing.length() + " unacknowledged events; retaining all events");
             }
             existing.put(event);
             boolean persisted = prefs.edit().putString(KEY_EVENTS, existing.toString()).commit();
