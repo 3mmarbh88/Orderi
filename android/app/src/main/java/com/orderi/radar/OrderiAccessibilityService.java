@@ -67,6 +67,7 @@ public class OrderiAccessibilityService extends AccessibilityService {
     private static volatile boolean markArchivedChatsRequested = false;
     private boolean archivedSectionOpened = false;
     private boolean activeGroupsSweepDone = false;
+    private boolean chatsTabNavigationAttempted = false;
     private boolean waitingForChatToClose = false;
     private boolean waitingForBadgeToClear = false;
     private boolean isCurrentChatArchived = false;
@@ -383,6 +384,7 @@ public class OrderiAccessibilityService extends AccessibilityService {
                 .commit();
         instance.archivedSectionOpened = false;
         instance.activeGroupsSweepDone = false;
+        instance.chatsTabNavigationAttempted = false;
         instance.waitingForChatToClose = false;
         instance.waitingForBadgeToClear = false;
         instance.isCurrentChatArchived = false;
@@ -833,6 +835,12 @@ public class OrderiAccessibilityService extends AccessibilityService {
             }
         }
 
+        if (chatsTabNavigationAttempted) {
+            // A click may not expose selected=true on some WhatsApp builds. Never
+            // repeatedly click the same tab; continue with list discovery next pass.
+            return false;
+        }
+
         String[] chatTabLabels = new String[]{"Chats", "CHATS", "الدردشات", "دردشات"};
         for (String label : chatTabLabels) {
             List<AccessibilityNodeInfo> matches = root.findAccessibilityNodeInfosByText(label);
@@ -841,7 +849,9 @@ public class OrderiAccessibilityService extends AccessibilityService {
                 AccessibilityNodeInfo clickable = clickableAncestor(match, 4);
                 if (clickable != null && !clickable.isSelected()) {
                     Log.i(TAG, "Read-all: selecting Chats tab because chat list is not visible: " + label);
-                    return clickable.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+                    boolean clicked = clickable.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+                    if (clicked) chatsTabNavigationAttempted = true;
+                    return clicked;
                 }
             }
         }
