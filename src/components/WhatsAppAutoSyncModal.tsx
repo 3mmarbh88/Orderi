@@ -309,7 +309,7 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
       };
       setSession(activeSession);
       onSessionConnected?.(activeSession, []);
-      onShowToast('✅ تم حفظ رقم WhatsApp وتفعيل مراقبة هذا الهاتف. أرسل رسالة في أحد القروبات لاختبار الربط الفعلي.');
+      onShowToast('✅ تم حفظ رقم WhatsApp. قارئ الإشعارات جاهز؛ أرسل رسالة في قروب لاختبار الاستقبال الفعلي.');
     } catch (err) {
       console.error('[Orderi] WhatsApp registration error:', err);
       onShowToast('تعذر حفظ ربط WhatsApp على هذا الجهاز');
@@ -330,7 +330,7 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
         connectedAt: connection?.connectedAt || null,
         lastSyncAt: connection?.lastSeenAt || null,
       } : null);
-      onShowToast('تم إيقاف ربط رقم WhatsApp مع Orderi. خدمة Android تبقى متاحة ويمكن إعادة التفعيل.');
+      onShowToast('تم إيقاف استقبال إشعارات WhatsApp في Orderi. صلاحية Android لم تتغير.');
     } finally {
       setIsDisconnecting(false);
     }
@@ -386,11 +386,11 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
                   }`}
                 >
                   <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-300 animate-pulse' : 'bg-amber-300'}`} />
-                  <span>{isConnected ? 'متصل ومفعل 🟢' : 'جاهز للربط ⚡'}</span>
+                  <span>{isConnected ? 'يستقبل إشعارات القروبات 🟢' : 'جاهز للربط ⚡'}</span>
                 </span>
               </div>
               <p className="text-[11px] sm:text-xs text-emerald-100/90 font-medium">
-                سحب طلبات القروبات والخاص تلقائياً بدون أي تدخل يدوي
+                استقبال إشعارات قروبات WhatsApp التي يسمح Android بعرضها؛ لا يوجد تسجيل دخول أو ربط Link Devices.
               </p>
             </div>
           </div>
@@ -467,9 +467,9 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
                       }`}
                     >
                       {nativeListenerEnabled && savedConnection?.status === 'connected'
-                        ? 'مربوط ومفعّل ✅'
+                        ? 'استقبال الرسائل تم التحقق منه ✅'
                         : nativeListenerEnabled
-                        ? 'الخدمة مفعّلة ✅'
+                        ? 'الصلاحية مفعّلة • بانتظار رسالة اختبار'
                         : 'الصلاحية مطلوبة ⚠️'}
                     </span>
                   </div>
@@ -486,56 +486,10 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
                     <button
                       type="button"
                       disabled={linkBusy}
-                      onClick={async () => {
-                        const phone = normalizeWhatsAppPhone(phoneNumberInput);
-                        if (!phone) {
-                          onShowToast('أدخل رقم WhatsApp أولاً');
-                          return;
-                        }
-
-                        setLinkBusy(true);
-                        try {
-                          const connection = registerWhatsAppNumber(phone);
-                          setSavedConnection(connection);
-
-                          const activeSession: WhatsAppSessionData = {
-                            status: 'connected',
-                            qrCodeDataUrl: '',
-                            pairingCode: '',
-                            connectedPhone: connection.phoneNumber,
-                            connectedAt: connection.connectedAt,
-                            deviceName: `Orderi • ${connection.deviceId.slice(0, 8)}`,
-                            batteryLevel: 0,
-                            groupsMonitoredCount: connection.groups.length,
-                            privateChatsMonitoredCount: 0,
-                            totalOrdersCaptured: 0,
-                            lastSyncAt: connection.lastSeenAt,
-                            listenerServiceActive: true,
-                          };
-                          setSession(activeSession);
-                          onSessionConnected?.(activeSession, []);
-
-                          // إذا كانت الصلاحية غير مفعلة، نفتح الإعدادات فوراً للتفعيل
-                          const enabled = await getWhatsAppListenerStatus();
-                          if (!enabled) {
-                            await openWhatsAppListenerSettings();
-                            onShowToast('تم الحفظ. فعّل Orderi من قائمة الإشعارات');
-                            setTimeout(() => getWhatsAppListenerStatus().then(setNativeListenerEnabled).catch(() => {}), 1500);
-                          } else {
-                            setNativeListenerEnabled(true);
-                            onShowToast('✅ تم حفظ وربط الرقم وتفعيل الخدمة بنجاح');
-                          }
-                        } catch (err) {
-                          console.error('[Orderi] Save & Link error:', err);
-                          onShowToast('تعذر إتمام الربط والتفعيل');
-                        } finally {
-                          setLinkBusy(false);
-                          setIsPairing(false);
-                        }
-                      }}
+                      onClick={handleConfirmPairing}
                       className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-black text-xs disabled:opacity-50 shadow-md shadow-emerald-600/20 shrink-0"
                     >
-                      {linkBusy ? 'جاري التنفيذ...' : 'حفظ وربط وتفعيل الخدمة'}
+                      {linkBusy ? 'جاري التنفيذ...' : 'حفظ الرقم وتفعيل قارئ الإشعارات'}
                     </button>
                   </div>
                 </div>

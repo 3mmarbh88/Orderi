@@ -1,5 +1,8 @@
 export type WhatsAppConnectionStatus = 'disconnected' | 'pending' | 'connected';
 
+// `connected` means a real WhatsApp group notification was received by Orderi.
+// It never means WhatsApp Link Devices authentication or a companion-device session.
+
 export interface WhatsAppConnection {
   phoneNumber: string;
   deviceId: string;
@@ -70,13 +73,15 @@ function save(connection: WhatsAppConnection): WhatsAppConnection {
 export function registerWhatsAppNumber(phoneNumber: string): WhatsAppConnection {
   const phone = normalizeWhatsAppPhone(phoneNumber);
   const previous = getWhatsAppConnection();
+  const samePhone = previous?.phoneNumber === phone;
   return save({
     phoneNumber: phone,
     deviceId: previous?.deviceId || getDeviceId(),
     status: 'pending',
-    connectedAt: previous?.connectedAt || null,
-    lastSeenAt: previous?.lastSeenAt || null,
-    groups: previous?.groups || [],
+    // A newly registered phone must be verified by a fresh notification.
+    connectedAt: null,
+    lastSeenAt: samePhone ? (previous?.lastSeenAt || null) : null,
+    groups: samePhone ? (previous?.groups || []) : [],
   });
 }
 
@@ -130,14 +135,15 @@ export function disconnectWhatsApp(): WhatsAppConnection | null {
 export function syncWhatsAppPhoneWithAccount(accountPhone: string): WhatsAppConnection {
   const phone = normalizeWhatsAppPhone(accountPhone);
   const previous = getWhatsAppConnection();
-  const now = new Date().toISOString();
+  const samePhone = previous?.phoneNumber === phone;
   return save({
     phoneNumber: phone,
     deviceId: previous?.deviceId || getDeviceId(),
-    status: previous?.status === 'disconnected' ? 'connected' : (previous?.status || 'connected'),
-    connectedAt: previous?.connectedAt || now,
-    lastSeenAt: now,
-    groups: previous?.groups || [],
+    // Syncing an account phone is bookkeeping only, not listener verification.
+    status: samePhone ? (previous?.status || 'pending') : 'pending',
+    connectedAt: samePhone ? (previous?.connectedAt || null) : null,
+    lastSeenAt: samePhone ? (previous?.lastSeenAt || null) : null,
+    groups: samePhone ? (previous?.groups || []) : [],
   });
 }
 
@@ -157,9 +163,10 @@ export function autoAdoptDetectedGroups(incomingGroups: string[]): WhatsAppConne
   return save({
     phoneNumber: previous?.phoneNumber || '',
     deviceId: previous?.deviceId || getDeviceId(),
-    status: previous?.status || 'connected',
-    connectedAt: previous?.connectedAt || new Date().toISOString(),
-    lastSeenAt: new Date().toISOString(),
+    // Discovering a group name is not proof of a live WhatsApp listener.
+    status: previous?.status || 'pending',
+    connectedAt: previous?.connectedAt || null,
+    lastSeenAt: previous?.lastSeenAt || null,
     groups: mergedGroups,
   });
 }
