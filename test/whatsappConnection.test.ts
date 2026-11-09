@@ -16,6 +16,21 @@ const values = new Map<string, string>();
 
 let total = 0;
 let failed = 0;
+
+const legacyStored = {
+  phoneNumber: '+97333334444',
+  deviceId: 'legacy-device',
+  status: 'connected',
+  connectedAt: '2026-11-01T10:00:00.000Z',
+  lastSeenAt: '2026-11-01T10:00:00.000Z',
+  groups: ['قروب قديم'],
+};
+values.set('orderi_whatsapp_connection_v2', JSON.stringify(legacyStored));
+const migratedLegacy = getWhatsAppConnection();
+assert(migratedLegacy?.status === 'pending', 'Legacy connected records without notification proof are downgraded');
+assert(migratedLegacy?.connectedAt === null, 'Legacy false connection timestamps are cleared');
+
+
 function assert(condition: boolean, label: string): void {
   total += 1;
   if (condition) console.log(`PASS: ${label}`);
@@ -38,6 +53,7 @@ assert(adopted.status === 'pending', 'Adopting a group does not claim live Whats
 
 const verified = markWhatsAppVerified('قروب التوصيل');
 assert(verified.status === 'connected', 'A real processed WhatsApp group notification verifies reception');
+assert(verified.verificationSource === 'notification', 'Verified state records its trusted notification source');
 assert(Boolean(verified.connectedAt && verified.lastSeenAt), 'Verification records real reception timestamps');
 assert(verified.groups.includes('قروب التوصيل'), 'Verification stores the observed group');
 
