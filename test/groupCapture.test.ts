@@ -7,6 +7,7 @@ import {
   isGroupAuthorizedByFilter, 
   discriminateConversationSource,
   canMessageCreateRadarOrder 
+  allowsVerifiedBackgroundGroupCapture,
 } from '../src/utils/conversationSourceDiscriminator';
 import { OrderFilter } from '../src/types';
 
@@ -102,6 +103,26 @@ assert(
   privateNotificationWithOptIn.sourceType === 'private_individual' &&
   !canMessageCreateRadarOrder(privateNotificationWithOptIn),
   'Never allows private 1-on-1 notifications even when all-group capture is enabled'
+);
+
+
+// Verified notification and archived-scraper events share the explicit background
+// monitoring opt-in. Unverified sources and a disabled setting stay unauthorized.
+assert(
+  allowsVerifiedBackgroundGroupCapture('whatsapp_notification', true),
+  'Enables all-group capture for verified WhatsApp notification events when monitoring is enabled'
+);
+assert(
+  allowsVerifiedBackgroundGroupCapture('whatsapp_archived_scraper', true),
+  'Enables archived Accessibility captures under the same explicit monitoring setting'
+);
+assert(
+  !allowsVerifiedBackgroundGroupCapture('whatsapp_archived_scraper', false),
+  'Disables archived Accessibility captures when archived monitoring is disabled'
+);
+assert(
+  !allowsVerifiedBackgroundGroupCapture('unknown_source', true),
+  'Does not authorize unknown event sources through the background capture opt-in'
 );
 
 // 2. Private 1-on-1 chats are always excluded
