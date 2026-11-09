@@ -5,6 +5,7 @@ on:
   pull_request:
     paths:
       - 'src/**'
+      - 'test/**'
       - 'android/**'
       - 'package.json'
       - 'package-lock.json'
@@ -16,6 +17,7 @@ on:
       - main
     paths:
       - 'src/**'
+      - 'test/**'
       - 'android/**'
       - 'package.json'
       - 'package-lock.json'
