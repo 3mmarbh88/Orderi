@@ -23,6 +23,13 @@ public class MainActivity extends BridgeActivity {
                 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 9001);
         }
+        if (!WhatsAppNotificationListenerService.isEnabled(this)) {
+            try {
+                Intent nIntent = new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS);
+                nIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(nIntent);
+            } catch (Exception ignored) {}
+        }
         startRadarService();
         requestBatteryOptimizationExemptionIfNeeded();
         NotificationListenerPlugin.handleOrderIntent(getIntent());

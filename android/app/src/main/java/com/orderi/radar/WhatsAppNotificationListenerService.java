@@ -230,6 +230,41 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         return count;
     }
 
+    /**
+     * Checks and counts active unread WhatsApp notifications currently in the status bar/shade.
+     * Only counts group notifications; strictly excludes private 1-on-1 chats.
+     */
+    public static int getUnreadWhatsAppNotificationCount() {
+        int count = 0;
+        if (instance != null) {
+            try {
+                StatusBarNotification[] active = instance.getActiveNotifications();
+                if (active != null) {
+                    for (StatusBarNotification sbn : active) {
+                        if (sbn == null || !isWhatsAppPackage(sbn.getPackageName())) continue;
+                        Notification notification = sbn.getNotification();
+                        if (notification == null || notification.extras == null) continue;
+                        android.os.Bundle extras = notification.extras;
+                        boolean isGroup = extras.getBoolean(Notification.EXTRA_IS_GROUP_CONVERSATION, false)
+                                || extras.getBoolean("is_group_conversation", false);
+                        if (!isGroup) continue;
+                        count++;
+                    }
+                }
+            } catch (Exception e) {
+                android.util.Log.w("WhatsAppNotificationListenerService", "Could not check unread WhatsApp notifications", e);
+            }
+        }
+        if (count == 0 && !MARK_AS_READ_ACTIONS.isEmpty()) {
+            for (MarkAsReadHolder holder : MARK_AS_READ_ACTIONS.values()) {
+                if (holder != null && holder.isGroup && holder.pendingIntent != null) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
     public static boolean openWhatsAppConversation(android.content.Context context, String targetTitle) {
         if (TextUtils.isEmpty(targetTitle)) return false;
         String targetNormalized = targetTitle.toLowerCase().trim();

@@ -149,16 +149,36 @@ export function sendBackgroundOrderNotification(order: ParsedOrder, filter?: Ord
     }
   }
 
+  const priceText = (!order.price || order.price <= 0 || order.isPriceUnspecified)
+    ? 'سعر عند الاتفاق'
+    : `${Number.isInteger(order.price) ? order.price.toFixed(0) : order.price.toFixed(1)} دينار`;
+
+  // Concise notification route text: المنامة ← المحرق 2 دينار
+  const routeText = `${order.from} ← ${order.to} ${priceText}`;
+
+  // 1. Native Android Status Bar Notification
+  if (isNativeAndroid()) {
+    try {
+      void OrderiNotificationListener.showOrderNotification({
+        orderId: order.id,
+        from: order.from || 'غير محدد',
+        to: order.to || 'غير محدد',
+        price: order.price || 0,
+        priceDisplay: priceText,
+        rawText: order.rawText || '',
+      }).catch((err) => console.warn('[Orderi Native] showOrderNotification error:', err));
+    } catch (e) {
+      console.warn('[Orderi Native] Failed to dispatch native order notification:', e);
+    }
+    return;
+  }
+
+  // 2. Web browser & PWA notification fallback
+  if (!isNotificationSupported()) return;
+  if (Notification.permission !== 'granted') return;
+
   try {
     const isVip = order.contactStatus === 'vip';
-    
-    const priceText = (!order.price || order.price <= 0 || order.isPriceUnspecified)
-      ? ''
-      : ` ${Number.isInteger(order.price) ? order.price.toFixed(0) : order.price.toFixed(1)} دينار`;
-    
-    // Concise notification route text
-    const routeText = `${order.from} ← ${order.to}${priceText}`;
-    
     let title = routeText;
     if (isPassenger) {
       title = `👥 طلب توصيل راكب • ${routeText}`;

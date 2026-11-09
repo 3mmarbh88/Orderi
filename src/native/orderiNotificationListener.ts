@@ -85,6 +85,7 @@ interface OrderiNotificationListenerPlugin {
   }): Promise<void>;
   markAllAsRead(options?: { groupNames?: string[]; includeArchived?: boolean }): Promise<{ success: boolean; markedCount: number; archivedAutomationStarted?: boolean; accessibilityRequired?: boolean; whatsAppOpened?: boolean; archivedChatsVisited?: number }>;
   getReadAllStatus(): Promise<{ status: string; visited: number; detail?: string; updatedAt?: number }>;
+  hasUnreadNotifications(): Promise<{ hasUnread: boolean; unreadCount: number }>;
   markGroupAsRead(options: { groupName: string }): Promise<{ success: boolean; markedCount: number; method: string }>;
   addListener(
     eventName: 'whatsappNotification',
@@ -101,6 +102,10 @@ interface OrderiNotificationListenerPlugin {
   addListener(
     eventName: 'allOrderNotificationsDismissed',
     listenerFunc: () => void,
+  ): Promise<{ remove: () => Promise<void> }>;
+  addListener(
+    eventName: 'markAllAsReadComplete',
+    listenerFunc: (event: { success: boolean; markedCount: number; activeCount: number; archivedCount: number; failedCount: number; reason?: string }) => void,
   ): Promise<{ remove: () => Promise<void> }>;
 }
 

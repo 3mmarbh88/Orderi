@@ -53,6 +53,14 @@ public class NotificationListenerPlugin extends Plugin {
         }
     }
 
+    public static NotificationListenerPlugin getInstance() {
+        return instance;
+    }
+
+    public void notifyMarkAllAsReadComplete(JSObject payload) {
+        notifyListeners("markAllAsReadComplete", payload);
+    }
+
     @Override
     public void load() {
         instance = this;
@@ -606,6 +614,22 @@ public class NotificationListenerPlugin extends Plugin {
         ret.put("detail", prefs.getString("detail", ""));
         ret.put("updatedAt", prefs.getLong("updated_at", 0L));
         call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void hasUnreadNotifications(PluginCall call) {
+        try {
+            int count = WhatsAppNotificationListenerService.getUnreadWhatsAppNotificationCount();
+            JSObject ret = new JSObject();
+            ret.put("hasUnread", count > 0);
+            ret.put("unreadCount", count);
+            call.resolve(ret);
+        } catch (Exception e) {
+            JSObject ret = new JSObject();
+            ret.put("hasUnread", false);
+            ret.put("unreadCount", 0);
+            call.resolve(ret);
+        }
     }
 
     @PluginMethod

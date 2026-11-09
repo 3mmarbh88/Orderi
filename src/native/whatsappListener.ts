@@ -15,6 +15,26 @@ export async function openWhatsAppListenerSettings(): Promise<void> {
   await OrderiNotificationListener.openSettings();
 }
 
+/**
+ * Checks if there are active unread WhatsApp group notifications in the Android notification tray.
+ * Strictly checks group messages; returns unread status and count.
+ */
+export async function checkHasUnreadWhatsAppNotifications(): Promise<{ hasUnread: boolean; unreadCount: number }> {
+  if (!isNativeAndroid()) {
+    return { hasUnread: false, unreadCount: 0 };
+  }
+  try {
+    const res = await OrderiNotificationListener.hasUnreadNotifications();
+    return {
+      hasUnread: !!res?.hasUnread,
+      unreadCount: res?.unreadCount || 0,
+    };
+  } catch (err) {
+    console.warn('[Orderi] Could not check unread WhatsApp notifications:', err);
+    return { hasUnread: false, unreadCount: 0 };
+  }
+}
+
 export async function getWhatsAppAccessibilityStatus(): Promise<boolean> {
   if (!isNativeAndroid()) return false;
   try {
