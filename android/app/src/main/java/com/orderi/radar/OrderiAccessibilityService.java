@@ -80,6 +80,26 @@ public class OrderiAccessibilityService extends AccessibilityService {
     private final java.util.HashSet<String> archivedUnreadChatsVisited = new java.util.HashSet<>();
     private static final int MAX_ARCHIVED_CHATS_TO_VISIT = 100;
 
+    // Accessibility events can be sparse while WhatsApp is rendering its chat list.
+    // A bounded-rate watchdog keeps the read-all state machine moving even when no
+    // new accessibility event arrives after WhatsApp is launched.
+    private final Handler readAllHandler = new Handler(Looper.getMainLooper());
+    private final Runnable readAllWatchdog = new Runnable() {
+        @Override
+        public void run() {
+            if (!markArchivedChatsRequested) return;
+            handleArchivedChatsReadEvent();
+            if (markArchivedChatsRequested) {
+                readAllHandler.postDelayed(this, 650L);
+            }
+        }
+    };
+
+    private void startReadAllWatchdog() {
+        readAllHandler.removeCallbacks(readAllWatchdog);
+        readAllHandler.postDelayed(readAllWatchdog, 650L);
+    }
+
     @Override
     public void onServiceConnected() {
         super.onServiceConnected();
@@ -89,6 +109,7 @@ public class OrderiAccessibilityService extends AccessibilityService {
 
     @Override
     public void onDestroy() {
+        readAllHandler.removeCallbacks(readAllWatchdog);
         instance = null;
         super.onDestroy();
     }
@@ -386,6 +407,7 @@ public class OrderiAccessibilityService extends AccessibilityService {
             }
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
             context.startActivity(intent);
+            instance.startReadAllWatchdog();
             Log.i(TAG, "Launched WhatsApp to sweep and mark unread groups and archived chats as read");
             return true;
         } catch (Exception e) {
@@ -776,22 +798,54 @@ public class OrderiAccessibilityService extends AccessibilityService {
 
     private boolean ensureChatsTabSelected(AccessibilityNodeInfo root) {
         if (root == null) return false;
+
+        // If WhatsApp restored a previously open conversation, return to the chat
+        // list first. Do not mistake the message composer for the chat-list search.
+        String[] conversationIds = new String[]{
+                "com.whatsapp:id/conversation_layout",
+                "com.whatsapp:id/conversation_contact_name",
+                "com.whatsapp:id/conversation_contact_name_container",
+                "com.whatsapp:id/entry"
+        };
+        for (String id : conversationIds) {
+            List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByViewId(id);
+            if (nodes != null && !nodes.isEmpty()) {
+                Log.i(TAG, "Read-all: conversation screen detected; returning to Chats list");
+                performGlobalAction(GLOBAL_ACTION_BACK);
+                return true;
+            }
+        }
+
+        // WhatsApp versions differ in whether the selected bottom tab exposes
+        // isSelected(). Recognize the actual conversations list before attempting
+        // to click Chats, otherwise the state machine can click the same tab forever.
+        String[] listIds = new String[]{
+                "com.whatsapp:id/conversations",
+                "com.whatsapp:id/conversations_list",
+                "com.whatsapp:id/conversations_list_view",
+                "com.whatsapp:id/archived_row",
+                "com.whatsapp:id/archived_row_content"
+        };
+        for (String id : listIds) {
+            List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByViewId(id);
+            if (nodes != null && !nodes.isEmpty()) {
+                return false;
+            }
+        }
+
         String[] chatTabLabels = new String[]{"Chats", "CHATS", "الدردشات", "دردشات"};
         for (String label : chatTabLabels) {
             List<AccessibilityNodeInfo> matches = root.findAccessibilityNodeInfosByText(label);
-            if (matches != null && !matches.isEmpty()) {
-                for (AccessibilityNodeInfo match : matches) {
-                    AccessibilityNodeInfo clickable = clickableAncestor(match, 4);
-                    if (clickable != null) {
-                        if (!clickable.isSelected()) {
-                            Log.i(TAG, "Navigating strictly to Chats tab: " + label);
-                            return clickable.performAction(AccessibilityNodeInfo.ACTION_CLICK);
-                        }
-                        return false;
-                    }
+            if (matches == null) continue;
+            for (AccessibilityNodeInfo match : matches) {
+                AccessibilityNodeInfo clickable = clickableAncestor(match, 4);
+                if (clickable != null && !clickable.isSelected()) {
+                    Log.i(TAG, "Read-all: selecting Chats tab because chat list is not visible: " + label);
+                    return clickable.performAction(AccessibilityNodeInfo.ACTION_CLICK);
                 }
             }
         }
+        Log.w(TAG, "Read-all: could not identify Chats list or a clickable Chats tab");
         return false;
     }
 
@@ -1008,6 +1062,7 @@ public class OrderiAccessibilityService extends AccessibilityService {
         }
 
         markArchivedChatsRequested = false;
+        readAllHandler.removeCallbacks(readAllWatchdog);
         archivedSectionOpened = false;
         activeGroupsSweepDone = false;
         waitingForChatToClose = false;
