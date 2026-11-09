@@ -114,6 +114,7 @@ import { detectAdvertisementMessage } from './utils/advertisementClassifier';
 import { classifyPrivateWhatsAppMessage, registerKnownGroupAdvertiser } from './utils/personalChatClassifier';
 import {
   discriminateConversationSource,
+  allowsVerifiedBackgroundGroupCapture,
   canMessageCreateRadarOrder,
   canMessageCloseRadarOrder,
   canForwardToCloudAI,
@@ -446,12 +447,14 @@ function OrderiApp({
           const pending = await OrderiNotificationListener.getPending();
           if (pending?.events?.length) {
             const { parseMultipleWhatsAppOrdersWithLocalAi } = await import('./utils/localAiOrderParser');
-            for (const event of pending.events.slice(-30)) {
+            // Process the oldest queued events first. Taking the last 30 starved older
+            // unacknowledged messages whenever the native queue grew beyond 30.
+            for (const event of pending.events) {
               try {
                 // Strict Source Discrimination:
                 // Only authorized delivery groups can be restored or checked for closures
                 const sourceAnalysis = discriminateConversationSource(event, filterRef.current, {
-                  allowAllVerifiedGroups: event.source === 'whatsapp_notification' && filterRef.current.monitorArchivedGroups === true,
+                  allowAllVerifiedGroups: allowsVerifiedBackgroundGroupCapture(event.source, filterRef.current.monitorArchivedGroups),
                 });
                 if (!canMessageCreateRadarOrder(sourceAnalysis)) {
                   if (sourceAnalysis.isPrivateIndividual) {
@@ -1524,7 +1527,7 @@ function OrderiApp({
       // 1. Strict Conversation Source Discrimination:
       // Identifies authorized delivery groups vs personal 1-on-1 private chats vs ambiguous sources
       const sourceAnalysis = discriminateConversationSource(event, filterRef.current, {
-        allowAllVerifiedGroups: event.source === 'whatsapp_notification' && filterRef.current.monitorArchivedGroups === true,
+        allowAllVerifiedGroups: allowsVerifiedBackgroundGroupCapture(event.source, filterRef.current.monitorArchivedGroups),
       });
 
       if (sourceAnalysis.sourceType === 'private_individual') {
