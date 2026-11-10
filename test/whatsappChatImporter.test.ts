@@ -41,6 +41,23 @@ assert(result.closuresCount >= 2, `Identifies closures "تم" and "حصلت" (go
 // Multi-line preservation test
 const multiLineOrder = result.messages.find((m) => m.senderName === 'مطعم النعيم' && m.messageText.includes('39123456'));
 assert(Boolean(multiLineOrder), 'Preserved multi-line message continuation');
+assert(
+  multiLineOrder?.timestamp === new Date(2026, 4, 12, 14, 18, 0).getTime(),
+  'Preserves both date and time in imported message timestamp'
+);
+const repeatedImport = parseWhatsAppExportTxt(sampleExport, 'قروب توصيل كباتن البحرين');
+assert(
+  repeatedImport.messages[1]?.id === result.messages[1]?.id,
+  'Generates stable message IDs across repeated imports'
+);
+const twelveHourImport = parseWhatsAppExportTxt(
+  '12/05/2026, 2:32 PM - Sender: test message',
+  'Test Group'
+);
+assert(
+  twelveHourImport.messages[0]?.timestamp === new Date(2026, 4, 12, 14, 32, 0).getTime(),
+  'Converts 12-hour PM timestamps correctly'
+);
 
 // Bracket timestamp format
 const bracketOrder = result.messages.find((m) => m.senderName === 'مطبخ أم علي' && m.messageText.includes('سترة إلى سند'));
