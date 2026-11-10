@@ -265,28 +265,44 @@ export class OrderiWhatsAppClient {
       return;
     }
 
-    // Update real stats
+    // Do not acknowledge or count an event until at least one Radar pipeline
+    // handler has completed successfully. With no subscriber (or a failed
+    // handler), leave it in Android's durable queue for a later retry.
+    const handlers = Array.from(this.rawMessageHandlers);
+    if (handlers.length === 0) {
+      this.processedIds.delete(event.id);
+      return;
+    }
+
+    let processingSucceeded = true;
+    for (const handler of handlers) {
+      try {
+        await handler(event);
+      } catch (err) {
+        processingSucceeded = false;
+        console.warn('[Orderi WhatsApp Client] Handler error for event:', event.id, err);
+      }
+    }
+
+    if (!processingSucceeded) {
+      this.processedIds.delete(event.id);
+      return;
+    }
+
+    // Record successful ingestion only after Radar subscribers finish.
     this.totalMessagesIngested++;
     this.lastMessageAt = Date.now();
     this.lastMessageGroup = event.groupName || event.conversationTitle || event.title || 'قروب واتساب';
     this.persistStats();
 
-    // Buffer event in memory & storage
-    this.eventBuffer.push(event);
-    if (this.eventBuffer.length > 50) this.eventBuffer.shift();
-    this.persistBuffer();
-
-    // Broadcast to raw message handlers
-    const handlers = Array.from(this.rawMessageHandlers);
-    for (const handler of handlers) {
-      try {
-        await handler(event);
-      } catch (err) {
-        console.warn('[Orderi WhatsApp Client] Handler error for event:', event.id, err);
-      }
+    if (!this.eventBuffer.some((item) => item.id === event.id)) {
+      this.eventBuffer.push(event);
+      if (this.eventBuffer.length > 50) this.eventBuffer.shift();
+      this.persistBuffer();
     }
 
-    // Refresh diagnostics
+    // Acknowledge the native durable event only after successful processing.
+    await this.acknowledgeEvent(event.id);
     this.refreshDiagnostics().catch(() => {});
   }
 
