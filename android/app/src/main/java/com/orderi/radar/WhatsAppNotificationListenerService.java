@@ -1078,7 +1078,7 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         try {
             long receivedAt = System.currentTimeMillis();
             long dedupBucket = receivedAt / (5L * 60L * 1000L);
-            String stableIdentity = "archived_scraper|" + safe(groupName) + "|" + safe(senderName)
+            String stableIdentity = "archived_scraper|" + (groupName == null ? "" : groupName) + "|" + (senderName == null ? "" : senderName)
                     + "|" + rawText.trim().replaceAll("\\s+", " ") + "|" + dedupBucket;
             String stableId = UUID.nameUUIDFromBytes(stableIdentity.getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
 
