@@ -349,6 +349,7 @@ export class OrderiWhatsAppClient {
     let batteryOptimizationIgnored = false;
     let unreadGroupsInTray = 0;
     let pendingEventsCount = 0;
+    let isWhatsAppInstalled = false;
 
     if (isAndroid) {
       try {
@@ -362,6 +363,7 @@ export class OrderiWhatsAppClient {
           batteryOptimizationIgnored = !!diag.batteryOptimizationIgnored;
           unreadGroupsInTray = diag.unreadGroupsCount || 0;
           pendingEventsCount = diag.pendingEventsCount || 0;
+          isWhatsAppInstalled = !!diag.isWhatsAppInstalled;
         } else {
           const enabledRes = await OrderiNotificationListener.isEnabled();
           listenerEnabled = !!enabledRes?.enabled;
@@ -382,18 +384,23 @@ export class OrderiWhatsAppClient {
     if (!this.isStarted) {
       state = 'disconnected';
       stateLabel = 'العميل متوقف';
+    } else if (isAndroid && !isWhatsAppInstalled) {
+      state = 'disconnected';
+      stateLabel = 'واتساب العادي غير مثبت';
     } else if (isAndroid && !listenerEnabled) {
       state = 'permission_required';
       stateLabel = 'صلاحية قراءة الإشعارات مطلوبة ⚠️';
+    } else if (isAndroid && !serviceConnected) {
+      state = 'service_disconnected';
+      stateLabel = 'خدمة استقبال إشعارات واتساب غير متصلة';
     } else {
-      // Permission is enabled or non-android test environment
-      const hasRecentMessage = this.lastMessageAt && (Date.now() - this.lastMessageAt < 15 * 60 * 1000); // 15 min
+      const hasRecentMessage = !!this.lastMessageAt && (Date.now() - this.lastMessageAt < 15 * 60 * 1000);
       if (hasRecentMessage) {
         state = 'active_stream';
-        stateLabel = 'متصل ويستقبل إعلانات القروبات لحظياً 🟢';
+        stateLabel = 'تم استقبال أحداث واتساب مؤخراً 🟢';
       } else {
         state = 'ready_listening';
-        stateLabel = 'الخدمة نشطة وفي وضع الاستعداد لاستقبال الرسائل ⚡';
+        stateLabel = 'خدمة الاستقبال متصلة وتنتظر إشعاراً جديداً';
       }
     }
 
@@ -413,6 +420,8 @@ export class OrderiWhatsAppClient {
 
     if (!this.lastDiagnostics.phoneRegistered) {
       detailedState = 'not_registered';
+    } else if (isAndroid && !isWhatsAppInstalled) {
+      detailedState = 'whatsapp_not_installed';
     } else if (isAndroid && !listenerEnabled) {
       detailedState = 'permission_required';
     } else if (isAndroid && !serviceConnected) {
@@ -447,7 +456,7 @@ export class OrderiWhatsAppClient {
       state,
       stateLabel,
       detailedState,
-      isWhatsAppInstalled: true,
+      isWhatsAppInstalled,
     };
 
     this.notifyStatusChange();
