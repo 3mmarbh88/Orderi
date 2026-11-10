@@ -156,7 +156,7 @@ function createStableMessageId(
     String(timestamp),
     dateStr.trim(),
     timeStr.trim(),
-    messageText.trim().replace(/\\s+/g, ' '),
+    messageText.trim().replace(/\s+/g, ' '),
   ].join('|');
   // Deterministic FNV-1a hash: importing the same export twice yields the same ID.
   let hash = 0x811c9dc5;
@@ -183,7 +183,7 @@ function parseDateTimeToTimestamp(dateStr: string, timeStr: string): number {
   if (year < 100) year += 2000;
   if (month < 1 || month > 12 || day < 1 || day > 31) return 0;
 
-  const timeMatch = /^(\\d{1,2}):(\\d{2})(?::(\\d{2}))?\\s*(AM|PM)?$/i.exec(timeStr.trim());
+  const timeMatch = /^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$/i.exec(timeStr.trim());
   if (!timeMatch) return 0;
   let hour = Number.parseInt(timeMatch[1], 10);
   const minute = Number.parseInt(timeMatch[2], 10);
