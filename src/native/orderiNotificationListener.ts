@@ -33,6 +33,15 @@ export interface WhatsAppNativeEvent {
 
 interface OrderiNotificationListenerPlugin {
   isEnabled(): Promise<{ enabled: boolean }>;
+  getDiagnosticStatus?(): Promise<{
+    listenerEnabled: boolean;
+    serviceConnected: boolean;
+    accessibilityEnabled: boolean;
+    accessibilityRunning: boolean;
+    batteryOptimizationIgnored: boolean;
+    unreadGroupsCount: number;
+    pendingEventsCount: number;
+  }>;
   openWhatsAppGroupConversation(options: { groupName: string }): Promise<{ success: boolean; method: string }>;
   openWhatsAppPrivateConversation(options: { phone?: string; memberName?: string }): Promise<{ success: boolean; method: string }>;
   openSettings(): Promise<void>;

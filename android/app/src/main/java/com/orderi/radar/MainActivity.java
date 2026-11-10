@@ -14,6 +14,7 @@ public class MainActivity extends BridgeActivity {
         super();
         registerPlugin(NotificationListenerPlugin.class);
         registerPlugin(OrderiLocalAIPlugin.class);
+        registerPlugin(com.orderi.whatsapp.WhatsAppClientBridge.class);
     }
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);

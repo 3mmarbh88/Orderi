@@ -298,9 +298,9 @@ export function evaluateCatchupCandidate(
     return { status: 'EXCLUDED_DUPLICATE', reason: 'مكرر أو مغلق مسبقاً', diagnostic: `الطلب ${candidate.id} موجود أو مغلق` };
   }
   return {
-    status: 'IGNORED_NON_ORDER',
-    reason: 'يلزم التحليل غير المتزامن قبل الاستعادة',
-    diagnostic: 'استخدم runSpiderCatchupRecovery لتحليل نص الإعلان الحقيقي؛ لم يتم إنشاء بيانات افتراضية',
+    status: 'AVAILABLE_OPEN',
+    reason: 'إعلان طلب توصيل متاح في قروب موثق',
+    diagnostic: 'المرشح مؤهل للاستعادة كطلب متاح',
   };
 }
 

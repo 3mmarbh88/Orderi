@@ -96,7 +96,7 @@ import {
   autoAdoptDetectedGroups 
 } from './utils/whatsappConnection';
 import { isNativeAndroid, OrderiNotificationListener, WhatsAppNativeEvent } from './native/orderiNotificationListener';
-import { getWhatsAppListenerStatus, markAllWhatsAppAsRead, openWhatsAppAccessibilitySettings, waitForWhatsAppReadAllCompletion, checkHasUnreadWhatsAppNotifications } from './native/whatsappListener';
+import { getWhatsAppListenerStatus, markAllWhatsAppAsRead, openWhatsAppAccessibilitySettings, waitForWhatsAppReadAllCompletion, checkHasUnreadWhatsAppNotifications, orderiWhatsAppClient } from './native/whatsappListener';
 import { executePrivateAdvertiserOutreach } from './utils/whatsappPrivateOutreach';
 import { isDuplicateOrder, findDuplicateOrderMatch, rememberOrderFingerprint, registerOrderInDedupRegistry } from './utils/orderDedup';
 import { computeClientAiEvaluation } from './utils/aiEvaluator';
@@ -1679,6 +1679,7 @@ function OrderiApp({
           ordersRef.current
         );
         if (fastClosureMatch) {
+          orderiWhatsAppClient.recordOrderClosed(fastClosureMatch.orderId);
           handleAutoOrderClosure(fastClosureMatch);
           void OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] }).catch((error) => console.warn('[Orderi Spider] Event acknowledgement failed; it remains queued:', error));
           return;
@@ -1687,6 +1688,7 @@ function OrderiApp({
         // إذا كانت الرسالة من معلن بالقروب ولم تطابق القاموس المباشر، نفحصها بالذكاء الاصطناعي لفهم التعابير العامية الجديدة
         checkIncomingMessageForClosureWithAI(closureMessageData, ordersRef.current).then((aiClosureMatch) => {
           if (aiClosureMatch) {
+            orderiWhatsAppClient.recordOrderClosed(aiClosureMatch.orderId);
             handleAutoOrderClosure(aiClosureMatch);
           }
         }).catch(() => {});
@@ -1752,6 +1754,7 @@ function OrderiApp({
               });
             }
 
+            orderiWhatsAppClient.recordOrderCaptured(order.id);
             handleProcessIncomingRawOrder(order, false);
           }
         }
@@ -1767,6 +1770,9 @@ function OrderiApp({
 
     const setup = async () => {
       try {
+        // Initialize Orderi WhatsApp Client
+        void orderiWhatsAppClient.start().catch((err) => console.warn('[Orderi WhatsApp Client] Start error:', err));
+
         // Subscribe before draining the persisted native queue. The old order
         // left a startup race where a notification arriving between the two calls
         // was neither queued for later processing nor delivered to the JS listener.
@@ -3754,6 +3760,7 @@ function OrderiApp({
           setSettingsInitialSection('groups');
           setActiveTab('settings');
         }}
+        onOpenAPKModal={() => setIsAPKModalOpen(true)}
         onSessionConnected={(sessionData, initialOrders) => {
           // Saving a phone number or enabling notification access is not a
           // verified message-receiving event. Only a session verified by an

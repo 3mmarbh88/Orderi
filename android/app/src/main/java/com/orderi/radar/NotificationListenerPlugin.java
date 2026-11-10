@@ -261,14 +261,75 @@ public class NotificationListenerPlugin extends Plugin {
     }
 
     @PluginMethod
-    public void openSettings(PluginCall call) {
+    public void getDiagnosticStatus(PluginCall call) {
+        JSObject ret = new JSObject();
+        boolean listenerEnabled = WhatsAppNotificationListenerService.isEnabled(getContext());
+        boolean serviceConnected = WhatsAppNotificationListenerService.isServiceConnected();
+        boolean accessibilityEnabled = OrderiAccessibilityService.isAccessibilityEnabled(getContext());
+        boolean accessibilityRunning = OrderiAccessibilityService.isServiceRunning();
+
+        boolean batteryOptimizationIgnored = false;
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+            android.os.PowerManager pm = (android.os.PowerManager) getContext().getSystemService(Context.POWER_SERVICE);
+            if (pm != null) {
+                batteryOptimizationIgnored = pm.isIgnoringBatteryOptimizations(getContext().getPackageName());
+            }
+        }
+
+        int unreadCount = 0;
         try {
-            Intent intent = new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS);
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            getContext().startActivity(intent);
-            call.resolve();
-        } catch (Exception e) {
-            call.reject("Unable to open Android notification access settings", e);
+            unreadCount = WhatsAppNotificationListenerService.getUnreadWhatsAppNotificationCount();
+        } catch (Exception ignored) {}
+
+        int pendingCount = 0;
+        try {
+            android.content.SharedPreferences prefs = getContext().getSharedPreferences(
+                    WhatsAppNotificationListenerService.PREFS, Context.MODE_PRIVATE);
+            org.json.JSONArray events = new org.json.JSONArray(prefs.getString(
+                    WhatsAppNotificationListenerService.KEY_EVENTS, "[]"));
+            pendingCount = events.length();
+        } catch (Exception ignored) {}
+
+        ret.put("listenerEnabled", listenerEnabled);
+        ret.put("serviceConnected", serviceConnected);
+        ret.put("accessibilityEnabled", accessibilityEnabled);
+        ret.put("accessibilityRunning", accessibilityRunning);
+        ret.put("batteryOptimizationIgnored", batteryOptimizationIgnored);
+        ret.put("unreadGroupsCount", unreadCount);
+        ret.put("pendingEventsCount", pendingCount);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void openSettings(PluginCall call) {
+        boolean launched = false;
+        Intent[] candidateIntents = new Intent[] {
+            new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS),
+            new Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS"),
+            new Intent().setComponent(new android.content.ComponentName("com.android.settings", "com.android.settings.Settings$NotificationAccessSettingsActivity")),
+            new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).setData(android.net.Uri.fromParts("package", getContext().getPackageName(), null)),
+            new Intent(Settings.ACTION_SETTINGS)
+        };
+
+        for (Intent intent : candidateIntents) {
+            try {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                if (getActivity() != null) {
+                    getActivity().startActivity(intent);
+                } else {
+                    getContext().startActivity(intent);
+                }
+                launched = true;
+                break;
+            } catch (Exception ignored) {}
+        }
+
+        JSObject ret = new JSObject();
+        ret.put("success", launched);
+        if (launched) {
+            call.resolve(ret);
+        } else {
+            call.reject("Unable to open Android notification access settings");
         }
     }
 
@@ -335,13 +396,33 @@ public class NotificationListenerPlugin extends Plugin {
 
     @PluginMethod
     public void openAccessibilitySettings(PluginCall call) {
-        try {
-            Intent intent = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            getContext().startActivity(intent);
-            call.resolve();
-        } catch (Exception e) {
-            call.reject("Unable to open Android accessibility settings", e);
+        boolean launched = false;
+        Intent[] candidateIntents = new Intent[] {
+            new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS),
+            new Intent("android.settings.ACCESSIBILITY_SETTINGS"),
+            new Intent().setComponent(new android.content.ComponentName("com.android.settings", "com.android.settings.AccessibilitySettings")),
+            new Intent(Settings.ACTION_SETTINGS)
+        };
+
+        for (Intent intent : candidateIntents) {
+            try {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                if (getActivity() != null) {
+                    getActivity().startActivity(intent);
+                } else {
+                    getContext().startActivity(intent);
+                }
+                launched = true;
+                break;
+            } catch (Exception ignored) {}
+        }
+
+        JSObject ret = new JSObject();
+        ret.put("success", launched);
+        if (launched) {
+            call.resolve(ret);
+        } else {
+            call.reject("Unable to open Android accessibility settings");
         }
     }
 

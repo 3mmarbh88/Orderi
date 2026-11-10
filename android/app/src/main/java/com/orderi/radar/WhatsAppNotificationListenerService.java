@@ -65,6 +65,14 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
     private static final java.util.concurrent.ConcurrentHashMap<String, MarkAsReadHolder> MARK_AS_READ_ACTIONS = new java.util.concurrent.ConcurrentHashMap<>();
     private static volatile WhatsAppNotificationListenerService instance;
 
+    public static WhatsAppNotificationListenerService getInstance() {
+        return instance;
+    }
+
+    public static boolean isServiceConnected() {
+        return instance != null;
+    }
+
     @Override
     public void onListenerConnected() {
         super.onListenerConnected();

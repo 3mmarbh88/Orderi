@@ -1,4 +1,10 @@
 import { isNativeAndroid, OrderiNotificationListener } from './orderiNotificationListener';
+import { orderiWhatsAppClient, WhatsAppClientDiagnostics } from './orderiWhatsAppClient';
+export { orderiWhatsAppClient, type WhatsAppClientDiagnostics };
+
+export async function getWhatsAppDiagnostics(): Promise<WhatsAppClientDiagnostics> {
+  return await orderiWhatsAppClient.refreshDiagnostics();
+}
 
 export async function getWhatsAppListenerStatus(): Promise<boolean> {
   if (!isNativeAndroid()) return false;
@@ -10,9 +16,37 @@ export async function getWhatsAppListenerStatus(): Promise<boolean> {
   }
 }
 
-export async function openWhatsAppListenerSettings(): Promise<void> {
-  if (!isNativeAndroid()) return;
-  await OrderiNotificationListener.openSettings();
+export interface SettingsOpenResult {
+  success: boolean;
+  isNative: boolean;
+  reason?: 'web_environment' | 'intent_failed' | 'opened';
+  errorMessage?: string;
+}
+
+export async function openWhatsAppListenerSettings(): Promise<SettingsOpenResult> {
+  if (!isNativeAndroid()) {
+    return {
+      success: false,
+      isNative: false,
+      reason: 'web_environment',
+      errorMessage: 'يلزم تشغيل Orderi كتطبيق APK أصلي على أندرويد لفتح إعدادات النظام مباشرة.'
+    };
+  }
+  try {
+    await OrderiNotificationListener.openSettings();
+    return {
+      success: true,
+      isNative: true,
+      reason: 'opened'
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      isNative: true,
+      reason: 'intent_failed',
+      errorMessage: err?.message || String(err)
+    };
+  }
 }
 
 /**
@@ -45,9 +79,30 @@ export async function getWhatsAppAccessibilityStatus(): Promise<boolean> {
   }
 }
 
-export async function openWhatsAppAccessibilitySettings(): Promise<void> {
-  if (!isNativeAndroid()) return;
-  await OrderiNotificationListener.openAccessibilitySettings();
+export async function openWhatsAppAccessibilitySettings(): Promise<SettingsOpenResult> {
+  if (!isNativeAndroid()) {
+    return {
+      success: false,
+      isNative: false,
+      reason: 'web_environment',
+      errorMessage: 'يلزم تشغيل Orderi كتطبيق APK أصلي على أندرويد لفتح إعدادات إمكانية الوصول مباشرة.'
+    };
+  }
+  try {
+    await OrderiNotificationListener.openAccessibilitySettings();
+    return {
+      success: true,
+      isNative: true,
+      reason: 'opened'
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      isNative: true,
+      reason: 'intent_failed',
+      errorMessage: err?.message || String(err)
+    };
+  }
 }
 
 export async function openWhatsAppGroupConversation(

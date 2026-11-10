@@ -115,9 +115,6 @@ export function startBackgroundHeartbeat(): void {
  * Formatted exactly like native WhatsApp notifications with group/sender name, WhatsApp icon and sound
  */
 export function sendBackgroundOrderNotification(order: ParsedOrder, filter?: OrderFilter): void {
-  if (!isNotificationSupported()) return;
-  if (Notification.permission !== 'granted') return;
-
   // إذا تم إيقاف الإشعارات من داخل التطبيق (إلا إذا أغلقنا عمل الإشعارات من داخل البرنامج)
   if (filter?.notificationsEnabled === false || filter?.backgroundNotificationsEnabled === false) {
     return;

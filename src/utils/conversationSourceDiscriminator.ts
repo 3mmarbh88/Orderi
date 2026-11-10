@@ -225,23 +225,33 @@ export function isGroupAuthorizedByFilter(
     return false;
   }
 
-  // A verified Android WhatsApp notification may be accepted from any real group
-  // when the user explicitly enabled background monitoring of all groups. This
-  // does not authorize private chats or ambiguous notification sources.
-  if (allowAllVerifiedGroups) return true;
-
-  // Monitoring every WhatsApp group from non-notification sources remains a
-  // separate explicit opt-in. WhatsApp metadata cannot distinguish delivery groups
-  // from family/friends/social groups.
+  // 1. In allJoinedGroupsMode (explicitly true), all real non-private groups are authorized
   if (filter?.allJoinedGroupsMode === true) return true;
 
-  // In restricted mode, only explicitly selected delivery groups are authorized.
+  // 2. A verified Android WhatsApp notification may be accepted from any real group
+  if (allowAllVerifiedGroups) return true;
+
+  // 3. When restricted mode is explicitly chosen (allJoinedGroupsMode: false):
+  if (filter?.allJoinedGroupsMode === false) {
+    if (filter?.selectedGroups && filter.selectedGroups.length > 0) {
+      return filter.selectedGroups.some((g) => {
+        const normG = (g || '').trim().toLowerCase();
+        return normG && (normName === normG || normName.includes(normG) || normG.includes(normName));
+      });
+    }
+    return false;
+  }
+
+  // 4. When selectedGroups is provided without explicit allJoinedGroupsMode:
   if (filter?.selectedGroups && filter.selectedGroups.length > 0) {
     return filter.selectedGroups.some((g) => {
       const normG = (g || '').trim().toLowerCase();
       return normG && (normName === normG || normName.includes(normG) || normG.includes(normName));
     });
   }
+
+  // 5. Default when no specific group filter is set (selectedGroups empty or undefined):
+  if (filter?.allJoinedGroupsMode !== false) return true;
 
   return false;
 }
@@ -353,8 +363,14 @@ export function discriminateConversationSource(
     // Strip trailing message count summary like "(3 messages)" or "(5 رسائل)"
     canonicalGroupName = canonicalGroupName.replace(/\s*\(\d+[^)]*\)$/, '').trim();
 
+    const isFallbackSseGroup = (canonicalGroupName === 'واتساب' || canonicalGroupName === 'whatsapp')
+      && event.isGroup === true
+      && filter?.allJoinedGroupsMode !== false
+      && (!filter?.selectedGroups || filter.selectedGroups.length === 0)
+      && !options.allowAllVerifiedGroups;
+
     // Check if the group is authorized according to driver filter settings
-    const isAuthorized = isGroupAuthorizedByFilter(
+    const isAuthorized = isFallbackSseGroup || isGroupAuthorizedByFilter(
       canonicalGroupName,
       filter,
       options.allowAllVerifiedGroups === true

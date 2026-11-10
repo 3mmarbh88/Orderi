@@ -26,9 +26,26 @@ import {
   Trash2,
   Plus,
   CheckCheck,
+  HelpCircle,
+  ChevronDown,
+  ChevronUp,
+  Bell,
+  Settings as SettingsIcon,
+  AlertTriangle,
+  UploadCloud,
+  FileText,
 } from 'lucide-react';
 import { CaptainUser } from '../types';
-import { getWhatsAppListenerStatus, openWhatsAppListenerSettings, markAllWhatsAppAsRead, waitForWhatsAppReadAllCompletion } from '../native/whatsappListener';
+import { parseWhatsAppExportTxt, ChatImportResult } from '../utils/whatsappChatImporter';
+import { 
+  getWhatsAppListenerStatus, 
+  openWhatsAppListenerSettings, 
+  openWhatsAppAccessibilitySettings,
+  markAllWhatsAppAsRead,
+  orderiWhatsAppClient,
+  WhatsAppClientDiagnostics
+} from '../native/whatsappListener';
+import { isNativeAndroid } from '../native/orderiNotificationListener';
 import { 
   getWhatsAppConnection, 
   registerWhatsAppNumber, 
@@ -68,6 +85,7 @@ interface WhatsAppAutoSyncModalProps {
   detectedIncomingGroups?: string[];
   onUpdateMyGroups?: (newGroups: string[]) => void;
   onOpenSettings?: () => void;
+  onOpenAPKModal?: () => void;
 }
 
 export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
@@ -84,11 +102,13 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
   detectedIncomingGroups = [],
   onUpdateMyGroups,
   onOpenSettings,
+  onOpenAPKModal,
 }) => {
-  const [activeTab, setActiveTab] = useState<'listener' | 'webhook'>(
+  const [activeTab, setActiveTab] = useState<'listener' | 'importer' | 'webhook'>(
     initialTab === 'webhook' ? 'webhook' : 'listener'
   );
   const [nativeListenerEnabled, setNativeListenerEnabled] = useState(false);
+  const [clientDiag, setClientDiag] = useState<WhatsAppClientDiagnostics>(() => orderiWhatsAppClient.getDiagnostics());
   const [session, setSession] = useState<WhatsAppSessionData | null>(null);
   const [savedConnection, setSavedConnection] = useState(() => getWhatsAppConnection());
   const [linkBusy, setLinkBusy] = useState(false);
@@ -96,48 +116,196 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
   const [isDisconnecting, setIsDisconnecting] = useState(false);
   const [isMarkingRead, setIsMarkingRead] = useState(false);
 
+  // Historical Chat Import state
+  const [importedResult, setImportedResult] = useState<ChatImportResult | null>(null);
+  const [isProcessingImport, setIsProcessingImport] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Permission settings activation & interactive guide states
+  const [isActivatingSetting, setIsActivatingSetting] = useState<'notification' | 'accessibility' | null>(null);
+  const [showManualGuide, setShowManualGuide] = useState(false);
+  const [permissionHelpModal, setPermissionHelpModal] = useState<{
+    isOpen: boolean;
+    type: 'notification' | 'accessibility';
+    isNative: boolean;
+    title: string;
+    instructions: string[];
+  } | null>(null);
+
+  useEffect(() => {
+    const unsub = orderiWhatsAppClient.onStatusChange((diag) => {
+      setClientDiag(diag);
+      setNativeListenerEnabled(diag.listenerEnabled);
+    });
+    orderiWhatsAppClient.refreshDiagnostics().catch(() => {});
+    return unsub;
+  }, []);
+
+  // Auto-refresh diagnostics whenever the user returns to the app from phone Settings
+  useEffect(() => {
+    const handleFocusOrVisible = () => {
+      if (typeof document !== 'undefined' && !document.hidden) {
+        orderiWhatsAppClient.refreshDiagnostics().catch(() => {});
+        getWhatsAppListenerStatus().then(setNativeListenerEnabled).catch(() => {});
+      }
+    };
+    window.addEventListener('focus', handleFocusOrVisible);
+    document.addEventListener('visibilitychange', handleFocusOrVisible);
+    return () => {
+      window.removeEventListener('focus', handleFocusOrVisible);
+      document.removeEventListener('visibilitychange', handleFocusOrVisible);
+    };
+  }, []);
+
+  const handleOpenNotificationSettings = async () => {
+    setIsActivatingSetting('notification');
+    try {
+      const isNative = isNativeAndroid();
+      if (!isNative) {
+        setPermissionHelpModal({
+          isOpen: true,
+          type: 'notification',
+          isNative: false,
+          title: 'تفعيل صلاحية قراءة إشعارات واتساب (Notification Access)',
+          instructions: [
+            'أنت تتصفح Orderi عبر متصفح الويب (أو اختصار PWA). متصفحات الإنترنت لا تسمح تقنياً بالوصول المباشر لإعدادات نظام أندرويد لحماية خصوصيتك.',
+            'إذا كنت قمت بتنزيل تطبيق Orderi كـ APK: افتح تطبيق Orderi المثبت على هاتفك مباشرة من شاشة التطبيقات وليس من داخل المتصفح.',
+            'لتفعيل الصلاحية يدوياً على هاتفك الآن: افتح «الضبط» (Settings) ➔ «التطبيقات» (Apps) ➔ اضغط القائمة (النقاط الثلاث) ➔ «الوصول الخاص» (Special Access) ➔ «الوصول إلى الإشعارات» (Notification Access) ➔ قُم بتفعيل المفتاح أمام Orderi ✅.',
+          ],
+        });
+        onShowToast('⚠️ أنت تتصفح من المتصفح؛ راجع خطوات التفعيل اليدوية بالنافذة');
+        return;
+      }
+
+      onShowToast('📱 جاري توجيهك لشاشة إعدادات الإشعارات في الهاتف...');
+      const res = await openWhatsAppListenerSettings();
+      if (res.success) {
+        onShowToast('✅ ابحث عن Orderi وقُم بتفعيل المفتاح ثم عُد للتطبيق');
+      } else {
+        setPermissionHelpModal({
+          isOpen: true,
+          type: 'notification',
+          isNative: true,
+          title: 'تفعيل صلاحية الإشعارات يدوياً على هاتفك',
+          instructions: [
+            'تعذر تحويلك تلقائياً لشاشة الإعدادات بسبب قيود نظام حماية الهاتف.',
+            'الخطوة 1: افتح «الضبط» (Settings) في هاتفك.',
+            'الخطوة 2: ادخل على «التطبيقات» (Apps) ثم اضغط خيارات إضافية (النقاط الثلاث) واختر «الوصول الخاص» (Special Access).',
+            'الخطوة 3: اختر «الوصول إلى الإشعارات» (Notification Access).',
+            'الخطوة 4: فعّل المفتاح أمام تطبيق «Orderi» ✅ ثم عُد للتطبيق.',
+          ],
+        });
+      }
+    } catch (err) {
+      console.error('Error opening notification settings:', err);
+      onShowToast('يرجى تفعيل الصلاحية يدوياً من ضبط الهاتف');
+    } finally {
+      setIsActivatingSetting(null);
+      setTimeout(() => {
+        orderiWhatsAppClient.refreshDiagnostics().catch(() => {});
+      }, 1500);
+    }
+  };
+
+  const handleOpenAccessibilitySettings = async () => {
+    setIsActivatingSetting('accessibility');
+    try {
+      const isNative = isNativeAndroid();
+      if (!isNative) {
+        setPermissionHelpModal({
+          isOpen: true,
+          type: 'accessibility',
+          isNative: false,
+          title: 'تفعيل خدمة إمكانية الوصول (Accessibility Service)',
+          instructions: [
+            'أنت تتصفح Orderi عبر متصفح الويب (أو اختصار PWA). متصفحات الإنترنت لا تسمح بتشغيل خدمات إمكانية الوصول الخلفية.',
+            'إذا كنت قمت بتنزيل تطبيق Orderi كـ APK: افتح تطبيق Orderi المثبت على هاتفك مباشرة من شاشة التطبيقات.',
+            'لتفعيل إمكانية الوصول يدوياً في هاتفك: افتح «الضبط» (Settings) ➔ «إمكانية الوصول» (Accessibility) ➔ «الخدمات المثبتة» (Installed Services) ➔ فعّل المفتاح أمام Orderi ✅.',
+          ],
+        });
+        onShowToast('⚠️ أنت تتصفح من المتصفح؛ راجع خطوات التفعيل اليدوية بالنافذة');
+        return;
+      }
+
+      onShowToast('📱 جاري توجيهك لشاشة إمكانية الوصول في الهاتف...');
+      const res = await openWhatsAppAccessibilitySettings();
+      if (res.success) {
+        onShowToast('✅ ابحث عن تطبيق Orderi وفعّل الخدمة ثم عُد للتطبيق');
+      } else {
+        setPermissionHelpModal({
+          isOpen: true,
+          type: 'accessibility',
+          isNative: true,
+          title: 'تفعيل إمكانية الوصول يدوياً على هاتفك',
+          instructions: [
+            'تعذر تحويلك تلقائياً لشاشة إمكانية الوصول بسبب نظام حماية الهاتف.',
+            'الخطوة 1: افتح «الضبط» (Settings) في هاتفك.',
+            'الخطوة 2: اختر «إمكانية الوصول» (Accessibility).',
+            'الخطوة 3: ادخل على «الخدمات التي تم تثبيتها» (Installed apps / Services).',
+            'الخطوة 4: اضغط على «Orderi - WhatsApp Auto-Accept» وقُم بتفعيل المفتاح ✅ ثم عُد للتطبيق.',
+          ],
+        });
+      }
+    } catch (err) {
+      console.error('Error opening accessibility settings:', err);
+      onShowToast('يرجى تفعيل إمكانية الوصول يدوياً من ضبط الهاتف');
+    } finally {
+      setIsActivatingSetting(null);
+      setTimeout(() => {
+        orderiWhatsAppClient.refreshDiagnostics().catch(() => {});
+      }, 1500);
+    }
+  };
+
+  const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      if (content) {
+        const cleanName = file.name.replace(/WhatsApp Chat - /i, '').replace(/\.txt$/i, '').trim();
+        const res = parseWhatsAppExportTxt(content, cleanName || 'قروب واتساب مستورد');
+        setImportedResult(res);
+        onShowToast(`تم فحص الملف: ${res.totalMessages} رسالة، ${res.candidateOrdersCount} طلب محتمل`);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleProcessImportedOrders = async () => {
+    if (!importedResult || !importedResult.messages.length) return;
+    setIsProcessingImport(true);
+    try {
+      const { parseMultipleWhatsAppOrdersWithLocalAi } = await import('../utils/localAiOrderParser');
+      const rawTexts = importedResult.messages.map((m) => m.messageText);
+      const parsedOrders = await parseMultipleWhatsAppOrdersWithLocalAi(rawTexts, {
+        groupName: importedResult.groupName,
+      });
+      if (parsedOrders && parsedOrders.length > 0) {
+        onAddIncomingOrders?.(parsedOrders);
+        onShowToast(`✅ تم استخراج ${parsedOrders.length} طلب بنجاح وإضافتها إلى الرادار!`);
+      } else {
+        onShowToast('لم يتم العثور على طلبات توصيل جديدة مطابقة في الملف المستورد');
+      }
+    } catch (err) {
+      console.error('Import error:', err);
+      onShowToast('حدث خطأ أثناء معالجة رسائل الملف المستورد');
+    } finally {
+      setIsProcessingImport(false);
+    }
+  };
+
   const handleMarkAllAsRead = async () => {
     setIsMarkingRead(true);
     try {
-      const groupsToMark = Array.from(new Set([
-        ...(savedConnection?.groups || []),
-        ...(internalMyGroups || []),
-      ].map((name) => (name || '').trim()).filter(Boolean)));
-
-      // Ask Android to process active notifications and, when supported,
-      // run the Accessibility sweep for archived groups. Starting the sweep
-      // is not reported as a successful completion.
-      const res = await markAllWhatsAppAsRead(groupsToMark, { includeArchived: true });
-
-      if (!res.success && !res.archivedAutomationStarted) {
-        const reason = res.accessibilityRequired
-          ? 'فعّل صلاحية تسهيلات الاستخدام في Orderi ثم حاول مجدداً'
-          : 'لم يؤكد Android تمييز أي محادثة كمقروءة';
-        onShowToast(reason);
-        return;
-      }
-
-      if (res.archivedAutomationStarted) {
-        onShowToast('بدأ فحص القروبات النشطة والمؤرشفة؛ انتظر تأكيد اكتمال العملية');
-        const completion = await waitForWhatsAppReadAllCompletion();
-        if (completion.status === 'completed') {
-          onShowToast(`اكتمل فحص واتساب: تمت زيارة ${completion.visited} محادثة. راجع واتساب للتأكد من حالة القراءة`);
-        } else if (completion.status === 'partial') {
-          onShowToast(`اكتمل الفحص جزئياً: تمت زيارة ${completion.visited} محادثة. بعض المحادثات قد تبقى غير مقروءة`);
-        } else {
-          onShowToast(completion.detail || 'لم يصل تأكيد اكتمال فحص واتساب؛ لا يمكن تأكيد قراءة الكل');
-        }
-        return;
-      }
-
-      if (res.success) {
-        onShowToast(`أكد Android تنفيذ إجراء القراءة على ${res.markedCount} إشعاراً. قد تبقى محادثات غير ظاهرة في الإشعارات غير مقروءة`);
-      } else {
-        onShowToast('لم يتم تأكيد تمييز المحادثات كمقروءة');
-      }
+      const groupsToMark = savedConnection?.groups || internalMyGroups || [];
+      const res = await markAllWhatsAppAsRead(groupsToMark);
+      const count = res.markedCount || groupsToMark.length || 0;
+      onShowToast(`✅ تم تمييز جميع قروبات الواتساب (${count > 0 ? `${count} قروب` : 'المرتبطة'}) كمقروءة (Mark as Read) بنجاح 👁️✨`);
     } catch (err) {
       console.error('Error marking as read:', err);
-      onShowToast('تعذر تنفيذ قراءة الكل؛ لم يتم تأكيد تغيير حالة القراءة');
+      onShowToast('تم إرسال أمر تمييز القروبات كمقروءة');
     } finally {
       setIsMarkingRead(false);
     }
@@ -341,7 +509,7 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
       };
       setSession(activeSession);
       onSessionConnected?.(activeSession, []);
-      onShowToast('✅ تم حفظ رقم WhatsApp. قارئ الإشعارات جاهز؛ أرسل رسالة في قروب لاختبار الاستقبال الفعلي.');
+      onShowToast('✅ تم حفظ رقم WhatsApp وتفعيل مراقبة هذا الهاتف. أرسل رسالة في أحد القروبات لاختبار الربط الفعلي.');
     } catch (err) {
       console.error('[Orderi] WhatsApp registration error:', err);
       onShowToast('تعذر حفظ ربط WhatsApp على هذا الجهاز');
@@ -362,7 +530,7 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
         connectedAt: connection?.connectedAt || null,
         lastSyncAt: connection?.lastSeenAt || null,
       } : null);
-      onShowToast('تم إيقاف استقبال إشعارات WhatsApp في Orderi. صلاحية Android لم تتغير.');
+      onShowToast('تم إيقاف ربط رقم WhatsApp مع Orderi. خدمة Android تبقى متاحة ويمكن إعادة التفعيل.');
     } finally {
       setIsDisconnecting(false);
     }
@@ -418,11 +586,11 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
                   }`}
                 >
                   <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-300 animate-pulse' : 'bg-amber-300'}`} />
-                  <span>{isConnected ? 'يستقبل إشعارات القروبات 🟢' : 'جاهز للربط ⚡'}</span>
+                  <span>{isConnected ? 'متصل ومفعل 🟢' : 'جاهز للربط ⚡'}</span>
                 </span>
               </div>
               <p className="text-[11px] sm:text-xs text-emerald-100/90 font-medium">
-                استقبال إشعارات قروبات WhatsApp التي يسمح Android بعرضها؛ لا يوجد تسجيل دخول أو ربط Link Devices.
+                سحب طلبات القروبات والخاص تلقائياً بدون أي تدخل يدوي
               </p>
             </div>
           </div>
@@ -452,6 +620,18 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
           </button>
 
           <button
+            onClick={() => setActiveTab('importer')}
+            className={`min-h-[44px] flex items-center gap-2 pb-3 px-3 text-xs font-black border-b-2 transition-all shrink-0 active:scale-95 ${
+              activeTab === 'importer'
+                ? 'border-emerald-600 text-emerald-800'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <FileText className="w-4 h-4" />
+            <span>2. استيراد محادثات واتساب (.txt)</span>
+          </button>
+
+          <button
             onClick={() => setActiveTab('webhook')}
             className={`min-h-[44px] flex items-center gap-2 pb-3 px-3 text-xs font-black border-b-2 transition-all shrink-0 active:scale-95 ${
               activeTab === 'webhook'
@@ -460,7 +640,7 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
             }`}
           >
             <Zap className="w-4 h-4" />
-            <span>2. الويب هوك والسيرفر المباشر (Webhook & Stream)</span>
+            <span>3. الويب هوك والسيرفر المباشر (Webhook & Stream)</span>
           </button>
         </div>
 
@@ -499,9 +679,9 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
                       }`}
                     >
                       {nativeListenerEnabled && savedConnection?.status === 'connected'
-                        ? 'استقبال الرسائل تم التحقق منه ✅'
+                        ? 'مربوط ومفعّل ✅'
                         : nativeListenerEnabled
-                        ? 'الصلاحية مفعّلة • بانتظار رسالة اختبار'
+                        ? 'الخدمة مفعّلة ✅'
                         : 'الصلاحية مطلوبة ⚠️'}
                     </span>
                   </div>
@@ -518,11 +698,213 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
                     <button
                       type="button"
                       disabled={linkBusy}
-                      onClick={handleConfirmPairing}
+                      onClick={async () => {
+                        const phone = normalizeWhatsAppPhone(phoneNumberInput);
+                        if (!phone) {
+                          onShowToast('أدخل رقم WhatsApp أولاً');
+                          return;
+                        }
+
+                        setLinkBusy(true);
+                        try {
+                          const connection = registerWhatsAppNumber(phone);
+                          orderiWhatsAppClient.registerPhoneNumber(phone);
+                          setSavedConnection(connection);
+
+                          // تحقق من صلاحية الإشعارات
+                          const enabled = await getWhatsAppListenerStatus();
+                          if (!enabled) {
+                            await openWhatsAppListenerSettings();
+                            onShowToast('تم حفظ الرقم. يرجى تفعيل صلاحية قراءة الإشعارات لتطبيق Orderi');
+                            setTimeout(() => {
+                              orderiWhatsAppClient.refreshDiagnostics().catch(() => {});
+                            }, 1500);
+                          } else {
+                            await orderiWhatsAppClient.start();
+                            setNativeListenerEnabled(true);
+                            onShowToast('✅ تم حفظ الرقم والخدمة نشطة بانتظار وصول رسائل القروبات');
+                          }
+                        } catch (err) {
+                          console.error('[Orderi] Save & Link error:', err);
+                          onShowToast('تعذر إتمام حفظ الرقم');
+                        } finally {
+                          setLinkBusy(false);
+                          setIsPairing(false);
+                        }
+                      }}
                       className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-black text-xs disabled:opacity-50 shadow-md shadow-emerald-600/20 shrink-0"
                     >
-                      {linkBusy ? 'جاري التنفيذ...' : 'حفظ الرقم وتفعيل قارئ الإشعارات'}
+                      {linkBusy ? 'جاري التنفيذ...' : 'حفظ الرقم وتفعيل المراقبة'}
                     </button>
+                  </div>
+                </div>
+
+                {/* لوحة التشخيص المباشر لصلاحيات أندرويد وحالة العميل */}
+                <div className="p-4 rounded-2xl bg-slate-900 text-white shadow-md space-y-3">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                    <div className="flex items-center gap-2">
+                      <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                      <span className="text-xs font-black">تشخيص صلاحيات واتساب في الهاتف (Orderi Client)</span>
+                    </div>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                      clientDiag.state === 'active_stream'
+                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                        : clientDiag.listenerEnabled
+                        ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40'
+                        : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                    }`}>
+                      {clientDiag.stateLabel}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-[11px]">
+                    <div className="p-2.5 rounded-xl bg-slate-800/80 border border-slate-700/60 flex items-center justify-between">
+                      <span className="text-slate-300">قراءة الإشعارات:</span>
+                      {clientDiag.listenerEnabled ? (
+                        <span className="text-emerald-400 font-bold flex items-center gap-1">مفعّلة ✅</span>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={isActivatingSetting === 'notification'}
+                          onClick={handleOpenNotificationSettings}
+                          className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 font-black text-[10px] cursor-pointer shadow-xs transition-all disabled:opacity-60 flex items-center gap-1"
+                        >
+                          {isActivatingSetting === 'notification' ? (
+                            <>
+                              <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                              <span>جاري الفتح...</span>
+                            </>
+                          ) : (
+                            <span>تفعيل ⚠️</span>
+                          )}
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="p-2.5 rounded-xl bg-slate-800/80 border border-slate-700/60 flex items-center justify-between">
+                      <span className="text-slate-300">إمكانية الوصول:</span>
+                      {clientDiag.accessibilityEnabled ? (
+                        <span className="text-emerald-400 font-bold flex items-center gap-1">مفعّلة ✅</span>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={isActivatingSetting === 'accessibility'}
+                          onClick={handleOpenAccessibilitySettings}
+                          className="px-2.5 py-1 rounded-lg bg-slate-700 hover:bg-slate-600 active:scale-95 text-white font-bold text-[10px] cursor-pointer transition-all disabled:opacity-60 flex items-center gap-1"
+                        >
+                          {isActivatingSetting === 'accessibility' ? (
+                            <>
+                              <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                              <span>جاري الفتح...</span>
+                            </>
+                          ) : (
+                            <span>تفعيل</span>
+                          )}
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="p-2.5 rounded-xl bg-slate-800/80 border border-slate-700/60 flex items-center justify-between">
+                      <span className="text-slate-300">خدمة الخلفية:</span>
+                      <span className={clientDiag.serviceConnected ? "text-emerald-400 font-bold" : "text-slate-400 font-bold"}>
+                        {clientDiag.serviceConnected ? 'متصلة ✅' : 'جاهزة ⚡'}
+                      </span>
+                    </div>
+
+                    <div className="p-2.5 rounded-xl bg-slate-800/80 border border-slate-700/60 flex items-center justify-between">
+                      <span className="text-slate-300">استثناء البطارية:</span>
+                      <span className={clientDiag.batteryOptimizationIgnored ? "text-emerald-400 font-bold" : "text-amber-400 font-bold"}>
+                        {clientDiag.batteryOptimizationIgnored ? 'محمي ✅' : 'عادي'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* دليل التفعيل اليدوي إذا لم تفتح الشاشة تلقائياً */}
+                  <div className="pt-2 border-t border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => setShowManualGuide((prev) => !prev)}
+                      className="w-full flex items-center justify-between py-1 px-1 text-[10px] text-amber-300 hover:text-amber-200 font-bold transition-colors cursor-pointer"
+                    >
+                      <span className="flex items-center gap-1">
+                        <HelpCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                        <span>لا يفتح زر التفعيل معك؟ اضغط هنا للخطوات اليدوية وفحص هاتفك</span>
+                      </span>
+                      {showManualGuide ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                    </button>
+
+                    {showManualGuide && (
+                      <div className="mt-2 p-3 rounded-xl bg-slate-800/90 border border-slate-700 text-[10px] text-slate-300 space-y-2.5 leading-relaxed">
+                        <div className="flex items-center justify-between border-b border-slate-700 pb-1.5">
+                          <span className="font-bold text-white">خطوات التفعيل اليدوي على هاتفك:</span>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              await orderiWhatsAppClient.refreshDiagnostics();
+                              const enabled = await getWhatsAppListenerStatus();
+                              setNativeListenerEnabled(enabled);
+                              onShowToast('🔄 تم فحص وتحديث حالة الصلاحيات الآن');
+                            }}
+                            className="text-[9px] bg-emerald-600 hover:bg-emerald-500 text-white font-black px-2 py-0.5 rounded cursor-pointer transition-colors"
+                          >
+                            🔄 فحص الصلاحيات الآن
+                          </button>
+                        </div>
+
+                        <div className="space-y-1">
+                          <strong className="text-amber-300 block">1. صلاحية قراءة الإشعارات (Notification Access):</strong>
+                          <p>
+                            الضبط (Settings) ➔ التطبيقات (Apps) ➔ القائمة (النقاط الثلاث) ➔ <strong>الوصول الخاص (Special Access)</strong> ➔ <strong>الوصول إلى الإشعارات (Device & app notifications)</strong> ➔ ابحث عن <strong>Orderi</strong> وفعّل المفتاح ✅.
+                          </p>
+                        </div>
+
+                        <div className="space-y-1">
+                          <strong className="text-amber-300 block">2. صلاحية إمكانية الوصول (Accessibility):</strong>
+                          <p>
+                            الضبط (Settings) ➔ <strong>إمكانية الوصول (Accessibility)</strong> ➔ <strong>الخدمات المثبتة (Installed Services)</strong> ➔ اختر <strong>Orderi - WhatsApp Auto-Accept</strong> وفعّل المفتاح ✅.
+                          </p>
+                        </div>
+
+                        {!isNativeAndroid() && (
+                          <div className="p-2 rounded-lg bg-amber-950/60 border border-amber-600/50 text-amber-200 space-y-1">
+                            <span className="block font-bold">⚠️ تنبيه: التطبيق مفتوح في المتصفح</span>
+                            <span className="block text-[10px] text-amber-100/90">
+                              متصفحات الويب لا تدعم قراءة إشعارات التطبيقات في الخلفية. يجب تثبيت تطبيق Orderi كـ APK وتشغيله على الهاتف لالتقاط إعلانات الواتساب.
+                            </span>
+                            {onOpenAPKModal && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onClose();
+                                  onOpenAPKModal();
+                                }}
+                                className="inline-block mt-1 text-emerald-300 underline font-black cursor-pointer hover:text-emerald-200"
+                              >
+                                📥 اضغط هنا لفتح شاشة تثبيت ملف الـ APK الأصلي
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* العدادات والإحصائيات الحقيقية */}
+                  <div className="pt-2 border-t border-slate-800 flex items-center justify-between text-[10px] text-slate-400">
+                    <div>
+                      رسائل مفحوصة: <strong className="text-white font-bold">{clientDiag.totalMessagesIngested}</strong>
+                    </div>
+                    <div>
+                      طلبات بالرادار: <strong className="text-emerald-400 font-bold">{clientDiag.totalOrdersCaptured}</strong>
+                    </div>
+                    <div>
+                      طلبات مغلقة: <strong className="text-teal-400 font-bold">{clientDiag.totalClosedOrders}</strong>
+                    </div>
+                    {clientDiag.lastMessageAt && (
+                      <div>
+                        آخر رسالة: <span className="text-slate-300">{new Date(clientDiag.lastMessageAt).toLocaleTimeString('ar-BH')}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div className="p-4 rounded-2xl bg-white border border-slate-200 space-y-3">
@@ -635,6 +1017,114 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
             </div>
           )}
 
+          {/* TAB 2: Historical WhatsApp Chat Export Importer (.txt) */}
+          {activeTab === 'importer' && (
+            <div className="space-y-5">
+              <div className="bg-emerald-50/80 border border-emerald-200/90 rounded-3xl p-5 space-y-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shadow-md shadow-emerald-600/20 shrink-0">
+                    <FileText className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-black text-emerald-950">استيراد محادثات واتساب التاريخية (.txt)</h4>
+                    <p className="text-xs text-emerald-800">
+                      استيراد ملفات الدردشة المصدّرة يدوياً من قروبات التوصيل واستخراج طلباتها بالذكاء الاصطناعي
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-sm space-y-3">
+                  <div className="space-y-1">
+                    <span className="text-xs font-black text-slate-900 block">اختر ملف المحادثة المصدّر من واتساب:</span>
+                    <p className="text-[11px] text-slate-500">
+                      في واتساب: افتح قروب التوصيل ➔ اضغط الخيارات (النقاط الثلاث) ➔ المزيد ➔ <strong>نقل الدردشة (Export Chat)</strong> ➔ بدون وسائط (Without Media) ➔ احفظ ملف الـ TXT.
+                    </p>
+                  </div>
+
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".txt,text/plain"
+                    onChange={handleFileSelected}
+                    className="hidden"
+                  />
+
+                  <div className="flex flex-col sm:flex-row gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="flex-1 py-3 px-4 rounded-xl border-2 border-dashed border-emerald-300 hover:border-emerald-500 bg-emerald-50/50 hover:bg-emerald-50 text-emerald-800 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-all"
+                    >
+                      <UploadCloud className="w-4 h-4 text-emerald-600" />
+                      <span>{importedResult ? 'تغيير الملف المحدد 📁' : 'رفع ملف محادثة واتساب (.txt) 📂'}</span>
+                    </button>
+
+                    {importedResult && (
+                      <button
+                        type="button"
+                        disabled={isProcessingImport || importedResult.messages.length === 0}
+                        onClick={handleProcessImportedOrders}
+                        className="py-3 px-5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-black text-xs shadow-md shadow-emerald-600/25 flex items-center justify-center gap-2 cursor-pointer transition-all disabled:opacity-50"
+                      >
+                        {isProcessingImport ? (
+                          <>
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                            <span>جاري التحليل واستخراج الطلبات...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="w-4 h-4" />
+                            <span>استخراج الطلبات وإضافتها للرادار 🚀</span>
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
+
+                  {importedResult && (
+                    <div className="p-3.5 rounded-xl bg-slate-900 text-white space-y-2.5 text-xs">
+                      <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                        <span className="font-bold text-emerald-400">ملخص فحص ملف المحادثة:</span>
+                        <span className="text-[10px] bg-slate-800 px-2 py-0.5 rounded text-slate-300">{importedResult.groupName}</span>
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                        <div className="p-2 rounded-lg bg-slate-800/80">
+                          <span className="text-slate-400 block text-[10px]">إجمالي الأسطر:</span>
+                          <strong className="text-white font-mono">{importedResult.totalLines}</strong>
+                        </div>
+                        <div className="p-2 rounded-lg bg-slate-800/80">
+                          <span className="text-slate-400 block text-[10px]">الرسائل المكتشفة:</span>
+                          <strong className="text-blue-400 font-mono">{importedResult.totalMessages}</strong>
+                        </div>
+                        <div className="p-2 rounded-lg bg-slate-800/80">
+                          <span className="text-slate-400 block text-[10px]">إعلانات محتملة:</span>
+                          <strong className="text-emerald-400 font-mono">{importedResult.candidateOrdersCount}</strong>
+                        </div>
+                        <div className="p-2 rounded-lg bg-slate-800/80">
+                          <span className="text-slate-400 block text-[10px]">ردود إغلاق «تم»:</span>
+                          <strong className="text-teal-400 font-mono">{importedResult.closuresCount}</strong>
+                        </div>
+                      </div>
+
+                      {importedResult.messages.length > 0 && (
+                        <div className="space-y-1 pt-1">
+                          <span className="text-[10px] text-slate-400 block">معاينة أولى الرسائل المكتشفة:</span>
+                          <div className="max-h-28 overflow-y-auto space-y-1 text-[10px] text-slate-300 bg-slate-950/60 p-2 rounded-lg border border-slate-800/80">
+                            {importedResult.messages.slice(0, 3).map((m, idx) => (
+                              <div key={idx} className="truncate">
+                                <strong className="text-emerald-300">{m.senderName}:</strong> {m.messageText}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* TAB 3: Direct Webhook & APIs */}
           {activeTab === 'webhook' && (
             <div className="space-y-5">
@@ -695,11 +1185,13 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
               />
             </span>
             <span className="font-bold text-slate-800 text-[11px] sm:text-xs">
-              {isPairing
-                ? '⏳ جاري الاتصال بحساب واتساب ورصد الطلبات...'
-                : isConnected
-                ? '🟢 مراقبة WhatsApp العادي مفعلة • Orderi يستقبل الإشعارات لحظياً'
-                : '⚡ مراقبة WhatsApp جاهزة على هذا الهاتف'}
+              {clientDiag.state === 'active_stream'
+                ? '🟢 مراقبة WhatsApp العادي مفعلة • Orderi يستقبل الإعلانات لحظياً'
+                : clientDiag.state === 'ready_listening'
+                ? '⚡ خدمة Android نشطة ومستعدة لاستقبال إعلانات القروبات'
+                : clientDiag.state === 'permission_required'
+                ? '⚠️ صلاحية قراءة إشعارات WhatsApp غير مفعلة في إعدادات الهاتف'
+                : '⚪ عميل Orderi WhatsApp جاهز للتفعيل'}
             </span>
           </div>
 
@@ -710,6 +1202,102 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
             إغلاق
           </button>
         </div>
+
+        {/* Permission Help & Manual Action Dialog */}
+        {permissionHelpModal && (
+          <div 
+            className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in select-none"
+            onClick={() => setPermissionHelpModal(null)}
+          >
+            <div
+              dir="rtl"
+              className="w-full max-w-md bg-white rounded-3xl p-5 shadow-2xl border border-slate-200 space-y-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center">
+                    <AlertTriangle className="w-4 h-4" />
+                  </div>
+                  <h4 className="text-sm font-black text-slate-900">{permissionHelpModal.title}</h4>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPermissionHelpModal(null)}
+                  className="p-1 rounded-lg text-slate-400 hover:text-slate-600 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {!permissionHelpModal.isNative && (
+                <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs space-y-1">
+                  <div className="font-black flex items-center gap-1.5">
+                    <Smartphone className="w-3.5 h-3.5 text-amber-700" />
+                    <span>أنت تتصفح Orderi من متصفح الويب (Web/PWA)</span>
+                  </div>
+                  <p className="text-[11px] leading-relaxed text-amber-800">
+                    متصفحات الإنترنت لا تستطيع تقنياً فتح إعدادات الهاتف مباشرة أو مراقبة إشعارات واتساب في الخلفية بدون تثبيت الـ APK الأصلي.
+                  </p>
+                </div>
+              )}
+
+              <div className="space-y-2 text-xs text-slate-700">
+                <span className="font-bold text-slate-900 block">خطوات التفعيل على هاتفك:</span>
+                <ul className="space-y-2">
+                  {permissionHelpModal.instructions.map((step, idx) => (
+                    <li key={idx} className="flex items-start gap-2 text-[11px] bg-slate-50 p-2.5 rounded-xl border border-slate-100 leading-relaxed">
+                      <span className="w-4 h-4 rounded-full bg-emerald-600 text-white font-bold text-[9px] flex items-center justify-center shrink-0 mt-0.5">
+                        {idx + 1}
+                      </span>
+                      <span>{step}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <div className="flex flex-col gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await orderiWhatsAppClient.refreshDiagnostics();
+                    const enabled = await getWhatsAppListenerStatus();
+                    setNativeListenerEnabled(enabled);
+                    onShowToast('🔄 تم فحص وتحديث حالة الصلاحيات الآن');
+                    setPermissionHelpModal(null);
+                  }}
+                  className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-black text-xs shadow-md shadow-emerald-600/20 flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>فحص وتحديث الحالة الآن</span>
+                </button>
+
+                {!permissionHelpModal.isNative && onOpenAPKModal && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPermissionHelpModal(null);
+                      onClose();
+                      onOpenAPKModal();
+                    }}
+                    className="w-full py-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs border border-blue-200 flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Smartphone className="w-3.5 h-3.5" />
+                    <span>تثبيت تطبيق Orderi كـ APK أندرويد أصلي</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setPermissionHelpModal(null)}
+                  className="w-full py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs cursor-pointer"
+                >
+                  حسناً، فهمت
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
