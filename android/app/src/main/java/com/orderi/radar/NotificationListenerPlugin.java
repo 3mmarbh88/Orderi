@@ -292,6 +292,10 @@ public class NotificationListenerPlugin extends Plugin {
 
         ret.put("listenerEnabled", listenerEnabled);
         ret.put("serviceConnected", serviceConnected);
+        ret.put("isWhatsAppInstalled", com.orderi.whatsapp.WhatsAppPermissionManager.isWhatsAppInstalled(getContext()));
+        ret.put("lastEventTimestamp", com.orderi.whatsapp.WhatsAppServiceMonitor.getLastEventTimestamp());
+        ret.put("totalEventsIngested", com.orderi.whatsapp.WhatsAppServiceMonitor.getTotalEventsIngested());
+        ret.put("lastError", com.orderi.whatsapp.WhatsAppServiceMonitor.getLastError());
         ret.put("accessibilityEnabled", accessibilityEnabled);
         ret.put("accessibilityRunning", accessibilityRunning);
         ret.put("batteryOptimizationIgnored", batteryOptimizationIgnored);

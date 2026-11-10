@@ -56,10 +56,8 @@ export function parseWhatsAppExportTxt(content: string, defaultGroupName?: strin
     if (!trimmed) continue;
 
     let match = HEADER_REGEX_BRACKET.exec(trimmed);
-    let isBracket = true;
     if (!match) {
       match = HEADER_REGEX_DASH.exec(trimmed);
-      isBracket = false;
     }
 
     if (match) {
@@ -73,7 +71,7 @@ export function parseWhatsAppExportTxt(content: string, defaultGroupName?: strin
 
       const parsedTs = parseDateTimeToTimestamp(dateStr, timeStr);
       currentMsg = {
-        id: `import-${i}-${Math.random().toString(36).slice(2, 7)}`,
+        id: createStableMessageId(inferredGroup, senderName, parsedTs, dateStr, timeStr, messageText),
         groupName: inferredGroup,
         senderName,
         dateStr,
@@ -144,22 +142,62 @@ function isSystemSecurityOrAdminMessage(text: string): boolean {
   );
 }
 
+function createStableMessageId(
+  groupName: string,
+  senderName: string,
+  timestamp: number,
+  dateStr: string,
+  timeStr: string,
+  messageText: string,
+): string {
+  const identity = [
+    groupName.trim().toLocaleLowerCase(),
+    senderName.trim().toLocaleLowerCase(),
+    String(timestamp),
+    dateStr.trim(),
+    timeStr.trim(),
+    messageText.trim().replace(/\s+/g, ' '),
+  ].join('|');
+  // Deterministic FNV-1a hash: importing the same export twice yields the same ID.
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < identity.length; i++) {
+    hash ^= identity.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `import-${(hash >>> 0).toString(16).padStart(8, '0')}`;
+}
+
 function parseDateTimeToTimestamp(dateStr: string, timeStr: string): number {
-  try {
-    const parts = dateStr.split(/[/.-]/);
-    if (parts.length === 3) {
-      let day = parseInt(parts[0], 10);
-      let month = parseInt(parts[1], 10) - 1;
-      let year = parseInt(parts[2], 10);
-      if (year < 100) year += 2000;
-      // Handle YYYY-MM-DD
-      if (parts[0].length === 4) {
-        year = parseInt(parts[0], 10);
-        month = parseInt(parts[1], 10) - 1;
-        day = parseInt(parts[2], 10);
-      }
-      return new Date(year, month, day).getTime();
-    }
-  } catch {}
-  return Date.now();
+  const dateParts = dateStr.split(/[/.-]/).map((part) => Number.parseInt(part, 10));
+  if (dateParts.length !== 3 || dateParts.some((part) => !Number.isFinite(part))) return 0;
+
+  let year: number;
+  let month: number;
+  let day: number;
+  if (dateStr.split(/[/.-]/)[0].length === 4) {
+    [year, month, day] = dateParts;
+  } else {
+    // WhatsApp exports commonly use day/month/year in Arabic-region locales.
+    [day, month, year] = dateParts;
+  }
+  if (year < 100) year += 2000;
+  if (month < 1 || month > 12 || day < 1 || day > 31) return 0;
+
+  const timeMatch = /^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$/i.exec(timeStr.trim());
+  if (!timeMatch) return 0;
+  let hour = Number.parseInt(timeMatch[1], 10);
+  const minute = Number.parseInt(timeMatch[2], 10);
+  const second = Number.parseInt(timeMatch[3] || '0', 10);
+  const meridiem = (timeMatch[4] || '').toUpperCase();
+  if (minute > 59 || second > 59 || hour > 23) return 0;
+  if (meridiem) {
+    if (hour < 1 || hour > 12) return 0;
+    if (meridiem === 'AM') hour = hour === 12 ? 0 : hour;
+    else hour = hour === 12 ? 12 : hour + 12;
+  }
+
+  const parsed = new Date(year, month - 1, day, hour, minute, second, 0);
+  // Reject impossible calendar dates rather than silently rolling into another month.
+  if (parsed.getFullYear() !== year || parsed.getMonth() !== month - 1 || parsed.getDate() !== day) return 0;
+  return parsed.getTime();
 }

@@ -41,6 +41,10 @@ interface OrderiNotificationListenerPlugin {
     batteryOptimizationIgnored: boolean;
     unreadGroupsCount: number;
     pendingEventsCount: number;
+    isWhatsAppInstalled?: boolean;
+    lastEventTimestamp?: number;
+    totalEventsIngested?: number;
+    lastError?: string | null;
   }>;
   openWhatsAppGroupConversation(options: { groupName: string }): Promise<{ success: boolean; method: string }>;
   openWhatsAppPrivateConversation(options: { phone?: string; memberName?: string }): Promise<{ success: boolean; method: string }>;
