@@ -460,14 +460,14 @@ function OrderiApp({
                   if (sourceAnalysis.isPrivateIndividual) {
                     incrementExcludedPrivateChatsCounter();
                   }
-                  await OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] });
+          
                   continue;
                 }
                 const groupName = sourceAnalysis.groupName!;
                 const rawText = (event.rawText || event.bigText || event.text || event.subText || '').trim();
                 if (detectAdvertisementMessage(rawText || event.title || '').isAdvertisement) {
                   console.info('[Orderi] Suppressed pending service advertisement');
-                  await OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] });
+          
                   continue;
                 }
                 // Check for order closure in pending batch (e.g. advertiser posted "تم"/sticker while app paused)
@@ -484,7 +484,7 @@ function OrderiApp({
                   const closureMatch = checkIncomingMessageForClosure(closureData, ordersRef.current);
                   if (closureMatch) {
                     handleAutoOrderClosure(closureMatch);
-                    await OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] });
+            
                     continue;
                   }
                 }
@@ -533,7 +533,7 @@ function OrderiApp({
                     }, true);
                   }
                 }
-                await OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] });
+        
               } catch (singleEventErr) {
                 // Keep failed events in the native queue. Acknowledge only after the
                 // event was successfully classified/processed; the next refresh can retry.
@@ -1504,12 +1504,13 @@ function OrderiApp({
   useEffect(() => {
     if (!isNativeAndroid()) return;
     let removed = false;
-    let listenerHandle: { remove: () => Promise<void> } | null = null;
+    let removeClientMessageHandler: (() => void) | null = null;
 
-    // A notification can be delivered both by the live native broadcast and by
-    // getPending() during startup. Deduplicate by native event ID, not message text.
+    // The client owns the single native listener and durable queue drain.
+    // Register Radar's async processor before starting it so events are only
+    // acknowledged after the full parser/closure pipeline has completed.
     const seenNativeEventIds = new Set<string>();
-    const convertNativeEvent = (event: WhatsAppNativeEvent) => {
+    const convertNativeEvent = async (event: WhatsAppNativeEvent): Promise<void> => {
       if (event?.id) {
         if (seenNativeEventIds.has(event.id)) return;
         seenNativeEventIds.add(event.id);
@@ -1520,7 +1521,7 @@ function OrderiApp({
       }
       const rawText = (event.rawText || event.bigText || event.text || event.subText || '').trim();
       if (!rawText && !event.title) {
-        void OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] }).catch((error) => console.warn('[Orderi Spider] Event acknowledgement failed; it remains queued:', error));
+
         return;
       }
 
@@ -1568,7 +1569,7 @@ function OrderiApp({
         }
 
         // STRICT PRIVACY GUARANTEE: Never create order from personal 1-on-1 chats, never close other orders!
-        void OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] }).catch(() => {});
+
         return;
       }
 
@@ -1584,14 +1585,14 @@ function OrderiApp({
             return prev;
           });
         }
-        void OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] }).catch(() => {});
+
         return;
       }
 
       if (sourceAnalysis.sourceType === 'undetermined_ambiguous') {
         // Ambiguous notifications are always dropped. Message content must
         // never promote an unknown/private chat into a trusted delivery group.
-        void OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] }).catch(() => {});
+
         return;
       }
 
@@ -1604,7 +1605,7 @@ function OrderiApp({
       const advertisementCheck = detectAdvertisementMessage(rawText || event.title || '');
       if (advertisementCheck.isAdvertisement) {
         console.info('[Orderi] Suppressed service/commercial advertisement:', advertisementCheck.reason || 'advertisement');
-        void OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] }).catch((error) => console.warn('[Orderi Spider] Event acknowledgement failed; it remains queued:', error));
+
         return;
       }
 
@@ -1681,21 +1682,24 @@ function OrderiApp({
         if (fastClosureMatch) {
           orderiWhatsAppClient.recordOrderClosed(fastClosureMatch.orderId);
           handleAutoOrderClosure(fastClosureMatch);
-          void OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] }).catch((error) => console.warn('[Orderi Spider] Event acknowledgement failed; it remains queued:', error));
+  
           return;
         }
 
         // إذا كانت الرسالة من معلن بالقروب ولم تطابق القاموس المباشر، نفحصها بالذكاء الاصطناعي لفهم التعابير العامية الجديدة
-        checkIncomingMessageForClosureWithAI(closureMessageData, ordersRef.current).then((aiClosureMatch) => {
+        try {
+          const aiClosureMatch = await checkIncomingMessageForClosureWithAI(closureMessageData, ordersRef.current);
           if (aiClosureMatch) {
             orderiWhatsAppClient.recordOrderClosed(aiClosureMatch.orderId);
             handleAutoOrderClosure(aiClosureMatch);
           }
-        }).catch(() => {});
+        } catch {
+          // A closure-classification failure must not block normal order parsing.
+        }
       }
 
-      import('./utils/localAiOrderParser').then(async ({ parseMultipleWhatsAppOrdersWithLocalAi }) => {
-        const parsedList = await parseMultipleWhatsAppOrdersWithLocalAi(rawText || event.title || '', {
+      const { parseMultipleWhatsAppOrdersWithLocalAi } = await import('./utils/localAiOrderParser');
+      const parsedList = await parseMultipleWhatsAppOrdersWithLocalAi(rawText || event.title || '', {
           hybridMode: filterRef.current.localAiConfig?.hybridMode !== false,
           forceAi: filterRef.current.localAiConfig?.hybridMode === false,
           useCloudFallback: filterRef.current.useCloudAiFallback === true && canForwardToCloudAI(sourceAnalysis),
@@ -1749,36 +1753,16 @@ function OrderiApp({
                 } else {
                   console.log('[Orderi Native] WhatsApp did not expose a matching Mark as read action for:', groupName);
                 }
-              }).catch((error) => {
-                console.warn('[Orderi Native] Could not mark source WhatsApp group as read:', error);
-              });
-            }
-
-            orderiWhatsAppClient.recordOrderCaptured(order.id);
-            handleProcessIncomingRawOrder(order, false);
-          }
-        }
-        // Messages that are validly analyzed but do not qualify as orders are
-        // acknowledged too; transient parser errors intentionally remain queued.
-        await OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] });
-      }).catch((error) => {
-        console.warn('[Orderi Native] Could not parse incoming WhatsApp notification:', error);
-      });
-    };
+            };
 
     let openOrderListenerHandle: { remove: () => Promise<void> } | null = null;
 
     const setup = async () => {
       try {
-        // Initialize Orderi WhatsApp Client
-        void orderiWhatsAppClient.start().catch((err) => console.warn('[Orderi WhatsApp Client] Start error:', err));
-
-        // Subscribe before draining the persisted native queue. The old order
-        // left a startup race where a notification arriving between the two calls
-        // was neither queued for later processing nor delivered to the JS listener.
-        listenerHandle = await OrderiNotificationListener.addListener('whatsappNotification', convertNativeEvent);
-        const pending = await OrderiNotificationListener.getPending();
-        if (!removed) pending.events.forEach(convertNativeEvent);
+        // Subscribe Radar's processor first, then let the client install the
+        // one native listener and drain the durable queue without a startup race.
+        removeClientMessageHandler = orderiWhatsAppClient.onRawMessage(convertNativeEvent);
+        await orderiWhatsAppClient.start();
 
         // Listen for openOrderDetail emitted when tapping Android phone notification
         openOrderListenerHandle = await OrderiNotificationListener.addListener('openOrderDetail', (data: any) => {
@@ -1895,7 +1879,7 @@ function OrderiApp({
     setup();
     return () => {
       removed = true;
-      if (listenerHandle) listenerHandle.remove().catch(() => {});
+      if (removeClientMessageHandler) removeClientMessageHandler();
       if (openOrderListenerHandle) openOrderListenerHandle.remove().catch(() => {});
       if ((window as any).__orderi_mark_cleanup) (window as any).__orderi_mark_cleanup();
     };
