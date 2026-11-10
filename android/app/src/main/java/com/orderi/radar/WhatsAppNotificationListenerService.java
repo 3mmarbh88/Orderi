@@ -1076,7 +1076,10 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
     public static boolean dispatchCustomWhatsAppEvent(android.content.Context context, String groupName, String senderName, String rawText, boolean isGroup) {
         if (context == null || TextUtils.isEmpty(rawText)) return false;
         try {
-            String stableIdentity = "archived_scraper|" + groupName + "|" + rawText + "|" + System.currentTimeMillis();
+            long receivedAt = System.currentTimeMillis();
+            long dedupBucket = receivedAt / (5L * 60L * 1000L);
+            String stableIdentity = "archived_scraper|" + safe(groupName) + "|" + safe(senderName)
+                    + "|" + rawText.trim().replaceAll("\\s+", " ") + "|" + dedupBucket;
             String stableId = UUID.nameUUIDFromBytes(stableIdentity.getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
 
             JSONObject event = new JSONObject();
@@ -1097,20 +1100,16 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
             event.put("subText", "مؤرشف 📦");
             event.put("summaryText", groupName);
             event.put("rawText", rawText);
-            event.put("receivedAt", System.currentTimeMillis());
+            event.put("receivedAt", receivedAt);
             event.put("key", stableId);
             event.put("conversationTitle", groupName);
             event.put("category", "msg");
             event.put("isGroup", isGroup);
 
-            synchronized (WhatsAppNotificationListenerService.class) {
-                SharedPreferences prefs = context.getSharedPreferences(PREFS, MODE_PRIVATE);
-                JSONArray existing;
-                try { existing = new JSONArray(prefs.getString(KEY_EVENTS, "[]")); }
-                catch (Exception ignored) { existing = new JSONArray(); }
-                existing.put(event);
-                prefs.edit().putString(KEY_EVENTS, existing.toString()).commit();
-            }
+            boolean stored = com.orderi.whatsapp.OrderiWhatsAppClient.getInstance(context)
+                    .getEventStore().enqueue(event);
+            if (!stored) return false;
+            com.orderi.whatsapp.WhatsAppServiceMonitor.recordEventReceived();
 
             Intent broadcast = new Intent(ACTION_EVENT);
             broadcast.setPackage(context.getPackageName());
