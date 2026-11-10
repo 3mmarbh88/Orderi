@@ -460,14 +460,14 @@ function OrderiApp({
                   if (sourceAnalysis.isPrivateIndividual) {
                     incrementExcludedPrivateChatsCounter();
                   }
-          
+                  await OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] });
                   continue;
                 }
                 const groupName = sourceAnalysis.groupName!;
                 const rawText = (event.rawText || event.bigText || event.text || event.subText || '').trim();
                 if (detectAdvertisementMessage(rawText || event.title || '').isAdvertisement) {
                   console.info('[Orderi] Suppressed pending service advertisement');
-          
+                  await OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] });
                   continue;
                 }
                 // Check for order closure in pending batch (e.g. advertiser posted "تم"/sticker while app paused)
@@ -484,7 +484,7 @@ function OrderiApp({
                   const closureMatch = checkIncomingMessageForClosure(closureData, ordersRef.current);
                   if (closureMatch) {
                     handleAutoOrderClosure(closureMatch);
-            
+                    await OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] });
                     continue;
                   }
                 }
@@ -533,7 +533,7 @@ function OrderiApp({
                     }, true);
                   }
                 }
-        
+                await OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] });
               } catch (singleEventErr) {
                 // Keep failed events in the native queue. Acknowledge only after the
                 // event was successfully classified/processed; the next refresh can retry.
@@ -1753,7 +1753,19 @@ function OrderiApp({
                 } else {
                   console.log('[Orderi Native] WhatsApp did not expose a matching Mark as read action for:', groupName);
                 }
-            };
+              }).catch((error) => {
+                console.warn('[Orderi Native] Could not mark source WhatsApp group as read:', error);
+              });
+            }
+
+            orderiWhatsAppClient.recordOrderCaptured(order.id);
+            handleProcessIncomingRawOrder(order, false);
+          }
+        }
+        // Messages that are validly analyzed but do not qualify as orders are
+        // acknowledged too; transient parser errors intentionally remain queued.
+
+    };
 
     let openOrderListenerHandle: { remove: () => Promise<void> } | null = null;
 
