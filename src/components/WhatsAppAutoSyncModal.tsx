@@ -28,7 +28,7 @@ import {
   CheckCheck,
 } from 'lucide-react';
 import { CaptainUser } from '../types';
-import { getWhatsAppListenerStatus, openWhatsAppListenerSettings, markAllWhatsAppAsRead } from '../native/whatsappListener';
+import { getWhatsAppListenerStatus, openWhatsAppListenerSettings, markAllWhatsAppAsRead, waitForWhatsAppReadAllCompletion } from '../native/whatsappListener';
 import { 
   getWhatsAppConnection, 
   registerWhatsAppNumber, 
@@ -99,13 +99,45 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
   const handleMarkAllAsRead = async () => {
     setIsMarkingRead(true);
     try {
-      const groupsToMark = savedConnection?.groups || internalMyGroups || [];
-      const res = await markAllWhatsAppAsRead(groupsToMark);
-      const count = res.markedCount || groupsToMark.length || 0;
-      onShowToast(`✅ تم تمييز جميع قروبات الواتساب (${count > 0 ? `${count} قروب` : 'المرتبطة'}) كمقروءة (Mark as Read) بنجاح 👁️✨`);
+      const groupsToMark = Array.from(new Set([
+        ...(savedConnection?.groups || []),
+        ...(internalMyGroups || []),
+      ].map((name) => (name || '').trim()).filter(Boolean)));
+
+      // Ask Android to process active notifications and, when supported,
+      // run the Accessibility sweep for archived groups. Starting the sweep
+      // is not reported as a successful completion.
+      const res = await markAllWhatsAppAsRead(groupsToMark, { includeArchived: true });
+
+      if (!res.success && !res.archivedAutomationStarted) {
+        const reason = res.accessibilityRequired
+          ? 'فعّل صلاحية تسهيلات الاستخدام في Orderi ثم حاول مجدداً'
+          : 'لم يؤكد Android تمييز أي محادثة كمقروءة';
+        onShowToast(reason);
+        return;
+      }
+
+      if (res.archivedAutomationStarted) {
+        onShowToast('بدأ فحص القروبات النشطة والمؤرشفة؛ انتظر تأكيد اكتمال العملية');
+        const completion = await waitForWhatsAppReadAllCompletion();
+        if (completion.status === 'completed') {
+          onShowToast(`اكتمل فحص واتساب: تمت زيارة ${completion.visited} محادثة. راجع واتساب للتأكد من حالة القراءة`);
+        } else if (completion.status === 'partial') {
+          onShowToast(`اكتمل الفحص جزئياً: تمت زيارة ${completion.visited} محادثة. بعض المحادثات قد تبقى غير مقروءة`);
+        } else {
+          onShowToast(completion.detail || 'لم يصل تأكيد اكتمال فحص واتساب؛ لا يمكن تأكيد قراءة الكل');
+        }
+        return;
+      }
+
+      if (res.success) {
+        onShowToast(`أكد Android تنفيذ إجراء القراءة على ${res.markedCount} إشعاراً. قد تبقى محادثات غير ظاهرة في الإشعارات غير مقروءة`);
+      } else {
+        onShowToast('لم يتم تأكيد تمييز المحادثات كمقروءة');
+      }
     } catch (err) {
       console.error('Error marking as read:', err);
-      onShowToast('تم إرسال أمر تمييز القروبات كمقروءة');
+      onShowToast('تعذر تنفيذ قراءة الكل؛ لم يتم تأكيد تغيير حالة القراءة');
     } finally {
       setIsMarkingRead(false);
     }
