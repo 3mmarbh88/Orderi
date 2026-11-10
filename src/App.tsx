@@ -1509,16 +1509,9 @@ function OrderiApp({
     // The client owns the single native listener and durable queue drain.
     // Register Radar's async processor before starting it so events are only
     // acknowledged after the full parser/closure pipeline has completed.
-    const seenNativeEventIds = new Set<string>();
+    // The Orderi WhatsApp Client owns event-ID deduplication and retries.
+    // Do not keep a second "seen" set here: failed processing must be retryable.
     const convertNativeEvent = async (event: WhatsAppNativeEvent): Promise<void> => {
-      if (event?.id) {
-        if (seenNativeEventIds.has(event.id)) return;
-        seenNativeEventIds.add(event.id);
-        if (seenNativeEventIds.size > 500) {
-          const oldest = seenNativeEventIds.values().next().value;
-          if (oldest) seenNativeEventIds.delete(oldest);
-        }
-      }
       const rawText = (event.rawText || event.bigText || event.text || event.subText || '').trim();
       if (!rawText && !event.title) {
 
@@ -1762,8 +1755,7 @@ function OrderiApp({
             handleProcessIncomingRawOrder(order, false);
           }
         }
-        // Messages that are validly analyzed but do not qualify as orders are
-        // acknowledged too; transient parser errors intentionally remain queued.
+        // The client acknowledges this event after this async Radar handler returns successfully.
 
     };
 
