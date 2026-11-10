@@ -77,11 +77,13 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
     public void onListenerConnected() {
         super.onListenerConnected();
         instance = this;
+        com.orderi.whatsapp.WhatsAppServiceMonitor.setServiceConnected(true);
     }
 
     @Override
     public void onListenerDisconnected() {
         if (instance == this) instance = null;
+        com.orderi.whatsapp.WhatsAppServiceMonitor.setServiceConnected(false);
         super.onListenerDisconnected();
 
         // Android may temporarily disconnect notification listeners. Ask the
@@ -1023,50 +1025,23 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
     }
 
     private boolean appendEvent(JSONObject event) {
-        synchronized (WhatsAppNotificationListenerService.class) {
-            SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
-            SharedPreferences dedupPrefs = getSharedPreferences(DEDUP_PREFS, MODE_PRIVATE);
-            String eventId = event.optString("id", "");
-            if (TextUtils.isEmpty(eventId)) return false;
-
-            long now = System.currentTimeMillis();
-            JSONObject seen;
-            try { seen = new JSONObject(dedupPrefs.getString("seen_ids", "{}")); }
-            catch (Exception ignored) { seen = new JSONObject(); }
-
-            // Keep a bounded 24-hour idempotency ledger across process restarts.
-            java.util.Iterator<String> seenKeys = seen.keys();
-            while (seenKeys.hasNext()) {
-                String key = seenKeys.next();
-                if (seen.optLong(key, 0L) <= now) seenKeys.remove();
+        if (event == null) return false;
+        try {
+            // The listener writes through the same durable store used by the
+            // Orderi WhatsApp client bridge and the existing Capacitor queue API.
+            com.orderi.whatsapp.OrderiWhatsAppClient client =
+                    com.orderi.whatsapp.OrderiWhatsAppClient.getInstance(getApplicationContext());
+            boolean stored = client.getEventStore().enqueue(event);
+            if (stored) {
+                com.orderi.whatsapp.WhatsAppServiceMonitor.recordEventReceived();
             }
-            if (seen.optLong(eventId, 0L) > now) return false;
-
-            JSONArray existing;
-            try { existing = new JSONArray(prefs.getString(KEY_EVENTS, "[]")); }
-            catch (Exception ignored) { existing = new JSONArray(); }
-            for (int i = 0; i < existing.length(); i++) {
-                JSONObject queued = existing.optJSONObject(i);
-                if (queued != null && eventId.equals(queued.optString("id"))) return false;
-            }
-
-            // Never evict an unacknowledged WhatsApp event: dropping the oldest
-            // item silently loses a real order or closure. Keep the queue durable
-            // and emit a warning so unusually large backlogs can be diagnosed.
-            if (existing.length() >= 500) {
-                android.util.Log.w("OrderiSpider", "Persistent notification queue has "
-                        + existing.length() + " unacknowledged events; retaining all events");
-            }
-            existing.put(event);
-            boolean persisted = prefs.edit().putString(KEY_EVENTS, existing.toString()).commit();
-            if (!persisted) {
-                android.util.Log.e("OrderiSpider", "Could not persist WhatsApp notification event");
-                return false;
-            }
-            try { seen.put(eventId, now + 24L * 60L * 60L * 1000L); }
-            catch (Exception ignored) {}
-            dedupPrefs.edit().putString("seen_ids", seen.toString()).commit();
-            return true;
+            return stored;
+        } catch (Exception error) {
+            com.orderi.whatsapp.WhatsAppServiceMonitor.recordError(
+                    error.getMessage() == null ? "Could not persist WhatsApp event" : error.getMessage());
+            android.util.Log.e("WhatsAppNotificationListenerService",
+                    "Could not enqueue WhatsApp event in Orderi client store", error);
+            return false;
         }
     }
 
