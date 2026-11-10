@@ -31,7 +31,8 @@ public class WhatsAppEventStore {
         this.dedupPrefs = app.getSharedPreferences(DEDUP_PREFS, Context.MODE_PRIVATE);
     }
 
-    public synchronized boolean enqueue(JSONObject event) {
+    public boolean enqueue(JSONObject event) {
+        synchronized (com.orderi.radar.WhatsAppNotificationListenerService.class) {
         if (event == null) return false;
         String id = event.optString("id", "");
         if (id.trim().isEmpty()) return false;
@@ -63,9 +64,11 @@ public class WhatsAppEventStore {
             android.util.Log.e("OrderiWhatsAppEventStore", "Failed to persist WhatsApp event", error);
             return false;
         }
+        }
     }
 
-    public synchronized List<JSONObject> getAllPending() {
+    public List<JSONObject> getAllPending() {
+        synchronized (com.orderi.radar.WhatsAppNotificationListenerService.class) {
         List<JSONObject> list = new ArrayList<>();
         try {
             JSONArray array = new JSONArray(prefs.getString(KEY_EVENTS, "[]"));
@@ -77,9 +80,11 @@ public class WhatsAppEventStore {
             android.util.Log.e("OrderiWhatsAppEventStore", "Could not read pending events", error);
         }
         return list;
+        }
     }
 
-    public synchronized int acknowledge(Set<String> acknowledgedIds) {
+    public int acknowledge(Set<String> acknowledgedIds) {
+        synchronized (com.orderi.radar.WhatsAppNotificationListenerService.class) {
         if (acknowledgedIds == null || acknowledgedIds.isEmpty()) return 0;
         int count = 0;
         try {
@@ -100,13 +105,16 @@ public class WhatsAppEventStore {
             return 0;
         }
         return count;
+        }
     }
 
-    public synchronized int size() {
+    public int size() {
+        synchronized (com.orderi.radar.WhatsAppNotificationListenerService.class) {
         try {
             return new JSONArray(prefs.getString(KEY_EVENTS, "[]")).length();
         } catch (Exception error) {
             return 0;
+        }
         }
     }
 }
