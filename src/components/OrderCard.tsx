@@ -291,7 +291,7 @@ export function OrderCard({
   };
 
   const submitAdvertiserPrivateReply = async () => {
-    const result = await executePrivateAdvertiserOutreach(order, undefined, customTemplate, driverLocation?.areaName || 'البحرين');
+    const result = await executePrivateAdvertiserOutreach(order, customTemplate, driverLocation?.areaName || 'البحرين');
     showOutreachToast(result.statusLabel, result.success ? 'success' : 'error');
     return result;
   };
