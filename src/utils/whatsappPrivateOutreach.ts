@@ -477,17 +477,15 @@ const privateOutreachRecentlySubmitted = new Map<string, number>();
 
 /** Submit one reply through a recent, exact-match PRIVATE WhatsApp notification. */
 export async function executePrivateAdvertiserOutreach(
-  order: ParsedOrder, confirmedPhone?: string, customTemplate?: string, areaName?: string
+  order: ParsedOrder, customTemplate?: string, areaName?: string
 ): Promise<{
   success: boolean; status: OutreachDeliveryStatus; needsVerification: boolean;
   resolution: AdvertiserContactResolution; message: string; phoneUsed: string | null; statusLabel: string;
 }> {
   const resolution = resolveAdvertiserContact(order);
-  const explicitPhone = confirmedPhone ? normalizeBahrainPhone(confirmedPhone) : '';
-  const targetPhone = explicitPhone && explicitPhone.length >= 8 ? explicitPhone
-    : resolution.confidence === 'confirmed_phone' &&
-      (resolution.source === 'direct_private_meta' || resolution.source === 'text_advertiser_label')
-      ? resolution.phone : null;
+  const targetPhone = resolution.confidence === 'confirmed_phone' &&
+    (resolution.source === 'direct_private_meta' || resolution.source === 'text_advertiser_label')
+    ? resolution.phone : null;
   const advertiserName = resolution.name || order.senderName || 'صاحب الإعلان';
   const myArea = areaName || order.from || 'البحرين';
   let template = (customTemplate || '').trim();
