@@ -374,8 +374,8 @@ export function Header({
                   onClick={onOpenAutoSyncModal}
                   className={`h-9 sm:h-10 flex items-center justify-center gap-1 px-2 sm:px-3 rounded-xl text-xs font-black transition-all shadow-2xs border active:scale-95 ${
                     isWhatsAppConnected
-                      ? 'bg-emerald-600 text-white border-emerald-500 shadow-emerald-600/30'
-                      : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-950 border-emerald-300'
+                      ? 'bg-emerald-500/25 hover:bg-emerald-500/35 text-emerald-950 border-emerald-400/60 shadow-emerald-500/10 backdrop-blur-sm'
+                      : 'bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-950 border-emerald-400/50 backdrop-blur-sm'
                   }`}
                   title="ربط WhatsApp العادي بالباركود وقراءة الإشعارات"
                 >
@@ -601,8 +601,8 @@ export function Header({
               title="ربط واتساب وقراءة الإشعارات"
               className={`h-8.5 flex items-center gap-1.5 px-2.5 rounded-xl text-xs font-bold border transition-all active:scale-95 cursor-pointer shrink-0 ${
                 isWhatsAppConnected
-                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-500 shadow-xs shadow-emerald-600/20'
-                  : 'bg-white hover:bg-emerald-50/50 text-emerald-900 border-emerald-300/90 shadow-2xs'
+                  ? 'bg-emerald-500/25 hover:bg-emerald-500/35 text-emerald-950 border-emerald-400/60 shadow-xs shadow-emerald-500/10 backdrop-blur-sm'
+                  : 'bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-950 border-emerald-400/50 shadow-2xs backdrop-blur-sm'
               }`}
             >
               <QrCode className={`w-3.5 h-3.5 shrink-0 ${isWhatsAppConnected ? 'text-white' : 'text-emerald-600'}`} />
