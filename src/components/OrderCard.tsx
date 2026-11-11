@@ -819,6 +819,7 @@ export function OrderCard({
                     <button
                       type="button"
                       onClick={handleOpenAdvertiserPrivateChat}
+                      disabled={isAutoReplying}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-950 border border-emerald-300 font-black text-xs transition-all active:scale-95 cursor-pointer shadow-2xs group"
                       title={`انقر لإرسال صيغة الرد الخاصة من الفلتر إلى المعلن في الخلفية`}
                     >
