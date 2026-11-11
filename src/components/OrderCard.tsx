@@ -286,182 +286,49 @@ export function OrderCard({
     await openWhatsAppGroupConversation(groupName || 'واتساب', { rawText: order.rawText });
   };
 
+  const showOutreachToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('orderi-toast', { detail: { message, type } }));
+  };
+
+  const submitAdvertiserPrivateReply = async () => {
+    const result = await executePrivateAdvertiserOutreach(order, effectivePhone || undefined, customTemplate, driverLocation?.areaName || 'البحرين');
+    showOutreachToast(result.statusLabel, result.success ? 'success' : 'error');
+    return result;
+  };
+
   const handleOpenAdvertiserPrivateChat = async (e?: React.MouseEvent) => {
-    if (e) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
-    const targetPhone = getAdvertiserTargetPhone(order, effectivePhone);
-    const advertiserName = (order.senderName || 'صاحب الإعلان').trim();
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('orderi-toast', {
-        detail: {
-          message: `💬 جاري فتح رسالة خاصة مع المعلن (${advertiserName})...`,
-          type: 'info'
-        }
-      }));
-    }
-    const { openWhatsAppPrivateConversation } = await import('../native/whatsappListener');
-    await openWhatsAppPrivateConversation({
-      phone: targetPhone || undefined,
-      memberName: advertiserName,
-      message: privateAdvertiserMessage,
-    });
-  };
-
-  const handleAdvertiserNameClick = (e: React.MouseEvent) => {
-    handleOpenAdvertiserPrivateChat(e);
-  };
-
-  const handleExecuteBackgroundAccept = async (e?: React.MouseEvent) => {
-    if (e) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
+    if (e) { e.preventDefault(); e.stopPropagation(); }
     if (isAutoReplying) return;
     setIsAutoReplying(true);
+    try { await submitAdvertiserPrivateReply(); }
+    catch (error) { console.warn('[Orderi] Private reply failed:', error); showOutreachToast('تعذر إرسال الرد الخاص.', 'error'); }
+    finally { setIsAutoReplying(false); }
+  };
 
+  const handleAdvertiserNameClick = (e: React.MouseEvent) => { void handleOpenAdvertiserPrivateChat(e); };
+
+  const handleExecuteBackgroundAccept = async (e?: React.MouseEvent) => {
+    if (e) { e.preventDefault(); e.stopPropagation(); }
+    if (isAutoReplying) return;
+    setIsAutoReplying(true);
     try {
-      if (isMyBroadcast) {
-        onAccept(order);
-        setShowAcceptDialog(false);
-        return;
-      }
-
-      // 1. Resolve contact details & advertiser phone
-      const resolution = resolveAdvertiserContact(order);
-      const targetPhone = getAdvertiserTargetPhone(order, effectivePhone);
-      const advertiserName = resolution.name || order.senderName || 'صاحب الإعلان';
-
-      // 2. Format reply according to filter template
-      let template = (customTemplate || '').trim();
-      if (!template) {
-        try {
-          const savedSettings = localStorage.getItem('orderi_filter_settings');
-          if (savedSettings) {
-            const parsed = JSON.parse(savedSettings);
-            if (parsed.customResponseTemplate) {
-              template = parsed.customResponseTemplate.trim();
-            }
-          }
-        } catch {}
-      }
-
-      const myArea = driverLocation?.areaName || 'البحرين';
-      let messageToSend: string;
-
-      if (template) {
-        // تنسيق نص الرد حسب ضبط الفلتر مع استبدال المتغيرات
-        messageToSend = template
-          .replace(/\{area\}/g, myArea)
-          .replace(/\{from\}/g, order.from || 'الموقع المحدد')
-          .replace(/\{to\}/g, order.to || 'الموقع المحدد')
-          .replace(/\{price\}/g, order.price > 0 && !order.isPriceUnspecified ? String(order.price) : 'بالاتفاق')
-          .replace(/\{name\}/g, advertiserName);
-
-        // إذا لم يكن القالب يحتوي على إشارة للمسار، نرفق سياق الطلب كإشعار واضح للمعلن في الخاص
-        if (!template.includes('{from}') && !template.includes(order.from)) {
-          messageToSend = `السلام عليكم، بخصوص طلبك (${order.from} ← ${order.to}):\n${messageToSend}`;
-        }
-      } else {
-        const baseCourierText = `#مندوب_توصيل انا في (${myArea})`;
-        messageToSend = `السلام عليكم، بخصوص طلبك (${order.from} ← ${order.to}):\n${baseCourierText} ومستعد للاستلام والتوصيل فوراً 🚗`;
-      }
-
-      // 3. Silent copy to clipboard as immediate backup
-      if (typeof navigator !== 'undefined' && navigator.clipboard) {
-        try {
-          await navigator.clipboard.writeText(messageToSend);
-        } catch {}
-      }
-
-      // 4. إرسال رسالة خاصة في الواتساب للمعلن حصراً وليس بالقروب
-      if (isNativeAndroid()) {
-        try {
-          if (targetPhone || order.senderName) {
-            try {
-              await OrderiNotificationListener.sendPrivateNotificationReply({
-                target: targetPhone || order.senderName,
-                message: messageToSend,
-              });
-            } catch {}
-          }
-          try {
-            await reachNativeAdvertiserPrivateChat({
-              phone: targetPhone || undefined,
-              memberName: advertiserName,
-              groupName: '', // Strictly empty: never open or send in a group conversation!
-              message: messageToSend,
-              autoSend: true,
-            });
-          } catch {}
-        } catch (err) {
-          console.warn('[Orderi] Native private outreach error:', err);
-        }
-      } else {
-        // في الويب ومتصفح الهاتف: فتح رسالة واتساب خاصة ومباشرة مع المعلن حصراً
-        try {
-          const { openWhatsAppPrivateConversation } = await import('../native/whatsappListener');
-          await openWhatsAppPrivateConversation({
-            phone: targetPhone || undefined,
-            memberName: advertiserName,
-            message: messageToSend,
-          });
-        } catch (err) {
-          console.warn('[Orderi] Web private chat opener error:', err);
-        }
-      }
-
-      // 5. Backend quick accept reply endpoint
-      try {
-        fetch('/api/whatsapp/quick-accept-reply', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            orderId: order.id,
-            phone: targetPhone,
-            targetType: 'private_chat_background',
-            groupName: order.groupName,
-            senderName: advertiserName,
-            replyText: messageToSend,
-            price: order.price,
-            from: order.from,
-            to: order.to,
-          }),
-        }).catch(() => {});
-      } catch {}
-
-      // 6. Mark accepted in radar state immediately (Never open identity verification modal!)
+      if (isMyBroadcast) { onAccept(order); setShowAcceptDialog(false); return; }
+      const result = await submitAdvertiserPrivateReply();
+      if (!result.success) return;
       onAccept({
-        ...order,
-        status: 'accepted',
-        outreachStatus: 'sent_confirmed',
+        ...order, status: 'accepted', outreachStatus: 'submitted_unconfirmed',
         outreachDetails: {
-          status: 'sent_confirmed',
-          phoneUsed: targetPhone,
-          advertiserName,
-          attemptedAt: new Date().toISOString(),
-          message: messageToSend,
-          deliveryMethod: 'background_private_chat',
-          verifiedAdvertiser: true,
+          status: 'submitted_unconfirmed', phoneUsed: result.phoneUsed,
+          advertiserName: result.resolution.name || order.senderName || 'صاحب الإعلان',
+          attemptedAt: new Date().toISOString(), message: result.message,
+          deliveryMethod: 'background_private_chat', verifiedAdvertiser: true,
         },
       });
-
       setShowAcceptDialog(false);
-
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('orderi-toast', {
-          detail: {
-            message: `✅ تم قبول الطلب وإرسال رسالة القبول بالخاص للمعلن (${advertiserName}) في الخلفية بنجاح ⚡`,
-            type: 'success'
-          }
-        }));
-      }
-    } catch (err) {
-      console.warn('[Orderi] Accept error:', err);
-    } finally {
-      setIsAutoReplying(false);
-    }
+    } catch (error) {
+      console.warn('[Orderi] Accept/private reply failed:', error);
+      showOutreachToast('تعذر تنفيذ الرد الخاص؛ لم يتم تسجيل قبول الطلب.', 'error');
+    } finally { setIsAutoReplying(false); }
   };
 
   const handleQuickAutoReply = (e?: React.MouseEvent) => handleExecuteBackgroundAccept(e);
@@ -953,7 +820,7 @@ export function OrderCard({
                       type="button"
                       onClick={handleOpenAdvertiserPrivateChat}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-950 border border-emerald-300 font-black text-xs transition-all active:scale-95 cursor-pointer shadow-2xs group"
-                      title={`انقر على اسم المعلن «${order.senderName || 'صاحب الإعلان'}» لفتح رسالة خاصة معه في واتساب 💬`}
+                      title={`انقر لإرسال صيغة الرد الخاصة من الفلتر إلى المعلن في الخلفية`}
                     >
                       <User className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                       <span className="group-hover:underline decoration-emerald-500">{order.senderName || 'صاحب الإعلان'}</span>
@@ -1033,7 +900,7 @@ export function OrderCard({
                   {isAutoReplying ? (
                     <>
                       <RefreshCw className="w-4 h-4 animate-spin text-white" />
-                      <span>جاري فتح الخاص مع صاحب الإعلان...</span>
+                      <span>جاري إرسال الرد الخاص للمعلن...</span>
                     </>
                   ) : isMyBroadcast ? (
                     <>
