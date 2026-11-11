@@ -11,6 +11,7 @@ import {
   Clock
 } from 'lucide-react';
 import { ParsedOrder } from '../types';
+import { executePrivateAdvertiserOutreach } from '../utils/whatsappPrivateOutreach';
 
 interface WhatsAppHeadsUpBannerProps {
   order: ParsedOrder | null;
@@ -29,6 +30,7 @@ export const WhatsAppHeadsUpBanner: React.FC<WhatsAppHeadsUpBannerProps> = ({
 }) => {
   const [progress, setProgress] = useState(100);
   const [isPaused, setIsPaused] = useState(false);
+  const [isSendingReply, setIsSendingReply] = useState(false);
 
   // Auto-dismiss countdown timer (7 seconds)
   useEffect(() => {
@@ -55,29 +57,42 @@ export const WhatsAppHeadsUpBanner: React.FC<WhatsAppHeadsUpBannerProps> = ({
     return () => clearInterval(timer);
   }, [order, isPaused, onClose]);
 
+  const handlePrivateReply = async () => {
+    if (!order || isSendingReply) return;
+    setIsSendingReply(true);
+    try {
+      const result = await executePrivateAdvertiserOutreach(order, customTemplate, driverAreaName);
+      if (!result.success) {
+        window.dispatchEvent(new CustomEvent('orderi-toast', { detail: { message: result.statusLabel, type: 'error' } }));
+        return;
+      }
+      onAccept({
+        ...order,
+        status: 'accepted',
+        outreachStatus: 'submitted_unconfirmed',
+        outreachDetails: {
+          status: 'submitted_unconfirmed',
+          phoneUsed: result.phoneUsed,
+          advertiserName: result.resolution.name || order.senderName || 'صاحب الإعلان',
+          attemptedAt: new Date().toISOString(),
+          message: result.message,
+          deliveryMethod: 'background_private_chat',
+          verifiedAdvertiser: true,
+        },
+      });
+      window.dispatchEvent(new CustomEvent('orderi-toast', { detail: { message: result.statusLabel, type: 'success' } }));
+      onClose();
+    } catch (error) {
+      console.warn('[Orderi] Heads-up private reply failed:', error);
+      window.dispatchEvent(new CustomEvent('orderi-toast', { detail: { message: 'تعذر إرسال الرد الخاص.', type: 'error' } }));
+    } finally {
+      setIsSendingReply(false);
+    }
+  };
+
   if (!order) return null;
 
   const isVip = order.contactStatus === 'vip';
-  const cleanPhone = order.senderPhone ? order.senderPhone.replace(/[^\d+]/g, '') : '';
-  const phoneFromText = (order.rawText && /(?:973)?[\s-]*(3\d{7}|6\d{7}|17\d{6})/g.exec(order.rawText)?.[0]?.replace(/\D/g, '')) || '';
-  const effectivePhone = (cleanPhone && cleanPhone !== '97300000000' && cleanPhone.length >= 8)
-    ? cleanPhone
-    : phoneFromText ? (phoneFromText.startsWith('973') ? phoneFromText : '973' + phoneFromText)
-    : cleanPhone;
-
-  let courierMessage = customTemplate && customTemplate.trim()
-    ? customTemplate
-        .replace(/{area}/g, driverAreaName)
-        .replace(/{from}/g, order.from || 'الموقع المحدد')
-        .replace(/{to}/g, order.to || 'الموقع المحدد')
-        .replace(/{price}/g, order.price > 0 ? String(order.price) : 'بالاتفاق')
-        .replace(/{name}/g, order.senderName || 'صاحب الإعلان')
-    : `السلام عليكم، بخصوص طلبك (${order.from} ← ${order.to}):\n#مندوب_توصيل انا في (${driverAreaName}) ومستعد للاستلام فوراً 🚗`;
-
-  const waUrl = effectivePhone && effectivePhone !== '97300000000'
-    ? `https://wa.me/${effectivePhone}?text=${encodeURIComponent(courierMessage)}`
-    : `https://api.whatsapp.com/send?text=${encodeURIComponent(courierMessage)}`;
-
   const cleanText = order.rawText
     ? order.rawText.trim().replace(/\s+/g, ' ')
     : `مطلوب توصيل من ${order.from} إلى ${order.to}`;
@@ -194,16 +209,15 @@ export const WhatsAppHeadsUpBanner: React.FC<WhatsAppHeadsUpBannerProps> = ({
 
             {/* Quick Action Buttons (Reply in WhatsApp / Accept in Radar) */}
             <div className="grid grid-cols-2 gap-2 pt-1">
-              <a
-                href={waUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => onClose()}
+              <button
+                type="button"
+                onClick={handlePrivateReply}
+                disabled={isSendingReply}
                 className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-[#25D366] hover:bg-[#20ba5a] text-white font-black text-xs shadow-xs transition-all active:scale-95"
               >
                 <MessageSquare className="w-4 h-4 fill-white shrink-0" />
-                <span>رد خاص بالواتساب 💬</span>
-              </a>
+                <span>{isSendingReply ? 'جاري إرسال الرد...' : 'رد خاص بالواتساب 💬'}</span>
+              </button>
 
               <button
                 type="button"
