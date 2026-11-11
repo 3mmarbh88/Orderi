@@ -486,7 +486,12 @@ export async function executePrivateAdvertiserOutreach(
   const targetPhone = resolution.confidence === 'confirmed_phone' &&
     (resolution.source === 'direct_private_meta' || resolution.source === 'text_advertiser_label')
     ? resolution.phone : null;
-  const advertiserName = resolution.name || order.senderName || 'صاحب الإعلان';
+  // If the ad does not expose a phone, allow only an exact sender-name match
+  // against a recent PRIVATE WhatsApp notification RemoteInput action.
+  // The native matcher rejects group notifications and never uses partial-name matches.
+  const targetName = (order.senderName || '').trim();
+  const privateTarget = targetPhone || targetName;
+  const advertiserName = resolution.name || targetName || 'صاحب الإعلان';
   const myArea = areaName || order.from || 'البحرين';
   let template = (customTemplate || '').trim();
   if (!template && typeof window !== 'undefined') {
@@ -511,17 +516,17 @@ export async function executePrivateAdvertiserOutreach(
     success: false, status, needsVerification: status === 'verification_required',
     resolution, message: messageText, phoneUsed: targetPhone, statusLabel,
   });
-  if (!targetPhone) return failure('verification_required',
-    resolution.verificationReason || 'تعذر تأكيد رقم المعلن؛ أوقفنا الإرسال لتجنب مراسلة الزبون أو شخص آخر.');
+  if (!privateTarget || advertiserName === 'صاحب الإعلان') return failure('verification_required',
+    resolution.verificationReason || 'لا يوجد رقم أو اسم مرسل موثوق يمكن مطابقته مع إشعار واتساب خاص.');
   if (!isNativeAndroid()) return failure('failed', 'الإرسال الصامت متاح من تطبيق Orderi على Android فقط.');
 
-  const requestKey = String(order.id || '') + ':' + targetPhone + ':' + messageText;
+  const requestKey = String(order.id || '') + ':' + privateTarget + ':' + messageText;
   const lastSubmittedAt = privateOutreachRecentlySubmitted.get(requestKey) || 0;
   if (privateOutreachInFlight.has(requestKey)) return failure('failed', 'يوجد إرسال جارٍ لهذا الطلب؛ لم نكرر الرسالة.');
   if (Date.now() - lastSubmittedAt < 30_000) return failure('failed', 'تم تمرير الرد لهذا الطلب مؤخراً؛ منعنا إرسال نسخة مكررة.');
   privateOutreachInFlight.add(requestKey);
   try {
-    const result = await OrderiNotificationListener.sendPrivateNotificationReply({ target: targetPhone, message: messageText });
+    const result = await OrderiNotificationListener.sendPrivateNotificationReply({ target: privateTarget, message: messageText });
     if (!result || !result.success) return failure('failed', 'لم يُرسل الرد: لا يوجد إجراء حديث ومطابق لمحادثة المعلن الخاصة.');
     privateOutreachRecentlySubmitted.set(requestKey, Date.now());
     return {
