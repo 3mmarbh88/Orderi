@@ -219,6 +219,7 @@ export type OutreachDeliveryStatus =
   | 'verification_required'
   | 'chat_opened_pending_send'
   | 'sent_confirmed'
+  | 'submitted_unconfirmed'
   | 'failed';
 
 export interface OutreachAttemptDetails {
