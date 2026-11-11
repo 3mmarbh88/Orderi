@@ -2791,7 +2791,6 @@ function OrderiApp({
       if (outreachStatus !== 'submitted_unconfirmed') {
         const outreach = await executePrivateAdvertiserOutreach(
           order,
-          undefined,
           filterRef.current.customResponseTemplate,
           driverLocation?.areaName || 'المنامة'
         );
