@@ -472,124 +472,65 @@ export function openRegularWhatsAppPrivateChat(phone: string, message: string): 
  * 4. تنفيذ التسلسل الكامل لقبول الطلب والتواصل عبر الخاص
  * يلتزم بعدم ادعاء الإرسال قبل تحققه (chat_opened_pending_send)
  */
+const privateOutreachInFlight = new Set<string>();
+
+/** Submit one reply through a recent, exact-match PRIVATE WhatsApp notification. */
 export async function executePrivateAdvertiserOutreach(
-  order: ParsedOrder,
-  confirmedPhone?: string,
-  customTemplate?: string,
-  areaName?: string
+  order: ParsedOrder, confirmedPhone?: string, customTemplate?: string, areaName?: string
 ): Promise<{
-  success: boolean;
-  status: OutreachDeliveryStatus;
-  needsVerification: boolean;
-  resolution: AdvertiserContactResolution;
-  message: string;
-  phoneUsed: string | null;
-  statusLabel: string;
+  success: boolean; status: OutreachDeliveryStatus; needsVerification: boolean;
+  resolution: AdvertiserContactResolution; message: string; phoneUsed: string | null; statusLabel: string;
 }> {
   const resolution = resolveAdvertiserContact(order);
-  const targetPhone = getAdvertiserTargetPhone(order, confirmedPhone);
-  const defaultMessage = formatAdvertiserPrivateMessage(order);
-  
-  // Resolve response template from argument or saved filter settings
+  const explicitPhone = confirmedPhone ? normalizeBahrainPhone(confirmedPhone) : '';
+  const targetPhone = explicitPhone && explicitPhone.length >= 8 ? explicitPhone
+    : resolution.confidence === 'confirmed_phone' &&
+      (resolution.source === 'direct_private_meta' || resolution.source === 'text_advertiser_label')
+      ? resolution.phone : null;
+  const advertiserName = resolution.name || order.senderName || 'صاحب الإعلان';
+  const myArea = areaName || order.from || 'البحرين';
   let template = (customTemplate || '').trim();
   if (!template && typeof window !== 'undefined') {
     try {
       const saved = localStorage.getItem('orderi_filter_settings');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (parsed.customResponseTemplate && typeof parsed.customResponseTemplate === 'string') {
-          template = parsed.customResponseTemplate.trim();
-        }
+        if (typeof parsed.customResponseTemplate === 'string') template = parsed.customResponseTemplate.trim();
       }
     } catch {}
   }
+  let messageText = formatAdvertiserPrivateMessage(order);
+  if (template) messageText = template
+    .replace(/\{area\}/g, myArea)
+    .replace(/\{from\}/g, order.from || 'الموقع المحدد')
+    .replace(/\{to\}/g, order.to || 'الموقع المحدد')
+    .replace(/\{price\}/g, order.price > 0 && !order.isPriceUnspecified
+      ? (order.price % 1 === 0 ? String(order.price) : order.price.toFixed(1)) : 'بالاتفاق')
+    .replace(/\{name\}/g, advertiserName);
 
-  const advertiserName = resolution.name || order.senderName || 'صاحب الإعلان';
-  const myArea = areaName || order.from || 'البحرين';
+  const failure = (status: OutreachDeliveryStatus, statusLabel: string) => ({
+    success: false, status, needsVerification: status === 'verification_required',
+    resolution, message: messageText, phoneUsed: targetPhone, statusLabel,
+  });
+  if (!targetPhone) return failure('verification_required',
+    resolution.verificationReason || 'تعذر تأكيد رقم المعلن؛ أوقفنا الإرسال لتجنب مراسلة الزبون أو شخص آخر.');
+  if (!isNativeAndroid()) return failure('failed', 'الإرسال الصامت متاح من تطبيق Orderi على Android فقط.');
 
-  let messageText = defaultMessage;
-  if (template) {
-    if (template.includes('{from}') || template.includes('{to}') || template.includes('{name}') || template.includes('{price}')) {
-      messageText = template
-        .replace(/\{area\}/g, myArea)
-        .replace(/\{from\}/g, order.from || 'الموقع المحدد')
-        .replace(/\{to\}/g, order.to || 'الموقع المحدد')
-        .replace(/\{price\}/g, order.price > 0 && !order.isPriceUnspecified ? (order.price % 1 === 0 ? order.price.toString() : order.price.toFixed(1)) : 'بالاتفاق')
-        .replace(/\{name\}/g, advertiserName);
-    } else {
-      const baseCourier = template.replace(/\{area\}/g, myArea);
-      messageText = `السلام عليكم، بخصوص طلبك (${order.from} ← ${order.to}):\n${baseCourier} ومستعد للاستلام والتوصيل فوراً 🚗`;
-    }
-  }
-
-  // 1. Copy tailored message to clipboard as an instant backup for the driver
-  if (typeof navigator !== 'undefined' && navigator.clipboard) {
-    try {
-      await navigator.clipboard.writeText(messageText);
-    } catch {}
-  }
-
-  // 2. Android Native Direct Outreach (Private 1-on-1 chat, zero group actions)
-  if (isNativeAndroid()) {
-    try {
-      const quickReplyTargets = targetPhone
-        ? [targetPhone, advertiserName]
-        : [advertiserName];
-
-      for (const target of quickReplyTargets) {
-        if (!target) continue;
-        try {
-          const quickReply = await OrderiNotificationListener.sendPrivateNotificationReply({
-            target,
-            message: messageText,
-          });
-          if (quickReply && quickReply.success) {
-            break;
-          }
-        } catch {}
-      }
-
-      // Trigger native private chat with advertiser in background (groupName is empty: NEVER launch group!)
-      try {
-        await OrderiNotificationListener.reachAdvertiserPrivateChat({
-          phone: targetPhone || undefined,
-          memberName: advertiserName,
-          groupName: '',
-          message: messageText,
-          autoSend: true,
-        });
-      } catch {}
-    } catch (e) {
-      console.warn('[Orderi Native Outreach Error]', e);
-    }
-  }
-
-  // 3. Background Delivery API (Zero popups, purely in background)
+  const requestKey = String(order.id || '') + ':' + targetPhone + ':' + messageText;
+  if (privateOutreachInFlight.has(requestKey)) return failure('failed', 'يوجد إرسال جارٍ لهذا الطلب؛ لم نكرر الرسالة.');
+  privateOutreachInFlight.add(requestKey);
   try {
-    fetch('/api/whatsapp/quick-accept-reply', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        orderId: order.id,
-        phone: targetPhone || null,
-        targetType: 'private_chat_background',
-        groupName: order.groupName,
-        senderName: advertiserName,
-        replyText: messageText,
-        price: order.price,
-        from: order.from,
-        to: order.to,
-      }),
-    }).catch(() => {});
-  } catch {}
-
-  return {
-    success: true,
-    status: 'sent_confirmed',
-    needsVerification: false,
-    resolution,
-    message: messageText,
-    phoneUsed: targetPhone || resolution.advertiserCandidate?.phone || null,
-    statusLabel: `✅ تم إرسال رسالة القبول بالخاص إلى «${advertiserName}» بالخلفية دون فتح واتساب`,
-  };
+    const result = await OrderiNotificationListener.sendPrivateNotificationReply({ target: targetPhone, message: messageText });
+    if (!result || !result.success) return failure('failed', 'لم يُرسل الرد: لا يوجد إجراء حديث ومطابق لمحادثة المعلن الخاصة.');
+    return {
+      success: true, status: 'submitted_unconfirmed' as OutreachDeliveryStatus, needsVerification: false,
+      resolution, message: messageText, phoneUsed: targetPhone,
+      statusLabel: `تم تمرير الرد إلى إشعار المحادثة الخاصة مع ${advertiserName}؛ لم يؤكد واتساب التسليم.`,
+    };
+  } catch (error) {
+    console.warn('[Orderi] Private notification reply failed:', error);
+    return failure('failed', 'تعذر تمرير الرد إلى واتساب.');
+  } finally {
+    privateOutreachInFlight.delete(requestKey);
+  }
 }
