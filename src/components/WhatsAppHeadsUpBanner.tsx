@@ -194,16 +194,14 @@ export const WhatsAppHeadsUpBanner: React.FC<WhatsAppHeadsUpBannerProps> = ({
 
             {/* Quick Action Buttons (Reply in WhatsApp / Accept in Radar) */}
             <div className="grid grid-cols-2 gap-2 pt-1">
-              <a
-                href={waUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => onClose()}
+              <button
+                type="button"
+                onClick={() => { onAccept(order); onClose(); }}
                 className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-[#25D366] hover:bg-[#20ba5a] text-white font-black text-xs shadow-xs transition-all active:scale-95"
               >
                 <MessageSquare className="w-4 h-4 fill-white shrink-0" />
                 <span>رد خاص بالواتساب 💬</span>
-              </a>
+              </button>
 
               <button
                 type="button"
