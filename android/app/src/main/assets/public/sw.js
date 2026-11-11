@@ -69,6 +69,7 @@ if (!self.define) {
 }
 define(['./workbox-afac4cd2'], (function (workbox) { 'use strict';
 
+  importScripts("/sw-notifications.js");
   self.skipWaiting();
   workbox.clientsClaim();
   /**
@@ -83,6 +84,9 @@ define(['./workbox-afac4cd2'], (function (workbox) { 'use strict';
     "url": "whatsapp-icon.png",
     "revision": "6e5e284767528c9a19ca29d79f8400b4"
   }, {
+    "url": "sw-notifications.js",
+    "revision": "2b437c2b1b0cc7102716da00b8e8eba1"
+  }, {
     "url": "pwa-maskable-512x512.png",
     "revision": "9112bc95f87c38a862cc5dae489b2f40"
   }, {
@@ -96,7 +100,7 @@ define(['./workbox-afac4cd2'], (function (workbox) { 'use strict';
     "revision": "2d2ca880c4d25ab5da3696e279a0fc66"
   }, {
     "url": "index.html",
-    "revision": "eed1a30fe5cb92a248fb5ac73615fb2d"
+    "revision": "d56d82caca305573b7bd52b5094ac375"
   }, {
     "url": "icon.svg",
     "revision": "69cc41d936e8cbd5c824f13ce16e753b"
@@ -110,19 +114,16 @@ define(['./workbox-afac4cd2'], (function (workbox) { 'use strict';
     "url": "assets/workbox-window.prod.es5-BBnX5xw4.js",
     "revision": null
   }, {
-    "url": "assets/web-DMAcjRDW.js",
+    "url": "assets/web-Dakoi3KB.js",
     "revision": null
   }, {
-    "url": "assets/web-DDlTrX-R.js",
+    "url": "assets/web-BZ0xHqJD.js",
     "revision": null
   }, {
-    "url": "assets/web-Bi34p9tW.js",
+    "url": "assets/index-DrD0rBsI.css",
     "revision": null
   }, {
-    "url": "assets/index-CxT5d2EQ.js",
-    "revision": null
-  }, {
-    "url": "assets/index-ClP9eBXF.css",
+    "url": "assets/index-CHSooooX.js",
     "revision": null
   }, {
     "url": "apple-touch-icon.png",

@@ -483,6 +483,7 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         // formats without assuming every group name contains a keyword such as "توصيل".
         String detectedGroupName = "";
         String detectedSenderName = title;
+        String detectedSenderPhone = "";
         String combinedVisibleText = !TextUtils.isEmpty(bigText) ? bigText : text;
         if (TextUtils.isEmpty(combinedVisibleText)) combinedVisibleText = subText;
 
@@ -584,6 +585,7 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                 Object messages = extras.get(Notification.EXTRA_MESSAGES);
                 if (messages instanceof Parcelable[]) {
                     String latestSender = "";
+                    String latestSenderPhone = "";
                     for (Parcelable item : (Parcelable[]) messages) {
                         if (!(item instanceof Bundle)) continue;
                         Bundle message = (Bundle) item;
@@ -591,7 +593,19 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                         if (Build.VERSION.SDK_INT >= 28) {
                             Parcelable senderParcelable = message.getParcelable("sender_person");
                             if (senderParcelable instanceof android.app.Person) {
-                                senderName = safe(((android.app.Person) senderParcelable).getName());
+                                android.app.Person person = (android.app.Person) senderParcelable;
+                                senderName = safe(person.getName());
+                                String key = safe(person.getKey());
+                                String uri = safe(person.getUri());
+                                if (!TextUtils.isEmpty(key) && key.contains("@s.whatsapp.net")) {
+                                    String digits = key.substring(0, key.indexOf('@')).replaceAll("\\D", "");
+                                    if (digits.length() >= 8 && digits.length() <= 15) {
+                                        latestSenderPhone = digits;
+                                    }
+                                }
+                                if (TextUtils.isEmpty(latestSenderPhone) && !TextUtils.isEmpty(uri) && uri.startsWith("tel:")) {
+                                    latestSenderPhone = uri.substring(4).replaceAll("\\D", "");
+                                }
                             }
                         }
                         if (TextUtils.isEmpty(senderName)) {
@@ -608,6 +622,9 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                         }
                         detectedSenderName = latestSender;
                     }
+                    if (!TextUtils.isEmpty(latestSenderPhone)) {
+                        detectedSenderPhone = latestSenderPhone;
+                    }
                 }
             } catch (Exception ignored) {}
         }
@@ -620,6 +637,17 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         boolean looksLikeGroup;
         if (hasUserJid) {
             looksLikeGroup = false;
+            if (TextUtils.isEmpty(detectedSenderPhone)) {
+                String jidSource = sbnTag.contains("@s.whatsapp.net") ? sbnTag : sbnKey;
+                int atIdx = jidSource.indexOf("@s.whatsapp.net");
+                if (atIdx > 0) {
+                    String beforeAt = jidSource.substring(0, atIdx);
+                    String digits = beforeAt.replaceAll("\\D", "");
+                    if (digits.length() >= 8 && digits.length() <= 15) {
+                        detectedSenderPhone = digits;
+                    }
+                }
+            }
         } else if (hasGroupJid) {
             looksLikeGroup = true;
         } else {
@@ -674,6 +702,7 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
             event.put("title", resolvedTitle);
             event.put("groupName", detectedGroupName);
             event.put("senderName", detectedSenderName);
+            event.put("senderPhone", detectedSenderPhone);
             event.put("text", text);
             event.put("bigText", bigText);
             event.put("subText", subText);

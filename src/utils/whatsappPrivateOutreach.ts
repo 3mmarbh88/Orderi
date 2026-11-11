@@ -2,6 +2,7 @@ import { ParsedOrder, OutreachDeliveryStatus, OutreachAttemptDetails } from '../
 
 import { OrderiNotificationListener } from '../native/orderiNotificationListener';
 import { isNativeAndroid } from '../native/orderiNotificationListener';
+import { getAdvertiserSavedPhone } from './advertiserVault';
 
 /**
  * WhatsApp Private Chat Outreach Engine for Orderi
@@ -33,7 +34,7 @@ export interface AdvertiserContactResolution {
   candidatePhones: string[];
   candidatesDetailed: CandidatePhoneDetail[];
   advertiserCandidate: CandidatePhoneDetail | null;
-  source: 'direct_private_meta' | 'text_advertiser_label' | 'text_extraction' | 'none';
+  source: 'direct_private_meta' | 'text_advertiser_label' | 'text_extraction' | 'advertiser_vault' | 'notification_person_meta' | 'none';
   groupName: string;
   orderId: string;
   verificationReason?: string;
@@ -81,30 +82,54 @@ export function classifyTextPhoneNumbers(rawText: string): CandidatePhoneDetail[
   const registeredNumbers = new Set<string>();
 
   // Helper to extract context around an index
-  const getContextWindow = (startIdx: number, matchLen: number): string => {
-    const beforeStart = Math.max(0, startIdx - 35);
-    const afterEnd = Math.min(rawText.length, startIdx + matchLen + 35);
-    return rawText.slice(beforeStart, afterEnd).replace(/\n+/g, ' ').trim();
+  const getContextWindow = (startIdx: number, matchLen: number): { snippet: string; sameLine: string } => {
+    const lineStart = Math.max(0, rawText.lastIndexOf('\n', startIdx) + 1);
+    const nextNewline = rawText.indexOf('\n', startIdx);
+    const lineEnd = nextNewline === -1 ? rawText.length : nextNewline;
+    const sameLine = rawText.slice(lineStart, lineEnd).trim();
+
+    const beforeStart = Math.max(0, startIdx - 30);
+    const afterEnd = Math.min(rawText.length, startIdx + matchLen + 30);
+    const snippet = rawText.slice(beforeStart, afterEnd).replace(/\n+/g, ' ').trim();
+    return { snippet, sameLine };
   };
 
   // Helper to analyze role from context
-  const evaluateRoleFromContext = (snippet: string): { role: PhoneRole; roleLabel: string; score: number } => {
-    const lower = snippet.toLowerCase();
-
-    // Customer/recipient cues
+  const evaluateRoleFromContext = (ctx: { snippet: string; sameLine: string }): { role: PhoneRole; roleLabel: string; score: number } => {
     const customerKeywords = [
       'زبون', 'الزبون', 'عميل', 'العميل', 'مستلم', 'المستلم',
       'للتسليم', 'توصيل حق', 'توصيل الى', 'توصيل لـ', 'رقم المستلم',
       'بيانات الزبون', 'بيانات المستلم', 'عنوان الزبون', 'رقم الشخص'
     ];
 
-    // Advertiser cues
     const advertiserKeywords = [
       'للتواصل', 'تواصل', 'واتسابي', 'الطلب من', 'المعلن', 'صاحب الطلب',
       'التاجر', 'المحل', 'المتجر', 'حسابنا', 'wa.me', 'للحجز',
       'للاستفسار', 'اتصال', 'تلفون', 'هاتف', 'كلمنا', 'ارسل لي'
     ];
 
+    // Check same-line first (highest accuracy)
+    const lowerLine = ctx.sameLine.toLowerCase();
+    const lineHasCustomer = customerKeywords.some((kw) => lowerLine.includes(kw));
+    const lineHasAdvertiser = advertiserKeywords.some((kw) => lowerLine.includes(kw));
+
+    if (lineHasCustomer && !lineHasAdvertiser) {
+      return {
+        role: 'customer_recipient',
+        roleLabel: '⚠️ رقم زبون أو مستلم (لا تراسله للقبول)',
+        score: 20,
+      };
+    }
+    if (lineHasAdvertiser && !lineHasCustomer) {
+      return {
+        role: 'advertiser',
+        roleLabel: '🟢 رقم صاحب الإعلان (المتجر/المعلن)',
+        score: 96,
+      };
+    }
+
+    // Fall back to broader snippet context
+    const lower = ctx.snippet.toLowerCase();
     const hasCustomerCue = customerKeywords.some((kw) => lower.includes(kw));
     const hasAdvertiserCue = advertiserKeywords.some((kw) => lower.includes(kw));
 
@@ -125,7 +150,6 @@ export function classifyTextPhoneNumbers(rawText: string): CandidatePhoneDetail[
     }
 
     if (hasAdvertiserCue && hasCustomerCue) {
-      // Conflict: check proximity
       return {
         role: 'ambiguous',
         roleLabel: '⚪ رقم يحتاج تأكيد الهوية',
@@ -147,8 +171,8 @@ export function classifyTextPhoneNumbers(rawText: string): CandidatePhoneDetail[
     const norm = normalizeBahrainPhone(rawDigits);
     if (norm && !registeredNumbers.has(norm)) {
       registeredNumbers.add(norm);
-      const snippet = getContextWindow(m.index || 0, m[0].length);
-      const roleEval = evaluateRoleFromContext(snippet);
+      const ctx = getContextWindow(m.index || 0, m[0].length);
+      const roleEval = evaluateRoleFromContext(ctx);
       // wa.me is naturally an advertiser outreach link
       const effectiveRole: PhoneRole = roleEval.role === 'customer_recipient' ? 'customer_recipient' : 'advertiser';
       results.push({
@@ -156,7 +180,7 @@ export function classifyTextPhoneNumbers(rawText: string): CandidatePhoneDetail[
         displayPhone: formatDisplayPhone(norm),
         role: effectiveRole,
         roleLabel: effectiveRole === 'advertiser' ? '🟢 رابط واتساب مباشر للمعلن' : roleEval.roleLabel,
-        contextSnippet: snippet,
+        contextSnippet: ctx.snippet,
         confidenceScore: effectiveRole === 'advertiser' ? 98 : roleEval.score,
       });
     }
@@ -169,14 +193,14 @@ export function classifyTextPhoneNumbers(rawText: string): CandidatePhoneDetail[
     const norm = normalizeBahrainPhone(rawDigits);
     if (norm && !registeredNumbers.has(norm)) {
       registeredNumbers.add(norm);
-      const snippet = getContextWindow(m.index || 0, m[0].length);
-      const roleEval = evaluateRoleFromContext(snippet);
+      const ctx = getContextWindow(m.index || 0, m[0].length);
+      const roleEval = evaluateRoleFromContext(ctx);
       results.push({
         phone: norm,
         displayPhone: formatDisplayPhone(norm),
         role: roleEval.role,
         roleLabel: roleEval.roleLabel,
-        contextSnippet: snippet,
+        contextSnippet: ctx.snippet,
         confidenceScore: roleEval.score,
       });
     }
@@ -189,14 +213,14 @@ export function classifyTextPhoneNumbers(rawText: string): CandidatePhoneDetail[
     const norm = normalizeBahrainPhone(rawDigits);
     if (norm && norm.length >= 8 && !registeredNumbers.has(norm)) {
       registeredNumbers.add(norm);
-      const snippet = getContextWindow(m.index || 0, m[0].length);
-      const roleEval = evaluateRoleFromContext(snippet);
+      const ctx = getContextWindow(m.index || 0, m[0].length);
+      const roleEval = evaluateRoleFromContext(ctx);
       results.push({
         phone: norm,
         displayPhone: formatDisplayPhone(norm),
         role: roleEval.role === 'ambiguous' ? 'advertiser' : roleEval.role,
         roleLabel: roleEval.role === 'ambiguous' ? '🟢 رقم مسبوق بعبارة تواصل' : roleEval.roleLabel,
-        contextSnippet: snippet,
+        contextSnippet: ctx.snippet,
         confidenceScore: Math.max(roleEval.score, 85),
       });
     }
@@ -212,7 +236,34 @@ export function resolveAdvertiserContact(order: ParsedOrder): AdvertiserContactR
   const name = order.senderName && order.senderName.trim() ? order.senderName.trim() : 'صاحب الإعلان';
   const groupName = order.groupName || 'قروب واتساب';
 
-  // Case A: The notification came from a Direct 1-on-1 private chat (not a group)
+  // 1. Check Advertiser Vault (ذاكرة حفظ أرقام المعلنين المعتمدة)
+  const savedVaultPhone = getAdvertiserSavedPhone(name);
+  if (savedVaultPhone) {
+    const norm = normalizeBahrainPhone(savedVaultPhone);
+    if (norm && norm.length >= 8) {
+      const vaultCandidate: CandidatePhoneDetail = {
+        phone: norm,
+        displayPhone: formatDisplayPhone(norm),
+        role: 'advertiser',
+        roleLabel: '🧠 تم التعرف عليه تلقائياً من ذاكرة المعلنين',
+        confidenceScore: 100,
+      };
+      return {
+        phone: norm,
+        displayPhone: formatDisplayPhone(norm),
+        name,
+        confidence: 'confirmed_phone',
+        candidatePhones: [norm],
+        candidatesDetailed: [vaultCandidate],
+        advertiserCandidate: vaultCandidate,
+        source: 'advertiser_vault',
+        groupName,
+        orderId: order.id,
+      };
+    }
+  }
+
+  // 2. Case A: The notification came from a Direct 1-on-1 private chat (not a group)
   const isDirectChat = Boolean(
     order.isDirectPrivate || 
     groupName.includes('خاص') || 
@@ -245,6 +296,29 @@ export function resolveAdvertiserContact(order: ParsedOrder): AdvertiserContactR
       candidatesDetailed: [directCandidate],
       advertiserCandidate: directCandidate,
       source: 'direct_private_meta',
+      groupName,
+      orderId: order.id,
+    };
+  }
+
+  // 3. Sender phone extracted directly from WhatsApp notification person/JID metadata
+  if (isValidSenderMeta) {
+    const metaCandidate: CandidatePhoneDetail = {
+      phone: senderMetaPhone,
+      displayPhone: formatDisplayPhone(senderMetaPhone),
+      role: 'advertiser',
+      roleLabel: '🟢 مستخرج من بيانات حساب الواتساب بالخلفية',
+      confidenceScore: 98,
+    };
+    return {
+      phone: senderMetaPhone,
+      displayPhone: formatDisplayPhone(senderMetaPhone),
+      name,
+      confidence: 'confirmed_phone',
+      candidatePhones: [senderMetaPhone],
+      candidatesDetailed: [metaCandidate],
+      advertiserCandidate: metaCandidate,
+      source: 'notification_person_meta',
       groupName,
       orderId: order.id,
     };
@@ -477,18 +551,16 @@ const privateOutreachRecentlySubmitted = new Map<string, number>();
 
 /** Submit one reply through a recent, exact-match PRIVATE WhatsApp notification. */
 export async function executePrivateAdvertiserOutreach(
-  order: ParsedOrder, customTemplate?: string, areaName?: string
+  order: ParsedOrder, customTemplate?: string, areaName?: string, autoSend: boolean = true
 ): Promise<{
   success: boolean; status: OutreachDeliveryStatus; needsVerification: boolean;
   resolution: AdvertiserContactResolution; message: string; phoneUsed: string | null; statusLabel: string;
 }> {
   const resolution = resolveAdvertiserContact(order);
   const targetPhone = resolution.confidence === 'confirmed_phone' &&
-    (resolution.source === 'direct_private_meta' || resolution.source === 'text_advertiser_label')
+    (resolution.source === 'direct_private_meta' || resolution.source === 'text_advertiser_label' || resolution.source === 'advertiser_vault' || resolution.source === 'notification_person_meta')
     ? resolution.phone : null;
-  // If the ad does not expose a phone, allow only an exact sender-name match
-  // against a recent PRIVATE WhatsApp notification RemoteInput action.
-  // The native matcher rejects group notifications and never uses partial-name matches.
+  // If the ad does not expose a phone, allow sender-name match for private notification or accessibility member click
   const targetName = (order.senderName || '').trim();
   const privateTarget = targetPhone || targetName;
   const advertiserName = resolution.name || targetName || 'صاحب الإعلان';
@@ -512,32 +584,71 @@ export async function executePrivateAdvertiserOutreach(
       ? (order.price % 1 === 0 ? String(order.price) : order.price.toFixed(1)) : 'بالاتفاق')
     .replace(/\{name\}/g, advertiserName);
 
-  const failure = (status: OutreachDeliveryStatus, statusLabel: string) => ({
-    success: false, status, needsVerification: status === 'verification_required',
+  const failure = (status: OutreachDeliveryStatus, statusLabel: string, needsVerification = status === 'verification_required') => ({
+    success: false, status, needsVerification,
     resolution, message: messageText, phoneUsed: targetPhone, statusLabel,
   });
-  if (!privateTarget || advertiserName === 'صاحب الإعلان') return failure('verification_required',
-    resolution.verificationReason || 'لا يوجد رقم أو اسم مرسل موثوق يمكن مطابقته مع إشعار واتساب خاص.');
-  if (!isNativeAndroid()) return failure('failed', 'الإرسال الصامت متاح من تطبيق Orderi على Android فقط.');
+  if (!privateTarget || advertiserName === 'صاحب الإعلان') {
+    return failure('verification_required',
+      resolution.verificationReason || 'لا يوجد رقم أو اسم مرسل موثوق يمكن مطابقته مع إشعار واتساب خاص.', true);
+  }
+  if (!isNativeAndroid()) {
+    if (!autoSend && targetPhone) {
+      openRegularWhatsAppPrivateChat(targetPhone, '');
+      return {
+        success: true,
+        status: 'chat_opened_pending_send' as OutreachDeliveryStatus,
+        needsVerification: false,
+        resolution,
+        message: messageText,
+        phoneUsed: targetPhone,
+        statusLabel: `تم فتح محادثة المعلن (${advertiserName}) الخاصة؛ يمكنك الرد الآن 💬`,
+      };
+    }
+    return failure('verification_required', 'يمكنك مراسلة صاحب الإعلان في الخاص أو نسخ صيغة القبول فوراً.', true);
+  }
 
   const requestKey = String(order.id || '') + ':' + privateTarget + ':' + messageText;
   const lastSubmittedAt = privateOutreachRecentlySubmitted.get(requestKey) || 0;
-  if (privateOutreachInFlight.has(requestKey)) return failure('failed', 'يوجد إرسال جارٍ لهذا الطلب؛ لم نكرر الرسالة.');
-  if (Date.now() - lastSubmittedAt < 30_000) return failure('failed', 'تم تمرير الرد لهذا الطلب مؤخراً؛ منعنا إرسال نسخة مكررة.');
-  privateOutreachInFlight.add(requestKey);
+  if (autoSend) {
+    if (privateOutreachInFlight.has(requestKey)) return failure('failed', 'يوجد إرسال جارٍ لهذا الطلب؛ لم نكرر الرسالة.', false);
+    if (Date.now() - lastSubmittedAt < 30_000) return failure('failed', 'تم تمرير الرد لهذا الطلب مؤخراً؛ منعنا إرسال نسخة مكررة.', false);
+    privateOutreachInFlight.add(requestKey);
+  }
   try {
-    const result = await OrderiNotificationListener.sendPrivateNotificationReply({ target: privateTarget, message: messageText });
-    if (!result || !result.success) return failure('failed', 'لم يُرسل الرد: لا يوجد إجراء حديث ومطابق لمحادثة المعلن الخاصة.');
-    privateOutreachRecentlySubmitted.set(requestKey, Date.now());
-    return {
-      success: true, status: 'submitted_unconfirmed' as OutreachDeliveryStatus, needsVerification: false,
-      resolution, message: messageText, phoneUsed: targetPhone,
-      statusLabel: `تم تمرير الرد إلى إشعار المحادثة الخاصة مع ${advertiserName}؛ لم يؤكد واتساب التسليم.`,
-    };
+    const result = await OrderiNotificationListener.reachAdvertiserPrivateChat({
+      phone: targetPhone || undefined,
+      memberName: targetName,
+      groupName: order.groupName,
+      message: messageText,
+      autoSend,
+    });
+    if (result && result.success) {
+      if (autoSend) {
+        privateOutreachRecentlySubmitted.set(requestKey, Date.now());
+      }
+      return {
+        success: true,
+        status: (autoSend ? 'submitted_unconfirmed' : 'chat_opened_pending_send') as OutreachDeliveryStatus,
+        needsVerification: false,
+        resolution,
+        message: messageText,
+        phoneUsed: targetPhone,
+        statusLabel: (result as any).statusLabel || (autoSend
+          ? `تم تمرير رسالة القبول بالخاص إلى المعلن (${advertiserName}) ⚡`
+          : `تم تجهيز الرسالة في محادثة «${advertiserName}» الخاصة؛ بانتظار تأكيدك بالضغط على إرسال 💬`),
+      };
+    }
+    if (result && (result as any).accessibilityRequired) {
+      return failure('verification_required', 'تتطلب المراسلة التلقائية بالخلفية بدون رقم تفعيل خدمة وصول Orderi للضغط على اسم المعلن بالقروب.', true);
+    }
+    return failure('verification_required', resolution.verificationReason || 'لم يظهر رقم هاتف صريح؛ اضغط على اسم المعلن في القروب لمراسلته بالخاص.', true);
   } catch (error) {
     console.warn('[Orderi] Private notification reply failed:', error);
-    return failure('failed', 'تعذر تمرير الرد إلى واتساب.');
+    return failure('verification_required', 'تعذر تمرير الرد إلى واتساب؛ تحقق من هوية المعلن.', true);
   } finally {
-    privateOutreachInFlight.delete(requestKey);
+    if (autoSend) {
+      privateOutreachInFlight.delete(requestKey);
+    }
   }
 }

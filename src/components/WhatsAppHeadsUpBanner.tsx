@@ -30,7 +30,8 @@ export const WhatsAppHeadsUpBanner: React.FC<WhatsAppHeadsUpBannerProps> = ({
 }) => {
   const [progress, setProgress] = useState(100);
   const [isPaused, setIsPaused] = useState(false);
-  const [isSendingReply, setIsSendingReply] = useState(false);
+  const [isOpeningChat, setIsOpeningChat] = useState(false);
+  const [isAcceptingOrder, setIsAcceptingOrder] = useState(false);
 
   // Auto-dismiss countdown timer (7 seconds)
   useEffect(() => {
@@ -42,7 +43,7 @@ export const WhatsAppHeadsUpBanner: React.FC<WhatsAppHeadsUpBannerProps> = ({
     const decrement = (intervalTime / duration) * 100;
 
     const timer = setInterval(() => {
-      if (!isPaused) {
+      if (!isPaused && !isOpeningChat && !isAcceptingOrder) {
         setProgress((prev) => {
           if (prev <= decrement) {
             clearInterval(timer);
@@ -55,17 +56,53 @@ export const WhatsAppHeadsUpBanner: React.FC<WhatsAppHeadsUpBannerProps> = ({
     }, intervalTime);
 
     return () => clearInterval(timer);
-  }, [order, isPaused, onClose]);
+  }, [order, isPaused, isOpeningChat, isAcceptingOrder, onClose]);
 
-  const handlePrivateReply = async () => {
-    if (!order || isSendingReply) return;
-    setIsSendingReply(true);
+  // 1. زر «رد خاص عن طريق الواتساب»: يفتح محادثة خاصة مع المعلن دون إرسال رسالة تلقائياً
+  const handleOpenPrivateChat = async () => {
+    if (!order || isOpeningChat || isAcceptingOrder) return;
+    setIsOpeningChat(true);
+    setIsPaused(true);
     try {
-      const result = await executePrivateAdvertiserOutreach(order, customTemplate, driverAreaName);
+      // autoSend = false: فتح المحادثة الخاصة أو تجهيز المسودة بدون إرسال تلقائي
+      const result = await executePrivateAdvertiserOutreach(order, customTemplate, driverAreaName, false);
+      if (result.success) {
+        window.dispatchEvent(new CustomEvent('orderi-toast', { 
+          detail: { 
+            message: result.statusLabel || `💬 تم فتح محادثة المعلن (${order.senderName || 'صاحب الإعلان'}) الخاصة؛ يمكنك الرد الآن`, 
+            type: 'info' 
+          } 
+        }));
+        onClose();
+      } else {
+        window.dispatchEvent(new CustomEvent('orderi-toast', { 
+          detail: { 
+            message: result.statusLabel || 'تعذر فتح المحادثة الخاصة بالمعلن مباشرة.', 
+            type: 'error' 
+          } 
+        }));
+      }
+    } catch (error) {
+      console.warn('[Orderi] Heads-up private chat open failed:', error);
+      window.dispatchEvent(new CustomEvent('orderi-toast', { detail: { message: 'تعذر فتح المحادثة الخاصة بالمعلن.', type: 'error' } }));
+    } finally {
+      setIsOpeningChat(false);
+    }
+  };
+
+  // 2. زر «قبول الطلب»: يرسل رسالة القبول المحددة في الفلتر في الخلفية تلقائياً
+  const handleAcceptOrderOutreach = async () => {
+    if (!order || isAcceptingOrder || isOpeningChat) return;
+    setIsAcceptingOrder(true);
+    setIsPaused(true);
+    try {
+      // autoSend = true: إرسال رسالة القبول بالخلفية تلقائياً بدون مطالبة المستخدم بالكتابة
+      const result = await executePrivateAdvertiserOutreach(order, customTemplate, driverAreaName, true);
       if (!result.success) {
         window.dispatchEvent(new CustomEvent('orderi-toast', { detail: { message: result.statusLabel, type: 'error' } }));
         return;
       }
+      const advertiserName = result.resolution.name || order.senderName || 'صاحب الإعلان';
       onAccept({
         ...order,
         status: 'accepted',
@@ -73,20 +110,25 @@ export const WhatsAppHeadsUpBanner: React.FC<WhatsAppHeadsUpBannerProps> = ({
         outreachDetails: {
           status: 'submitted_unconfirmed',
           phoneUsed: result.phoneUsed,
-          advertiserName: result.resolution.name || order.senderName || 'صاحب الإعلان',
+          advertiserName,
           attemptedAt: new Date().toISOString(),
           message: result.message,
-          deliveryMethod: 'background_private_chat',
+          deliveryMethod: result.phoneUsed ? 'background_private_chat' : 'accessibility_group_member_outreach',
           verifiedAdvertiser: true,
         },
       });
-      window.dispatchEvent(new CustomEvent('orderi-toast', { detail: { message: result.statusLabel, type: 'success' } }));
+      window.dispatchEvent(new CustomEvent('orderi-toast', { 
+        detail: { 
+          message: result.statusLabel || `⚡ تم قبول الطلب وإرسال رسالة القبول للمعلن (${advertiserName}) في الخلفية بنجاح`, 
+          type: 'success' 
+        } 
+      }));
       onClose();
     } catch (error) {
-      console.warn('[Orderi] Heads-up private reply failed:', error);
-      window.dispatchEvent(new CustomEvent('orderi-toast', { detail: { message: 'تعذر إرسال الرد الخاص.', type: 'error' } }));
+      console.warn('[Orderi] Heads-up accept outreach failed:', error);
+      window.dispatchEvent(new CustomEvent('orderi-toast', { detail: { message: 'تعذر قبول الطلب والتواصل في الخلفية.', type: 'error' } }));
     } finally {
-      setIsSendingReply(false);
+      setIsAcceptingOrder(false);
     }
   };
 
@@ -211,24 +253,24 @@ export const WhatsAppHeadsUpBanner: React.FC<WhatsAppHeadsUpBannerProps> = ({
             <div className="grid grid-cols-2 gap-2 pt-1">
               <button
                 type="button"
-                onClick={handlePrivateReply}
-                disabled={isSendingReply}
-                className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-[#25D366] hover:bg-[#20ba5a] text-white font-black text-xs shadow-xs transition-all active:scale-95"
+                onClick={handleOpenPrivateChat}
+                disabled={isOpeningChat || isAcceptingOrder}
+                className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-[#25D366] hover:bg-[#20ba5a] text-white font-black text-xs shadow-xs transition-all active:scale-95 disabled:opacity-75 cursor-pointer"
+                title="فتح محادثة خاصة مع صاحب الطلب في واتساب دون إرسال رسالة"
               >
                 <MessageSquare className="w-4 h-4 fill-white shrink-0" />
-                <span>{isSendingReply ? 'جاري إرسال الرد...' : 'رد خاص بالواتساب 💬'}</span>
+                <span>{isOpeningChat ? 'جاري فتح المحادثة...' : 'رد خاص عن طريق الواتساب'}</span>
               </button>
 
               <button
                 type="button"
-                onClick={() => {
-                  onAccept(order);
-                  onClose();
-                }}
-                className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-xs transition-all active:scale-95"
+                onClick={handleAcceptOrderOutreach}
+                disabled={isAcceptingOrder || isOpeningChat}
+                className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-xs transition-all active:scale-95 disabled:opacity-75 cursor-pointer"
+                title="قبول الطلب وإرسال رسالة القبول بالخلفية للمعلن"
               >
                 <Check className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>قبول الطلب والتواصل ⚡</span>
+                <span>{isAcceptingOrder ? 'جاري قبول الطلب...' : 'قبول الطلب'}</span>
               </button>
             </div>
 

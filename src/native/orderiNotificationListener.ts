@@ -58,7 +58,7 @@ interface OrderiNotificationListenerPlugin {
     groupName?: string;
     message: string;
     autoSend?: boolean;
-  }): Promise<{ success: boolean; method: string }>;
+  }): Promise<{ success: boolean; method: string; statusLabel?: string; accessibilityRequired?: boolean; submitted?: boolean }>;
   sendPrivateNotificationReply(options: {
     target: string;
     message: string;

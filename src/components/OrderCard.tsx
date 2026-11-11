@@ -290,9 +290,16 @@ export function OrderCard({
     if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('orderi-toast', { detail: { message, type } }));
   };
 
-  const submitAdvertiserPrivateReply = async () => {
-    const result = await executePrivateAdvertiserOutreach(order, customTemplate, driverLocation?.areaName || 'البحرين');
-    showOutreachToast(result.statusLabel, result.success ? 'success' : 'error');
+  const submitAdvertiserPrivateReply = async (autoSend: boolean = true) => {
+    const result = await executePrivateAdvertiserOutreach(order, customTemplate, driverLocation?.areaName || 'البحرين', autoSend);
+    if (result.success) {
+      showOutreachToast(result.statusLabel, autoSend ? 'success' : 'info');
+    } else if (result.needsVerification) {
+      setOutreachResolution(result.resolution);
+      setShowOutreachModal(true);
+    } else {
+      showOutreachToast(result.statusLabel, 'error');
+    }
     return result;
   };
 
@@ -300,9 +307,15 @@ export function OrderCard({
     if (e) { e.preventDefault(); e.stopPropagation(); }
     if (isAutoReplying) return;
     setIsAutoReplying(true);
-    try { await submitAdvertiserPrivateReply(); }
-    catch (error) { console.warn('[Orderi] Private reply failed:', error); showOutreachToast('تعذر إرسال الرد الخاص.', 'error'); }
-    finally { setIsAutoReplying(false); }
+    try {
+      // In accordance with requirement: When clicking advertiser name, prepare draft in private chat WITHOUT auto-sending
+      await submitAdvertiserPrivateReply(false);
+    } catch (error) {
+      console.warn('[Orderi] Private reply failed:', error);
+      showOutreachToast('تعذر الوصول إلى محادثة المعلن الخاصة.', 'error');
+    } finally {
+      setIsAutoReplying(false);
+    }
   };
 
   const handleAdvertiserNameClick = (e: React.MouseEvent) => { void handleOpenAdvertiserPrivateChat(e); };
@@ -313,15 +326,25 @@ export function OrderCard({
     setIsAutoReplying(true);
     try {
       if (isMyBroadcast) { onAccept(order); setShowAcceptDialog(false); return; }
-      const result = await submitAdvertiserPrivateReply();
+      // Accept order: autoSend = true (sends automatically in background without redundant confirmation)
+      const result = await submitAdvertiserPrivateReply(true);
+      if (!result.success && result.needsVerification) {
+        // Outreach modal is opened by submitAdvertiserPrivateReply
+        return;
+      }
       if (!result.success) return;
       onAccept({
-        ...order, status: 'accepted', outreachStatus: 'submitted_unconfirmed',
+        ...order,
+        status: 'accepted',
+        outreachStatus: 'submitted_unconfirmed',
         outreachDetails: {
-          status: 'submitted_unconfirmed', phoneUsed: result.phoneUsed,
+          status: 'submitted_unconfirmed',
+          phoneUsed: result.phoneUsed,
           advertiserName: result.resolution.name || order.senderName || 'صاحب الإعلان',
-          attemptedAt: new Date().toISOString(), message: result.message,
-          deliveryMethod: 'background_private_chat', verifiedAdvertiser: true,
+          attemptedAt: new Date().toISOString(),
+          message: result.message,
+          deliveryMethod: result.phoneUsed ? 'background_private_chat' : 'accessibility_group_member_outreach',
+          verifiedAdvertiser: true,
         },
       });
       setShowAcceptDialog(false);
@@ -1221,7 +1244,7 @@ export function OrderCard({
             });
             setShowOutreachModal(false);
           }}
-          onToast={(msg) => console.log(msg)}
+          onToast={(msg) => showOutreachToast(msg, 'info')}
         />
       )}
     </>

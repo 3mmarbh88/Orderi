@@ -452,15 +452,18 @@ public class OrderiAccessibilityService extends AccessibilityService {
         if (rootNode == null) return;
 
         try {
-            // STEP 1: Always select the advertiser's name first. Never treat an existing
-            // group composer or unrelated "Message" text as proof of a private chat.
+            // STEP 1: Always select the advertiser's name first.
             if (currentStage == STAGE_CLICK_MEMBER_NAME) {
                 if (!TextUtils.isEmpty(pendingTargetMemberName)) {
                     AccessibilityNodeInfo memberNode = findMemberNameNode(rootNode, pendingTargetMemberName);
-                    if (memberNode != null && memberNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-                        Log.i(TAG, "Clicked advertiser name node: " + pendingTargetMemberName);
-                        currentStage = STAGE_CLICK_MESSAGE_ACTION;
-                        return;
+                    if (memberNode != null) {
+                        boolean clicked = performClickGesture(memberNode);
+                        if (!clicked) clicked = memberNode.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+                        if (clicked) {
+                            Log.i(TAG, "Clicked advertiser name node: " + pendingTargetMemberName);
+                            currentStage = STAGE_CLICK_MESSAGE_ACTION;
+                            return;
+                        }
                     }
                 }
                 return;
@@ -469,16 +472,20 @@ public class OrderiAccessibilityService extends AccessibilityService {
             // STEP 2: When member popup appears, click "Message {name}" / "مراسلة"
             if (currentStage == STAGE_CLICK_MESSAGE_ACTION) {
                 AccessibilityNodeInfo messageAction = findPrivateMessageAction(rootNode, pendingTargetMemberName);
-                if (messageAction != null && messageAction.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-                    Log.i(TAG, "Clicked private Message action for member in dialog");
-                    currentStage = STAGE_ENTER_PRIVATE_MESSAGE;
-                    return;
+                if (messageAction != null) {
+                    boolean clicked = performClickGesture(messageAction);
+                    if (!clicked) clicked = messageAction.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+                    if (clicked) {
+                        Log.i(TAG, "Clicked private Message action for member in dialog");
+                        currentStage = STAGE_ENTER_PRIVATE_MESSAGE;
+                        return;
+                    }
                 }
                 // If member node needs to be clicked again
                 if (!TextUtils.isEmpty(pendingTargetMemberName)) {
                     AccessibilityNodeInfo memberNode = findMemberNameNode(rootNode, pendingTargetMemberName);
                     if (memberNode != null) {
-                        memberNode.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+                        performClickGesture(memberNode);
                         return;
                     }
                 }
@@ -517,7 +524,9 @@ public class OrderiAccessibilityService extends AccessibilityService {
                             writeOutreachStatus("failed", "لم يظهر زر إرسال قابل للتنفيذ في المحادثة");
                         }
                     } else {
-                        writeOutreachStatus("failed", "الإرسال التلقائي غير مفعل");
+                        // When autoSend is false, message is prepared in composer for user review and confirmation
+                        writeOutreachStatus("prepared", "تم تجهيز الرسالة في محادثة المعلن الخاصة؛ بانتظار تأكيدك");
+                        Log.i(TAG, "Private message prepared in composer; awaiting user send confirmation");
                     }
                     resetOperation();
                 }
@@ -1116,16 +1125,27 @@ public class OrderiAccessibilityService extends AccessibilityService {
 
     private String normalizeLabel(String value) {
         if (value == null) return "";
-        return value.toLowerCase(java.util.Locale.ROOT).replaceAll("\\s+", " ").trim();
+        String s = value.toLowerCase(java.util.Locale.ROOT).replaceAll("\\s+", " ").trim();
+        while (s.startsWith("~") || s.startsWith("@") || s.startsWith("+")) {
+            s = s.substring(1).trim();
+        }
+        while (s.endsWith(":") || s.endsWith("؛") || s.endsWith(",")) {
+            s = s.substring(0, s.length() - 1).trim();
+        }
+        return s;
     }
 
     private boolean nodeHasExactLabel(AccessibilityNodeInfo node, String expected) {
         if (node == null || TextUtils.isEmpty(expected)) return false;
         String wanted = normalizeLabel(expected);
+        if (wanted.isEmpty()) return false;
         CharSequence text = node.getText();
         CharSequence description = node.getContentDescription();
-        return wanted.equals(normalizeLabel(text == null ? "" : text.toString()))
-                || wanted.equals(normalizeLabel(description == null ? "" : description.toString()));
+        String normText = normalizeLabel(text == null ? "" : text.toString());
+        String normDesc = normalizeLabel(description == null ? "" : description.toString());
+        if (wanted.equals(normText) || wanted.equals(normDesc)) return true;
+        if (wanted.length() >= 3 && (normText.contains(wanted) || normDesc.contains(wanted))) return true;
+        return false;
     }
 
     private boolean isPrivateChatForTarget(AccessibilityNodeInfo root, String expectedName) {

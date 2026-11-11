@@ -84,13 +84,32 @@ export const FocusedOrderDetailModal: React.FC<FocusedOrderDetailModalProps> = (
   };
 
   const handleOpenAdvertiserPrivateChat = async () => {
-    const targetPhone = getAdvertiserTargetPhone(order, effectivePhone);
-    const advertiserName = (order.senderName || 'صاحب الإعلان').trim();
-    const { openWhatsAppPrivateConversation } = await import('../native/whatsappListener');
-    await openWhatsAppPrivateConversation({
-      phone: targetPhone || undefined,
-      memberName: advertiserName,
-    });
+    if (isAutoReplying) return;
+    setIsAutoReplying(true);
+    try {
+      // In accordance with requirement: When clicking advertiser name, prepare draft in private chat WITHOUT auto-sending
+      const result = await executePrivateAdvertiserOutreach(order, customTemplate, driverArea, false);
+      if (result.success) {
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('orderi-toast', {
+            detail: { message: result.statusLabel, type: 'info' }
+          }));
+        }
+      } else if (result.needsVerification) {
+        setOutreachResolution(result.resolution);
+        setShowOutreachModal(true);
+      } else {
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('orderi-toast', {
+            detail: { message: result.statusLabel, type: 'error' }
+          }));
+        }
+      }
+    } catch (err) {
+      console.warn('[Orderi] Private chat error:', err);
+    } finally {
+      setIsAutoReplying(false);
+    }
   };
 
   const handleAcceptOrder = async () => {
@@ -98,73 +117,34 @@ export const FocusedOrderDetailModal: React.FC<FocusedOrderDetailModalProps> = (
     setIsAutoReplying(true);
 
     try {
-      const res = resolveAdvertiserContact(order);
-      const targetPhone = getAdvertiserTargetPhone(order, effectivePhone);
-      const advertiserName = res.name || order.senderName || 'صاحب الإعلان';
-
-      // 1. Silent clipboard copy as instant backup
-      if (typeof navigator !== 'undefined' && navigator.clipboard) {
-        try {
-          await navigator.clipboard.writeText(privateAdvertiserMessage);
-        } catch {}
+      // Accept order: autoSend = true (sends automatically in background without extra confirmation)
+      const result = await executePrivateAdvertiserOutreach(order, customTemplate, driverArea, true);
+      if (!result.success && result.needsVerification) {
+        setOutreachResolution(result.resolution);
+        setShowOutreachModal(true);
+        return;
       }
-
-      // 2. Android native dispatch or Web private chat (strictly to private 1-on-1 chat, never group!)
-      if (isNativeAndroid()) {
-        try {
-          if (targetPhone || order.senderName) {
-            try {
-              await OrderiNotificationListener.sendPrivateNotificationReply({
-                target: targetPhone || order.senderName,
-                message: privateAdvertiserMessage,
-              });
-            } catch {}
-          }
-          try {
-            await reachNativeAdvertiserPrivateChat({
-              phone: targetPhone || undefined,
-              memberName: advertiserName,
-              groupName: '', // Strictly empty: never open a group conversation!
-              message: privateAdvertiserMessage,
-              autoSend: true,
-            });
-          } catch {}
-        } catch (err) {
-          console.warn('[Orderi] Native background outreach error:', err);
+      if (!result.success) {
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('orderi-toast', {
+            detail: { message: result.statusLabel, type: 'error' }
+          }));
         }
+        return;
       }
 
-      // 3. Backend quick accept reply endpoint
-      try {
-        fetch('/api/whatsapp/quick-accept-reply', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            orderId: order.id,
-            phone: targetPhone,
-            targetType: 'private_chat_background',
-            groupName: order.groupName,
-            senderName: advertiserName,
-            replyText: privateAdvertiserMessage,
-            price: order.price,
-            from: order.from,
-            to: order.to,
-          }),
-        }).catch(() => {});
-      } catch {}
-
-      // 4. Mark accepted in radar state immediately (Never open identity verification modal!)
+      const advertiserName = result.resolution.name || order.senderName || 'صاحب الإعلان';
       onAccept({
         ...order,
         status: 'accepted',
-        outreachStatus: 'sent_confirmed',
+        outreachStatus: 'submitted_unconfirmed',
         outreachDetails: {
-          status: 'sent_confirmed',
-          phoneUsed: targetPhone,
+          status: 'submitted_unconfirmed',
+          phoneUsed: result.phoneUsed,
           advertiserName,
           attemptedAt: new Date().toISOString(),
-          message: privateAdvertiserMessage,
-          deliveryMethod: 'background_private_chat',
+          message: result.message,
+          deliveryMethod: result.phoneUsed ? 'background_private_chat' : 'accessibility_group_member_outreach',
           verifiedAdvertiser: true,
         },
       });
@@ -172,7 +152,7 @@ export const FocusedOrderDetailModal: React.FC<FocusedOrderDetailModalProps> = (
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('orderi-toast', {
           detail: {
-            message: `✅ تم قبول الطلب وإرسال رسالة القبول بالخاص للمعلن (${advertiserName}) في الخلفية بنجاح ⚡`,
+            message: result.statusLabel || `✅ تم قبول الطلب وتمرير رسالة القبول بالخاص للمعلن (${advertiserName}) ⚡`,
             type: 'success'
           }
         }));
@@ -557,7 +537,11 @@ export const FocusedOrderDetailModal: React.FC<FocusedOrderDetailModalProps> = (
             setShowOutreachModal(false);
             onClose();
           }}
-          onToast={(msg) => console.log(msg)}
+          onToast={(msg) => {
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('orderi-toast', { detail: { message: msg, type: 'info' } }));
+            }
+          }}
         />
       )}
     </div>

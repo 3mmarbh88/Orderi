@@ -16,7 +16,8 @@
     "test:group-capture": "tsx test/groupCapture.test.ts",
     "test:spider-privacy": "tsx test/spiderPrivacy.test.ts",
     "test:whatsapp-connection": "tsx test/whatsappConnection.test.ts",
-    "test:chat-importer": "tsx test/whatsappChatImporter.test.ts"
+    "test:chat-importer": "tsx test/whatsappChatImporter.test.ts",
+    "test:advertiser-outreach": "tsx test/advertiserOutreach.test.ts"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.2",

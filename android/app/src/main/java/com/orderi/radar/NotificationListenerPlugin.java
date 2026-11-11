@@ -602,21 +602,12 @@ public class NotificationListenerPlugin extends Plugin {
         try {
             String phone = call.getString("phone", "");
             String memberName = call.getString("memberName", "");
+            String groupName = call.getString("groupName", "");
             String message = call.getString("message", "");
             boolean autoSend = call.getBoolean("autoSend", true);
 
             if (android.text.TextUtils.isEmpty(message)) {
                 call.reject("Message is empty");
-                return;
-            }
-
-            if (!autoSend) {
-                JSObject ret = new JSObject();
-                ret.put("success", false);
-                ret.put("submitted", false);
-                ret.put("deliveryConfirmed", false);
-                ret.put("method", "auto_send_disabled");
-                call.resolve(ret);
                 return;
             }
 
@@ -627,13 +618,98 @@ public class NotificationListenerPlugin extends Plugin {
             }
 
             boolean submitted = false;
-            if (!android.text.TextUtils.isEmpty(targetPhone)) {
+            // 1. If autoSend is true, attempt direct background reply via private notification RemoteInput
+            if (autoSend) {
+                if (!android.text.TextUtils.isEmpty(targetPhone)) {
+                    String cleanPhone = targetPhone.replaceAll("\\D", "");
+                    if (cleanPhone.length() == 8) cleanPhone = "973" + cleanPhone;
+                    submitted = WhatsAppNotificationListenerService.sendPrivateNotificationReply(getContext(), cleanPhone, message);
+                }
+                if (!submitted && !android.text.TextUtils.isEmpty(memberName)) {
+                    submitted = WhatsAppNotificationListenerService.sendPrivateNotificationReply(getContext(), memberName, message);
+                }
+            } else if (!android.text.TextUtils.isEmpty(targetPhone)) {
+                // When autoSend is false and a reliable phone is available, open the private 1-on-1 chat directly without auto-sending
                 String cleanPhone = targetPhone.replaceAll("\\D", "");
                 if (cleanPhone.length() == 8) cleanPhone = "973" + cleanPhone;
-                submitted = WhatsAppNotificationListenerService.sendPrivateNotificationReply(getContext(), cleanPhone, message);
+                if (cleanPhone.length() >= 8 && cleanPhone.length() <= 15) {
+                    try {
+                        Intent intent = new Intent(Intent.ACTION_VIEW);
+                        intent.setData(android.net.Uri.parse("https://api.whatsapp.com/send?phone=" + cleanPhone));
+                        intent.setPackage("com.whatsapp");
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        getContext().startActivity(intent);
+                        submitted = true;
+                    } catch (Exception e1) {
+                        try {
+                            Intent intent = new Intent(Intent.ACTION_VIEW);
+                            intent.setData(android.net.Uri.parse("https://api.whatsapp.com/send?phone=" + cleanPhone));
+                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                            getContext().startActivity(intent);
+                            submitted = true;
+                        } catch (Exception ignored) {}
+                    }
+                }
+                if (submitted) {
+                    JSObject ret = new JSObject();
+                    ret.put("success", true);
+                    ret.put("submitted", false);
+                    ret.put("deliveryConfirmed", false);
+                    ret.put("method", "exact_private_chat_opened");
+                    ret.put("statusLabel", "تم فتح محادثة المعلن الخاصة بالواتساب؛ يمكنك الرد الآن 💬");
+                    call.resolve(ret);
+                    return;
+                }
             }
+
+            // 2. Second attempt: Background Member-Click Accessibility Automation!
+            // When an ad was posted in a group and no private reply notification action exists,
+            // click the advertiser's member name inside the group to open the private chat sheet and message them in the background.
             if (!submitted && !android.text.TextUtils.isEmpty(memberName)) {
-                submitted = WhatsAppNotificationListenerService.sendPrivateNotificationReply(getContext(), memberName, message);
+                if (OrderiAccessibilityService.isAccessibilityEnabled(getContext())) {
+                    android.util.Log.i("NotificationListenerPlugin", "Triggering Accessibility member-click automation for member: " + memberName + " in group: " + groupName);
+                    OrderiAccessibilityService.queueOutreachToMember(memberName, message, autoSend);
+
+                    boolean opened = false;
+                    if (!android.text.TextUtils.isEmpty(groupName)) {
+                        opened = WhatsAppNotificationListenerService.openWhatsAppGroupConversation(getContext(), groupName);
+                    }
+                    if (!opened) {
+                        Intent launch = getContext().getPackageManager().getLaunchIntentForPackage("com.whatsapp");
+                        if (launch == null) launch = getContext().getPackageManager().getLaunchIntentForPackage("com.whatsapp.w4b");
+                        if (launch != null) {
+                            launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                            getContext().startActivity(launch);
+                            opened = true;
+                        }
+                    }
+
+                    getContext().getSharedPreferences("orderi_private_outreach", Context.MODE_PRIVATE)
+                            .edit()
+                            .putString("status", "sending")
+                            .putString("status_label", "جاري فتح القروب والضغط على اسم المعلن «" + memberName + "» للبدء بالمراسلة الخاصة في الخلفية")
+                            .putLong("updated_at", System.currentTimeMillis())
+                            .apply();
+
+                    JSObject ret = new JSObject();
+                    ret.put("success", true);
+                    ret.put("submitted", true);
+                    ret.put("deliveryConfirmed", false);
+                    ret.put("method", "accessibility_member_click_in_progress");
+                    ret.put("statusLabel", "جاري فتح القروب والضغط على اسم المعلن «" + memberName + "» لمراسلته بالخاص في الخلفية");
+                    call.resolve(ret);
+                    return;
+                } else {
+                    JSObject ret = new JSObject();
+                    ret.put("success", false);
+                    ret.put("submitted", false);
+                    ret.put("deliveryConfirmed", false);
+                    ret.put("accessibilityRequired", true);
+                    ret.put("method", "accessibility_required");
+                    ret.put("statusLabel", "تتطلب المراسلة بالخلفية بدون رقم تفعيل خدمة الوصول للضغط على اسم المعلن بالقروب");
+                    call.resolve(ret);
+                    return;
+                }
             }
 
             getContext().getSharedPreferences("orderi_private_outreach", Context.MODE_PRIVATE)
