@@ -61,7 +61,7 @@ export const WhatsAppHeadsUpBanner: React.FC<WhatsAppHeadsUpBannerProps> = ({
     if (!order || isSendingReply) return;
     setIsSendingReply(true);
     try {
-      const result = await executePrivateAdvertiserOutreach(order, undefined, customTemplate, driverAreaName);
+      const result = await executePrivateAdvertiserOutreach(order, customTemplate, driverAreaName);
       if (!result.success) {
         window.dispatchEvent(new CustomEvent('orderi-toast', { detail: { message: result.statusLabel, type: 'error' } }));
         return;
