@@ -15,6 +15,7 @@ on:
   push:
     branches:
       - main
+      - ci/build-apk-838c6df
     paths:
       - 'src/**'
       - 'test/**'
