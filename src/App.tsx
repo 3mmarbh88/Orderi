@@ -2785,25 +2785,37 @@ function OrderiApp({
         }
       } catch {}
 
-      void executePrivateAdvertiserOutreach(
-        order,
-        order.senderPhone || undefined,
-        filterRef.current.customResponseTemplate,
-        driverLocation?.areaName || 'المنامة'
-      ).catch(() => {});
+      // Child actions may already have submitted the private reply. Do not send it twice.
+      let outreachDetails = order.outreachDetails;
+      let outreachStatus = order.outreachStatus;
+      if (outreachStatus !== 'submitted_unconfirmed') {
+        const outreach = await executePrivateAdvertiserOutreach(
+          order,
+          undefined,
+          filterRef.current.customResponseTemplate,
+          driverLocation?.areaName || 'المنامة'
+        );
+        if (!outreach.success) {
+          showToast(outreach.statusLabel);
+          return;
+        }
+        outreachStatus = outreach.status;
+        outreachDetails = {
+          status: outreach.status,
+          phoneUsed: outreach.phoneUsed,
+          advertiserName: outreach.resolution.name || order.senderName || 'صاحب الإعلان',
+          attemptedAt: new Date().toISOString(),
+          message: outreach.message,
+          deliveryMethod: 'background_private_chat',
+          verifiedAdvertiser: true,
+        };
+      }
 
       const updated = {
         ...order,
         status: 'accepted' as const,
-        outreachStatus: 'sent_confirmed' as const,
-        outreachDetails: {
-          status: 'sent_confirmed' as const,
-          phoneUsed: order.senderPhone || null,
-          advertiserName: order.senderName || 'صاحب الإعلان',
-          attemptedAt: new Date().toISOString(),
-          deliveryMethod: 'background_private_chat' as const,
-          verifiedAdvertiser: true,
-        },
+        outreachStatus: outreachStatus || 'not_attempted',
+        outreachDetails,
       };
 
       setOrders((prev) => prev.filter((o) => o.id !== order.id));
@@ -2830,7 +2842,7 @@ function OrderiApp({
         const priceText = (!order.price || order.price <= 0 || order.isPriceUnspecified)
           ? '(بالاتفاق مع العميل 🤝)'
           : `(+${order.price.toFixed(1)} د.ب)`;
-        showToast(`✅ تم قبول الطلب وإرسال رسالة القبول بالخاص للمعلن (${order.senderName || 'صاحب الإعلان'}) بالخلفية ${priceText} ⚡`);
+        showToast(`✅ تم قبول الطلب وتمرير الرد الخاص للمعلن (${order.senderName || 'صاحب الإعلان'})؛ لم يؤكد واتساب التسليم ${priceText} ⚡`);
       }
     } catch (error) {
       console.error('[Orderi] Private WhatsApp outreach error:', error);
