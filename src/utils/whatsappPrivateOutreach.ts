@@ -473,6 +473,7 @@ export function openRegularWhatsAppPrivateChat(phone: string, message: string): 
  * يلتزم بعدم ادعاء الإرسال قبل تحققه (chat_opened_pending_send)
  */
 const privateOutreachInFlight = new Set<string>();
+const privateOutreachRecentlySubmitted = new Map<string, number>();
 
 /** Submit one reply through a recent, exact-match PRIVATE WhatsApp notification. */
 export async function executePrivateAdvertiserOutreach(
@@ -517,11 +518,14 @@ export async function executePrivateAdvertiserOutreach(
   if (!isNativeAndroid()) return failure('failed', 'الإرسال الصامت متاح من تطبيق Orderi على Android فقط.');
 
   const requestKey = String(order.id || '') + ':' + targetPhone + ':' + messageText;
+  const lastSubmittedAt = privateOutreachRecentlySubmitted.get(requestKey) || 0;
   if (privateOutreachInFlight.has(requestKey)) return failure('failed', 'يوجد إرسال جارٍ لهذا الطلب؛ لم نكرر الرسالة.');
+  if (Date.now() - lastSubmittedAt < 30_000) return failure('failed', 'تم تمرير الرد لهذا الطلب مؤخراً؛ منعنا إرسال نسخة مكررة.');
   privateOutreachInFlight.add(requestKey);
   try {
     const result = await OrderiNotificationListener.sendPrivateNotificationReply({ target: targetPhone, message: messageText });
     if (!result || !result.success) return failure('failed', 'لم يُرسل الرد: لا يوجد إجراء حديث ومطابق لمحادثة المعلن الخاصة.');
+    privateOutreachRecentlySubmitted.set(requestKey, Date.now());
     return {
       success: true, status: 'submitted_unconfirmed' as OutreachDeliveryStatus, needsVerification: false,
       resolution, message: messageText, phoneUsed: targetPhone,
