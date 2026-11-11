@@ -211,7 +211,8 @@ export const WhatsAppHeadsUpBanner: React.FC<WhatsAppHeadsUpBannerProps> = ({
             <div className="grid grid-cols-2 gap-2 pt-1">
               <button
                 type="button"
-                onClick={handlePrivateReply}\n                disabled={isSendingReply}
+                onClick={handlePrivateReply}
+                disabled={isSendingReply}
                 className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-[#25D366] hover:bg-[#20ba5a] text-white font-black text-xs shadow-xs transition-all active:scale-95"
               >
                 <MessageSquare className="w-4 h-4 fill-white shrink-0" />
