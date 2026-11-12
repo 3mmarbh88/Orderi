@@ -247,51 +247,27 @@ function cleanSenderText(text: string): string {
  * يدعم هواتف البحرين والخليج (آخر 8 أرقام) والأسماء المقتطعة بدون إيموجيات
  */
 export function isAdvertiserSenderMatch(
-  msgSender: string, 
-  msgPhone: string, 
-  orderSenderName: string, 
+  msgSender: string,
+  msgPhone: string,
+  orderSenderName: string,
   orderSenderPhone?: string,
-  orderRawText?: string
+  _orderRawText?: string
 ): boolean {
-  // 1. مطابقة أرقام الهواتف (آخر 8 أرقام لهواتف البحرين والخليج لتجاوز مفاتيح الدول +973 و 00973 والفواصل)
-  const p1 = (msgPhone || msgSender || '').replace(/\D/g, '');
-  const p2 = (orderSenderPhone || orderSenderName || '').replace(/\D/g, '');
-
-  if (p1.length >= 8 && p2.length >= 8) {
-    if (p1.slice(-8) === p2.slice(-8)) {
-      return true;
-    }
+  // A phone match is the strongest available identity signal. Compare the final
+  // eight digits to tolerate Bahrain's +973 / 00973 formatting only.
+  const digits = (value: string) => (value || '').replace(/\\D/g, '');
+  const messagePhone = digits(msgPhone);
+  const advertiserPhone = digits(orderSenderPhone || '');
+  if (messagePhone.length >= 8 && advertiserPhone.length >= 8) {
+    return messagePhone.slice(-8) === advertiserPhone.slice(-8);
   }
 
-  // 1.1 فحص رقم الهاتف في نص الإعلان الأصلي (في حال ذُكر رقم التواصل بصلب الإعلان)
-  if (p1.length >= 8 && orderRawText) {
-    const last8 = p1.slice(-8);
-    const textNumbers = orderRawText.replace(/\D/g, '');
-    if (textNumbers.includes(last8)) {
-      return true;
-    }
-  }
-
-  // 2. مطابقة الأسماء المعيارية بعد إزالة الإيموجيات وعلامات الواتساب
-  if (msgSender && orderSenderName) {
-    const s1 = cleanSenderText(msgSender);
-    const s2 = cleanSenderText(orderSenderName);
-    if (s1 && s2) {
-      if (s1 === s2) return true;
-      if (s1.length >= 3 && s2.includes(s1)) return true;
-      if (s2.length >= 3 && s1.includes(s2)) return true;
-    }
-  }
-
-  // 2.1 في حال كان اسم المعلن مذكوراً بصلب الإعلان الأصلي
-  if (msgSender && orderRawText) {
-    const s1 = cleanSenderText(msgSender);
-    if (s1 && s1.length >= 4 && cleanSenderText(orderRawText).includes(s1)) {
-      return true;
-    }
-  }
-
-  return false;
+  // If WhatsApp did not expose a phone number, accept only an exact normalized
+  // sender-name match. Never infer identity from partial names or text inside
+  // the original advert; that can close another member's order by coincidence.
+  const incomingName = cleanSenderText(msgSender);
+  const originalName = cleanSenderText(orderSenderName);
+  return Boolean(incomingName && originalName && incomingName === originalName);
 }
 
 /**
@@ -365,8 +341,8 @@ export function checkIncomingMessageForClosure(
 
     // التأكد من تطابق المجموعة
     const inSameGroup = 
-      (msgGroup && order.groupName && (order.groupName.includes(msgGroup) || msgGroup.includes(order.groupName))) ||
-      (order.crossPostedGroups && order.crossPostedGroups.some((g) => g.includes(msgGroup) || msgGroup.includes(g)));
+      (msgGroup && order.groupName && cleanSenderText(order.groupName) === cleanSenderText(msgGroup)) ||
+      (order.crossPostedGroups && order.crossPostedGroups.some((g) => cleanSenderText(g) === cleanSenderText(msgGroup)));
 
     if (!msgGroup || !inSameGroup) return false;
 
@@ -442,14 +418,10 @@ export function checkIncomingMessageForClosure(
     isAdvertiserSenderMatch(msgSender, msgPhone, order.senderName, order.senderPhone, order.rawText)
   );
 
-  if (matchingAdvertiserOrders.length > 0) {
-    // الأقرب زمنياً لوقت هذه الرسالة من إعلانات هذا المعلن حصراً
-    matchingAdvertiserOrders.sort((a, b) => {
-      const diffA = Math.abs(msgTime - new Date(a.receivedAt).getTime());
-      const diffB = Math.abs(msgTime - new Date(b.receivedAt).getTime());
-      return diffA - diffB;
-    });
-
+  // A non-reply message can close an order only when exactly one active
+  // order belongs to this verified advertiser in this exact group/time window.
+  // Do not guess the "nearest" order when the advertiser has multiple orders.
+  if (matchingAdvertiserOrders.length === 1) {
     const targetOrder = matchingAdvertiserOrders[0];
     processedMessageHashes.add(dedupeKey);
     markOrderPermanentlyClosed(targetOrder.id);
@@ -553,7 +525,7 @@ export async function checkIncomingMessageForClosureWithAI(
 
   // AI must never guess which advertiser owns a closure. Without an exact
   // sender match, leave every active order untouched.
-  if (advertiserOrders.length === 0) return null;
+  if (advertiserOrders.length !== 1) return null;
   const targetCandidates = advertiserOrders;
 
   // استدعاء الذكاء الاصطناعي لفهم التعبير العامي الجديد
@@ -601,7 +573,7 @@ export function markOrderPermanentlyClosed(orderId: string): void {
     const existing = getPermanentlyClosedOrderIds();
     if (!existing.includes(orderId)) {
       existing.push(orderId);
-      localStorage.setItem(STORAGE_KEY_CLOSED_ORDERS, JSON.stringify(existing.slice(-300)));
+      localStorage.setItem(STORAGE_KEY_CLOSED_ORDERS, JSON.stringify(existing));
     }
   } catch {}
 }
