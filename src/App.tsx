@@ -483,13 +483,15 @@ function OrderiApp({
                 // Check for order closure in pending batch (e.g. advertiser posted "تم"/sticker while app paused)
                 if (filterRef.current.autoCloseOrdersEnabled !== false) {
                   const closureData = {
-                    text: rawText || event.title || '',
+                    text: rawText || ((event as any).isSticker === true ? '[sticker]' : ''),
                     senderName: (event.senderName && event.senderName.trim()) ? event.senderName.trim() : (event.isGroup ? '' : event.title) || '',
                     groupName,
                     timestamp: event.receivedAt || Date.now(),
-                    rawQuotedText: (event as any).rawQuotedText || '',
+                    rawQuotedText: (event as any).rawQuotedText || (event as any).quotedText || '',
                     messageId: event.id,
-                    isGroup: true,
+                    isGroup: event.isGroup === true,
+                    isDirectPrivate: (event as any).isDirectPrivate === true,
+                    isSticker: (event as any).isSticker === true,
                   };
                   const closureMatch = checkIncomingMessageForClosure(closureData, ordersRef.current);
                   if (closureMatch) {
@@ -1670,7 +1672,7 @@ function OrderiApp({
       // Check for Smart Order Closure (الكشف الذكي عن الطلبات المحجوزة أو المنتهية)
       if (filterRef.current.autoCloseOrdersEnabled !== false) {
         const closureMessageData = {
-          text: rawText || event.title || '',
+          text: rawText || ((event as any).isSticker === true ? '[sticker]' : ''),
           // In group notifications title is often the GROUP name. Prefer the actual
           // sender extracted from Android MessagingStyle so "تم"/stickers can be
           // safely linked to the advertiser who posted the original order.
@@ -1680,7 +1682,9 @@ function OrderiApp({
           timestamp: event.receivedAt || Date.now(),
           rawQuotedText: (event as any).rawQuotedText || (event as any).quotedText || '',
           messageId: event.id,
-          isGroup: true,
+          isGroup: event.isGroup === true,
+          isDirectPrivate: (event as any).isDirectPrivate === true,
+          isSticker: (event as any).isSticker === true,
         };
 
         const fastClosureMatch = checkIncomingMessageForClosure(
