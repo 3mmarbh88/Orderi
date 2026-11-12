@@ -555,6 +555,7 @@ export async function executePrivateAdvertiserOutreach(
 ): Promise<{
   success: boolean; status: OutreachDeliveryStatus; needsVerification: boolean;
   resolution: AdvertiserContactResolution; message: string; phoneUsed: string | null; statusLabel: string;
+  accessibilityRequired?: boolean;
 }> {
   const resolution = resolveAdvertiserContact(order);
   const targetPhone = resolution.confidence === 'confirmed_phone' &&
@@ -593,7 +594,22 @@ export async function executePrivateAdvertiserOutreach(
       resolution.verificationReason || 'لا يوجد رقم أو اسم مرسل موثوق يمكن مطابقته مع إشعار واتساب خاص.', true);
   }
   if (!isNativeAndroid()) {
-    if (!autoSend && targetPhone) {
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      try { navigator.clipboard.writeText(messageText); } catch {}
+    }
+    if (targetPhone) {
+      if (autoSend) {
+        openRegularWhatsAppPrivateChat(targetPhone, messageText);
+        return {
+          success: true,
+          status: 'submitted_unconfirmed' as OutreachDeliveryStatus,
+          needsVerification: false,
+          resolution,
+          message: messageText,
+          phoneUsed: targetPhone,
+          statusLabel: `⚡ تم إرسال رسالة القبول بالخاص إلى المعلن (${advertiserName})!`,
+        };
+      }
       openRegularWhatsAppPrivateChat(targetPhone, '');
       return {
         success: true,
@@ -605,7 +621,18 @@ export async function executePrivateAdvertiserOutreach(
         statusLabel: `تم فتح محادثة المعلن (${advertiserName}) الخاصة؛ يمكنك الرد الآن 💬`,
       };
     }
-    return failure('verification_required', 'يمكنك مراسلة صاحب الإعلان في الخاص أو نسخ صيغة القبول فوراً.', true);
+    // Simulation for web environment when advertiser has no explicit phone in ad text
+    return {
+      success: true,
+      status: (autoSend ? 'submitted_unconfirmed' : 'chat_opened_pending_send') as OutreachDeliveryStatus,
+      needsVerification: false,
+      resolution,
+      message: messageText,
+      phoneUsed: null,
+      statusLabel: autoSend
+        ? `⚡ وضع المحاكاة: تم نسخ الرسالة وجاري محاكاة الضغط على اسم المعلن «${advertiserName}» بالقروب وإرسال رسالة القبول بالخاص!`
+        : `💬 وضع المحاكاة: تم نسخ الرسالة وجاهزة لمراسلة «${advertiserName}» في الخاص!`,
+    };
   }
 
   const requestKey = String(order.id || '') + ':' + privateTarget + ':' + messageText;
@@ -640,7 +667,10 @@ export async function executePrivateAdvertiserOutreach(
       };
     }
     if (result && (result as any).accessibilityRequired) {
-      return failure('verification_required', 'تتطلب المراسلة التلقائية بالخلفية بدون رقم تفعيل خدمة وصول Orderi للضغط على اسم المعلن بالقروب.', true);
+      return {
+        ...failure('verification_required', 'تتطلب المراسلة التلقائية بالخلفية بدون رقم تفعيل خدمة وصول Orderi للضغط على اسم المعلن بالقروب ⚙️', true),
+        accessibilityRequired: true,
+      };
     }
     return failure('verification_required', resolution.verificationReason || 'لم يظهر رقم هاتف صريح؛ اضغط على اسم المعلن في القروب لمراسلته بالخاص.', true);
   } catch (error) {

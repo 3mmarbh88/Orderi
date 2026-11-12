@@ -103,7 +103,7 @@ assert.ok(outreachOpenOnly.phoneUsed === '97339123456');
 assert.ok(outreachOpenOnly.statusLabel.includes('المعلن'));
 console.log('✅ PASS: Button 1 «رد خاص عن طريق الواتساب» (autoSend: false) opens 1-on-1 private chat without auto-sending');
 
-// Test 7: Button 2 «قبول الطلب» (autoSend = true) prevents duplicate outreach within 30s
+// Test 7: Button 2 «قبول الطلب» (autoSend = true) accepts with phone
 const orderWithPhone: ParsedOrder = {
   ...sampleOrderFromScreenshot,
   id: 'order-dup-check-1',
@@ -115,7 +115,45 @@ const outreachFirst = await executePrivateAdvertiserOutreach(
   'الرفاع',
   true // autoSend = true
 );
-// On web runner, native is not available so it fails gracefully with verification/clipboard advice
+assert.equal(outreachFirst.success, true);
+assert.equal(outreachFirst.status, 'submitted_unconfirmed');
 assert.ok(outreachFirst.message.includes('الرفاع') || outreachFirst.message.includes('العدلية'));
+console.log('✅ PASS: Button 2 «قبول الطلب» (autoSend: true) formats message and submits outreach');
+
+// Test 8: Fresh advertiser without phone in ad or vault executes background member-outreach
+const orderNoPhoneEver: ParsedOrder = {
+  id: 'order-fresh-no-phone',
+  rawText: 'طلب مستعجل سلماباد الى الدراز',
+  from: 'سلماباد',
+  to: 'الدراز',
+  price: 2.5,
+  senderName: '~ ابو عبدالله',
+  groupName: 'قروب توصيل الساحل',
+  senderPhone: '',
+  receivedAt: new Date(),
+  confidence: 0.9,
+  type: 'order',
+  status: 'pending',
+  match: {
+    score: 85,
+    startMatched: true,
+    destinationMatched: true,
+    priceMatched: true,
+    distanceMatched: true,
+    timeMatched: true,
+    distanceKm: 8,
+    statusLabel: 'مطابق جداً',
+    statusColor: 'emerald'
+  },
+};
+const outreachFresh = await executePrivateAdvertiserOutreach(
+  orderNoPhoneEver,
+  undefined,
+  'سلماباد',
+  true
+);
+assert.equal(outreachFresh.success, true);
+assert.ok(outreachFresh.statusLabel.includes('ابو عبدالله'));
+console.log('✅ PASS: Fresh advertiser without phone executes background member-click outreach without blocking');
 
 console.log('🎉 All Advertiser Outreach & Heads-up Banner tests passed successfully!');

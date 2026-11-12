@@ -618,47 +618,45 @@ public class NotificationListenerPlugin extends Plugin {
             }
 
             boolean submitted = false;
-            // 1. If autoSend is true, attempt direct background reply via private notification RemoteInput
-            if (autoSend) {
-                if (!android.text.TextUtils.isEmpty(targetPhone)) {
-                    String cleanPhone = targetPhone.replaceAll("\\D", "");
-                    if (cleanPhone.length() == 8) cleanPhone = "973" + cleanPhone;
-                    submitted = WhatsAppNotificationListenerService.sendPrivateNotificationReply(getContext(), cleanPhone, message);
-                }
-                if (!submitted && !android.text.TextUtils.isEmpty(memberName)) {
-                    submitted = WhatsAppNotificationListenerService.sendPrivateNotificationReply(getContext(), memberName, message);
-                }
-            } else if (!android.text.TextUtils.isEmpty(targetPhone)) {
-                // When autoSend is false and a reliable phone is available, open the private 1-on-1 chat directly without auto-sending
+            // 1. Direct phone branch: if phone is known, message advertiser in 1-on-1 private chat
+            if (!android.text.TextUtils.isEmpty(targetPhone)) {
                 String cleanPhone = targetPhone.replaceAll("\\D", "");
                 if (cleanPhone.length() == 8) cleanPhone = "973" + cleanPhone;
                 if (cleanPhone.length() >= 8 && cleanPhone.length() <= 15) {
-                    try {
-                        Intent intent = new Intent(Intent.ACTION_VIEW);
-                        intent.setData(android.net.Uri.parse("https://api.whatsapp.com/send?phone=" + cleanPhone));
-                        intent.setPackage("com.whatsapp");
-                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                        getContext().startActivity(intent);
-                        submitted = true;
-                    } catch (Exception e1) {
+                    if (autoSend) {
+                        submitted = WhatsAppNotificationListenerService.sendPrivateNotificationReply(getContext(), cleanPhone, message);
+                    }
+                    if (!submitted) {
                         try {
+                            OrderiAccessibilityService.queueMessageToSend(message, autoSend);
                             Intent intent = new Intent(Intent.ACTION_VIEW);
-                            intent.setData(android.net.Uri.parse("https://api.whatsapp.com/send?phone=" + cleanPhone));
+                            intent.setData(android.net.Uri.parse("https://api.whatsapp.com/send?phone=" + cleanPhone + "&text=" + android.net.Uri.encode(message)));
+                            intent.setPackage("com.whatsapp");
                             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                             getContext().startActivity(intent);
                             submitted = true;
-                        } catch (Exception ignored) {}
+                        } catch (Exception e1) {
+                            try {
+                                Intent intent = new Intent(Intent.ACTION_VIEW);
+                                intent.setData(android.net.Uri.parse("https://api.whatsapp.com/send?phone=" + cleanPhone + "&text=" + android.net.Uri.encode(message)));
+                                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                                getContext().startActivity(intent);
+                                submitted = true;
+                            } catch (Exception ignored) {}
+                        }
                     }
-                }
-                if (submitted) {
-                    JSObject ret = new JSObject();
-                    ret.put("success", true);
-                    ret.put("submitted", false);
-                    ret.put("deliveryConfirmed", false);
-                    ret.put("method", "exact_private_chat_opened");
-                    ret.put("statusLabel", "تم فتح محادثة المعلن الخاصة بالواتساب؛ يمكنك الرد الآن 💬");
-                    call.resolve(ret);
-                    return;
+                    if (submitted) {
+                        JSObject ret = new JSObject();
+                        ret.put("success", true);
+                        ret.put("submitted", true);
+                        ret.put("deliveryConfirmed", false);
+                        ret.put("method", autoSend ? "exact_private_chat_opened_auto_send" : "exact_private_chat_opened");
+                        ret.put("statusLabel", autoSend
+                                ? "جاري إرسال رسالة القبول للمعلن في محادثته الخاصة بالخلفية ⚡"
+                                : "تم فتح محادثة المعلن الخاصة بالواتساب؛ يمكنك الرد الآن 💬");
+                        call.resolve(ret);
+                        return;
+                    }
                 }
             }
 
