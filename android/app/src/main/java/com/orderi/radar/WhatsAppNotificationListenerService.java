@@ -482,8 +482,11 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         // Prefer explicit MessagingStyle conversation metadata; then inspect title/text
         // formats without assuming every group name contains a keyword such as "توصيل".
         String detectedGroupName = "";
-        String detectedSenderName = title;
+        // Do not assume a group notification's title is the message sender.
+        // A group with no exposed sender must remain unidentified, not be matched to its owner.
+        String detectedSenderName = "";
         String detectedSenderPhone = "";
+        boolean detectedSticker = false;
         String combinedVisibleText = !TextUtils.isEmpty(bigText) ? bigText : text;
         if (TextUtils.isEmpty(combinedVisibleText)) combinedVisibleText = subText;
 
@@ -590,6 +593,11 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                         if (!(item instanceof Bundle)) continue;
                         Bundle message = (Bundle) item;
                         String senderName = "";
+                        String messageMimeType = safe(message.getString("dataMimeType"));
+                        if (messageMimeType.toLowerCase(java.util.Locale.ROOT).contains("sticker")
+                                || message.getBoolean("is_sticker", false)) {
+                            detectedSticker = true;
+                        }
                         if (Build.VERSION.SDK_INT >= 28) {
                             Parcelable senderParcelable = message.getParcelable("sender_person");
                             if (senderParcelable instanceof android.app.Person) {
@@ -655,11 +663,14 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
             // a group title. Trust only Android's explicit group flag here.
             looksLikeGroup = isExplicitGroupFlag;
         }
+        if (!looksLikeGroup && TextUtils.isEmpty(detectedSenderName)) {
+            detectedSenderName = title;
+        }
 
         String resolvedTitle = !TextUtils.isEmpty(detectedGroupName) ? detectedGroupName
                 : (!TextUtils.isEmpty(conversationTitle) ? conversationTitle : title);
         String rawText = !TextUtils.isEmpty(bigText) ? bigText : text;
-        if (TextUtils.isEmpty(rawText)) rawText = subText;
+        // Do not use subText as message content: Android often places the group title there.
 
         // WhatsApp commonly uses Android MessagingStyle. On those devices the
         // actual message body is exposed through Notification.EXTRA_MESSAGES,
@@ -682,8 +693,11 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                 }
             } catch (Exception ignored) {}
         }
-        if (TextUtils.isEmpty(rawText) && !TextUtils.isEmpty(title)) rawText = title;
-        if (TextUtils.isEmpty(rawText) && TextUtils.isEmpty(title)) return;
+        // Only explicit WhatsApp sticker metadata is promoted to a closure signal.
+        // Generic images/media are never treated as proof that an order was taken.
+        if (TextUtils.isEmpty(rawText) && detectedSticker) rawText = "[sticker]";
+        // Never substitute the conversation title for a missing message body.
+        if (TextUtils.isEmpty(rawText)) return;
 
         JSONObject event = new JSONObject();
         try {
@@ -714,6 +728,7 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
             event.put("category", category);
             event.put("isGroup", looksLikeGroup);
             event.put("isDirectPrivate", hasUserJid || (!looksLikeGroup && TextUtils.isEmpty(detectedGroupName) && TextUtils.isEmpty(conversationTitle)));
+            event.put("isSticker", detectedSticker);
             event.put("tag", sbnTag);
             event.put("chatJid", hasGroupJid ? "@g.us" : (hasUserJid ? "@s.whatsapp.net" : ""));
             event.put("isExplicitGroup", isExplicitGroupFlag);
