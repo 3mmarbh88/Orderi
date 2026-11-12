@@ -648,8 +648,7 @@ public class NotificationListenerPlugin extends Plugin {
                             getContext().startActivity(intent);
                             submitted = true; // queued/opened; actual send remains unconfirmed until Accessibility reports it
                         } catch (Exception launchError) {
-                            OrderiAccessibilityService.cancelPendingOutreach("تعذر فتح محادثة المعلن في واتساب");
-                            Log.e("NotificationListenerPlugin", "Unable to open advertiser private chat", launchError);
+                            Log.e("NotificationListenerPlugin", "Unable to open advertiser private chat; queued operation will time out safely", launchError);
                         }
                     }
                     if (submitted) {
