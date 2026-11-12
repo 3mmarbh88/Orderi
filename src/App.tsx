@@ -483,7 +483,7 @@ function OrderiApp({
                 // Check for order closure in pending batch (e.g. advertiser posted "تم"/sticker while app paused)
                 if (filterRef.current.autoCloseOrdersEnabled !== false) {
                   const closureData = {
-                    text: rawText || ((event as any).isSticker === true ? '[sticker]' : ''),
+                    text: (event.rawText || event.bigText || event.text || '').trim() || ((event as any).isSticker === true ? '[sticker]' : ''),
                     senderName: (event.senderName && event.senderName.trim()) ? event.senderName.trim() : (event.isGroup ? '' : event.title) || '',
                     groupName,
                     timestamp: event.receivedAt || Date.now(),
@@ -1672,7 +1672,7 @@ function OrderiApp({
       // Check for Smart Order Closure (الكشف الذكي عن الطلبات المحجوزة أو المنتهية)
       if (filterRef.current.autoCloseOrdersEnabled !== false) {
         const closureMessageData = {
-          text: rawText || ((event as any).isSticker === true ? '[sticker]' : ''),
+          text: (event.rawText || event.bigText || event.text || '').trim() || ((event as any).isSticker === true ? '[sticker]' : ''),
           // In group notifications title is often the GROUP name. Prefer the actual
           // sender extracted from Android MessagingStyle so "تم"/stickers can be
           // safely linked to the advertiser who posted the original order.
