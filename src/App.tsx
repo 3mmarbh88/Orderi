@@ -109,6 +109,7 @@ import {
   markOrderPermanentlyClosed, 
   getPermanentlyClosedOrderIds 
 } from './utils/orderClosureDetector';
+import { closeOrderPermanently, flushPendingOrderClosures, isOrderClosedLocally } from './utils/orderClosureSync';
 import { classifyAdvertiserPrivateReply } from './utils/advertiserReplyClassifier';
 import { detectAdvertisementMessage } from './utils/advertisementClassifier';
 import { classifyPrivateWhatsAppMessage, registerKnownGroupAdvertiser } from './utils/personalChatClassifier';
@@ -181,6 +182,15 @@ function OrderiApp({
   onShowSplash?: () => void;
   onOpenFaceLogin?: () => void;
 } = {}) {
+
+  // Retry locally persisted closures on startup and whenever connectivity returns.
+  useEffect(() => {
+    void flushPendingOrderClosures();
+    const retryClosures = () => { void flushPendingOrderClosures(); };
+    window.addEventListener('online', retryClosures);
+    return () => window.removeEventListener('online', retryClosures);
+  }, []);
+
   // 1. Persistent Filter State (Merged with DEFAULT_FILTER to guarantee all fields exist)
   const [filter, setFilter] = useState<OrderFilter>(() => {
     try {
@@ -927,6 +937,10 @@ function OrderiApp({
   // Unified processor for incoming WhatsApp orders from SSE, Pairing, or Polling
   const handleProcessIncomingRawOrder = (raw: any, isInitialBatch = false) => {
     if (!raw || !raw.id) return;
+
+    // A durable closure tombstone always wins over stale Spider, webhook,
+    // notification-queue, and server snapshots.
+    if (isOrderPermanentlyClosed(raw.id) || isOrderClosedLocally(raw.id) || raw.status === 'closed_taken') return;
 
     // Strict Privacy & Discrimination Gate:
     // Personal 1-on-1 private messages and non-groups CAN NEVER be created as Radar orders!
@@ -2635,8 +2649,15 @@ function OrderiApp({
     const { orderId, verdict, reason, evidence } = closureMatch;
     
     if (verdict === 'confirmed_closed') {
-      // 1. Permanently record closed order to prevent resurrection across reloads
+      // 1. Persist a durable tombstone and retryable server outbox before UI effects.
+      closeOrderPermanently({
+        orderId,
+        closedAt: new Date().toISOString(),
+        reason,
+        evidence,
+      });
       markOrderPermanentlyClosed(orderId);
+      void flushPendingOrderClosures();
 
       // 2. Dismiss and cancel background OS notification instantly (حذف الإشعار من شريط الإشعارات فوراً)
       dismissBackgroundOrderNotification(orderId);
@@ -2654,6 +2675,7 @@ function OrderiApp({
       if (focusedOrder?.id === orderId) {
         setFocusedOrder(null);
       }
+      setHeadsUpOrder((current) => current?.id === orderId ? null : current);
 
       // 4. Clean order from localStorage persistent stores
       try {
@@ -2673,21 +2695,14 @@ function OrderiApp({
         }
       } catch {}
 
-      // 5. Sync closure to server backend
-      fetch('/api/orders/close', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderId, reason, evidence }),
-      }).catch(() => {});
+      // 5. Server synchronization is handled by the durable retryable outbox above.
     }
 
     if (verdict === 'confirmed_closed') {
       // Instantly delete order from active radar list so it disappears immediately
       setOrders((prev) => prev.filter((ord) => {
-        const isExactMatch = ord.id === orderId;
-        const isCrossPostMatch = (ord.crossPostedGroups && ord.crossPostedGroups.some((g) => evidence.groupName.includes(g))) &&
-          (evidence.senderName && ord.senderName.includes(evidence.senderName));
-        return !isExactMatch && !isCrossPostMatch;
+        // Never close another order merely because its sender/group name is similar.
+        return ord.id !== orderId;
       }));
 
       // Record Spider closure event in Spider Control Center
