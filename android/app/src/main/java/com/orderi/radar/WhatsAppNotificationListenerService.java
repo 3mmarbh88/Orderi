@@ -577,9 +577,9 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         // the text mentions delivery keywords, Bahrain areas, or prices.
 
         // MessagingStyle can expose the actual sender separately from the visible title.
-        // If the sender differs from the notification title, the title is usually the group
-        // name (even when Android omits EXTRA_CONVERSATION_TITLE and the group name has no keywords).
-        // For direct chats, the sender normally matches the title, so they are not misclassified.
+        // A distinct sender plus a resolved conversation title is useful group evidence on
+        // Android builds that omit EXTRA_IS_GROUP_CONVERSATION.
+        boolean hasDistinctMessagingSender = false;
         if (!TextUtils.isEmpty(title) && Build.VERSION.SDK_INT >= 24) {
             try {
                 Object messages = extras.get(Notification.EXTRA_MESSAGES);
@@ -621,6 +621,7 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                             detectedGroupName = title.trim();
                         }
                         detectedSenderName = latestSender;
+                        hasDistinctMessagingSender = !TextUtils.isEmpty(detectedGroupName);
                     }
                     if (!TextUtils.isEmpty(latestSenderPhone)) {
                         detectedSenderPhone = latestSenderPhone;
@@ -651,9 +652,10 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         } else if (hasGroupJid) {
             looksLikeGroup = true;
         } else {
-            // A contact display name can populate conversationTitle just like
-            // a group title. Trust only Android's explicit group flag here.
-            looksLikeGroup = isExplicitGroupFlag;
+            // A distinct MessagingStyle sender under a resolved conversation title is
+            // also group evidence when Android omits its explicit group-conversation flag.
+            // Direct-chat JIDs still win above and are always excluded.
+            looksLikeGroup = isExplicitGroupFlag || hasDistinctMessagingSender;
         }
 
         String resolvedTitle = !TextUtils.isEmpty(detectedGroupName) ? detectedGroupName

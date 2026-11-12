@@ -2633,73 +2633,98 @@ function OrderiApp({
   // Auto Order Closure Handlers (الكشف الذكي عن الطلبات المحجوزة أو المنتهية)
   const handleAutoOrderClosure = (closureMatch: ClosureMatchResult) => {
     const { orderId, verdict, reason, evidence } = closureMatch;
-    
-    if (verdict === 'confirmed_closed') {
-      // 1. Permanently record closed order to prevent resurrection across reloads
-      markOrderPermanentlyClosed(orderId);
 
-      // 2. Dismiss and cancel background OS notification instantly (حذف الإشعار من شريط الإشعارات فوراً)
-      dismissBackgroundOrderNotification(orderId);
-      if (isNativeAndroid()) {
-        void OrderiNotificationListener.cancelOrderNotification({ orderId }).catch(() => {});
-      }
+    if (verdict === 'confirmed_closed') {
+      const matched = closureMatch.matchedOrder;
+      const normalize = (value: unknown) => String(value || '').trim().toLowerCase().replace(/\\s+/g, ' ');
+      const digits = (value: unknown) => String(value || '').replace(/\\D/g, '');
+      const matchedPhone = digits(matched.senderPhone);
+      const matchedName = normalize(matched.senderName);
+      const matchedFrom = normalize(matched.from);
+      const matchedTo = normalize(matched.to);
+      const sourceGroups = new Set(
+        [evidence.groupName, matched.groupName, ...(matched.crossPostedGroups || [])]
+          .map(normalize).filter(Boolean)
+      );
+      const matchedTime = new Date(matched.receivedAt).getTime();
+
+      // A closure for one cross-posted ad must also remove its duplicate cards
+      // and OS notifications, but must never close another ad by the same person.
+      const relatedOrderIds = ordersRef.current
+        .filter((candidate) => {
+          if (candidate.id === orderId) return true;
+          if (candidate.status === 'accepted' || candidate.status === 'closed_taken') return false;
+          const candidatePhone = digits(candidate.senderPhone);
+          const sameAdvertiser = matchedPhone.length >= 8 && candidatePhone.length >= 8
+            ? matchedPhone.slice(-8) === candidatePhone.slice(-8)
+            : Boolean(matchedName && normalize(candidate.senderName) === matchedName);
+          if (!sameAdvertiser) return false;
+          if (normalize(candidate.from) !== matchedFrom || normalize(candidate.to) !== matchedTo) return false;
+          const candidateGroups = [candidate.groupName, ...(candidate.crossPostedGroups || [])].map(normalize).filter(Boolean);
+          const sharesGroup = candidateGroups.some((group) => sourceGroups.has(group));
+          if (!sharesGroup) return false;
+          const candidateTime = new Date(candidate.receivedAt).getTime();
+          return Number.isFinite(candidateTime) && Number.isFinite(matchedTime)
+            && Math.abs(candidateTime - matchedTime) <= 30 * 60 * 1000;
+        })
+        .map((candidate) => candidate.id);
+      const closedIds = Array.from(new Set([orderId, ...relatedOrderIds]));
+
+      // Persist closure tombstones and cancel every matching phone notification.
+      closedIds.forEach((id) => {
+        markOrderPermanentlyClosed(id);
+        dismissBackgroundOrderNotification(id);
+        if (isNativeAndroid()) {
+          void OrderiNotificationListener.cancelOrderNotification({ orderId: id }).catch((error) => {
+            console.warn('[Orderi] Could not cancel closed-order notification:', id, error);
+          });
+        }
+      });
+
       try {
         const saved = JSON.parse(localStorage.getItem('orderi_notification_dismissed_order_ids') || '[]');
-        if (Array.isArray(saved) && !saved.includes(orderId)) {
-          localStorage.setItem('orderi_notification_dismissed_order_ids', JSON.stringify([...saved, orderId].slice(-500)));
+        const existing = Array.isArray(saved) ? saved : [];
+        localStorage.setItem(
+          'orderi_notification_dismissed_order_ids',
+          JSON.stringify(Array.from(new Set([...existing, ...closedIds])).slice(-500))
+        );
+        for (const key of ['orderi_real_orders', 'orderi_cached_orders']) {
+          const stored = localStorage.getItem(key);
+          if (!stored) continue;
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed)) {
+            localStorage.setItem(key, JSON.stringify(parsed.filter((item: any) => !closedIds.includes(item.id))));
+          }
         }
-      } catch {}
+      } catch (storageError) {
+        console.warn('[Orderi] Could not persist all closed cross-post order IDs:', storageError);
+      }
 
-      // 3. If focused in modal or details card, dismiss it immediately
-      if (focusedOrder?.id === orderId) {
+      if (focusedOrder?.id && closedIds.includes(focusedOrder.id)) {
         setFocusedOrder(null);
       }
 
-      // 4. Clean order from localStorage persistent stores
-      try {
-        const real = localStorage.getItem('orderi_real_orders');
-        if (real) {
-          const parsed = JSON.parse(real);
-          if (Array.isArray(parsed)) {
-            localStorage.setItem('orderi_real_orders', JSON.stringify(parsed.filter((o: any) => o.id !== orderId)));
-          }
-        }
-        const cached = localStorage.getItem('orderi_cached_orders');
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          if (Array.isArray(parsed)) {
-            localStorage.setItem('orderi_cached_orders', JSON.stringify(parsed.filter((o: any) => o.id !== orderId)));
-          }
-        }
-      } catch {}
-
-      // 5. Sync closure to server backend
-      fetch('/api/orders/close', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderId, reason, evidence }),
-      }).catch(() => {});
-    }
-
-    if (verdict === 'confirmed_closed') {
-      // Instantly delete order from active radar list so it disappears immediately
-      setOrders((prev) => prev.filter((ord) => {
-        const isExactMatch = ord.id === orderId;
-        const isCrossPostMatch = (ord.crossPostedGroups && ord.crossPostedGroups.some((g) => evidence.groupName.includes(g))) &&
-          (evidence.senderName && ord.senderName.includes(evidence.senderName));
-        return !isExactMatch && !isCrossPostMatch;
-      }));
-
-      // Record Spider closure event in Spider Control Center
-      recordSpiderEvent({
-        action: 'CLOSED_ORDER',
-        groupName: evidence.groupName || closureMatch.matchedOrder?.groupName || 'قروب واتساب',
-        detail: `رصد بالذكاء الاصطناعي: معلن الطلب حصل على مندوب («${evidence.replyText}») — تم حذف طلب (${closureMatch.matchedOrder.from} ← ${closureMatch.matchedOrder.to}) من الرادار والإشعارات نهائياً`,
-        latencyMs: 14,
-        highlight: `${closureMatch.matchedOrder.from} ➔ ${closureMatch.matchedOrder.to}`,
+      // Sync the closure for the original order and any verified cross-post duplicates.
+      closedIds.forEach((id) => {
+        fetch('/api/orders/close', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ orderId: id, reason, evidence }),
+        }).catch(() => {});
       });
 
-      showToast(`🗑️ عنكبوت الرادار: معلن الطلب حصل على مندوب («${evidence.replyText}») • تم حذف الطلب من الرادار والإشعارات تلقائياً`);
+      ordersRef.current = ordersRef.current.filter((order) => !closedIds.includes(order.id));
+      setOrders((prev) => prev.filter((order) => !closedIds.includes(order.id)));
+
+      recordSpiderEvent({
+        action: 'CLOSED_ORDER',
+        groupName: evidence.groupName || matched.groupName || 'قروب واتساب',
+        detail: `رصد بالذكاء الاصطناعي: معلن الطلب حصل على مندوب («${evidence.replyText}») — تم حذف الطلب ${closedIds.length > 1 ? 'والإعلانات المكررة' : ''} من الرادار والإشعارات نهائياً (${matched.from} ← ${matched.to})`,
+        latencyMs: 14,
+        highlight: `${matched.from} ➔ ${matched.to}`,
+      });
+
+      showToast(`🗑️ عنكبوت الرادار: معلن الطلب حصل على مندوب («${evidence.replyText}») • تم حذف الطلب وإشعاراته ${closedIds.length > 1 ? 'والإعلانات المكررة' : ''}`);
       if (filterRef.current.soundEnabled) {
         playAlertTone('radar_beep', 60);
       }
