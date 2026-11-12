@@ -377,15 +377,26 @@ export function checkIncomingMessageForClosure(
       )
     );
 
-    const isQuoted = 
-      quoteMatchesOrder ||
-      rawText.includes(`> ${orderSnippet}`) ||
-      rawText.includes(orderSnippet) ||
-      ((fromMention && toMention) || (fromMention && priceMention) || (toMention && priceMention));
+    const quoteMatchCount = rawQuoteClean.length >= 8
+      ? candidateOrders.filter((candidate) => {
+          const candidateRaw = cleanDialectText(candidate.rawText);
+          return candidateRaw.includes(rawQuoteClean.slice(0, 25)) ||
+            (candidateRaw.length >= 8 && rawQuoteClean.includes(candidateRaw.slice(0, 25)));
+        }).length
+      : 0;
+    const quoteMatchesUniqueOrder = quoteMatchesOrder && quoteMatchCount === 1;
+    const isQuoted =
+      quoteMatchesUniqueOrder ||
+      (candidateOrders.length === 1 && (
+        rawText.includes(`> ${orderSnippet}`) ||
+        rawText.includes(orderSnippet) ||
+        ((fromMention && toMention) || (fromMention && priceMention) || (toMention && priceMention))
+      ));
 
     const isSenderMatch = isAdvertiserSenderMatch(msgSender, msgPhone, order.senderName, order.senderPhone, order.rawText);
 
-    // إذا وُجد اقتباس للطلب، أو إذا كان ريبلي من صاحب الطلب نفسه
+    // In multi-order groups, only a quote that uniquely identifies one original
+    // message may select a target; route/name overlap is not sufficient.
     if (isQuoted && isSenderMatch) {
       processedMessageHashes.add(dedupeKey);
       markOrderPermanentlyClosed(order.id);
