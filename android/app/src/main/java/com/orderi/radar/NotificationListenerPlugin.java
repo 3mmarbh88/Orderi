@@ -627,22 +627,29 @@ public class NotificationListenerPlugin extends Plugin {
                         submitted = WhatsAppNotificationListenerService.sendPrivateNotificationReply(getContext(), cleanPhone, message);
                     }
                     if (!submitted) {
+                        if (!OrderiAccessibilityService.isAccessibilityEnabled(getContext())) {
+                            JSObject required = new JSObject();
+                            required.put("success", false);
+                            required.put("submitted", false);
+                            required.put("deliveryConfirmed", false);
+                            required.put("accessibilityRequired", true);
+                            required.put("method", "accessibility_required");
+                            required.put("statusLabel", "فعّل خدمة وصول Orderi حتى يتمكن من إدخال رسالة القبول وإرسالها في المحادثة الخاصة");
+                            call.resolve(required);
+                            return;
+                        }
                         try {
+                            // Queue the exact reply before opening the target private chat.
                             OrderiAccessibilityService.queueMessageToSend(message, autoSend);
                             Intent intent = new Intent(Intent.ACTION_VIEW);
                             intent.setData(android.net.Uri.parse("https://api.whatsapp.com/send?phone=" + cleanPhone + "&text=" + android.net.Uri.encode(message)));
                             intent.setPackage("com.whatsapp");
                             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                             getContext().startActivity(intent);
-                            submitted = true;
-                        } catch (Exception e1) {
-                            try {
-                                Intent intent = new Intent(Intent.ACTION_VIEW);
-                                intent.setData(android.net.Uri.parse("https://api.whatsapp.com/send?phone=" + cleanPhone + "&text=" + android.net.Uri.encode(message)));
-                                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                                getContext().startActivity(intent);
-                                submitted = true;
-                            } catch (Exception ignored) {}
+                            submitted = true; // queued/opened; actual send remains unconfirmed until Accessibility reports it
+                        } catch (Exception launchError) {
+                            OrderiAccessibilityService.cancelPendingOutreach("تعذر فتح محادثة المعلن في واتساب");
+                            Log.e("NotificationListenerPlugin", "Unable to open advertiser private chat", launchError);
                         }
                     }
                     if (submitted) {
@@ -650,7 +657,7 @@ public class NotificationListenerPlugin extends Plugin {
                         ret.put("success", true);
                         ret.put("submitted", true);
                         ret.put("deliveryConfirmed", false);
-                        ret.put("method", autoSend ? "exact_private_chat_opened_auto_send" : "exact_private_chat_opened");
+                        ret.put("method", autoSend ? "exact_private_chat_queued_for_accessibility_send" : "exact_private_chat_opened");
                         ret.put("statusLabel", autoSend
                                 ? "جاري إرسال رسالة القبول للمعلن في محادثته الخاصة بالخلفية ⚡"
                                 : "تم فتح محادثة المعلن الخاصة بالواتساب؛ يمكنك الرد الآن 💬");
