@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.provider.Settings;
+import android.util.Log;
 import androidx.core.content.ContextCompat;
 
 import androidx.annotation.Nullable;
