@@ -112,58 +112,12 @@ export const FocusedOrderDetailModal: React.FC<FocusedOrderDetailModalProps> = (
     }
   };
 
-  const handleAcceptOrder = async () => {
+  // Delegate to App's shared acceptance handler so popup and Radar use one send attempt.
+  const handleAcceptOrder = () => {
     if (isAutoReplying) return;
     setIsAutoReplying(true);
-
-    try {
-      // Accept order: autoSend = true (sends automatically in background without extra confirmation)
-      const result = await executePrivateAdvertiserOutreach(order, customTemplate, driverArea, true);
-      if (!result.success && result.needsVerification) {
-        setOutreachResolution(result.resolution);
-        setShowOutreachModal(true);
-        return;
-      }
-      if (!result.success) {
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('orderi-toast', {
-            detail: { message: result.statusLabel, type: 'error' }
-          }));
-        }
-        return;
-      }
-
-      const advertiserName = result.resolution.name || order.senderName || 'صاحب الإعلان';
-      onAccept({
-        ...order,
-        status: 'accepted',
-        outreachStatus: 'submitted_unconfirmed',
-        outreachDetails: {
-          status: 'submitted_unconfirmed',
-          phoneUsed: result.phoneUsed,
-          advertiserName,
-          attemptedAt: new Date().toISOString(),
-          message: result.message,
-          deliveryMethod: result.phoneUsed ? 'background_private_chat' : 'accessibility_group_member_outreach',
-          verifiedAdvertiser: true,
-        },
-      });
-
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('orderi-toast', {
-          detail: {
-            message: result.statusLabel || `✅ تم قبول الطلب وتمرير رسالة القبول بالخاص للمعلن (${advertiserName}) ⚡`,
-            type: 'success'
-          }
-        }));
-      }
-
-      onClose();
-    } catch (err) {
-      console.warn('[Orderi] Accept error in modal:', err);
-    } finally {
-      setIsAutoReplying(false);
-    }
+    onAccept(order);
+    onClose();
   };
 
   const handleOpenAdvertiserWhatsApp = () => {
