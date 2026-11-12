@@ -466,25 +466,17 @@ function OrderiApp({
                 const sourceAnalysis = discriminateConversationSource(event, filterRef.current, {
                   allowAllVerifiedGroups: allowsVerifiedBackgroundGroupCapture(event.source, filterRef.current.monitorArchivedGroups),
                 });
-                if (!canMessageCreateRadarOrder(sourceAnalysis)) {
-                  if (sourceAnalysis.isPrivateIndividual) {
-                    incrementExcludedPrivateChatsCounter();
-                  }
-                  await OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] });
-                  continue;
-                }
-                const groupName = sourceAnalysis.groupName!;
                 const rawText = (event.rawText || event.bigText || event.text || event.subText || '').trim();
-                if (detectAdvertisementMessage(rawText || event.title || '').isAdvertisement) {
-                  console.info('[Orderi] Suppressed pending service advertisement');
-                  await OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] });
-                  continue;
-                }
-                // Check for order closure in pending batch (e.g. advertiser posted "تم"/sticker while app paused)
-                if (filterRef.current.autoCloseOrdersEnabled !== false) {
+
+                // Closure handling is independent from Radar creation filters:
+                // only a verified, authorized WhatsApp group may close an existing order.
+                // Private, unauthorized, and ambiguous sources remain excluded.
+                if (sourceAnalysis.sourceType === 'authorized_group' && filterRef.current.autoCloseOrdersEnabled !== false) {
+                  const groupName = sourceAnalysis.groupName || '';
                   const closureData = {
                     text: (event.rawText || event.bigText || event.text || '').trim() || ((event as any).isSticker === true ? '[sticker]' : ''),
-                    senderName: (event.senderName && event.senderName.trim()) ? event.senderName.trim() : (event.isGroup ? '' : event.title) || '',
+                    senderName: (event.senderName && event.senderName.trim()) ? event.senderName.trim() : '',
+                    senderPhone: sourceAnalysis.senderPhone || event.senderPhone || '',
                     groupName,
                     timestamp: event.receivedAt || Date.now(),
                     rawQuotedText: (event as any).rawQuotedText || (event as any).quotedText || '',
@@ -499,6 +491,22 @@ function OrderiApp({
                     await OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] });
                     continue;
                   }
+                }
+
+                // Radar creation still requires an authorized source; closure-only
+                // events must never create or restore a new Radar order.
+                if (!canMessageCreateRadarOrder(sourceAnalysis)) {
+                  if (sourceAnalysis.isPrivateIndividual) {
+                    incrementExcludedPrivateChatsCounter();
+                  }
+                  await OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] });
+                  continue;
+                }
+                const groupName = sourceAnalysis.groupName!;
+                if (detectAdvertisementMessage(rawText || event.title || '').isAdvertisement) {
+                  console.info('[Orderi] Suppressed pending service advertisement');
+                  await OrderiNotificationListener.acknowledgeEvents({ ids: [event.id] });
+                  continue;
                 }
 
                 const parsedList = await parseMultipleWhatsAppOrdersWithLocalAi(rawText || event.title || '', {
