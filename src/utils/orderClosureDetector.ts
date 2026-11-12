@@ -286,10 +286,11 @@ export function checkIncomingMessageForClosure(
     messageId?: string;
     isGroup?: boolean;
     isDirectPrivate?: boolean;
+    isSticker?: boolean;
   },
   activeOrders: ParsedOrder[]
 ): ClosureMatchResult | null {
-  const rawText = (message.text || '').trim();
+  const rawText = (message.text || (message.isSticker ? '[sticker]' : '')).trim();
   if (!rawText) return null;
 
   // STRICT PRIVACY & SOURCE RULE:
@@ -319,7 +320,7 @@ export function checkIncomingMessageForClosure(
 
   // رصد الملصقات والاستيكرات والرموز التعبيرية والكلمات التأكيدية
   const cleanedSignal = cleanDialectText(rawText).replace(/[\s.,،.!؟?؛:؛\u200e\u200f]+/g, '').trim();
-  const isPureSticker = 
+  const isPureSticker = message.isSticker === true ||
     /^(?:sticker|ملصق|استيكر|ستيكر|صورهملصق|صورةملصق|🖼️sticker|📷ملصق|🖼️ملصق|ملصقمتحرك|animatedsticker|صورة|صوره|gif)$/i.test(cleanedSignal) ||
     /ملصق|استيكر|ستيكر|sticker|\[ملصق\]|\[sticker\]|\[استيكر\]|\[ستيكر\]/i.test(rawText);
 
@@ -346,10 +347,10 @@ export function checkIncomingMessageForClosure(
 
     if (!msgGroup || !inSameGroup) return false;
 
-    // نافذة زمنية واقعية: خلال 3.5 ساعات من نشر الإعلان
+    // لا نضع حداً زمنياً ثابتاً: قد يتأخر المعلن في كتابة «تم».
+    // لا نقبل الرسائل السابقة للإعلان أو الطلبات ذات الطابع الزمني غير الصالح.
     const orderTime = new Date(order.receivedAt).getTime();
-    const diffHours = (msgTime - orderTime) / (1000 * 60 * 60);
-    return diffHours >= 0 && diffHours <= 3.5;
+    return Number.isFinite(orderTime) && msgTime >= orderTime;
   });
 
   if (candidateOrders.length === 0) return null;
