@@ -2801,18 +2801,6 @@ function OrderiApp({
     }
 
     try {
-      // Dismiss and cancel background OS notification
-      dismissBackgroundOrderNotification(order.id);
-      if (isNativeAndroid()) {
-        void OrderiNotificationListener.cancelOrderNotification({ orderId: order.id }).catch(() => {});
-      }
-      try {
-        const saved = JSON.parse(localStorage.getItem('orderi_notification_dismissed_order_ids') || '[]');
-        if (Array.isArray(saved) && !saved.includes(order.id)) {
-          localStorage.setItem('orderi_notification_dismissed_order_ids', JSON.stringify([...saved, order.id].slice(-500)));
-        }
-      } catch {}
-
       // Child actions may already have submitted the private reply. Do not send it twice.
       let outreachDetails = order.outreachDetails;
       let outreachStatus = order.outreachStatus;
@@ -2837,6 +2825,18 @@ function OrderiApp({
           verifiedAdvertiser: true,
         };
       }
+
+      // Only remove the Radar item/notification after the outreach engine accepted the send attempt.
+      dismissBackgroundOrderNotification(order.id);
+      if (isNativeAndroid()) {
+        void OrderiNotificationListener.cancelOrderNotification({ orderId: order.id }).catch(() => {});
+      }
+      try {
+        const saved = JSON.parse(localStorage.getItem('orderi_notification_dismissed_order_ids') || '[]');
+        if (Array.isArray(saved) && !saved.includes(order.id)) {
+          localStorage.setItem('orderi_notification_dismissed_order_ids', JSON.stringify([...saved, order.id].slice(-500)));
+        }
+      } catch {}
 
       const updated = {
         ...order,
@@ -2872,25 +2872,9 @@ function OrderiApp({
         showToast(`✅ تم قبول الطلب وتمرير الرد الخاص للمعلن (${order.senderName || 'صاحب الإعلان'})؛ لم يؤكد واتساب التسليم ${priceText} ⚡`);
       }
     } catch (error) {
+      // A failed outreach must never be recorded as an accepted order.
       console.error('[Orderi] Private WhatsApp outreach error:', error);
-      dismissBackgroundOrderNotification(order.id);
-      if (isNativeAndroid()) {
-        void OrderiNotificationListener.cancelOrderNotification({ orderId: order.id }).catch(() => {});
-      }
-      const updated = { ...order, status: 'accepted' as const };
-      setOrders((prev) => prev.filter((o) => o.id !== order.id));
-      setAcceptedOrders((prev) => [updated, ...prev]);
-
-      const newActiveRoute: ActiveRoute = {
-        id: order.id,
-        from: order.from,
-        to: order.to,
-        price: order.price || 0,
-        acceptedAt: new Date().toLocaleTimeString('ar-BH', { hour: '2-digit', minute: '2-digit' }),
-      };
-      setActiveAcceptedRoute(newActiveRoute);
-
-      showToast(`✅ تم قبول الطلب ونقله إلى سجل المقبول بنجاح`);
+      showToast('تعذر إرسال رسالة القبول؛ بقي الطلب في الرادار ولم يتم تسجيله كمقبول.');
     }
   };
 
