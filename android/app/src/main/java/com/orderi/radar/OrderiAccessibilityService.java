@@ -594,9 +594,15 @@ public class OrderiAccessibilityService extends AccessibilityService {
                     CharSequence text = inputField.getText();
                     composerCleared = (text == null || text.length() == 0);
                 }
-                if (composerCleared || (System.currentTimeMillis() - lastSendClickTime > 750L)) {
-                    writeOutreachStatus("sent_confirmed", "تم إرسال رسالة القبول للمعلن في محادثته الخاصة بنجاح ⚡");
-                    Log.i(TAG, "WhatsApp message send confirmed! Returning to Orderi...");
+                if (composerCleared) {
+                    // Clearing the composer confirms submission to the chat UI, not delivery/read receipt.
+                    writeOutreachStatus("submitted_unconfirmed", "تم تمرير رسالة القبول إلى محادثة المعلن؛ لم يؤكد واتساب التسليم بعد");
+                    Log.i(TAG, "WhatsApp composer cleared after send tap; submission is unconfirmed. Returning to Orderi...");
+                    returnToOrderi();
+                    resetOperation();
+                } else if (System.currentTimeMillis() - lastSendClickTime > 8000L) {
+                    writeOutreachStatus("failed", "لم يختفِ نص الرسالة من خانة الكتابة؛ تعذر تأكيد الإرسال");
+                    Log.w(TAG, "WhatsApp send could not be verified; leaving the order unaccepted");
                     returnToOrderi();
                     resetOperation();
                 }
