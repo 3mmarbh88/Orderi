@@ -255,7 +255,7 @@ export function isAdvertiserSenderMatch(
 ): boolean {
   // A phone match is the strongest available identity signal. Compare the final
   // eight digits to tolerate Bahrain's +973 / 00973 formatting only.
-  const digits = (value: string) => (value || '').replace(/\\D/g, '');
+  const digits = (value: string) => (value || '').replace(/\D/g, '');
   const messagePhone = digits(msgPhone);
   const advertiserPhone = digits(orderSenderPhone || '');
   if (messagePhone.length >= 8 && advertiserPhone.length >= 8) {
