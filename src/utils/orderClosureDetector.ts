@@ -528,8 +528,8 @@ export async function checkIncomingMessageForClosureWithAI(
   const advertiserOrders = activeOrders.filter((order) => {
     if (order.status === 'accepted' || order.status === 'closed_taken') return false;
     const inSameGroup = 
-      (msgGroup && order.groupName && (order.groupName.includes(msgGroup) || msgGroup.includes(order.groupName))) ||
-      (order.crossPostedGroups && order.crossPostedGroups.some((g) => g.includes(msgGroup) || msgGroup.includes(g)));
+      (msgGroup && order.groupName && cleanSenderText(order.groupName) === cleanSenderText(msgGroup)) ||
+      (order.crossPostedGroups && order.crossPostedGroups.some((g) => cleanSenderText(g) === cleanSenderText(msgGroup)));
     if (!msgGroup || !inSameGroup) return false;
     return isAdvertiserSenderMatch(msgSender, msgPhone, order.senderName, order.senderPhone, order.rawText);
   });
