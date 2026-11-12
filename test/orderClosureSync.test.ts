@@ -4,6 +4,8 @@ import {
   flushPendingOrderClosures,
   isOrderClosedLocally,
 } from '../src/utils/orderClosureSync';
+import { checkIncomingMessageForClosure, isAdvertiserSenderMatch } from '../src/utils/orderClosureDetector';
+import type { ParsedOrder } from '../src/types';
 
 class MemoryStorage {
   private values = new Map<string, string>();
@@ -50,6 +52,49 @@ async function main() {
   assert.deepEqual(result, { synced: 1, pending: 0 });
   assert.deepEqual(JSON.parse(memory.getItem('orderi_pending_order_closures') || '[]'), []);
   globalThis.fetch = originalFetch;
+
+
+  // Sender matching must not accept partial names or infer identity from advert text.
+  assert.equal(isAdvertiserSenderMatch('Abu Ali', '', 'Abu Ali Delivery', '', 'Abu Ali'), false);
+  assert.equal(isAdvertiserSenderMatch('Abu Ali', '97333334444', 'Someone Else', '33334444'), true);
+
+  const makeOrder = (id: string): ParsedOrder => ({
+    id,
+    from: 'المنامة',
+    to: 'المحرق',
+    price: 2,
+    rawText: 'من المنامة إلى المحرق 2 دينار',
+    groupName: 'Delivery Group',
+    senderName: 'Advertiser One',
+    senderPhone: '97333334444',
+    receivedAt: new Date(Date.now() - 60_000),
+    confidence: 95,
+    type: 'whatsapp_notification',
+    status: 'pending',
+    match: {} as ParsedOrder['match'],
+  });
+
+  const ambiguous = checkIncomingMessageForClosure({
+    text: 'حصلت مندوب',
+    senderName: 'Advertiser One',
+    senderPhone: '33334444',
+    groupName: 'Delivery Group',
+    timestamp: Date.now(),
+    messageId: 'ambiguous-two-orders',
+    isGroup: true,
+  }, [makeOrder('order-a'), makeOrder('order-b')]);
+  assert.equal(ambiguous, null, 'must not guess when advertiser has multiple active orders');
+
+  const unique = checkIncomingMessageForClosure({
+    text: 'حصلت مندوب',
+    senderName: 'Advertiser One',
+    senderPhone: '33334444',
+    groupName: 'Delivery Group',
+    timestamp: Date.now(),
+    messageId: 'unique-one-order',
+    isGroup: true,
+  }, [makeOrder('order-c')]);
+  assert.equal(unique?.orderId, 'order-c', 'explicit closure from the matching advertiser closes the unique order');
 
   console.log('orderClosureSync tests passed');
 }
