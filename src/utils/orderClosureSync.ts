@@ -108,8 +108,7 @@ export async function flushPendingOrderClosures(): Promise<{ synced: number; pen
   const pending = readPending(store);
   if (pending.length === 0) return { synced: 0, pending: 0 };
 
-  let synced = 0;
-  const remaining: OrderClosureRecord[] = [];
+  const syncedIds = new Set<string>();
   for (const record of pending) {
     try {
       const response = await fetch('/api/orders/close', {
@@ -117,17 +116,19 @@ export async function flushPendingOrderClosures(): Promise<{ synced: number; pen
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(record),
       });
-      if (response.ok) synced += 1;
-      else remaining.push(record);
+      if (response.ok) syncedIds.add(record.orderId);
     } catch {
-      remaining.push(record);
+      // Leave failed records in the durable outbox for the next retry.
     }
   }
 
+  // Re-read after network I/O so closures added while this flush was running
+  // cannot be overwritten by an older snapshot.
+  const remaining = readPending(store).filter((record) => !syncedIds.has(record.orderId));
   try {
     store.setItem(PENDING_KEY, JSON.stringify(remaining));
   } catch {
     // Keep the original outbox if storage cannot be updated.
   }
-  return { synced, pending: remaining.length };
+  return { synced: syncedIds.size, pending: remaining.length };
 }
