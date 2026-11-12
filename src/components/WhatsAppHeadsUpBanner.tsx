@@ -90,46 +90,13 @@ export const WhatsAppHeadsUpBanner: React.FC<WhatsAppHeadsUpBannerProps> = ({
     }
   };
 
-  // 2. زر «قبول الطلب»: يرسل رسالة القبول المحددة في الفلتر في الخلفية تلقائياً
-  const handleAcceptOrderOutreach = async () => {
+  // Keep popup acceptance on the same single outreach path used by Radar.
+  const handleAcceptOrderOutreach = () => {
     if (!order || isAcceptingOrder || isOpeningChat) return;
     setIsAcceptingOrder(true);
     setIsPaused(true);
-    try {
-      // autoSend = true: إرسال رسالة القبول بالخلفية تلقائياً بدون مطالبة المستخدم بالكتابة
-      const result = await executePrivateAdvertiserOutreach(order, customTemplate, driverAreaName, true);
-      if (!result.success) {
-        window.dispatchEvent(new CustomEvent('orderi-toast', { detail: { message: result.statusLabel, type: 'error' } }));
-        return;
-      }
-      const advertiserName = result.resolution.name || order.senderName || 'صاحب الإعلان';
-      onAccept({
-        ...order,
-        status: 'accepted',
-        outreachStatus: 'submitted_unconfirmed',
-        outreachDetails: {
-          status: 'submitted_unconfirmed',
-          phoneUsed: result.phoneUsed,
-          advertiserName,
-          attemptedAt: new Date().toISOString(),
-          message: result.message,
-          deliveryMethod: result.phoneUsed ? 'background_private_chat' : 'accessibility_group_member_outreach',
-          verifiedAdvertiser: true,
-        },
-      });
-      window.dispatchEvent(new CustomEvent('orderi-toast', { 
-        detail: { 
-          message: result.statusLabel || `⚡ تم قبول الطلب وإرسال رسالة القبول للمعلن (${advertiserName}) في الخلفية بنجاح`, 
-          type: 'success' 
-        } 
-      }));
-      onClose();
-    } catch (error) {
-      console.warn('[Orderi] Heads-up accept outreach failed:', error);
-      window.dispatchEvent(new CustomEvent('orderi-toast', { detail: { message: 'تعذر قبول الطلب والتواصل في الخلفية.', type: 'error' } }));
-    } finally {
-      setIsAcceptingOrder(false);
-    }
+    onAccept(order);
+    onClose();
   };
 
   if (!order) return null;
