@@ -627,7 +627,7 @@ public class NotificationListenerPlugin extends Plugin {
                         submitted = WhatsAppNotificationListenerService.sendPrivateNotificationReply(getContext(), cleanPhone, message);
                     }
                     if (!submitted) {
-                        if (!OrderiAccessibilityService.isAccessibilityEnabled(getContext())) {
+                        if (autoSend && !OrderiAccessibilityService.isAccessibilityEnabled(getContext())) {
                             JSObject required = new JSObject();
                             required.put("success", false);
                             required.put("submitted", false);
@@ -639,8 +639,8 @@ public class NotificationListenerPlugin extends Plugin {
                             return;
                         }
                         try {
-                            // Queue the exact reply before opening the target private chat.
-                            OrderiAccessibilityService.queueMessageToSend(message, autoSend);
+                            // Queue the exact reply before opening the target private chat when automatic sending is requested.
+                            if (autoSend) OrderiAccessibilityService.queueMessageToSend(message, true);
                             Intent intent = new Intent(Intent.ACTION_VIEW);
                             intent.setData(android.net.Uri.parse("https://api.whatsapp.com/send?phone=" + cleanPhone + "&text=" + android.net.Uri.encode(message)));
                             intent.setPackage("com.whatsapp");
@@ -686,6 +686,17 @@ public class NotificationListenerPlugin extends Plugin {
                             getContext().startActivity(launch);
                             opened = true;
                         }
+                    }
+
+                    if (!opened) {
+                        JSObject failed = new JSObject();
+                        failed.put("success", false);
+                        failed.put("submitted", false);
+                        failed.put("deliveryConfirmed", false);
+                        failed.put("method", "whatsapp_launch_failed");
+                        failed.put("statusLabel", "تعذر فتح واتساب أو الوصول إلى القروب؛ لم يتم قبول الطلب");
+                        call.resolve(failed);
+                        return;
                     }
 
                     getContext().getSharedPreferences("orderi_private_outreach", Context.MODE_PRIVATE)
