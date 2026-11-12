@@ -670,7 +670,7 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         String resolvedTitle = !TextUtils.isEmpty(detectedGroupName) ? detectedGroupName
                 : (!TextUtils.isEmpty(conversationTitle) ? conversationTitle : title);
         String rawText = !TextUtils.isEmpty(bigText) ? bigText : text;
-        if (TextUtils.isEmpty(rawText)) rawText = subText;
+        // Do not use subText as message content: Android often places the group title there.
 
         // WhatsApp commonly uses Android MessagingStyle. On those devices the
         // actual message body is exposed through Notification.EXTRA_MESSAGES,
