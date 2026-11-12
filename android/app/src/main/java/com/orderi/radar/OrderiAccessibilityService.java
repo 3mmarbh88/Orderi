@@ -607,7 +607,6 @@ public class OrderiAccessibilityService extends AccessibilityService {
             rootNode.recycle();
         }
     }
-    }
 
     private void handleArchivedChatsReadEvent() {
         long now = System.currentTimeMillis();
