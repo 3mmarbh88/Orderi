@@ -1675,6 +1675,7 @@ function OrderiApp({
           // sender extracted from Android MessagingStyle so "تم"/stickers can be
           // safely linked to the advertiser who posted the original order.
           senderName: event.senderName || (event.isGroup ? '' : event.title) || '',
+          senderPhone: event.senderPhone || '',
           groupName,
           timestamp: event.receivedAt || Date.now(),
           rawQuotedText: (event as any).rawQuotedText || (event as any).quotedText || '',
