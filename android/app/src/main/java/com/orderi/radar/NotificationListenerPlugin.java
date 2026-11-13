@@ -680,12 +680,15 @@ public class NotificationListenerPlugin extends Plugin {
             if (!submitted && !android.text.TextUtils.isEmpty(memberName)) {
                 if (OrderiAccessibilityService.isAccessibilityEnabled(getContext())) {
                     android.util.Log.i("NotificationListenerPlugin", "Triggering Accessibility member-click automation for member: " + memberName + " in group: " + groupName);
-                    OrderiAccessibilityService.queueOutreachToMember(memberName, message, autoSend);
+                    OrderiAccessibilityService.queueOutreachToMember(memberName, groupName, message, autoSend);
 
-                    // Accessibility fallback is permitted only when Orderi can open the exact source group.
-                    // Never launch the generic WhatsApp home screen or WhatsApp Business as a guessed target.
+                    // Prefer the exact cached group notification. If it is no longer available,
+                    // fall back to WhatsApp's own chat search and require an exact group-title match.
                     boolean opened = !android.text.TextUtils.isEmpty(groupName)
                             && WhatsAppNotificationListenerService.openWhatsAppGroupConversation(getContext(), groupName);
+                    if (!opened) {
+                        opened = OrderiAccessibilityService.launchWhatsAppForOutreach(getContext());
+                    }
 
                     if (!opened) {
                         JSObject failed = new JSObject();
@@ -693,7 +696,7 @@ public class NotificationListenerPlugin extends Plugin {
                         failed.put("submitted", false);
                         failed.put("deliveryConfirmed", false);
                         failed.put("method", "whatsapp_launch_failed");
-                        failed.put("statusLabel", "تعذر فتح واتساب أو الوصول إلى القروب؛ لم يتم قبول الطلب");
+                        failed.put("statusLabel", "تعذر فتح واتساب أو تشغيل البحث عن القروب؛ لم يتم إرسال أي رسالة");
                         call.resolve(failed);
                         return;
                     }

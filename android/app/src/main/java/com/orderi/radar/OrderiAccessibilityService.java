@@ -38,6 +38,9 @@ public class OrderiAccessibilityService extends AccessibilityService {
     private static final int STAGE_CLICK_MESSAGE_ACTION = 2;
     private static final int STAGE_ENTER_PRIVATE_MESSAGE = 3;
     private static final int STAGE_VERIFY_SEND = 4;
+    private static final int STAGE_FIND_GROUP_SEARCH = 5;
+    private static final int STAGE_ENTER_GROUP_SEARCH = 6;
+    private static final int STAGE_OPEN_GROUP_SEARCH_RESULT = 7;
     private static volatile int outreachScrollAttempts = 0;
     private static volatile long lastSendClickTime = 0L;
 
@@ -60,6 +63,7 @@ public class OrderiAccessibilityService extends AccessibilityService {
     private static volatile int currentStage = STAGE_IDLE;
     private static volatile String pendingMessageToSend = null;
     private static volatile String pendingTargetMemberName = null;
+    private static volatile String pendingTargetGroupName = null;
     private static volatile boolean pendingAutoSend = false;
     private static volatile long pendingMessageTimestamp = 0L;
     private static final AtomicBoolean isSendingInProgress = new AtomicBoolean(false);
@@ -334,10 +338,14 @@ public class OrderiAccessibilityService extends AccessibilityService {
 
     private AccessibilityNodeInfo findGroupSearchResult(AccessibilityNodeInfo root, String groupName) {
         if (root == null || TextUtils.isEmpty(groupName)) return null;
+        String expected = normalizeAdvertiserIdentity(groupName);
         List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByText(groupName);
         if (nodes == null) return null;
         for (AccessibilityNodeInfo node : nodes) {
             if ("android.widget.EditText".contentEquals(node.getClassName())) continue;
+            String label = normalizeAdvertiserIdentity(node.getText() == null ? "" : node.getText().toString());
+            String description = normalizeAdvertiserIdentity(node.getContentDescription() == null ? "" : node.getContentDescription().toString());
+            if (!expected.equals(label) && !expected.equals(description)) continue;
             AccessibilityNodeInfo clickable = clickableAncestor(node, 6);
             if (clickable != null && !containsText(clickable, new String[]{"Search", "بحث"})) return clickable;
         }
@@ -351,7 +359,12 @@ public class OrderiAccessibilityService extends AccessibilityService {
     }
 
     public static void queueOutreachToMember(String memberName, String message, boolean autoSend) {
+        queueOutreachToMember(memberName, "", message, autoSend);
+    }
+
+    public static void queueOutreachToMember(String memberName, String groupName, String message, boolean autoSend) {
         pendingTargetMemberName = cleanMemberName(memberName);
+        pendingTargetGroupName = groupName == null ? "" : groupName.trim();
         pendingMessageToSend = message;
         pendingAutoSend = autoSend;
         pendingMessageTimestamp = System.currentTimeMillis();
@@ -359,10 +372,26 @@ public class OrderiAccessibilityService extends AccessibilityService {
         outreachScrollAttempts = 0;
         lastSendClickTime = 0L;
         isSendingInProgress.set(true);
-        writeOutreachStatus("sending", "جاري فتح القروب والضغط على اسم المعلن «" + pendingTargetMemberName + "» للبدء بالمراسلة الخاصة في الخلفية");
-        Log.i(TAG, "Queued outreach to group member: " + pendingTargetMemberName + " autoSend=" + autoSend);
-        if (instance != null) {
-            instance.startOutreachWatchdog();
+        writeOutreachStatus("sending", "جاري الوصول إلى قروب «" + pendingTargetGroupName + "» والبحث عن المعلن «" + pendingTargetMemberName + "»");
+        Log.i(TAG, "Queued name-based outreach. group=" + pendingTargetGroupName + " member=" + pendingTargetMemberName + " autoSend=" + autoSend);
+        if (instance != null) instance.startOutreachWatchdog();
+    }
+
+    /** Launch regular WhatsApp and continue through its in-app chat search if no exact notification intent exists. */
+    public static boolean launchWhatsAppForOutreach(Context context) {
+        if (context == null || TextUtils.isEmpty(pendingTargetGroupName) || TextUtils.isEmpty(pendingTargetMemberName)) return false;
+        try {
+            Intent launch = context.getPackageManager().getLaunchIntentForPackage(PACKAGE_WHATSAPP);
+            if (launch == null) return false;
+            launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            currentStage = STAGE_FIND_GROUP_SEARCH;
+            pendingMessageTimestamp = System.currentTimeMillis();
+            context.startActivity(launch);
+            if (instance != null) instance.startOutreachWatchdog();
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "Could not launch WhatsApp for name-based outreach", e);
+            return false;
         }
     }
 
@@ -517,6 +546,46 @@ public class OrderiAccessibilityService extends AccessibilityService {
         if (rootNode == null) return;
 
         try {
+            // FALLBACK: If the exact group notification could not be opened, navigate through WhatsApp's own chat search.
+            if (currentStage == STAGE_FIND_GROUP_SEARCH) {
+                AccessibilityNodeInfo existingSearch = findInputField(rootNode);
+                if (existingSearch != null && findChatComposer(rootNode) == null) {
+                    Bundle args = new Bundle();
+                    args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, pendingTargetGroupName);
+                    if (existingSearch.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) {
+                        currentStage = STAGE_OPEN_GROUP_SEARCH_RESULT;
+                        writeOutreachStatus("sending", "تم البحث عن القروب؛ جاري فتحه للعثور على اسم المعلن");
+                    }
+                    return;
+                }
+                AccessibilityNodeInfo searchButton = findWhatsAppSearchButton(rootNode);
+                if (searchButton != null && searchButton.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                    currentStage = STAGE_ENTER_GROUP_SEARCH;
+                    return;
+                }
+                return;
+            }
+            if (currentStage == STAGE_ENTER_GROUP_SEARCH) {
+                AccessibilityNodeInfo searchInput = findInputField(rootNode);
+                if (searchInput != null && findChatComposer(rootNode) == null) {
+                    Bundle args = new Bundle();
+                    args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, pendingTargetGroupName);
+                    if (searchInput.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) {
+                        currentStage = STAGE_OPEN_GROUP_SEARCH_RESULT;
+                    }
+                }
+                return;
+            }
+            if (currentStage == STAGE_OPEN_GROUP_SEARCH_RESULT) {
+                AccessibilityNodeInfo groupResult = findGroupSearchResult(rootNode, pendingTargetGroupName);
+                if (groupResult != null && groupResult.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                    currentStage = STAGE_CLICK_MEMBER_NAME;
+                    pendingMessageTimestamp = System.currentTimeMillis();
+                    writeOutreachStatus("sending", "تم فتح القروب الصحيح؛ جاري تحديد اسم المعلن «" + pendingTargetMemberName + "»");
+                }
+                return;
+            }
+
             // STEP 1: Always select the advertiser's name/bubble in the group chat first.
             if (currentStage == STAGE_CLICK_MEMBER_NAME) {
                 if (!TextUtils.isEmpty(pendingTargetMemberName)) {
@@ -1367,8 +1436,11 @@ public class OrderiAccessibilityService extends AccessibilityService {
         String text = normalizeAdvertiserIdentity(node.getText() == null ? "" : node.getText().toString());
         String desc = normalizeAdvertiserIdentity(node.getContentDescription() == null ? "" : node.getContentDescription().toString());
         String target = normalizeAdvertiserIdentity(cleanTarget);
-        // Exact identity only: substring matches can select another participant.
-        return !TextUtils.isEmpty(target) && (text.equals(target) || desc.equals(target));
+        // Exact identity only, while tolerating WhatsApp's sender-label punctuation (for example "Nuha:").
+        String textLabel = text.replaceFirst("^~\\s*", "").replaceAll("[:：،,]+$", "").trim();
+        String descLabel = desc.replaceFirst("^~\\s*", "").replaceAll("[:：،,]+$", "").trim();
+        return !TextUtils.isEmpty(target) && (text.equals(target) || desc.equals(target)
+                || textLabel.equals(target) || descLabel.equals(target));
     }
 
     private AccessibilityNodeInfo findPrivateMessageAction(AccessibilityNodeInfo root, String memberName) {
