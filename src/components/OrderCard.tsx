@@ -275,8 +275,8 @@ export function OrderCard({
       e.stopPropagation();
     }
     const groupName = (order.groupName || '').trim();
-    if (!groupName) {
-      showOutreachToast('اسم مجموعة الإعلان غير متوفر؛ لم نفتح بحث واتساب عام أو محادثة غير محددة.', 'error');
+    if (!groupName || /^(واتساب|whatsapp|whatsapp messenger)$/i.test(groupName)) {
+      showOutreachToast('اسم مجموعة الإعلان غير محدد؛ أوقفنا البحث حتى لا يفتح واتساب على مجموعة خاطئة.', 'error');
       return;
     }
     if (typeof window !== 'undefined') {
