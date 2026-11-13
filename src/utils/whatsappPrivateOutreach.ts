@@ -551,16 +551,19 @@ const privateOutreachRecentlySubmitted = new Map<string, number>();
 
 /** Submit one reply through a recent, exact-match PRIVATE WhatsApp notification. */
 export async function executePrivateAdvertiserOutreach(
-  order: ParsedOrder, customTemplate?: string, areaName?: string, autoSend: boolean = true
+  order: ParsedOrder, customTemplate?: string, areaName?: string, autoSend: boolean = true, phoneOverride?: string | null
 ): Promise<{
   success: boolean; status: OutreachDeliveryStatus; needsVerification: boolean;
   resolution: AdvertiserContactResolution; message: string; phoneUsed: string | null; statusLabel: string;
   accessibilityRequired?: boolean;
 }> {
   const resolution = resolveAdvertiserContact(order);
-  const targetPhone = resolution.confidence === 'confirmed_phone' &&
+  const resolvedPhone = resolution.confidence === 'confirmed_phone' &&
     (resolution.source === 'direct_private_meta' || resolution.source === 'text_advertiser_label' || resolution.source === 'advertiser_vault' || resolution.source === 'notification_person_meta')
     ? resolution.phone : null;
+  // A phone typed/confirmed by the user in the verification modal is an explicit override.
+  const normalizedOverride = phoneOverride ? normalizeBahrainPhone(phoneOverride) : '';
+  const targetPhone = normalizedOverride && normalizedOverride.length >= 8 ? normalizedOverride : resolvedPhone;
   // If the ad does not expose a phone, allow sender-name match for private notification or accessibility member click
   const targetName = (order.senderName || '').trim();
   const privateTarget = targetPhone || targetName;
