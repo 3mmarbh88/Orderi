@@ -679,6 +679,18 @@ public class NotificationListenerPlugin extends Plugin {
             // When an ad was posted in a group and no private reply notification action exists,
             // click the advertiser's member name inside the group to open the private chat sheet and message them in the background.
             if (!submitted && !android.text.TextUtils.isEmpty(memberName)) {
+                String normalizedGroupName = groupName == null ? "" : groupName.trim();
+                if (normalizedGroupName.isEmpty() || normalizedGroupName.equalsIgnoreCase("WhatsApp")
+                        || normalizedGroupName.equalsIgnoreCase("WhatsApp Messenger") || normalizedGroupName.equals("واتساب")) {
+                    JSObject failed = new JSObject();
+                    failed.put("success", false);
+                    failed.put("submitted", false);
+                    failed.put("deliveryConfirmed", false);
+                    failed.put("method", "missing_exact_group_name");
+                    failed.put("statusLabel", "اسم مجموعة الإعلان غير محدد؛ لم نفتح بحث واتساب عام ولم نرسل أي رسالة");
+                    call.resolve(failed);
+                    return;
+                }
                 if (OrderiAccessibilityService.isAccessibilityEnabled(getContext())) {
                     android.util.Log.i("NotificationListenerPlugin", "Triggering Accessibility member-click automation for member: " + memberName + " in group: " + groupName);
                     OrderiAccessibilityService.queueOutreachToMember(memberName, groupName, sourceMessageText, message, autoSend);
