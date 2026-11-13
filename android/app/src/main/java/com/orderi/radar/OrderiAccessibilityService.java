@@ -41,6 +41,8 @@ public class OrderiAccessibilityService extends AccessibilityService {
     private static final int STAGE_FIND_GROUP_SEARCH = 5;
     private static final int STAGE_ENTER_GROUP_SEARCH = 6;
     private static final int STAGE_OPEN_GROUP_SEARCH_RESULT = 7;
+    private static final int STAGE_LONG_PRESS_SOURCE_MESSAGE = 8;
+    private static final int STAGE_SELECT_REPLY_PRIVATELY = 9;
     private static volatile int outreachScrollAttempts = 0;
     private static volatile long lastSendClickTime = 0L;
 
@@ -64,6 +66,7 @@ public class OrderiAccessibilityService extends AccessibilityService {
     private static volatile String pendingMessageToSend = null;
     private static volatile String pendingTargetMemberName = null;
     private static volatile String pendingTargetGroupName = null;
+    private static volatile String pendingSourceMessageText = null;
     private static volatile boolean pendingAutoSend = false;
     private static volatile long pendingMessageTimestamp = 0L;
     private static final AtomicBoolean isSendingInProgress = new AtomicBoolean(false);
@@ -363,12 +366,17 @@ public class OrderiAccessibilityService extends AccessibilityService {
     }
 
     public static void queueOutreachToMember(String memberName, String groupName, String message, boolean autoSend) {
+        queueOutreachToMember(memberName, groupName, "", message, autoSend);
+    }
+
+    public static void queueOutreachToMember(String memberName, String groupName, String sourceMessageText, String message, boolean autoSend) {
         pendingTargetMemberName = cleanMemberName(memberName);
+        pendingSourceMessageText = sourceMessageText == null ? "" : sourceMessageText.trim();
         pendingTargetGroupName = groupName == null ? "" : groupName.trim();
         pendingMessageToSend = message;
         pendingAutoSend = autoSend;
         pendingMessageTimestamp = System.currentTimeMillis();
-        currentStage = STAGE_CLICK_MEMBER_NAME;
+        currentStage = TextUtils.isEmpty(pendingSourceMessageText) ? STAGE_CLICK_MEMBER_NAME : STAGE_LONG_PRESS_SOURCE_MESSAGE;
         outreachScrollAttempts = 0;
         lastSendClickTime = 0L;
         isSendingInProgress.set(true);
@@ -579,13 +587,53 @@ public class OrderiAccessibilityService extends AccessibilityService {
             if (currentStage == STAGE_OPEN_GROUP_SEARCH_RESULT) {
                 AccessibilityNodeInfo groupResult = findGroupSearchResult(rootNode, pendingTargetGroupName);
                 if (groupResult != null && groupResult.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-                    currentStage = STAGE_CLICK_MEMBER_NAME;
+                    currentStage = TextUtils.isEmpty(pendingSourceMessageText) ? STAGE_CLICK_MEMBER_NAME : STAGE_LONG_PRESS_SOURCE_MESSAGE;
                     pendingMessageTimestamp = System.currentTimeMillis();
-                    writeOutreachStatus("sending", "تم فتح القروب الصحيح؛ جاري تحديد اسم المعلن «" + pendingTargetMemberName + "»");
+                    writeOutreachStatus("sending", TextUtils.isEmpty(pendingSourceMessageText) ? "تم فتح القروب الصحيح؛ جاري تحديد اسم المعلن «" + pendingTargetMemberName + "»" : "تم فتح القروب؛ جاري تحديد رسالة الإعلان الأصلية للرد على صاحبها بشكل خاص");
                 }
                 return;
             }
 
+            // Primary path: use WhatsApp's own private-reply action on the exact source message.
+            if (currentStage == STAGE_LONG_PRESS_SOURCE_MESSAGE) {
+                AccessibilityNodeInfo sourceNode = findOriginalMessageNode(rootNode, pendingSourceMessageText);
+                if (sourceNode != null && sourceNode.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK)) {
+                    currentStage = STAGE_SELECT_REPLY_PRIVATELY;
+                    writeOutreachStatus("sending", "تم تحديد الإعلان الأصلي؛ جاري اختيار «الرد بشكل خاص» من واتساب");
+                    return;
+                }
+                if (outreachScrollAttempts < 3) {
+                    AccessibilityNodeInfo scrollable = findScrollableNode(rootNode);
+                    if (scrollable != null && scrollable.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)) {
+                        outreachScrollAttempts++;
+                        return;
+                    }
+                    outreachScrollAttempts++;
+                    return;
+                }
+                currentStage = STAGE_CLICK_MEMBER_NAME;
+                outreachScrollAttempts = 0;
+                writeOutreachStatus("sending", "تعذر تحديد نص الإعلان الأصلي عبر واجهة واتساب؛ سنستخدم التحقق الدقيق من اسم المعلن كخيار احتياطي");
+                return;
+            }
+            if (currentStage == STAGE_SELECT_REPLY_PRIVATELY) {
+                AccessibilityNodeInfo replyAction = findReplyPrivatelyAction(rootNode);
+                if (replyAction != null && replyAction.isEnabled()) {
+                    boolean clicked = replyAction.isClickable() && replyAction.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+                    if (!clicked) {
+                        AccessibilityNodeInfo parent = clickableAncestor(replyAction, 4);
+                        clicked = parent != null && parent.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+                    }
+                    if (clicked) {
+                        currentStage = STAGE_ENTER_PRIVATE_MESSAGE;
+                        writeOutreachStatus("sending", "اختار واتساب الرد الخاص؛ جاري التحقق من محادثة المعلن وتجهيز الرسالة");
+                    }
+                    return;
+                }
+                return;
+            }
+
+            // Fallback path: exact advertiser-name selection when source-message action is unavailable.
             // STEP 1: Always select the advertiser's name/bubble in the group chat first.
             if (currentStage == STAGE_CLICK_MEMBER_NAME) {
                 if (!TextUtils.isEmpty(pendingTargetMemberName)) {
@@ -1290,6 +1338,7 @@ public class OrderiAccessibilityService extends AccessibilityService {
         pendingMessageToSend = null;
         pendingTargetMemberName = null;
         pendingTargetGroupName = null;
+        pendingSourceMessageText = null;
         pendingAutoSend = false;
         currentStage = STAGE_IDLE;
         outreachScrollAttempts = 0;
@@ -1382,6 +1431,44 @@ public class OrderiAccessibilityService extends AccessibilityService {
             p = p.getParent();
         }
         return false;
+    }
+
+    private AccessibilityNodeInfo findOriginalMessageNode(AccessibilityNodeInfo root, String sourceText) {
+        if (root == null || TextUtils.isEmpty(sourceText)) return null;
+        String expected = normalizeAdvertiserIdentity(sourceText);
+        if (expected.length() < 12) return null;
+        List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByText(sourceText);
+        if (nodes == null) return null;
+        AccessibilityNodeInfo best = null;
+        int bestLength = Integer.MAX_VALUE;
+        for (AccessibilityNodeInfo node : nodes) {
+            if (node == null || node.isEditable()) continue;
+            String actual = normalizeAdvertiserIdentity(node.getText() == null ? "" : node.getText().toString());
+            if (TextUtils.isEmpty(actual)) actual = normalizeAdvertiserIdentity(node.getContentDescription() == null ? "" : node.getContentDescription().toString());
+            if (actual.equals(expected) || (actual.length() >= expected.length() * 0.85 && actual.contains(expected))) {
+                if (actual.length() < bestLength) { best = node; bestLength = actual.length(); }
+            }
+        }
+        return best;
+    }
+
+    private AccessibilityNodeInfo findReplyPrivatelyAction(AccessibilityNodeInfo root) {
+        if (root == null) return null;
+        String[] labels = new String[]{"الرد بشكل خاص", "رد بشكل خاص", "Reply privately", "Reply in private"};
+        for (String label : labels) {
+            List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByText(label);
+            if (nodes == null) continue;
+            for (AccessibilityNodeInfo node : nodes) {
+                String text = normalizeLabel(node.getText() == null ? "" : node.getText().toString());
+                String desc = normalizeLabel(node.getContentDescription() == null ? "" : node.getContentDescription().toString());
+                String wanted = normalizeLabel(label);
+                if (!text.equals(wanted) && !desc.equals(wanted)) continue;
+                if (node.isClickable() && node.isEnabled()) return node;
+                AccessibilityNodeInfo parent = clickableAncestor(node, 4);
+                if (parent != null && parent.isEnabled()) return parent;
+            }
+        }
+        return null;
     }
 
     private AccessibilityNodeInfo findMemberNameNode(AccessibilityNodeInfo root, String name) {
