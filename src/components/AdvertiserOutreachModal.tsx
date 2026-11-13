@@ -42,7 +42,7 @@ interface AdvertiserOutreachModalProps {
   order: ParsedOrder | null;
   resolution: AdvertiserContactResolution | null;
   onClose: () => void;
-  onConfirmAccept: (order: ParsedOrder, confirmedPhone: string | null) => void;
+  onConfirmAccept: (order: ParsedOrder, confirmedPhone: string | null, message?: string) => void;
   onToast: (msg: string) => void;
 }
 
@@ -120,7 +120,7 @@ export function AdvertiserOutreachModal({
       );
 
       if (result.success) {
-        onConfirmAccept(order, result.phoneUsed);
+        onConfirmAccept(order, result.phoneUsed, result.message);
         onToast(result.statusLabel || `تم تمرير رسالة القبول الخاصة إلى «${advertiserName}»`);
         onClose();
         return;
