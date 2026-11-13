@@ -29,9 +29,9 @@ import {
   AdvertiserContactResolution, 
   formatAdvertiserPrivateMessage, 
   normalizeBahrainPhone,
+  executePrivateAdvertiserOutreach,
   formatDisplayPhone,
   CandidatePhoneDetail,
-  openRegularWhatsAppPrivateChat
 } from '../utils/whatsappPrivateOutreach';
 import { openWhatsAppAccessibilitySettings } from '../native/whatsappListener';
 import { isNativeAndroid, OrderiNotificationListener, openWhatsAppGroupConversation } from '../native/orderiNotificationListener';
@@ -42,7 +42,7 @@ interface AdvertiserOutreachModalProps {
   order: ParsedOrder | null;
   resolution: AdvertiserContactResolution | null;
   onClose: () => void;
-  onConfirmAccept: (order: ParsedOrder, confirmedPhone: string) => void;
+  onConfirmAccept: (order: ParsedOrder, confirmedPhone: string | null) => void;
   onToast: (msg: string) => void;
 }
 
@@ -107,39 +107,35 @@ export function AdvertiserOutreachModal({
    */
   const handleExecuteBackgroundMemberClick = async () => {
     if (isBackgroundExecuting) return;
+    if (isCustomerSelected) {
+      onToast('هذا الرقم يخص الزبون أو المستلم؛ لن نرسل إليه رسالة القبول.');
+      return;
+    }
     setIsBackgroundExecuting(true);
-    handleCopy();
-
     try {
-      if (isNativeAndroid()) {
-        const result = await OrderiNotificationListener.reachAdvertiserPrivateChat({
-          phone: isPhoneValid ? cleanInputPhone : undefined,
-          memberName: advertiserName,
-          groupName: groupName,
-          message: editedMessage,
-          autoSend: true,
-        });
+      // Share the same engine used by Radar and popup actions: exact private
+      // notification RemoteInput first, then the existing Accessibility route.
+      const result = await executePrivateAdvertiserOutreach(
+        order, editedMessage, undefined, true, isPhoneValid ? cleanInputPhone : undefined
+      );
 
-        if (result && result.success) {
-          onConfirmAccept(order, isPhoneValid ? cleanInputPhone : '97300000000');
-          onToast(`⚡ جاري فتح محادثة «${advertiserName}» الخاصة بالخلفية وتمرير رسالة القبول فوراً`);
-          onClose();
-          return;
-        }
-
-        if (result && (result as any).accessibilityRequired) {
-          onToast('⚙️ يُرجى تفعيل خدمة وصول Orderi للضغط على اسم المعلن في الخلفية');
-          await openWhatsAppAccessibilitySettings();
-          return;
-        }
+      if (result.success) {
+        onConfirmAccept(order, result.phoneUsed);
+        onToast(result.statusLabel || `تم تمرير رسالة القبول الخاصة إلى «${advertiserName}»`);
+        onClose();
+        return;
       }
 
-      // If not on Android or accessibility failed, open the group directly with instructions
-      await handleOpenGroupDirectly();
+      if (result.accessibilityRequired) {
+        onToast('⚙️ فعّل خدمة وصول Orderi حتى يتمكن التطبيق من الوصول إلى محادثة المعلن الخاصة.');
+        await openWhatsAppAccessibilitySettings();
+        return;
+      }
+
+      onToast(result.statusLabel || 'تعذر إرسال رسالة القبول؛ لم يتم قبول الطلب.');
     } catch (e) {
       console.warn('[Orderi] Background member click error:', e);
-      onToast('تعذر التنفيذ الآلي بالخلفية؛ سيتم فتح القروب مع نسخ الرسالة');
-      await handleOpenGroupDirectly();
+      onToast('تعذر إرسال الرسالة الخاصة؛ بقي الطلب دون قبول.');
     } finally {
       setIsBackgroundExecuting(false);
     }
@@ -164,55 +160,35 @@ export function AdvertiserOutreachModal({
    */
   const handleOpenPrivateChatWithPhone = async () => {
     if (!isPhoneValid) {
-      onToast('⚠️ يرجى إدخال أو اختيار رقم هاتف واتساب صحيح لصاحب الإعلان');
+      onToast('⚠️ يرجى إدخال أو اختيار رقم هاتف واتساب صحيح للمعلن');
+      return;
+    }
+    if (isCustomerSelected) {
+      onToast('هذا الرقم يخص الزبون أو المستلم؛ اختر رقم المعلن قبل المتابعة.');
       return;
     }
 
     setIsSubmitting(true);
     try {
-      handleCopy();
-
-      // حفظ الرقم في ذاكرة المعلنين للمرات القادمة
       if (saveToVaultChecked && advertiserName && advertiserName !== 'صاحب الإعلان') {
         saveAdvertiserPhone(advertiserName, cleanInputPhone);
       }
 
-      if (isNativeAndroid()) {
-        try {
-          await OrderiNotificationListener.reachAdvertiserPrivateChat({
-            phone: cleanInputPhone,
-            memberName: advertiserName,
-            groupName: groupName,
-            message: editedMessage,
-            autoSend: true,
-          });
-        } catch (e) {
-          console.warn('[Orderi] Native background private outreach:', e);
-        }
+      // "Private reply" opens the exact 1:1 chat with a draft only. It must
+      // not auto-send, call a server endpoint, or mark the order accepted.
+      const result = await executePrivateAdvertiserOutreach(
+        order, editedMessage, undefined, false, cleanInputPhone
+      );
+      if (!result.success) {
+        onToast(result.statusLabel || 'تعذر فتح محادثة المعلن الخاصة.');
+        return;
       }
 
-      try {
-        fetch('/api/whatsapp/quick-accept-reply', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            orderId: order.id,
-            phone: cleanInputPhone,
-            targetType: 'private_chat_background',
-            groupName: order.groupName,
-            senderName: advertiserName,
-            replyText: editedMessage,
-            price: order.price,
-            from: order.from,
-            to: order.to,
-          }),
-        }).catch(() => {});
-      } catch {}
-
-      openRegularWhatsAppPrivateChat(cleanInputPhone, editedMessage);
-      onConfirmAccept(order, cleanInputPhone);
-      onToast(`💬 تم فتح محادثة خاصة مع «${advertiserName}» (${formatDisplayPhone(cleanInputPhone)})`);
+      onToast(`💬 تم فتح محادثة «${advertiserName}» الخاصة وتجهيز الرسالة (${formatDisplayPhone(cleanInputPhone)})؛ اضغط إرسال داخل واتساب.`);
       onClose();
+    } catch (error) {
+      console.warn('[Orderi] Could not open exact advertiser private chat:', error);
+      onToast('تعذر فتح محادثة المعلن الخاصة؛ لم يتم إرسال أي رسالة.');
     } finally {
       setIsSubmitting(false);
     }
