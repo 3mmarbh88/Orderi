@@ -604,6 +604,7 @@ public class NotificationListenerPlugin extends Plugin {
             String phone = call.getString("phone", "");
             String memberName = call.getString("memberName", "");
             String groupName = call.getString("groupName", "");
+            String sourceMessageText = call.getString("sourceMessageText", "");
             String message = call.getString("message", "");
             boolean autoSend = call.getBoolean("autoSend", true);
 
@@ -680,7 +681,7 @@ public class NotificationListenerPlugin extends Plugin {
             if (!submitted && !android.text.TextUtils.isEmpty(memberName)) {
                 if (OrderiAccessibilityService.isAccessibilityEnabled(getContext())) {
                     android.util.Log.i("NotificationListenerPlugin", "Triggering Accessibility member-click automation for member: " + memberName + " in group: " + groupName);
-                    OrderiAccessibilityService.queueOutreachToMember(memberName, groupName, message, autoSend);
+                    OrderiAccessibilityService.queueOutreachToMember(memberName, groupName, sourceMessageText, message, autoSend);
 
                     // Prefer the exact cached group notification. If it is no longer available,
                     // fall back to WhatsApp's own chat search and require an exact group-title match.
