@@ -66,7 +66,6 @@ public class OrderiAccessibilityService extends AccessibilityService {
     private static volatile String pendingMessageToSend = null;
     private static volatile String pendingTargetMemberName = null;
     private static volatile String pendingTargetGroupName = null;
-        pendingSourceMessageText = null;
     private static volatile String pendingSourceMessageText = null;
     private static volatile boolean pendingAutoSend = false;
     private static volatile long pendingMessageTimestamp = 0L;
@@ -1337,6 +1336,7 @@ public class OrderiAccessibilityService extends AccessibilityService {
         pendingMessageToSend = null;
         pendingTargetMemberName = null;
         pendingTargetGroupName = null;
+        pendingSourceMessageText = null;
         pendingAutoSend = false;
         currentStage = STAGE_IDLE;
         outreachScrollAttempts = 0;
