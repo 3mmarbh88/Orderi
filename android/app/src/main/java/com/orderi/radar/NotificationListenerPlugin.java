@@ -625,7 +625,14 @@ public class NotificationListenerPlugin extends Plugin {
                 if (cleanPhone.length() == 8) cleanPhone = "973" + cleanPhone;
                 if (cleanPhone.length() >= 8 && cleanPhone.length() <= 15) {
                     if (autoSend) {
+                        // Mirror group publishing: first use a recent exact-match notification RemoteInput
+                        // so the private reply can be submitted without launching WhatsApp.
                         submitted = WhatsAppNotificationListenerService.sendPrivateNotificationReply(getContext(), cleanPhone, message);
+                        // Some WhatsApp builds expose the private notification under the contact name,
+                        // not the phone number. Exact-name matching is safe because group actions are excluded.
+                        if (!submitted && !android.text.TextUtils.isEmpty(memberName)) {
+                            submitted = WhatsAppNotificationListenerService.sendPrivateNotificationReply(getContext(), memberName, message);
+                        }
                     }
                     if (!submitted) {
                         if (autoSend && !OrderiAccessibilityService.isAccessibilityEnabled(getContext())) {
@@ -675,19 +682,10 @@ public class NotificationListenerPlugin extends Plugin {
                     android.util.Log.i("NotificationListenerPlugin", "Triggering Accessibility member-click automation for member: " + memberName + " in group: " + groupName);
                     OrderiAccessibilityService.queueOutreachToMember(memberName, message, autoSend);
 
-                    boolean opened = false;
-                    if (!android.text.TextUtils.isEmpty(groupName)) {
-                        opened = WhatsAppNotificationListenerService.openWhatsAppGroupConversation(getContext(), groupName);
-                    }
-                    if (!opened) {
-                        Intent launch = getContext().getPackageManager().getLaunchIntentForPackage("com.whatsapp");
-                        if (launch == null) launch = getContext().getPackageManager().getLaunchIntentForPackage("com.whatsapp.w4b");
-                        if (launch != null) {
-                            launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                            getContext().startActivity(launch);
-                            opened = true;
-                        }
-                    }
+                    // Accessibility fallback is permitted only when Orderi can open the exact source group.
+                    // Never launch the generic WhatsApp home screen or WhatsApp Business as a guessed target.
+                    boolean opened = !android.text.TextUtils.isEmpty(groupName)
+                            && WhatsAppNotificationListenerService.openWhatsAppGroupConversation(getContext(), groupName);
 
                     if (!opened) {
                         JSObject failed = new JSObject();

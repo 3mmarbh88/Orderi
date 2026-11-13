@@ -551,16 +551,19 @@ const privateOutreachRecentlySubmitted = new Map<string, number>();
 
 /** Submit one reply through a recent, exact-match PRIVATE WhatsApp notification. */
 export async function executePrivateAdvertiserOutreach(
-  order: ParsedOrder, customTemplate?: string, areaName?: string, autoSend: boolean = true
+  order: ParsedOrder, customTemplate?: string, areaName?: string, autoSend: boolean = true, phoneOverride?: string | null
 ): Promise<{
   success: boolean; status: OutreachDeliveryStatus; needsVerification: boolean;
   resolution: AdvertiserContactResolution; message: string; phoneUsed: string | null; statusLabel: string;
   accessibilityRequired?: boolean;
 }> {
   const resolution = resolveAdvertiserContact(order);
-  const targetPhone = resolution.confidence === 'confirmed_phone' &&
+  const resolvedPhone = resolution.confidence === 'confirmed_phone' &&
     (resolution.source === 'direct_private_meta' || resolution.source === 'text_advertiser_label' || resolution.source === 'advertiser_vault' || resolution.source === 'notification_person_meta')
     ? resolution.phone : null;
+  // A phone typed/confirmed by the user in the verification modal is an explicit override.
+  const normalizedOverride = phoneOverride ? normalizeBahrainPhone(phoneOverride) : '';
+  const targetPhone = normalizedOverride && normalizedOverride.length >= 8 ? normalizedOverride : resolvedPhone;
   // If the ad does not expose a phone, allow sender-name match for private notification or accessibility member click
   const targetName = (order.senderName || '').trim();
   const privateTarget = targetPhone || targetName;
@@ -589,28 +592,14 @@ export async function executePrivateAdvertiserOutreach(
     success: false, status, needsVerification,
     resolution, message: messageText, phoneUsed: targetPhone, statusLabel,
   });
-  if (!privateTarget || advertiserName === 'صاحب الإعلان') {
+  if (!privateTarget || (!targetPhone && advertiserName === 'صاحب الإعلان')) {
     return failure('verification_required',
       resolution.verificationReason || 'لا يوجد رقم أو اسم مرسل موثوق يمكن مطابقته مع إشعار واتساب خاص.', true);
   }
   if (!isNativeAndroid()) {
-    if (typeof navigator !== 'undefined' && navigator.clipboard) {
-      try { navigator.clipboard.writeText(messageText); } catch {}
-    }
-    if (targetPhone) {
-      if (autoSend) {
-        openRegularWhatsAppPrivateChat(targetPhone, messageText);
-        return {
-          success: true,
-          status: 'submitted_unconfirmed' as OutreachDeliveryStatus,
-          needsVerification: false,
-          resolution,
-          message: messageText,
-          phoneUsed: targetPhone,
-          statusLabel: `⚡ تم إرسال رسالة القبول بالخاص إلى المعلن (${advertiserName})!`,
-        };
-      }
-      openRegularWhatsAppPrivateChat(targetPhone, '');
+    if (!autoSend && targetPhone) {
+      // Manual private reply: open the exact chat with the prepared draft; user presses Send.
+      openRegularWhatsAppPrivateChat(targetPhone, messageText);
       return {
         success: true,
         status: 'chat_opened_pending_send' as OutreachDeliveryStatus,
@@ -618,21 +607,14 @@ export async function executePrivateAdvertiserOutreach(
         resolution,
         message: messageText,
         phoneUsed: targetPhone,
-        statusLabel: `تم فتح محادثة المعلن (${advertiserName}) الخاصة؛ يمكنك الرد الآن 💬`,
+        statusLabel: `تم فتح محادثة المعلن (${advertiserName}) مع تجهيز نص الرسالة؛ اضغط إرسال داخل واتساب 💬`,
       };
     }
-    // Simulation for web environment when advertiser has no explicit phone in ad text
-    return {
-      success: true,
-      status: (autoSend ? 'submitted_unconfirmed' : 'chat_opened_pending_send') as OutreachDeliveryStatus,
-      needsVerification: false,
-      resolution,
-      message: messageText,
-      phoneUsed: null,
-      statusLabel: autoSend
-        ? `⚡ وضع المحاكاة: تم نسخ الرسالة وجاري محاكاة الضغط على اسم المعلن «${advertiserName}» بالقروب وإرسال رسالة القبول بالخاص!`
-        : `💬 وضع المحاكاة: تم نسخ الرسالة وجاهزة لمراسلة «${advertiserName}» في الخاص!`,
-    };
+    return failure(
+      'verification_required',
+      'الإرسال التلقائي بالخلفية متاح من تطبيق Orderi على Android فقط؛ لم نعتبر فتح رابط واتساب إرسالاً.',
+      true
+    );
   }
 
   const requestKey = String(order.id || '') + ':' + privateTarget + ':' + messageText;

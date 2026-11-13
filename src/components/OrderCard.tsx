@@ -1227,18 +1227,18 @@ export function OrderCard({
           order={order}
           resolution={outreachResolution}
           onClose={() => setShowOutreachModal(false)}
-          onConfirmAccept={(acceptedOrd, confirmedPhone) => {
+          onConfirmAccept={(acceptedOrd, confirmedPhone, sentMessage) => {
             onAccept({
               ...acceptedOrd,
               status: 'accepted',
-              outreachStatus: 'chat_opened_pending_send',
+              outreachStatus: 'submitted_unconfirmed',
               outreachDetails: {
-                status: 'chat_opened_pending_send',
-                phoneUsed: confirmedPhone,
+                status: 'submitted_unconfirmed',
+                phoneUsed: confirmedPhone || undefined,
                 advertiserName: acceptedOrd.senderName,
                 attemptedAt: new Date().toISOString(),
-                message: formatAdvertiserPrivateMessage(acceptedOrd),
-                deliveryMethod: 'direct_whatsapp_url',
+                message: sentMessage || formatAdvertiserPrivateMessage(acceptedOrd),
+                deliveryMethod: confirmedPhone ? 'background_private_chat' : 'accessibility_group_member_outreach',
                 verifiedAdvertiser: true,
               },
             });
