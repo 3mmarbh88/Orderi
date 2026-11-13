@@ -592,7 +592,7 @@ export async function executePrivateAdvertiserOutreach(
     success: false, status, needsVerification,
     resolution, message: messageText, phoneUsed: targetPhone, statusLabel,
   });
-  if (!privateTarget || advertiserName === 'صاحب الإعلان') {
+  if (!privateTarget || (!targetPhone && advertiserName === 'صاحب الإعلان')) {
     return failure('verification_required',
       resolution.verificationReason || 'لا يوجد رقم أو اسم مرسل موثوق يمكن مطابقته مع إشعار واتساب خاص.', true);
   }
