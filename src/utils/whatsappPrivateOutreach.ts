@@ -597,23 +597,9 @@ export async function executePrivateAdvertiserOutreach(
       resolution.verificationReason || 'لا يوجد رقم أو اسم مرسل موثوق يمكن مطابقته مع إشعار واتساب خاص.', true);
   }
   if (!isNativeAndroid()) {
-    if (typeof navigator !== 'undefined' && navigator.clipboard) {
-      try { navigator.clipboard.writeText(messageText); } catch {}
-    }
-    if (targetPhone) {
-      if (autoSend) {
-        openRegularWhatsAppPrivateChat(targetPhone, messageText);
-        return {
-          success: true,
-          status: 'submitted_unconfirmed' as OutreachDeliveryStatus,
-          needsVerification: false,
-          resolution,
-          message: messageText,
-          phoneUsed: targetPhone,
-          statusLabel: `⚡ تم إرسال رسالة القبول بالخاص إلى المعلن (${advertiserName})!`,
-        };
-      }
-      openRegularWhatsAppPrivateChat(targetPhone, '');
+    if (!autoSend && targetPhone) {
+      // Manual private reply: open the exact chat with the prepared draft; user presses Send.
+      openRegularWhatsAppPrivateChat(targetPhone, messageText);
       return {
         success: true,
         status: 'chat_opened_pending_send' as OutreachDeliveryStatus,
@@ -621,21 +607,14 @@ export async function executePrivateAdvertiserOutreach(
         resolution,
         message: messageText,
         phoneUsed: targetPhone,
-        statusLabel: `تم فتح محادثة المعلن (${advertiserName}) الخاصة؛ يمكنك الرد الآن 💬`,
+        statusLabel: `تم فتح محادثة المعلن (${advertiserName}) مع تجهيز نص الرسالة؛ اضغط إرسال داخل واتساب 💬`,
       };
     }
-    // Simulation for web environment when advertiser has no explicit phone in ad text
-    return {
-      success: true,
-      status: (autoSend ? 'submitted_unconfirmed' : 'chat_opened_pending_send') as OutreachDeliveryStatus,
-      needsVerification: false,
-      resolution,
-      message: messageText,
-      phoneUsed: null,
-      statusLabel: autoSend
-        ? `⚡ وضع المحاكاة: تم نسخ الرسالة وجاري محاكاة الضغط على اسم المعلن «${advertiserName}» بالقروب وإرسال رسالة القبول بالخاص!`
-        : `💬 وضع المحاكاة: تم نسخ الرسالة وجاهزة لمراسلة «${advertiserName}» في الخاص!`,
-    };
+    return failure(
+      'verification_required',
+      'الإرسال التلقائي بالخلفية متاح من تطبيق Orderi على Android فقط؛ لم نعتبر فتح رابط واتساب إرسالاً.',
+      true
+    );
   }
 
   const requestKey = String(order.id || '') + ':' + privateTarget + ':' + messageText;
