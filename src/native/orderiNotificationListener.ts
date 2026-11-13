@@ -56,6 +56,7 @@ interface OrderiNotificationListenerPlugin {
     phone?: string;
     memberName?: string;
     groupName?: string;
+    sourceMessageText?: string;
     message: string;
     autoSend?: boolean;
   }): Promise<{ success: boolean; method: string; statusLabel?: string; accessibilityRequired?: boolean; submitted?: boolean }>;
