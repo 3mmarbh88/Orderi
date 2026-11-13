@@ -682,19 +682,10 @@ public class NotificationListenerPlugin extends Plugin {
                     android.util.Log.i("NotificationListenerPlugin", "Triggering Accessibility member-click automation for member: " + memberName + " in group: " + groupName);
                     OrderiAccessibilityService.queueOutreachToMember(memberName, message, autoSend);
 
-                    boolean opened = false;
-                    if (!android.text.TextUtils.isEmpty(groupName)) {
-                        opened = WhatsAppNotificationListenerService.openWhatsAppGroupConversation(getContext(), groupName);
-                    }
-                    if (!opened) {
-                        Intent launch = getContext().getPackageManager().getLaunchIntentForPackage("com.whatsapp");
-                        if (launch == null) launch = getContext().getPackageManager().getLaunchIntentForPackage("com.whatsapp.w4b");
-                        if (launch != null) {
-                            launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                            getContext().startActivity(launch);
-                            opened = true;
-                        }
-                    }
+                    // Accessibility fallback is permitted only when Orderi can open the exact source group.
+                    // Never launch the generic WhatsApp home screen or WhatsApp Business as a guessed target.
+                    boolean opened = !android.text.TextUtils.isEmpty(groupName)
+                            && WhatsAppNotificationListenerService.openWhatsAppGroupConversation(getContext(), groupName);
 
                     if (!opened) {
                         JSObject failed = new JSObject();
