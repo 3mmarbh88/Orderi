@@ -535,8 +535,8 @@ public class OrderiAccessibilityService extends AccessibilityService {
     private void handleOutreachEvent() {
         if (!isSendingInProgress.get() || pendingMessageToSend == null) return;
 
-        // Expire pending operation after 30 seconds
-        if (System.currentTimeMillis() - pendingMessageTimestamp > 30000L) {
+        // Allow enough time for WhatsApp launch, chat search, group open and member selection (bounded).
+        if (System.currentTimeMillis() - pendingMessageTimestamp > 60000L) {
             writeOutreachStatus("failed", "انتهت مهلة الوصول إلى محادثة المعلن أو الإرسال");
             resetOperation();
             return;
@@ -1289,6 +1289,7 @@ public class OrderiAccessibilityService extends AccessibilityService {
     private void resetOperation() {
         pendingMessageToSend = null;
         pendingTargetMemberName = null;
+        pendingTargetGroupName = null;
         pendingAutoSend = false;
         currentStage = STAGE_IDLE;
         outreachScrollAttempts = 0;
