@@ -629,6 +629,7 @@ export async function executePrivateAdvertiserOutreach(
       phone: targetPhone || undefined,
       memberName: targetName,
       groupName: order.groupName,
+      sourceMessageText: order.rawText || "",
       message: messageText,
       autoSend,
     });

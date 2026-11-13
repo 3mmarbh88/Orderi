@@ -275,15 +275,19 @@ export function OrderCard({
       e.stopPropagation();
     }
     const groupName = (order.groupName || '').trim();
+    if (!groupName || /^(واتساب|whatsapp|whatsapp messenger)$/i.test(groupName)) {
+      showOutreachToast('اسم مجموعة الإعلان غير محدد؛ أوقفنا البحث حتى لا يفتح واتساب على مجموعة خاطئة.', 'error');
+      return;
+    }
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('orderi-toast', {
         detail: {
-          message: `👥 جاري فتح قروب (${groupName || 'واتساب'})...`,
+          message: `👥 جاري فتح قروب (${groupName})...`,
           type: 'info'
         }
       }));
     }
-    await openWhatsAppGroupConversation(groupName || 'واتساب', { rawText: order.rawText });
+    await openWhatsAppGroupConversation(groupName, { rawText: order.rawText });
   };
 
   const showOutreachToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
