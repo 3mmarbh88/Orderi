@@ -604,8 +604,16 @@ public class OrderiAccessibilityService extends AccessibilityService {
                 }
                 if (outreachScrollAttempts < 3) {
                     AccessibilityNodeInfo scrollable = findScrollableNode(rootNode);
-                    if (scrollable != null && scrollable.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)) outreachScrollAttempts++;
+                    if (scrollable != null && scrollable.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)) {
+                        outreachScrollAttempts++;
+                        return;
+                    }
+                    outreachScrollAttempts++;
+                    return;
                 }
+                currentStage = STAGE_CLICK_MEMBER_NAME;
+                outreachScrollAttempts = 0;
+                writeOutreachStatus("sending", "تعذر تحديد نص الإعلان الأصلي عبر واجهة واتساب؛ سنستخدم التحقق الدقيق من اسم المعلن كخيار احتياطي");
                 return;
             }
             if (currentStage == STAGE_SELECT_REPLY_PRIVATELY) {
