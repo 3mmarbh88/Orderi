@@ -1437,7 +1437,7 @@ public class OrderiAccessibilityService extends AccessibilityService {
             if (node == null || node.isEditable()) continue;
             String actual = normalizeAdvertiserIdentity(node.getText() == null ? "" : node.getText().toString());
             if (TextUtils.isEmpty(actual)) actual = normalizeAdvertiserIdentity(node.getContentDescription() == null ? "" : node.getContentDescription().toString());
-            if (actual.equals(expected) || (actual.length() >= expected.length() * 0.85 && actual.contains(expected)) {
+            if (actual.equals(expected) || (actual.length() >= expected.length() * 0.85 && actual.contains(expected))) {
                 if (actual.length() < bestLength) { best = node; bestLength = actual.length(); }
             }
         }
