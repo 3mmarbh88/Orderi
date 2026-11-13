@@ -370,12 +370,38 @@ public class OrderiAccessibilityService extends AccessibilityService {
         queueOutreachToMember(memberName, message, false);
     }
 
+    /**
+     * Normalize WhatsApp group sender labels without requiring a phone number.
+     * WhatsApp may decorate display names with "~", punctuation or emoji,
+     * e.g. "😊 abood-bufatima ~". Keep a pure-emoji identity intact.
+     */
     private static String cleanMemberName(String raw) {
         if (raw == null) return "";
-        String s = raw.trim();
-        if (s.startsWith("~")) s = s.substring(1).trim();
-        if (s.endsWith(":")) s = s.substring(0, s.length() - 1).trim();
+        String s = raw.replaceAll("[\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069]", "").trim();
+        if (s.isEmpty()) return "";
+
+        boolean hasLetterOrDigit = false;
+        for (int i = 0; i < s.length();) {
+            int cp = s.codePointAt(i);
+            if (Character.isLetterOrDigit(cp)) { hasLetterOrDigit = true; break; }
+            i += Character.charCount(cp);
+        }
+
+        if (hasLetterOrDigit) {
+            s = s.replaceAll("^[\\s~@+：:،,؛;\\p{So}\\p{Sk}]+", "")
+                 .replaceAll("[\\s~@+：:،,؛;\\p{So}\\p{Sk}]+$", "").trim();
+        } else {
+            s = s.replaceAll("^[\\s~@+：:،,؛;]+", "")
+                 .replaceAll("[\\s~@+：:،,؛;]+$", "").trim();
+        }
         return s;
+    }
+
+    private static String normalizeAdvertiserIdentity(String raw) {
+        String s = cleanMemberName(raw).toLowerCase(java.util.Locale.ROOT);
+        s = java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFKC);
+        s = s.replaceAll("[\\u064B-\\u065F\\u0670]", "");
+        return s.replaceAll("\\s+", " ").trim();
     }
 
     public static boolean isAccessibilityEnabled(Context context) {
@@ -1248,28 +1274,32 @@ public class OrderiAccessibilityService extends AccessibilityService {
 
         // 3. If expected name is set, check if header matches clean name or phone digits
         if (!TextUtils.isEmpty(expectedName)) {
-            String clean = cleanMemberName(expectedName);
+            String clean = normalizeAdvertiserIdentity(expectedName);
             String[] headerIds = new String[]{
                     "com.whatsapp:id/conversation_contact_name",
                     "com.whatsapp:id/conversation_contact_name_container",
                     "com.whatsapp:id/name"
             };
+            boolean foundHeader = false;
             for (String viewId : headerIds) {
                 List<AccessibilityNodeInfo> headers = root.findAccessibilityNodeInfosByViewId(viewId);
                 if (headers == null) continue;
                 for (AccessibilityNodeInfo header : headers) {
-                    if (nodeHasExactLabel(header, clean)) return true;
-                    // If header contains phone digits (+973 or 8+ digits)
-                    CharSequence t = header.getText();
-                    if (t != null && t.toString().replaceAll("\\D", "").length() >= 8) {
-                        return true;
-                    }
+                    foundHeader = true;
+                    String headerText = normalizeAdvertiserIdentity(
+                            header.getText() == null ? "" : header.getText().toString());
+                    String headerDescription = normalizeAdvertiserIdentity(
+                            header.getContentDescription() == null ? "" : header.getContentDescription().toString());
+                    if (!TextUtils.isEmpty(clean)
+                            && (clean.equals(headerText) || clean.equals(headerDescription))) return true;
                 }
             }
+            // Never type into an unverified private chat.
+            if (foundHeader || !TextUtils.isEmpty(clean)) return false;
         }
 
-        // 4. Default: If composer exists and not a group chat, it is the one-on-one conversation
-        return true;
+        // No expected identity: a composer alone is not proof of the intended recipient.
+        return TextUtils.isEmpty(expectedName);
     }
 
     private boolean isNodeInsideGroupHeader(AccessibilityNodeInfo node) {
@@ -1334,12 +1364,11 @@ public class OrderiAccessibilityService extends AccessibilityService {
 
     private boolean nodeMatchesMember(AccessibilityNodeInfo node, String cleanTarget) {
         if (node == null || TextUtils.isEmpty(cleanTarget)) return false;
-        String text = normalizeLabel(node.getText() == null ? "" : node.getText().toString());
-        String desc = normalizeLabel(node.getContentDescription() == null ? "" : node.getContentDescription().toString());
-        String target = normalizeLabel(cleanTarget);
-        if (text.equals(target) || desc.equals(target)) return true;
-        if (target.length() >= 3 && (text.contains(target) || desc.contains(target))) return true;
-        return false;
+        String text = normalizeAdvertiserIdentity(node.getText() == null ? "" : node.getText().toString());
+        String desc = normalizeAdvertiserIdentity(node.getContentDescription() == null ? "" : node.getContentDescription().toString());
+        String target = normalizeAdvertiserIdentity(cleanTarget);
+        // Exact identity only: substring matches can select another participant.
+        return !TextUtils.isEmpty(target) && (text.equals(target) || desc.equals(target));
     }
 
     private AccessibilityNodeInfo findPrivateMessageAction(AccessibilityNodeInfo root, String memberName) {
