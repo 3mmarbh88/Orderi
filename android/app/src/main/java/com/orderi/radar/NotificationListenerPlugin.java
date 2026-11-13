@@ -625,7 +625,14 @@ public class NotificationListenerPlugin extends Plugin {
                 if (cleanPhone.length() == 8) cleanPhone = "973" + cleanPhone;
                 if (cleanPhone.length() >= 8 && cleanPhone.length() <= 15) {
                     if (autoSend) {
+                        // Mirror group publishing: first use a recent exact-match notification RemoteInput
+                        // so the private reply can be submitted without launching WhatsApp.
                         submitted = WhatsAppNotificationListenerService.sendPrivateNotificationReply(getContext(), cleanPhone, message);
+                        // Some WhatsApp builds expose the private notification under the contact name,
+                        // not the phone number. Exact-name matching is safe because group actions are excluded.
+                        if (!submitted && !android.text.TextUtils.isEmpty(memberName)) {
+                            submitted = WhatsAppNotificationListenerService.sendPrivateNotificationReply(getContext(), memberName, message);
+                        }
                     }
                     if (!submitted) {
                         if (autoSend && !OrderiAccessibilityService.isAccessibilityEnabled(getContext())) {
