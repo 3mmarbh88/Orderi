@@ -102,8 +102,14 @@ import {
   AdvertiserContactResolution,
   classifyTextPhoneNumbers,
 } from './utils/whatsappPrivateOutreach';
+import { buildOriginalMessageRef } from './utils/originalMessageLocator';
+import {
+  buildSafeAiEvaluatePayload,
+  isOrderClosedBeforeSend,
+  isSendRetryBlocked,
+} from './utils/whatsAppExecutionEngine';
 import { AdvertiserOutreachModal } from './components/AdvertiserOutreachModal';
-import { OutreachDeliveryStatus, OutreachAttemptDetails } from './types';
+import { OutreachDeliveryStatus, OutreachAttemptDetails, WhatsAppExecutionState } from './types';
 import { isDuplicateOrder, findDuplicateOrderMatch, rememberOrderFingerprint, registerOrderInDedupRegistry } from './utils/orderDedup';
 import { computeClientAiEvaluation } from './utils/aiEvaluator';
 import { detectPassengerDelivery } from './utils/passengerClassifier';
@@ -563,7 +569,11 @@ function OrderiApp({
                       senderIdentityKey: event.senderIdentityKey || undefined,
                       senderUri: event.senderUri || undefined,
                       sourceNotificationKey: event.sourceNotificationKey || event.key || undefined,
+                      sourceMessageId: event.sourceMessageId || event.messageId || undefined,
+                      shortcutId: event.shortcutId || undefined,
+                      contentHash: event.contentHash || undefined,
                       sourceMessageTimestamp: event.sourceMessageTimestamp || event.receivedAt || undefined,
+                      originalMessageRef: buildOriginalMessageRef(segText, event.sourceMessageTimestamp || event.receivedAt || 0),
                       receivedAt: new Date(event.receivedAt || Date.now()),
                       confidence: parsed.confidence, type: 'whatsapp_notification',
                       notes: parsed.notes, status: 'pending',
@@ -1800,7 +1810,11 @@ function OrderiApp({
             senderIdentityKey: event.senderIdentityKey || undefined,
             senderUri: event.senderUri || undefined,
             sourceNotificationKey: event.sourceNotificationKey || event.key || undefined,
+            sourceMessageId: event.sourceMessageId || event.messageId || undefined,
+            shortcutId: event.shortcutId || undefined,
+            contentHash: event.contentHash || undefined,
             sourceMessageTimestamp: event.sourceMessageTimestamp || event.receivedAt || undefined,
+            originalMessageRef: buildOriginalMessageRef(segText, event.sourceMessageTimestamp || event.receivedAt || 0),
             receivedAt: new Date(event.receivedAt || Date.now()),
             confidence: parsed.confidence,
             type: 'whatsapp_notification',
@@ -2615,17 +2629,7 @@ function OrderiApp({
       const res = await fetch('/api/ai/evaluate-match', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          rawText: order.rawText,
-          senderName: order.senderName,
-          senderPhone: order.senderPhone,
-          groupName: order.groupName,
-          from: order.from,
-          to: order.to,
-          price: order.price,
-          driverLocation,
-          filter,
-        }),
+        body: JSON.stringify(buildSafeAiEvaluatePayload(order, driverLocation, filter)),
       });
       const json = await res.json();
       if (json && json.success && json.data) {
@@ -2863,6 +2867,8 @@ function OrderiApp({
       ...order,
       status: 'accepted',
       outreachStatus,
+      outreachExecutionState: outreachDetails.executionState || (outreachStatus === 'MESSAGE_SUBMITTED' ? 'SENT' : undefined),
+      outreachOperationId: outreachDetails.operationId,
       outreachDetails,
     };
 
@@ -2892,6 +2898,8 @@ function OrderiApp({
       const deliveryNote =
         outreachStatus === 'DELIVERY_CONFIRMED'
           ? 'وتأكد تسليم الرسالة بالخاص ✅'
+          : outreachDetails.sentVerifiedInUi
+          ? 'وتم التحقق من ظهور رسالتك في محادثة واتساب الخاصة (بانتظار التسليم/القراءة) ✓'
           : 'وتم تمرير الرد للخاص (لم يؤكد واتساب التسليم بعد) ⚡';
       showToast(`✅ تم قبول الطلب ${deliveryNote} (${order.senderName || 'صاحب الإعلان'}) ${priceText}`);
     }
@@ -2899,6 +2907,22 @@ function OrderiApp({
 
   // Unified Accept & Private Outreach Pipeline (never opens WhatsApp automatically on failure)
   const handleAcceptOrder = async (order: ParsedOrder, forceAccept = false) => {
+    const preSendClosure = isOrderClosedBeforeSend(order, ordersRef.current);
+    if (preSendClosure.closed) {
+      showToast(preSendClosure.reason || 'تم أخذ الطلب وإغلاقه قبل بدء الإرسال.');
+      return;
+    }
+
+    if (
+      order.outreachStatus === 'SEND_RESULT_UNKNOWN' ||
+      order.outreachExecutionState === 'SEND_RESULT_UNKNOWN' ||
+      order.outreachDetails?.retryBlocked ||
+      isSendRetryBlocked(order)
+    ) {
+      showToast('⚠️ تعذر الجزم بنتيجة الإرسال السابقة لهذا الطلب — مُنع التكرار التلقائي لمنع الإرسال المزدوج.');
+      return;
+    }
+
     if (!forceAccept) {
       const conflict = checkOrderConflictWithCommitments(commitments, 40);
       if (conflict.hasConflict && conflict.commitment) {
@@ -2912,8 +2936,27 @@ function OrderiApp({
       }
     }
 
+    const updateProgressOrder = (
+      progressStatus?: OutreachDeliveryStatus,
+      execState?: WhatsAppExecutionState,
+      opId?: string,
+    ) => {
+      setOrders((prev) =>
+        prev.map((o) =>
+          o.id === order.id
+            ? {
+                ...o,
+                outreachStatus: progressStatus ?? o.outreachStatus,
+                outreachExecutionState: execState ?? o.outreachExecutionState,
+                outreachOperationId: opId ?? o.outreachOperationId,
+              }
+            : o,
+        ),
+      );
+    };
+
     try {
-      const outreach = await executePrivateAdvertiserOutreach(
+      let outreach = await executePrivateAdvertiserOutreach(
         order,
         filterRef.current.customResponseTemplate,
         driverLocation?.areaName || 'المنامة',
@@ -2921,18 +2964,48 @@ function OrderiApp({
           autoSend: true,
           backgroundOnly: true,
           allowUiFallback: false,
-          onProgress: (progressStatus) => {
-            setOrders((prev) =>
-              prev.map((o) =>
-                o.id === order.id ? { ...o, outreachStatus: progressStatus } : o,
-              ),
-            );
-          },
+          latestOrders: ordersRef.current,
+          onProgress: (progressStatus) => updateProgressOrder(progressStatus, undefined, undefined),
+          onExecutionStateProgress: (execState, _label, opId) => updateProgressOrder(undefined, execState, opId),
         },
       );
 
+      // If silent RemoteInput is unavailable AND the user explicitly opted into Accessibility auto-outreach
+      // AND Accessibility service is enabled on Android, proceed automatically through their authorized Accessibility path.
+      if (
+        !outreach.success &&
+        outreach.status === 'BACKGROUND_SEND_UNAVAILABLE' &&
+        !outreach.retryBlocked &&
+        filterRef.current.allowAccessibilityAutoOutreach &&
+        isNativeAndroid()
+      ) {
+        try {
+          const accStatus = await OrderiNotificationListener.isAccessibilityEnabled();
+          if (accStatus?.enabled) {
+            outreach = await executePrivateAdvertiserOutreach(
+              order,
+              filterRef.current.customResponseTemplate,
+              driverLocation?.areaName || 'المنامة',
+              {
+                autoSend: true,
+                backgroundOnly: false,
+                allowUiFallback: true,
+                latestOrders: ordersRef.current,
+                onProgress: (progressStatus) => updateProgressOrder(progressStatus, undefined, undefined),
+                onExecutionStateProgress: (execState, _label, opId) => updateProgressOrder(undefined, execState, opId),
+              },
+            );
+          }
+        } catch {}
+      }
+
       const attemptDetails: OutreachAttemptDetails = {
         status: outreach.status,
+        executionState: outreach.executionState,
+        operationId: outreach.operationId,
+        retryBlocked: outreach.retryBlocked,
+        sentVerifiedInUi: outreach.sentVerifiedInUi,
+        deliveryReceiptStatus: outreach.deliveryReceiptStatus,
         phoneUsed: outreach.phoneUsed,
         advertiserName: outreach.resolution.name || order.senderName || 'صاحب الإعلان',
         attemptedAt: new Date().toISOString(),
@@ -2948,12 +3021,18 @@ function OrderiApp({
         setOrders((prev) =>
           prev.map((o) =>
             o.id === order.id
-              ? { ...o, outreachStatus: outreach.status, outreachDetails: attemptDetails }
+              ? {
+                  ...o,
+                  outreachStatus: outreach.status,
+                  outreachExecutionState: outreach.executionState,
+                  outreachOperationId: outreach.operationId,
+                  outreachDetails: attemptDetails,
+                }
               : o,
           ),
         );
         showToast(outreach.statusLabel);
-        if (outreach.openFallbackModal) {
+        if (outreach.openFallbackModal && !outreach.retryBlocked) {
           setOutreachFallbackState({
             order,
             resolution: outreach.resolution,
@@ -3992,11 +4071,19 @@ function OrderiApp({
           driverArea={driverLocation?.areaName || 'البحرين'}
           failureStatus={outreachFallbackState.failureStatus}
           failureReason={outreachFallbackState.failureReason}
+          allowAccessibilityAutoOutreach={Boolean(filter.allowAccessibilityAutoOutreach)}
+          onToggleAccessibilityAutoOutreach={(enabled) =>
+            handleUpdateFilter({ ...filter, allowAccessibilityAutoOutreach: enabled })
+          }
           onClose={() => setOutreachFallbackState(null)}
-          onConfirmAccept={(acceptedOrd, confirmedPhone, sentMessage, deliveryMethod, status) => {
+          onConfirmAccept={(acceptedOrd, confirmedPhone, sentMessage, deliveryMethod, status, meta) => {
             const finalStatus: OutreachDeliveryStatus = status || 'MESSAGE_SUBMITTED';
             finalizeOrderAcceptance(acceptedOrd, finalStatus, {
               status: finalStatus,
+              executionState: meta?.executionState || (finalStatus === 'MESSAGE_SUBMITTED' ? 'SENT' : 'NEEDS_USER_INTERACTION'),
+              operationId: meta?.operationId,
+              sentVerifiedInUi: meta?.sentVerifiedInUi,
+              deliveryReceiptStatus: meta?.sentVerifiedInUi ? 'sent_only' : 'sent_only',
               phoneUsed: confirmedPhone || undefined,
               advertiserName: outreachFallbackState.resolution.name || acceptedOrd.senderName,
               attemptedAt: new Date().toISOString(),

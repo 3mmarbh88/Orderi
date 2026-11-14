@@ -281,7 +281,6 @@ export async function analyzeAndLearnClosureWithAI(
       body: JSON.stringify({
         text: rawText,
         context: context?.orderSnippet || '',
-        senderName: context?.senderName || '',
         groupName: context?.groupName || '',
       }),
     });

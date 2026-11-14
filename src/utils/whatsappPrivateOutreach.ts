@@ -1,5 +1,15 @@
-import { ParsedOrder, OutreachDeliveryStatus } from '../types';
+import { ParsedOrder, OutreachDeliveryStatus, WhatsAppExecutionState } from '../types';
 import { OrderiNotificationListener, isNativeAndroid } from '../native/orderiNotificationListener';
+import { buildOriginalMessageRef } from './originalMessageLocator';
+import {
+  acquireExecutionLock,
+  buildExecutionLockKey,
+  createOutreachOperationId,
+  getExecutionStateArabicLabel,
+  isOrderClosedBeforeSend,
+  isSendRetryBlocked,
+  transitionExecutionLock,
+} from './whatsAppExecutionEngine';
 
 /**
  * WhatsApp Private Chat Outreach Engine for Orderi
@@ -58,12 +68,27 @@ export interface PrivateOutreachNativeBridge {
     backgroundSendAvailable: boolean;
     reasonCode?: string;
   }>;
+  getPrivateOutreachStatus?: () => Promise<{
+    operationId?: string;
+    executionState?: string;
+    status: string;
+    statusLabel?: string;
+    retryBlocked?: boolean;
+    sentVerifiedInUi?: boolean;
+    deliveryConfirmed?: boolean;
+    updatedAt?: number;
+  }>;
   reachAdvertiserPrivateChat: (options: {
+    operationId?: string;
+    orderId?: string;
     phone?: string;
     memberName?: string;
     senderIdentityKey?: string;
     senderUri?: string;
     sourceNotificationKey?: string;
+    sourceMessageId?: string;
+    shortcutId?: string;
+    originalMessageRef?: string;
     sourceMessageTimestamp?: number;
     groupName?: string;
     sourceMessageText?: string;
@@ -74,10 +99,15 @@ export interface PrivateOutreachNativeBridge {
   }) => Promise<{
     success: boolean;
     method: string;
+    operationId?: string;
+    executionState?: string;
     status?: string;
     reasonCode?: string;
     packageName?: string;
     deliveryConfirmed?: boolean;
+    sentVerifiedInUi?: boolean;
+    retryBlocked?: boolean;
+    asyncPending?: boolean;
     statusLabel?: string;
     accessibilityRequired?: boolean;
     submitted?: boolean;
@@ -680,6 +710,11 @@ export async function checkBackgroundOutreachAvailability(
 export interface ExecutePrivateOutreachResult {
   success: boolean;
   status: OutreachDeliveryStatus;
+  executionState?: WhatsAppExecutionState;
+  operationId?: string;
+  retryBlocked?: boolean;
+  sentVerifiedInUi?: boolean;
+  deliveryReceiptStatus?: 'sent_only' | 'delivered' | 'read' | 'unknown' | 'not_sent';
   needsVerification: boolean;
   openFallbackModal: boolean;
   resolution: AdvertiserContactResolution;
@@ -704,14 +739,41 @@ export interface ExecutePrivateOutreachOptions {
   backgroundOnly?: boolean;
   allowUiFallback?: boolean;
   phoneOverride?: string | null;
+  latestOrders?: ParsedOrder[];
+  pollTimeoutMs?: number;
   nativeBridge?: PrivateOutreachNativeBridge;
   onProgress?: (status: OutreachDeliveryStatus, statusLabel: string) => void;
+  onExecutionStateProgress?: (
+    state: WhatsAppExecutionState,
+    statusLabel: string,
+    operationId: string,
+  ) => void;
+}
+
+function parseExecutionState(raw?: string | null): WhatsAppExecutionState | undefined {
+  switch (raw) {
+    case 'PENDING':
+    case 'IDENTIFYING_SENDER':
+    case 'LOCATING_ORIGINAL_MESSAGE':
+    case 'OPENING_PRIVATE_CHAT':
+    case 'VERIFYING_RECIPIENT':
+    case 'READY_TO_SEND':
+    case 'EXECUTING':
+    case 'SENT':
+    case 'FAILED':
+    case 'IDENTITY_NOT_CONFIRMED':
+    case 'SEND_RESULT_UNKNOWN':
+    case 'NEEDS_USER_INTERACTION':
+      return raw;
+    default:
+      return undefined;
+  }
 }
 
 /**
  * 4. المحرك الموحد لقبول الطلب ومحاولة إرسال رسالة خاصة عبر WhatsApp Messenger العادي (com.whatsapp).
- * - يمر بالمراحل الفعلية: IDENTIFYING_ADVERTISER -> ADVERTISER_VERIFIED -> PRIVATE_CHAT_RESOLVED -> BACKGROUND_SEND_READY -> MESSAGE_SUBMITTED
- * - عند فشل الإرسال بالخلفية (backgroundOnly && !allowUiFallback): لا يفتح واتساب أبداً ويُعيد BACKGROUND_SEND_UNAVAILABLE / IDENTITY_NOT_VERIFIED / SEND_FAILED.
+ * - يمر بدورة الحالات الـ 12 بدقة ويرفض التكرار التلقائي في حالة SEND_RESULT_UNKNOWN.
+ * - عند فشل الإرسال بالخلفية (backgroundOnly && !allowUiFallback): لا يفتح واتساب تلقائياً ويُعيد NEEDS_USER_INTERACTION / IDENTITY_NOT_CONFIRMED / FAILED.
  */
 export async function executePrivateAdvertiserOutreach(
   order: ParsedOrder,
@@ -733,29 +795,53 @@ export async function executePrivateAdvertiserOutreach(
           backgroundOnly: optionsOrAutoSend.backgroundOnly ?? true,
           allowUiFallback: optionsOrAutoSend.allowUiFallback ?? false,
           phoneOverride: optionsOrAutoSend.phoneOverride ?? legacyPhoneOverride,
+          latestOrders: optionsOrAutoSend.latestOrders,
+          pollTimeoutMs: optionsOrAutoSend.pollTimeoutMs,
           nativeBridge: optionsOrAutoSend.nativeBridge,
           onProgress: optionsOrAutoSend.onProgress,
+          onExecutionStateProgress: optionsOrAutoSend.onExecutionStateProgress,
         };
 
   const autoSend = opts.autoSend ?? true;
   const backgroundOnly = opts.backgroundOnly ?? true;
   const allowUiFallback = opts.allowUiFallback ?? false;
+  const operationId = createOutreachOperationId();
+  const originalMessageRef =
+    order.originalMessageRef || buildOriginalMessageRef(order.rawText, order.sourceMessageTimestamp);
+  const orderWithRef: ParsedOrder = {
+    ...order,
+    originalMessageRef,
+  };
+  const lockKey = buildExecutionLockKey(orderWithRef);
+
   const emitProgress = (status: OutreachDeliveryStatus, label: string) => {
     try {
       opts.onProgress?.(status, label);
     } catch {}
   };
+  const emitExecutionState = (state: WhatsAppExecutionState, label?: string) => {
+    try {
+      opts.onExecutionStateProgress?.(
+        state,
+        label || getExecutionStateArabicLabel(state),
+        operationId,
+      );
+    } catch {}
+  };
 
+  emitExecutionState('IDENTIFYING_SENDER');
   emitProgress('IDENTIFYING_ADVERTISER', 'جاري تحديد هوية المعلن من الإعلان الحالي...');
 
-  const resolution = resolveAdvertiserContact(order);
-  const messageText = formatFilterOutreachMessage(order, customTemplate, areaName);
+  const resolution = resolveAdvertiserContact(orderWithRef);
+  const messageText = formatFilterOutreachMessage(orderWithRef, customTemplate, areaName);
 
   const normalizedOverride = opts.phoneOverride ? normalizeBahrainPhone(opts.phoneOverride) : '';
   const targetPhone = normalizedOverride || resolution.phone || null;
-  const targetName = isMeaningfulAdvertiserName(order.senderName) ? order.senderName.trim() : '';
-  const targetSenderKey = (order.senderIdentityKey || '').trim();
-  const targetSenderUri = (order.senderUri || '').trim();
+  const targetName = isMeaningfulAdvertiserName(orderWithRef.senderName)
+    ? orderWithRef.senderName.trim()
+    : '';
+  const targetSenderKey = (orderWithRef.senderIdentityKey || '').trim();
+  const targetSenderUri = (orderWithRef.senderUri || '').trim();
   const advertiserName = targetName || resolution.name || 'صاحب الإعلان';
 
   const makeFailure = (
@@ -766,6 +852,19 @@ export async function executePrivateAdvertiserOutreach(
   ): ExecutePrivateOutreachResult => ({
     success: false,
     status,
+    executionState:
+      extra?.executionState ??
+      (status === 'IDENTITY_NOT_VERIFIED'
+        ? 'IDENTITY_NOT_CONFIRMED'
+        : status === 'SEND_RESULT_UNKNOWN'
+        ? 'SEND_RESULT_UNKNOWN'
+        : status === 'BACKGROUND_SEND_UNAVAILABLE'
+        ? 'NEEDS_USER_INTERACTION'
+        : 'FAILED'),
+    operationId,
+    retryBlocked: extra?.retryBlocked ?? status === 'SEND_RESULT_UNKNOWN',
+    sentVerifiedInUi: false,
+    deliveryReceiptStatus: status === 'SEND_RESULT_UNKNOWN' ? 'unknown' : 'not_sent',
     needsVerification: status === 'IDENTITY_NOT_VERIFIED',
     openFallbackModal:
       status === 'IDENTITY_NOT_VERIFIED' || status === 'BACKGROUND_SEND_UNAVAILABLE',
@@ -778,8 +877,34 @@ export async function executePrivateAdvertiserOutreach(
     ...extra,
   });
 
+  // Pre-send guard: never fire outreach if group closure evidence marked this order closed_taken
+  const closedCheck = isOrderClosedBeforeSend(orderWithRef, opts.latestOrders);
+  if (closedCheck.closed) {
+    emitExecutionState('FAILED', closedCheck.reason);
+    return makeFailure(
+      'SEND_FAILED',
+      closedCheck.reason || 'تم أخذ الطلب وإغلاقه قبل بدء الإرسال.',
+      'order_closed_before_send',
+      { executionState: 'FAILED', openFallbackModal: false },
+    );
+  }
+
+  // Deduplication safety guard: NEVER auto-retry when previous attempt ended in SEND_RESULT_UNKNOWN
+  if (isSendRetryBlocked(orderWithRef)) {
+    const blockedMsg =
+      'تعذر الجزم بنتيجة الإرسال السابقة لهذا الطلب — مُنع التكرار التلقائي لمنع الإرسال المزدوج.';
+    emitExecutionState('SEND_RESULT_UNKNOWN', blockedMsg);
+    return makeFailure('SEND_RESULT_UNKNOWN', blockedMsg, 'send_result_unknown_retry_blocked', {
+      executionState: 'SEND_RESULT_UNKNOWN',
+      retryBlocked: true,
+      openFallbackModal: false,
+      deliveryReceiptStatus: 'unknown',
+    });
+  }
+
   // Step 1: Must identify advertiser cleanly from the current ad/notification only (or explicit manual phone override)
   if (!normalizedOverride && !resolution.advertiserVerified) {
+    emitExecutionState('IDENTITY_NOT_CONFIRMED');
     return makeFailure(
       'IDENTITY_NOT_VERIFIED',
       resolution.verificationReason ||
@@ -787,14 +912,17 @@ export async function executePrivateAdvertiserOutreach(
       resolution.confidence === 'multiple_candidates'
         ? 'multiple_ambiguous_phones'
         : 'unverified_advertiser_identity',
+      { executionState: 'IDENTITY_NOT_CONFIRMED' },
     );
   }
 
   if (!targetPhone && !targetName && !targetSenderKey && !targetSenderUri) {
+    emitExecutionState('IDENTITY_NOT_CONFIRMED');
     return makeFailure(
       'IDENTITY_NOT_VERIFIED',
       'لا يوجد اسم مرسل حقيقي أو معرف أو رقم هاتف لصاحب الإعلان؛ لن يتم إرسال أي رسالة عشوائية.',
       'missing_advertiser_identity',
+      { executionState: 'IDENTITY_NOT_CONFIRMED' },
     );
   }
 
@@ -805,16 +933,19 @@ export async function executePrivateAdvertiserOutreach(
     checkPrivateOutreachCapability: OrderiNotificationListener.checkPrivateOutreachCapability
       ? (payload) => OrderiNotificationListener.checkPrivateOutreachCapability!(payload)
       : undefined,
+    getPrivateOutreachStatus: () => OrderiNotificationListener.getPrivateOutreachStatus(),
     reachAdvertiserPrivateChat: (payload) => OrderiNotificationListener.reachAdvertiserPrivateChat(payload),
     openWhatsAppPrivateConversation: (payload) => OrderiNotificationListener.openWhatsAppPrivateConversation(payload),
   };
 
   // Step 2: Check native Android execution availability (NEVER auto-open WhatsApp on background failure)
   if (!bridge.isNativeAndroid()) {
+    emitExecutionState('NEEDS_USER_INTERACTION');
     return makeFailure(
       'BACKGROUND_SEND_UNAVAILABLE',
-      'الإرسال في الخلفية عبر WhatsApp Messenger العادي متاح على Android فقط؛ لم يتم فتح واتساب تلقائياً أو تسجيل قبول الطلب.',
+      'أنت تستخدم نسخة المتصفح حالياً؛ الإرسال الصامت بالخلفية يتطلب تطبيق أندرويد (APK) وصلاحية الإشعارات. يمكنك المتابعة فوراً عبر واتساب العادي من الخيارات أدناه.',
       'non_android_runtime',
+      { executionState: 'NEEDS_USER_INTERACTION' },
     );
   }
 
@@ -826,7 +957,7 @@ export async function executePrivateAdvertiserOutreach(
         memberName: targetName || undefined,
         senderIdentityKey: targetSenderKey || undefined,
         senderUri: targetSenderUri || undefined,
-        groupName: order.groupName || undefined,
+        groupName: orderWithRef.groupName || undefined,
       });
       if (cap?.privateChatResolved || targetPhone || cap?.hasPrivateNotificationReplyAction) {
         emitProgress('PRIVATE_CHAT_RESOLVED', 'تم تحديد مسار المحادثة الخاصة للمعلن');
@@ -840,8 +971,9 @@ export async function executePrivateAdvertiserOutreach(
   }
 
   const dedupTarget = targetPhone || targetSenderKey || targetName;
-  const requestKey = `${String(order.id || '')}:${dedupTarget}:${messageText}`;
+  const requestKey = `${String(orderWithRef.id || '')}:${dedupTarget}:${messageText}`;
   const lastSubmittedAt = privateOutreachRecentlySubmitted.get(requestKey) || 0;
+  let lockAcquired = false;
 
   if (autoSend) {
     if (privateOutreachInFlight.has(requestKey)) {
@@ -849,7 +981,7 @@ export async function executePrivateAdvertiserOutreach(
         'SEND_FAILED',
         'يوجد إرسال جارٍ بالفعل لهذا الطلب؛ لم نكرر الرسالة.',
         'outreach_in_flight',
-        { openFallbackModal: false },
+        { executionState: 'FAILED', openFallbackModal: false },
       );
     }
     if (Date.now() - lastSubmittedAt < 30_000) {
@@ -857,27 +989,148 @@ export async function executePrivateAdvertiserOutreach(
         'SEND_FAILED',
         'تم تمرير الرد لهذا الطلب مؤخراً؛ مُنع تكرار الإرسال.',
         'duplicate_recent_outreach',
-        { openFallbackModal: false },
+        { executionState: 'FAILED', openFallbackModal: false },
       );
     }
+
+    const lockResult = acquireExecutionLock(orderWithRef, operationId);
+    if (!lockResult.acquired) {
+      if ('reason' in lockResult && lockResult.reason === 'SEND_RESULT_UNKNOWN') {
+        return makeFailure(
+          'SEND_RESULT_UNKNOWN',
+          'تعذر الجزم بنتيجة الإرسال السابقة لهذا الطلب — مُنع التكرار التلقائي.',
+          'send_result_unknown_retry_blocked',
+          {
+            executionState: 'SEND_RESULT_UNKNOWN',
+            retryBlocked: true,
+            openFallbackModal: false,
+            deliveryReceiptStatus: 'unknown',
+          },
+        );
+      }
+      return makeFailure(
+        'SEND_FAILED',
+        'توجد عملية مراسلة قيد التنفيذ حالياً لهذا الطلب؛ لم نكرر الرسالة.',
+        'operation_in_flight',
+        { executionState: 'FAILED', openFallbackModal: false },
+      );
+    }
+    lockAcquired = true;
+    transitionExecutionLock(lockKey, operationId, 'OPENING_PRIVATE_CHAT');
     privateOutreachInFlight.add(requestKey);
   }
 
   try {
-    const result = await bridge.reachAdvertiserPrivateChat({
+    let result = await bridge.reachAdvertiserPrivateChat({
+      operationId,
+      orderId: orderWithRef.id,
       phone: targetPhone || undefined,
       memberName: targetName || undefined,
       senderIdentityKey: targetSenderKey || undefined,
       senderUri: targetSenderUri || undefined,
-      sourceNotificationKey: order.sourceNotificationKey || undefined,
-      sourceMessageTimestamp: order.sourceMessageTimestamp || undefined,
-      groupName: order.groupName,
-      sourceMessageText: order.rawText || '',
+      sourceNotificationKey: orderWithRef.sourceNotificationKey || undefined,
+      sourceMessageId: orderWithRef.sourceMessageId || undefined,
+      shortcutId: orderWithRef.shortcutId || undefined,
+      originalMessageRef,
+      sourceMessageTimestamp: orderWithRef.sourceMessageTimestamp || undefined,
+      groupName: orderWithRef.groupName,
+      sourceMessageText: orderWithRef.rawText || '',
       message: messageText,
       autoSend,
       backgroundOnly,
       allowUiFallback,
     });
+
+    // When Accessibility automation is running asynchronously inside WhatsApp UI, poll until
+    // we receive an explicit terminal execution state (SENT / SEND_RESULT_UNKNOWN / IDENTITY_NOT_CONFIRMED / FAILED / NEEDS_USER_INTERACTION).
+    if (result?.success && result?.asyncPending && autoSend && bridge.getPrivateOutreachStatus) {
+      const activeOpId = result.operationId || operationId;
+      const pollTimeout = opts.pollTimeoutMs ?? 18_000;
+      const pollStartedAt = Date.now();
+      let terminalPoll: Awaited<ReturnType<NonNullable<PrivateOutreachNativeBridge['getPrivateOutreachStatus']>>> | null = null;
+      const terminalStates = new Set([
+        'SENT',
+        'FAILED',
+        'IDENTITY_NOT_CONFIRMED',
+        'SEND_RESULT_UNKNOWN',
+        'NEEDS_USER_INTERACTION',
+      ]);
+
+      while (Date.now() - pollStartedAt < pollTimeout) {
+        try {
+          const poll = await bridge.getPrivateOutreachStatus();
+          const pollOpMatches = !poll?.operationId || poll.operationId === activeOpId;
+          const pollExec = parseExecutionState(poll?.executionState);
+          if (poll && pollOpMatches) {
+            if (pollExec && !terminalStates.has(pollExec)) {
+              emitExecutionState(pollExec, poll.statusLabel);
+            }
+            if (pollExec && terminalStates.has(pollExec)) {
+              terminalPoll = poll;
+              break;
+            }
+            if (
+              poll.status === 'SEND_RESULT_UNKNOWN' ||
+              poll.status === 'IDENTITY_NOT_VERIFIED' ||
+              poll.status === 'SEND_FAILED'
+            ) {
+              terminalPoll = poll;
+              break;
+            }
+          }
+        } catch {}
+        await new Promise((resolve) => setTimeout(resolve, 350));
+      }
+
+      if (terminalPoll) {
+        const pollExec = parseExecutionState(terminalPoll.executionState);
+        if (pollExec === 'SENT') {
+          result = {
+            ...result,
+            success: true,
+            submitted: true,
+            executionState: 'SENT',
+            status: 'MESSAGE_SUBMITTED',
+            sentVerifiedInUi: Boolean(terminalPoll.sentVerifiedInUi),
+            deliveryConfirmed: Boolean(terminalPoll.deliveryConfirmed),
+            statusLabel: terminalPoll.statusLabel || result.statusLabel,
+          };
+        } else {
+          const mappedStatus =
+            pollExec === 'SEND_RESULT_UNKNOWN' || terminalPoll.status === 'SEND_RESULT_UNKNOWN'
+              ? 'SEND_RESULT_UNKNOWN'
+              : pollExec === 'IDENTITY_NOT_CONFIRMED' || terminalPoll.status === 'IDENTITY_NOT_VERIFIED'
+              ? 'IDENTITY_NOT_VERIFIED'
+              : pollExec === 'NEEDS_USER_INTERACTION'
+              ? 'BACKGROUND_SEND_UNAVAILABLE'
+              : 'SEND_FAILED';
+          result = {
+            ...result,
+            success: false,
+            submitted: pollExec === 'SEND_RESULT_UNKNOWN',
+            executionState: pollExec || (mappedStatus === 'SEND_RESULT_UNKNOWN' ? 'SEND_RESULT_UNKNOWN' : 'FAILED'),
+            status: mappedStatus,
+            retryBlocked: Boolean(terminalPoll.retryBlocked || pollExec === 'SEND_RESULT_UNKNOWN'),
+            statusLabel: terminalPoll.statusLabel || result.statusLabel,
+          };
+        }
+      } else {
+        // Never blindly report success or allow automatic duplicate retry if Accessibility outcome timed out after launching WhatsApp.
+        result = {
+          ...result,
+          success: false,
+          submitted: true,
+          executionState: 'SEND_RESULT_UNKNOWN',
+          status: 'SEND_RESULT_UNKNOWN',
+          retryBlocked: true,
+          reasonCode: 'outreach_verification_timeout',
+          statusLabel:
+            'انتهت مهلة التحقق من إرسال الرسالة داخل واتساب؛ تعذر الجزم بالإرسال ومُنع التكرار التلقائي.',
+        };
+      }
+    }
+
+    const resultExecState = parseExecutionState(result?.executionState);
 
     if (result && result.success) {
       if (autoSend && result.submitted !== false) {
@@ -899,9 +1152,30 @@ export async function executePrivateAdvertiserOutreach(
           ? 'PRIVATE_CHAT_RESOLVED'
           : 'MESSAGE_SUBMITTED';
 
+      const finalExecState: WhatsAppExecutionState =
+        resultExecState ??
+        (!autoSend || normalizedStatus === 'PRIVATE_CHAT_RESOLVED'
+          ? 'NEEDS_USER_INTERACTION'
+          : 'SENT');
+
+      if (lockAcquired) {
+        transitionExecutionLock(
+          lockKey,
+          operationId,
+          finalExecState,
+          Boolean(result.sentVerifiedInUi),
+        );
+      }
+      emitExecutionState(finalExecState, result.statusLabel);
+
       return {
         success: true,
         status: normalizedStatus,
+        executionState: finalExecState,
+        operationId: result.operationId || operationId,
+        retryBlocked: false,
+        sentVerifiedInUi: Boolean(result.sentVerifiedInUi),
+        deliveryReceiptStatus: result.deliveryConfirmed ? 'delivered' : normalizedStatus === 'PRIVATE_CHAT_RESOLVED' ? 'not_sent' : 'sent_only',
         needsVerification: false,
         openFallbackModal: false,
         resolution,
@@ -918,36 +1192,97 @@ export async function executePrivateAdvertiserOutreach(
     }
 
     const nativeStatus = result?.status;
-    if (nativeStatus === 'IDENTITY_NOT_VERIFIED' || nativeStatus === 'VERIFICATION_REQUIRED') {
+    if (
+      resultExecState === 'SEND_RESULT_UNKNOWN' ||
+      nativeStatus === 'SEND_RESULT_UNKNOWN' ||
+      result?.retryBlocked
+    ) {
+      if (lockAcquired) {
+        transitionExecutionLock(lockKey, operationId, 'SEND_RESULT_UNKNOWN', false);
+      }
+      emitExecutionState('SEND_RESULT_UNKNOWN', result?.statusLabel);
+      return makeFailure(
+        'SEND_RESULT_UNKNOWN',
+        result?.statusLabel ||
+          'تعذر الجزم بنتيجة الإرسال عبر واتساب — مُنع التكرار التلقائي لمنع الإرسال المزدوج.',
+        result?.reasonCode || 'send_result_unknown',
+        {
+          executionState: 'SEND_RESULT_UNKNOWN',
+          operationId: result?.operationId || operationId,
+          retryBlocked: true,
+          openFallbackModal: false,
+          deliveryReceiptStatus: 'unknown',
+        },
+      );
+    }
+
+    if (
+      resultExecState === 'IDENTITY_NOT_CONFIRMED' ||
+      nativeStatus === 'IDENTITY_NOT_VERIFIED' ||
+      nativeStatus === 'VERIFICATION_REQUIRED'
+    ) {
+      if (lockAcquired) {
+        transitionExecutionLock(lockKey, operationId, 'IDENTITY_NOT_CONFIRMED', false);
+      }
+      emitExecutionState('IDENTITY_NOT_CONFIRMED', result?.statusLabel);
       return makeFailure(
         'IDENTITY_NOT_VERIFIED',
-        result.statusLabel || 'يتطلب التحقق من هوية المعلن أو المجموعة قبل المراسلة الخاصة.',
-        result.reasonCode || 'native_verification_required',
-        { accessibilityRequired: Boolean(result.accessibilityRequired) },
+        result?.statusLabel || 'يتطلب التحقق من هوية المعلن أو المجموعة قبل المراسلة الخاصة.',
+        result?.reasonCode || 'native_verification_required',
+        {
+          executionState: 'IDENTITY_NOT_CONFIRMED',
+          operationId: result?.operationId || operationId,
+          accessibilityRequired: Boolean(result?.accessibilityRequired),
+        },
       );
     }
 
-    if (nativeStatus === 'SEND_FAILED' || nativeStatus === 'FAILED') {
+    if (
+      resultExecState === 'FAILED' ||
+      nativeStatus === 'SEND_FAILED' ||
+      nativeStatus === 'FAILED'
+    ) {
+      if (lockAcquired) {
+        transitionExecutionLock(lockKey, operationId, 'FAILED', false);
+      }
+      emitExecutionState('FAILED', result?.statusLabel);
       return makeFailure(
         'SEND_FAILED',
-        result.statusLabel || 'تعذر إرسال الرسالة الخاصة عبر WhatsApp Messenger العادي.',
-        result.reasonCode || 'native_outreach_failed',
-        { accessibilityRequired: Boolean(result.accessibilityRequired) },
+        result?.statusLabel || 'تعذر إرسال الرسالة الخاصة عبر WhatsApp Messenger العادي.',
+        result?.reasonCode || 'native_outreach_failed',
+        {
+          executionState: 'FAILED',
+          operationId: result?.operationId || operationId,
+          accessibilityRequired: Boolean(result?.accessibilityRequired),
+        },
       );
     }
 
+    if (lockAcquired) {
+      transitionExecutionLock(lockKey, operationId, 'NEEDS_USER_INTERACTION', false);
+    }
+    emitExecutionState('NEEDS_USER_INTERACTION', result?.statusLabel);
     return makeFailure(
       'BACKGROUND_SEND_UNAVAILABLE',
       result?.statusLabel ||
-        `تعذر الإرسال الصامت بالخلفية لعدم وجود إشعار رد خاص مباشر من WhatsApp العادي لـ «${advertiserName}»؛ لأن Android وواتساب لا يتيحان إنشاء محادثة خاصة جديدة بالخلفية بدون فتح التطبيق.`,
+        `لم يصل إشعار محادثة خاصة سابقة من «${advertiserName}» لإرسال الرد صامتاً دون فتح واتساب؛ يمكنك تفعيل خدمة الوصول للمتابعة التلقائية أو المراسلة الفورية أدناه.`,
       result?.reasonCode || 'background_send_unavailable',
-      { accessibilityRequired: Boolean(result?.accessibilityRequired) },
+      {
+        executionState: 'NEEDS_USER_INTERACTION',
+        operationId: result?.operationId || operationId,
+        accessibilityRequired: Boolean(result?.accessibilityRequired),
+      },
     );
   } catch {
+    if (lockAcquired) {
+      transitionExecutionLock(lockKey, operationId, 'FAILED', false);
+    }
+    emitExecutionState('FAILED');
     return makeFailure(
       'SEND_FAILED',
       'حدث خطأ تقني أثناء محاولة التواصل الخاص عبر واتساب؛ بقي الطلب في الرادار.',
       'native_bridge_exception',
+      { executionState: 'FAILED', operationId },
     );
   } finally {
     if (autoSend) {

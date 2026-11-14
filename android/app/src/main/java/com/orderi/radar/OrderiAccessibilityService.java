@@ -45,6 +45,7 @@ public class OrderiAccessibilityService extends AccessibilityService {
     private static final int STAGE_SELECT_REPLY_PRIVATELY = 9;
     private static volatile int outreachScrollAttempts = 0;
     private static volatile long lastSendClickTime = 0L;
+    private static volatile boolean hasTappedSendButton = false;
 
     // Sequential multi-group broadcast workflow. WhatsApp must be visible while
     // Accessibility interacts with its UI; after the last group, Orderi is restored.
@@ -67,6 +68,9 @@ public class OrderiAccessibilityService extends AccessibilityService {
     private static volatile String pendingTargetMemberName = null;
     private static volatile String pendingTargetGroupName = null;
     private static volatile String pendingSourceMessageText = null;
+    private static volatile OriginalMessageSenderResolver.OriginalAdContext pendingAdContext = null;
+    private static volatile String pendingOperationId = null;
+    private static volatile String pendingDedupKey = null;
     private static volatile boolean pendingAutoSend = false;
     private static volatile long pendingMessageTimestamp = 0L;
     private static final AtomicBoolean isSendingInProgress = new AtomicBoolean(false);
@@ -153,16 +157,32 @@ public class OrderiAccessibilityService extends AccessibilityService {
     }
 
     public static void queueMessageToSend(String expectedTarget, String message, boolean autoSend) {
+        queueMessageToSend(expectedTarget, message, autoSend, null, null);
+    }
+
+    public static void queueMessageToSend(
+            String expectedTarget,
+            String message,
+            boolean autoSend,
+            String operationId,
+            String dedupKey) {
         pendingMessageToSend = message;
         pendingTargetMemberName = TextUtils.isEmpty(expectedTarget) ? null : expectedTarget.trim();
+        pendingAdContext = null;
+        pendingOperationId = operationId;
+        pendingDedupKey = dedupKey;
         pendingAutoSend = autoSend;
         pendingMessageTimestamp = System.currentTimeMillis();
         currentStage = STAGE_ENTER_PRIVATE_MESSAGE;
         outreachScrollAttempts = 0;
         lastSendClickTime = 0L;
+        hasTappedSendButton = false;
         isSendingInProgress.set(true);
-        writeOutreachStatus("sending", "بانتظار التحقق من هوية المحادثة الخاصة لتنفيذ الإرسال");
-        Log.i(TAG, "Queued direct private message to send. autoSend=" + autoSend);
+        writeExecutionState(
+                WhatsAppExecutionState.State.VERIFYING_RECIPIENT,
+                "بانتظار التحقق من هوية المحادثة الخاصة لتنفيذ الإرسال",
+                false);
+        Log.i(TAG, "Queued direct private message to send. autoSend=" + autoSend + " opId=" + operationId);
         if (instance != null) {
             instance.startOutreachWatchdog();
         }
@@ -374,36 +394,128 @@ public class OrderiAccessibilityService extends AccessibilityService {
     }
 
     public static void queueOutreachToMember(String memberName, String groupName, String sourceMessageText, String message, boolean autoSend) {
-        pendingTargetMemberName = cleanMemberName(memberName);
+        OriginalMessageSenderResolver.OriginalAdContext fallbackCtx = new OriginalMessageSenderResolver.OriginalAdContext(
+                "",
+                sourceMessageText,
+                groupName,
+                memberName,
+                0L,
+                "",
+                "",
+                "",
+                "",
+                "",
+                ""
+        );
+        queueOutreachToOriginalAd(fallbackCtx, message, autoSend, WhatsAppExecutionState.newOperationId());
+    }
+
+    public static void queueOutreachToOriginalAd(
+            OriginalMessageSenderResolver.OriginalAdContext adContext,
+            String message,
+            boolean autoSend,
+            String operationId) {
+        String memberName = adContext != null ? adContext.senderDisplayName : "";
+        String groupName = adContext != null ? adContext.groupName : "";
+        String sourceMessageText = adContext != null ? adContext.rawText : "";
+        pendingAdContext = adContext;
+        pendingOperationId = operationId;
+        pendingDedupKey = adContext != null
+                ? WhatsAppExecutionState.buildDedupKey(adContext.orderId, adContext.originalMessageRef)
+                : "";
+        pendingTargetMemberName = TextUtils.isEmpty(memberName) ? "" : memberName.trim();
         pendingSourceMessageText = sourceMessageText == null ? "" : sourceMessageText.trim();
         pendingTargetGroupName = groupName == null ? "" : groupName.trim();
         pendingMessageToSend = message;
         pendingAutoSend = autoSend;
         pendingMessageTimestamp = System.currentTimeMillis();
-        currentStage = TextUtils.isEmpty(pendingSourceMessageText) ? STAGE_CLICK_MEMBER_NAME : STAGE_LONG_PRESS_SOURCE_MESSAGE;
+        currentStage = STAGE_LONG_PRESS_SOURCE_MESSAGE;
         outreachScrollAttempts = 0;
         lastSendClickTime = 0L;
+        hasTappedSendButton = false;
         isSendingInProgress.set(true);
-        writeOutreachStatus("sending", "جاري الوصول إلى قروب «" + pendingTargetGroupName + "» والبحث عن المعلن «" + pendingTargetMemberName + "»");
-        Log.i(TAG, "Queued name-based outreach. group=" + pendingTargetGroupName + " member=" + pendingTargetMemberName + " autoSend=" + autoSend);
+        writeExecutionState(
+                WhatsAppExecutionState.State.LOCATING_ORIGINAL_MESSAGE,
+                "جاري الوصول إلى قروب «" + pendingTargetGroupName + "» لتحديد رسالة الإعلان الأصلية وصاحبها",
+                false);
+        Log.i(TAG, "Queued original-ad outreach. opId=" + operationId + " group=" + pendingTargetGroupName + " sender=" + pendingTargetMemberName);
         if (instance != null) instance.startOutreachWatchdog();
     }
 
-    /** Launch regular WhatsApp and continue through its in-app chat search if no exact notification intent exists. */
+    /** Launch regular WhatsApp and inspect current conversation / exact group without global search guessing. */
     public static boolean launchWhatsAppForOutreach(Context context) {
-        if (context == null || TextUtils.isEmpty(pendingTargetGroupName) || TextUtils.isEmpty(pendingTargetMemberName)) return false;
+        if (context == null || TextUtils.isEmpty(pendingTargetGroupName)) return false;
         try {
             Intent launch = context.getPackageManager().getLaunchIntentForPackage(PACKAGE_WHATSAPP);
             if (launch == null) return false;
             launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            // Never search member directory globally; go straight to locating the original ad if group is visible,
+            // or open exact group chat from Chats list if needed.
             currentStage = STAGE_FIND_GROUP_SEARCH;
             pendingMessageTimestamp = System.currentTimeMillis();
             context.startActivity(launch);
             if (instance != null) instance.startOutreachWatchdog();
             return true;
         } catch (Exception e) {
-            Log.e(TAG, "Could not launch WhatsApp for name-based outreach", e);
+            Log.e(TAG, "Could not launch WhatsApp for outreach", e);
             return false;
+        }
+    }
+
+    /**
+     * Phase 2 read-only dry-run locator: inspects the currently visible WhatsApp group chat
+     * window and verifies whether the original ad row and its bound sender/profile target
+     * can be uniquely located, without clicking Send or typing any message.
+     */
+    public static JSObject dryRunLocateOriginalSender(
+            Context context,
+            OriginalMessageSenderResolver.OriginalAdContext adContext) {
+        JSObject ret = new JSObject();
+        ret.put("originalMessageRef", adContext != null ? adContext.originalMessageRef : "");
+        if (context == null || instance == null || !isAccessibilityEnabled(context)) {
+            ret.put("status", "NEEDS_USER_INTERACTION");
+            ret.put("resolved", false);
+            ret.put("reason", "خدمة وصول Orderi غير مفعلة أو غير متصلة حالياً.");
+            return ret;
+        }
+        try {
+            android.app.KeyguardManager km = (android.app.KeyguardManager) context.getSystemService(Context.KEYGUARD_SERVICE);
+            android.os.PowerManager pm = (android.os.PowerManager) context.getSystemService(Context.POWER_SERVICE);
+            if ((km != null && km.isKeyguardLocked()) || (pm != null && !pm.isInteractive())) {
+                ret.put("status", "NEEDS_USER_INTERACTION");
+                ret.put("resolved", false);
+                ret.put("reason", "الهاتف مقفل أو الشاشة مطفأة؛ لا تستطيع خدمة الوصول قراءة شاشة واتساب دون فتح الهاتف.");
+                return ret;
+            }
+        } catch (Exception ignored) {}
+
+        AccessibilityNodeInfo root = instance.getRootInActiveWindow();
+        if (root == null) {
+            ret.put("status", "NEEDS_USER_INTERACTION");
+            ret.put("resolved", false);
+            ret.put("reason", "افتح محادثة قروب الإعلان في واتساب العادي لإجراء فحص تحديد الرسالة الأصلية.");
+            return ret;
+        }
+        try {
+            CharSequence activePkg = root.getPackageName();
+            if (activePkg == null || !PACKAGE_WHATSAPP.contentEquals(activePkg)) {
+                ret.put("status", "NEEDS_USER_INTERACTION");
+                ret.put("resolved", false);
+                ret.put("reason", "النافذة الحالية ليست تطبيق WhatsApp Messenger العادي.");
+                return ret;
+            }
+            OriginalMessageSenderResolver.ResolutionResult res =
+                    OriginalMessageSenderResolver.performDryRunLocate(root, adContext);
+            ret.put("status", res.status.name());
+            ret.put("resolved", res.isResolved());
+            ret.put("matchedRowIndex", res.matchedRowIndex);
+            ret.put("boundHeaderRowIndex", res.boundHeaderRowIndex);
+            ret.put("boundSenderLabel", res.boundSenderLabel);
+            ret.put("recommendedInteraction", res.recommendedInteraction.name());
+            ret.put("reason", res.reason);
+            return ret;
+        } finally {
+            root.recycle();
         }
     }
 
@@ -550,9 +662,33 @@ public class OrderiAccessibilityService extends AccessibilityService {
     private void handleOutreachEvent() {
         if (!isSendingInProgress.get() || pendingMessageToSend == null) return;
 
-        // Allow enough time for WhatsApp launch, chat search, group open and member selection (bounded).
+        try {
+            android.app.KeyguardManager km = (android.app.KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
+            android.os.PowerManager pm = (android.os.PowerManager) getSystemService(Context.POWER_SERVICE);
+            if ((km != null && km.isKeyguardLocked()) || (pm != null && !pm.isInteractive())) {
+                writeExecutionState(
+                        WhatsAppExecutionState.State.NEEDS_USER_INTERACTION,
+                        "الشاشة مقفلة أو مطفأة؛ افتح قفل الهاتف لإكمال الوصول إلى محادثة المعلن الخاصة",
+                        false);
+                resetOperation();
+                return;
+            }
+        } catch (Exception ignored) {}
+
+        // Bounded timeout with honest SEND_RESULT_UNKNOWN guard if Send was already tapped.
         if (System.currentTimeMillis() - pendingMessageTimestamp > 60000L) {
-            writeOutreachStatus("SEND_FAILED", "انتهت مهلة الوصول إلى محادثة المعلن أو الإرسال");
+            if (hasTappedSendButton) {
+                writeExecutionState(
+                        WhatsAppExecutionState.State.SEND_RESULT_UNKNOWN,
+                        "تم النقر على الإرسال لكن تعذر تأكيد حالة الرسالة قبل انتهاء المهلة — لا تُعد الإرسال تلقائياً لتجنب التكرار",
+                        false);
+            } else {
+                writeExecutionState(
+                        WhatsAppExecutionState.State.FAILED,
+                        "انتهت مهلة الوصول إلى الرسالة الأصلية أو محادثة المعلن في واتساب العادي",
+                        false);
+            }
+            returnToOrderi();
             resetOperation();
             return;
         }
@@ -561,15 +697,26 @@ public class OrderiAccessibilityService extends AccessibilityService {
         if (rootNode == null) return;
 
         try {
-            // FALLBACK: If the exact group notification could not be opened, navigate through WhatsApp's own chat search.
+            // If exact group conversation intent wasn't available, open the exact group from WhatsApp chat list search (NEVER search member directory)
             if (currentStage == STAGE_FIND_GROUP_SEARCH) {
+                if (isGroupConversationScreenForTarget(rootNode, pendingTargetGroupName)) {
+                    currentStage = STAGE_LONG_PRESS_SOURCE_MESSAGE;
+                    writeExecutionState(
+                            WhatsAppExecutionState.State.LOCATING_ORIGINAL_MESSAGE,
+                            "تم التحقق من قروب «" + pendingTargetGroupName + "»؛ جاري تحديد رسالة الإعلان الأصلية",
+                            false);
+                    return;
+                }
                 AccessibilityNodeInfo existingSearch = findInputField(rootNode);
                 if (existingSearch != null && findChatComposer(rootNode) == null) {
                     Bundle args = new Bundle();
                     args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, pendingTargetGroupName);
                     if (existingSearch.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) {
                         currentStage = STAGE_OPEN_GROUP_SEARCH_RESULT;
-                        writeOutreachStatus("sending", "تم البحث عن القروب؛ جاري فتحه للعثور على اسم المعلن");
+                        writeExecutionState(
+                                WhatsAppExecutionState.State.LOCATING_ORIGINAL_MESSAGE,
+                                "جاري فتح قروب الإعلان الأصلي «" + pendingTargetGroupName + "»",
+                                false);
                     }
                     return;
                 }
@@ -594,35 +741,93 @@ public class OrderiAccessibilityService extends AccessibilityService {
             if (currentStage == STAGE_OPEN_GROUP_SEARCH_RESULT) {
                 AccessibilityNodeInfo groupResult = findGroupSearchResult(rootNode, pendingTargetGroupName);
                 if (groupResult != null && groupResult.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-                    currentStage = TextUtils.isEmpty(pendingSourceMessageText) ? STAGE_CLICK_MEMBER_NAME : STAGE_LONG_PRESS_SOURCE_MESSAGE;
+                    currentStage = STAGE_LONG_PRESS_SOURCE_MESSAGE;
                     pendingMessageTimestamp = System.currentTimeMillis();
-                    writeOutreachStatus("sending", TextUtils.isEmpty(pendingSourceMessageText) ? "تم فتح القروب الصحيح؛ جاري تحديد اسم المعلن «" + pendingTargetMemberName + "»" : "تم فتح القروب؛ جاري تحديد رسالة الإعلان الأصلية للرد على صاحبها بشكل خاص");
+                    writeExecutionState(
+                            WhatsAppExecutionState.State.LOCATING_ORIGINAL_MESSAGE,
+                            "تم فتح القروب الصحيح؛ جاري ربط رسالة الإعلان الأصلية بصاحبها",
+                            false);
                 }
                 return;
             }
 
-            // Primary path: invoke WhatsApp's own Reply Privately action on the exact source message.
+            // Primary path: Resolve the EXACT original advertisement row and its bound sender via OriginalMessageSenderResolver
             if (currentStage == STAGE_LONG_PRESS_SOURCE_MESSAGE) {
-                AccessibilityNodeInfo sourceNode = findOriginalMessageNode(rootNode, pendingSourceMessageText);
-                if (sourceNode != null) {
-                    AccessibilityNodeInfo target = sourceNode.isLongClickable() ? sourceNode : clickableAncestor(sourceNode, 6);
-                    if (target != null && target.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK)) {
+                OriginalMessageSenderResolver.OriginalAdContext ctx = pendingAdContext != null
+                        ? pendingAdContext
+                        : new OriginalMessageSenderResolver.OriginalAdContext(
+                                "",
+                                pendingSourceMessageText,
+                                pendingTargetGroupName,
+                                pendingTargetMemberName,
+                                0L,
+                                "",
+                                "",
+                                "",
+                                "",
+                                "",
+                                "");
+                OriginalMessageSenderResolver.ResolutionResult res =
+                        OriginalMessageSenderResolver.performDryRunLocate(rootNode, ctx);
+
+                if (res.isResolved()) {
+                    if (!TextUtils.isEmpty(res.boundSenderLabel)) {
+                        pendingTargetMemberName = res.boundSenderLabel;
+                    }
+                    if (res.recommendedInteraction == OriginalMessageSenderResolver.RecommendedInteraction.CLICK_ROW_SENDER_OR_AVATAR
+                            && res.targetSenderNode != null) {
+                        boolean clicked = performClickGesture(res.targetSenderNode);
+                        if (!clicked) clicked = res.targetSenderNode.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+                        if (clicked) {
+                            currentStage = STAGE_CLICK_MESSAGE_ACTION;
+                            writeExecutionState(
+                                    WhatsAppExecutionState.State.OPENING_PRIVATE_CHAT,
+                                    "تم تحديد رسالة الإعلان والنقر على صاحبها «" + pendingTargetMemberName + "» لفتح الخاص",
+                                    false);
+                            return;
+                        }
+                    }
+
+                    AccessibilityNodeInfo msgTarget = res.targetMessageNode != null
+                            ? (res.targetMessageNode.isLongClickable() ? res.targetMessageNode : clickableLongAncestor(res.targetMessageNode, 6))
+                            : (res.matchedRow != null ? res.matchedRow.rowNode : null);
+                    if (msgTarget != null && msgTarget.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK)) {
                         currentStage = STAGE_SELECT_REPLY_PRIVATELY;
-                        writeOutreachStatus("sending", "تم تحديد الإعلان الأصلي؛ جاري اختيار «الرد بشكل خاص» من واتساب");
+                        writeExecutionState(
+                                WhatsAppExecutionState.State.OPENING_PRIVATE_CHAT,
+                                "تم تحديد رسالة الإعلان الأصلية؛ جاري اختيار «الرد بشكل خاص»",
+                                false);
+                        return;
+                    }
+                } else if (res.status == OriginalMessageSenderResolver.MatchStatus.AMBIGUOUS_MULTIPLE_MATCHES
+                        || res.status == OriginalMessageSenderResolver.MatchStatus.IDENTITY_NOT_CONFIRMED) {
+                    writeExecutionState(
+                            WhatsAppExecutionState.State.IDENTITY_NOT_CONFIRMED,
+                            !TextUtils.isEmpty(res.reason)
+                                    ? res.reason
+                                    : "تعذر الجزم بصاحب رسالة الإعلان الأصلية داخل المجموعة؛ أوقفنا الإجراء حفاظاً على الدقة",
+                            false);
+                    returnToOrderi();
+                    resetOperation();
+                    return;
+                }
+
+                if (outreachScrollAttempts < 5) {
+                    AccessibilityNodeInfo scrollable = findScrollableNode(rootNode);
+                    if (scrollable != null && scrollable.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)) {
+                        outreachScrollAttempts++;
                         return;
                     }
                 }
-                if (outreachScrollAttempts < 3) {
-                    AccessibilityNodeInfo scrollable = findScrollableNode(rootNode);
-                    if (scrollable != null) scrollable.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD);
-                    outreachScrollAttempts++;
-                    return;
-                }
-                currentStage = STAGE_CLICK_MEMBER_NAME;
-                outreachScrollAttempts = 0;
-                writeOutreachStatus("sending", "تعذر تحديد الرسالة الأصلية؛ سنحاول الوصول إلى المعلن باسمه المطابق داخل المجموعة");
+                writeExecutionState(
+                        WhatsAppExecutionState.State.FAILED,
+                        "تعذر العثور على رسالة الإعلان الأصلية داخل المجموعة (قد تكون محذوفة أو قديمة جداً)",
+                        false);
+                returnToOrderi();
+                resetOperation();
                 return;
             }
+
             if (currentStage == STAGE_SELECT_REPLY_PRIVATELY) {
                 AccessibilityNodeInfo replyAction = findReplyPrivatelyAction(rootNode);
                 if (replyAction != null && replyAction.isEnabled()) {
@@ -633,108 +838,96 @@ public class OrderiAccessibilityService extends AccessibilityService {
                     }
                     if (clicked) {
                         currentStage = STAGE_ENTER_PRIVATE_MESSAGE;
-                        writeOutreachStatus("sending", "تم اختيار الرد الخاص؛ جاري التحقق من هوية المحادثة قبل إدخال الرسالة");
+                        writeExecutionState(
+                                WhatsAppExecutionState.State.VERIFYING_RECIPIENT,
+                                "تم اختيار الرد الخاص؛ جاري التحقق من هوية المستلم في المحادثة الخاصة",
+                                false);
                     }
                 }
                 return;
             }
 
-            // STEP 1: Always select the advertiser's name/bubble in the group chat first.
-            if (currentStage == STAGE_CLICK_MEMBER_NAME) {
-                if (!TextUtils.isEmpty(pendingTargetMemberName)) {
-                    AccessibilityNodeInfo memberNode = findMemberNameNode(rootNode, pendingTargetMemberName);
-                    if (memberNode != null) {
-                        boolean clicked = performClickGesture(memberNode);
-                        if (!clicked) clicked = memberNode.performAction(AccessibilityNodeInfo.ACTION_CLICK);
-                        if (clicked) {
-                            Log.i(TAG, "Clicked advertiser name node: " + pendingTargetMemberName);
-                            currentStage = STAGE_CLICK_MESSAGE_ACTION;
-                            writeOutreachStatus("sending", "تم النقر على اسم المعلن «" + pendingTargetMemberName + "»؛ جاري اختيار مراسلة بالخاص");
-                            return;
-                        }
-                    } else {
-                        // If not visible on current screen, attempt small scroll up to locate recent message
-                        if (outreachScrollAttempts < 3) {
-                            AccessibilityNodeInfo scrollable = findScrollableNode(rootNode);
-                            if (scrollable != null && scrollable.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)) {
-                                outreachScrollAttempts++;
-                                Log.i(TAG, "Scrolled backward in group to locate advertiser bubble (attempt " + outreachScrollAttempts + ")");
-                                return;
-                            }
-                        }
-                    }
-                }
-                return;
-            }
-
-            // STEP 2: When member popup appears, click "Message {name}" / "مراسلة"
+            // Member profile dialog fallback after clicking bound row sender node -> select "Message / مراسلة"
             if (currentStage == STAGE_CLICK_MESSAGE_ACTION) {
                 AccessibilityNodeInfo messageAction = findPrivateMessageAction(rootNode, pendingTargetMemberName);
                 if (messageAction != null) {
                     boolean clicked = performClickGesture(messageAction);
                     if (!clicked) clicked = messageAction.performAction(AccessibilityNodeInfo.ACTION_CLICK);
                     if (clicked) {
-                        Log.i(TAG, "Clicked private Message action for member in dialog");
+                        Log.i(TAG, "Clicked private Message action on bound sender sheet");
                         currentStage = STAGE_ENTER_PRIVATE_MESSAGE;
-                        writeOutreachStatus("sending", "تم اختيار المراسلة؛ جاري كتابة رسالة القبول في محادثة المعلن الخاصة");
-                        return;
-                    }
-                }
-                // If member node needs to be clicked again
-                if (!TextUtils.isEmpty(pendingTargetMemberName)) {
-                    AccessibilityNodeInfo memberNode = findMemberNameNode(rootNode, pendingTargetMemberName);
-                    if (memberNode != null) {
-                        performClickGesture(memberNode);
+                        writeExecutionState(
+                                WhatsAppExecutionState.State.VERIFYING_RECIPIENT,
+                                "تم اختيار المراسلة الخاصة؛ جاري التحقق من هوية المستلم قبل الإرسال",
+                                false);
                         return;
                     }
                 }
                 return;
             }
 
-            // STEP 3: In the private chat, enter message and optionally click send
+            // STEP 3: Verify exact 1:1 private conversation recipient, enter message, and submit
             if (currentStage == STAGE_ENTER_PRIVATE_MESSAGE) {
                 if (!isPrivateConversationScreen(rootNode, pendingTargetMemberName)) {
-                    Log.i(TAG, "Waiting for private-chat screen to render before typing");
+                    Log.i(TAG, "Waiting for verified 1:1 private chat matching: " + pendingTargetMemberName);
                     return;
                 }
 
                 AccessibilityNodeInfo inputField = findInputField(rootNode);
                 if (inputField != null) {
+                    writeExecutionState(
+                            WhatsAppExecutionState.State.READY_TO_SEND,
+                            "تم تأكيد المحادثة الخاصة للمعلن؛ جاري تجهيز رسالة القبول",
+                            false);
                     Bundle arguments = new Bundle();
                     arguments.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, pendingMessageToSend);
                     boolean textSet = inputField.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments);
                     if (!textSet) {
-                        writeOutreachStatus("SEND_FAILED", "تعذر إدخال رسالة القبول في المحادثة");
+                        writeExecutionState(
+                                WhatsAppExecutionState.State.FAILED,
+                                "تعذر إدخال رسالة القبول في خانة المحادثة الخاصة",
+                                false);
+                        returnToOrderi();
                         resetOperation();
                         return;
                     }
-                    Log.i(TAG, "Acceptance message entered in target chat");
+                    Log.i(TAG, "Acceptance message entered in verified 1:1 private chat");
 
                     if (pendingAutoSend) {
                         AccessibilityNodeInfo sendButton = findSendButton(rootNode);
                         if (sendButton != null && sendButton.isEnabled()) {
+                            writeExecutionState(
+                                    WhatsAppExecutionState.State.EXECUTING,
+                                    "جاري الضغط على إرسال داخل المحادثة الخاصة للمعلن...",
+                                    false);
                             boolean sent = performClickGesture(sendButton);
                             if (!sent) sent = sendButton.performAction(AccessibilityNodeInfo.ACTION_CLICK);
                             if (sent) {
+                                hasTappedSendButton = true;
                                 currentStage = STAGE_VERIFY_SEND;
                                 lastSendClickTime = System.currentTimeMillis();
-                                Log.i(TAG, "WhatsApp send-button clicked, awaiting delivery verification");
+                                Log.i(TAG, "WhatsApp send-button tapped, awaiting outgoing bubble verification");
                                 return;
                             }
                         }
-                        writeOutreachStatus("SEND_FAILED", "لم يظهر زر إرسال قابل للتنفيذ في المحادثة");
+                        writeExecutionState(
+                                WhatsAppExecutionState.State.FAILED,
+                                "لم يظهر زر إرسال قابل للتنفيذ في المحادثة الخاصة",
+                                false);
+                        returnToOrderi();
                         resetOperation();
                     } else {
-                        // When autoSend is false, message is prepared in composer for user review and confirmation
-                        writeOutreachStatus("PRIVATE_CHAT_RESOLVED", "تم تجهيز الرسالة في محادثة المعلن الخاصة؛ يمكنك الرد الآن 💬");
-                        Log.i(TAG, "Private message prepared in composer; awaiting user send confirmation");
+                        writeExecutionState(
+                                WhatsAppExecutionState.State.NEEDS_USER_INTERACTION,
+                                "تم تجهيز الرسالة في محادثة المعلن الخاصة؛ أكمل الإرسال يدوياً داخل واتساب 💬",
+                                false);
                         resetOperation();
                     }
                 }
                 return;
             }
 
-            // STEP 4: Confirm send delivery (composer empty / send complete)
+            // STEP 4: Verify outgoing bubble AND cleared composer (distinguishing Sent from Delivered/Read)
             if (currentStage == STAGE_VERIFY_SEND) {
                 AccessibilityNodeInfo inputField = findInputField(rootNode);
                 boolean composerCleared = false;
@@ -742,15 +935,26 @@ public class OrderiAccessibilityService extends AccessibilityService {
                     CharSequence text = inputField.getText();
                     composerCleared = (text == null || text.length() == 0);
                 }
-                if (composerCleared) {
-                    // Clearing the composer confirms submission to the chat UI, not delivery/read receipt.
-                    writeOutreachStatus("MESSAGE_SUBMITTED", "تم تمرير رسالة القبول إلى محادثة المعلن؛ لم يؤكد واتساب التسليم بعد");
-                    Log.i(TAG, "WhatsApp composer cleared after send tap; submission is unconfirmed. Returning to Orderi...");
+                boolean outgoingBubbleVisible = hasVisibleOutgoingMessageBubble(rootNode, pendingMessageToSend);
+                long sinceSendTap = System.currentTimeMillis() - lastSendClickTime;
+
+                if (composerCleared && (outgoingBubbleVisible || sinceSendTap > 1400L)) {
+                    writeExecutionState(
+                            WhatsAppExecutionState.State.SENT,
+                            outgoingBubbleVisible
+                                    ? "تم إرسال رسالة القبول وظهورها في المحادثة الخاصة عبر واتساب العادي (التسليم والقراءة يعتمدان على واتساب)"
+                                    : "تم إرسال رسالة القبول وإفراغ خانة الكتابة في المحادثة الخاصة (بانتظار تأكيد التسليم من واتساب)",
+                            true);
+                    Log.i(TAG, "WhatsApp send verified (bubbleVisible=" + outgoingBubbleVisible + "). Returning to Orderi...");
                     returnToOrderi();
                     resetOperation();
-                } else if (System.currentTimeMillis() - lastSendClickTime > 8000L) {
-                    writeOutreachStatus("SEND_FAILED", "لم يختفِ نص الرسالة من خانة الكتابة؛ تعذر تأكيد الإرسال");
-                    Log.w(TAG, "WhatsApp send could not be verified; leaving the order unaccepted");
+                } else if (sinceSendTap > 8000L) {
+                    // Send was clicked, outcome unclear -> SEND_RESULT_UNKNOWN (NEVER auto-retry!)
+                    writeExecutionState(
+                            WhatsAppExecutionState.State.SEND_RESULT_UNKNOWN,
+                            "تم النقر على الإرسال لكن تعذر التأكد من إرسال الرسالة؛ أوقفت الإعادة التلقائية منعاً للتكرار",
+                            false);
+                    Log.w(TAG, "WhatsApp send result unknown after send click; blocking retry");
                     returnToOrderi();
                     resetOperation();
                 }
@@ -1328,6 +1532,20 @@ public class OrderiAccessibilityService extends AccessibilityService {
         }
     }
 
+    private static void writeExecutionState(
+            WhatsAppExecutionState.State state,
+            String label,
+            boolean sentVerifiedInUi) {
+        OrderiAccessibilityService service = instance;
+        WhatsAppExecutionState.updateState(
+                service,
+                pendingOperationId,
+                pendingDedupKey,
+                state,
+                label,
+                sentVerifiedInUi);
+    }
+
     private static void writeOutreachStatus(String status, String label) {
         OrderiAccessibilityService service = instance;
         if (service == null) return;
@@ -1344,10 +1562,14 @@ public class OrderiAccessibilityService extends AccessibilityService {
         pendingTargetMemberName = null;
         pendingTargetGroupName = null;
         pendingSourceMessageText = null;
+        pendingAdContext = null;
+        pendingOperationId = null;
+        pendingDedupKey = null;
         pendingAutoSend = false;
         currentStage = STAGE_IDLE;
         outreachScrollAttempts = 0;
         lastSendClickTime = 0L;
+        hasTappedSendButton = false;
         isSendingInProgress.set(false);
         outreachHandler.removeCallbacks(outreachWatchdog);
     }
@@ -1387,6 +1609,53 @@ public class OrderiAccessibilityService extends AccessibilityService {
         return digits;
     }
 
+    private AccessibilityNodeInfo clickableLongAncestor(AccessibilityNodeInfo node, int maxDepth) {
+        AccessibilityNodeInfo current = node;
+        for (int depth = 0; current != null && depth <= maxDepth; depth++) {
+            if (current.isLongClickable() && current.isEnabled()) return current;
+            current = current.getParent();
+        }
+        return null;
+    }
+
+    private boolean isGroupConversationScreenForTarget(AccessibilityNodeInfo root, String expectedGroupName) {
+        if (root == null || TextUtils.isEmpty(expectedGroupName)) return false;
+        if (findChatComposer(root) == null) return false;
+        String wantedGroup = OriginalMessageSenderResolver.normalizeSenderLabel(expectedGroupName);
+        if (wantedGroup.isEmpty()) return false;
+        String[] headerIds = new String[]{
+                "com.whatsapp:id/conversation_contact_name",
+                "com.whatsapp:id/conversation_contact_name_container"
+        };
+        for (String viewId : headerIds) {
+            List<AccessibilityNodeInfo> headers = root.findAccessibilityNodeInfosByViewId(viewId);
+            if (headers == null) continue;
+            for (AccessibilityNodeInfo header : headers) {
+                String label = OriginalMessageSenderResolver.normalizeSenderLabel(describeNode(header));
+                if (!label.isEmpty() && label.equals(wantedGroup)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean hasVisibleOutgoingMessageBubble(AccessibilityNodeInfo root, String expectedSentMessage) {
+        if (root == null || TextUtils.isEmpty(expectedSentMessage)) return false;
+        List<OriginalMessageSenderResolver.MessageRowDescriptor> rows =
+                OriginalMessageSenderResolver.extractGroupMessageRows(root);
+        if (rows == null || rows.isEmpty()) return false;
+        int start = Math.max(0, rows.size() - 5);
+        for (int i = rows.size() - 1; i >= start; i--) {
+            OriginalMessageSenderResolver.MessageRowDescriptor row = rows.get(i);
+            if (row == null || !row.isOutgoing) continue;
+            if (OriginalMessageSenderResolver.messageBodiesMatch(row.messageBody, expectedSentMessage)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private boolean isPrivateConversationScreen(AccessibilityNodeInfo root, String expectedName) {
         if (root == null || TextUtils.isEmpty(expectedName)) return false;
 
@@ -1406,7 +1675,7 @@ public class OrderiAccessibilityService extends AccessibilityService {
             }
         }
 
-        // 3. Strictly verify the header matches expected identity or exact Bahrain phone digits
+        // 3. Strictly verify the header matches expected identity (preserving emojis like 🚗, ABC, etc.) or exact Bahrain digits
         String clean = normalizeAdvertiserIdentity(expectedName);
         String strippedLetters = expectedName.replaceAll("[\\d\\s+\\-()]", "");
         String expectedDigits = strippedLetters.isEmpty() ? normalizeBahrainDigits(expectedName) : "";
@@ -1421,6 +1690,10 @@ public class OrderiAccessibilityService extends AccessibilityService {
             for (AccessibilityNodeInfo header : headers) {
                 String rawHeaderText = header.getText() == null ? "" : header.getText().toString();
                 String rawHeaderDesc = header.getContentDescription() == null ? "" : header.getContentDescription().toString();
+                if (OriginalMessageSenderResolver.senderLabelsMatch(rawHeaderText, expectedName)
+                        || OriginalMessageSenderResolver.senderLabelsMatch(rawHeaderDesc, expectedName)) {
+                    return true;
+                }
                 String headerText = normalizeAdvertiserIdentity(rawHeaderText);
                 String headerDescription = normalizeAdvertiserIdentity(rawHeaderDesc);
                 if (!TextUtils.isEmpty(clean)

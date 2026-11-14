@@ -3007,40 +3007,19 @@ function cleanSenderText(text) {
   if (!text) return "";
   return cleanDialectText(text).replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, "").replace(/[^\p{L}\p{N}\s]/gu, "").trim();
 }
-function isAdvertiserSenderMatch(msgSender, msgPhone, orderSenderName, orderSenderPhone, orderRawText) {
-  const p1 = (msgPhone || msgSender || "").replace(/\D/g, "");
-  const p2 = (orderSenderPhone || orderSenderName || "").replace(/\D/g, "");
-  if (p1.length >= 8 && p2.length >= 8) {
-    if (p1.slice(-8) === p2.slice(-8)) {
-      return true;
-    }
+function isAdvertiserSenderMatch(msgSender, msgPhone, orderSenderName, orderSenderPhone, _orderRawText) {
+  const digits = (value) => (value || "").replace(/\D/g, "");
+  const messagePhone = digits(msgPhone);
+  const advertiserPhone = digits(orderSenderPhone || "");
+  if (messagePhone.length >= 8 && advertiserPhone.length >= 8) {
+    return messagePhone.slice(-8) === advertiserPhone.slice(-8);
   }
-  if (p1.length >= 8 && orderRawText) {
-    const last8 = p1.slice(-8);
-    const textNumbers = orderRawText.replace(/\D/g, "");
-    if (textNumbers.includes(last8)) {
-      return true;
-    }
-  }
-  if (msgSender && orderSenderName) {
-    const s1 = cleanSenderText(msgSender);
-    const s2 = cleanSenderText(orderSenderName);
-    if (s1 && s2) {
-      if (s1 === s2) return true;
-      if (s1.length >= 3 && s2.includes(s1)) return true;
-      if (s2.length >= 3 && s1.includes(s2)) return true;
-    }
-  }
-  if (msgSender && orderRawText) {
-    const s1 = cleanSenderText(msgSender);
-    if (s1 && s1.length >= 4 && cleanSenderText(orderRawText).includes(s1)) {
-      return true;
-    }
-  }
-  return false;
+  const incomingName = cleanSenderText(msgSender);
+  const originalName = cleanSenderText(orderSenderName);
+  return Boolean(incomingName && originalName && incomingName === originalName);
 }
 function checkIncomingMessageForClosure(message, activeOrders) {
-  const rawText = (message.text || "").trim();
+  const rawText = (message.text || (message.isSticker ? "[sticker]" : "")).trim();
   if (!rawText) return null;
   const msgGroup = (message.groupName || "").trim();
   if (message.isDirectPrivate === true || message.isGroup !== true || !msgGroup || msgGroup === "\u0645\u062D\u0627\u062F\u062B\u0629 \u062E\u0627\u0635\u0629 \u{1F464}" || msgGroup.includes("\u062E\u0627\u0635\u0629") || msgGroup === "\u0648\u0627\u062A\u0633\u0627\u0628") {
@@ -3054,7 +3033,7 @@ function checkIncomingMessageForClosure(message, activeOrders) {
     return null;
   }
   const cleanedSignal = cleanDialectText(rawText).replace(/[\s.,،.!؟?؛:؛\u200e\u200f]+/g, "").trim();
-  const isPureSticker = /^(?:sticker|ملصق|استيكر|ستيكر|صورهملصق|صورةملصق|🖼️sticker|📷ملصق|🖼️ملصق|ملصقمتحرك|animatedsticker|صورة|صوره|gif)$/i.test(cleanedSignal) || /ملصق|استيكر|ستيكر|sticker|\[ملصق\]|\[sticker\]|\[استيكر\]|\[ستيكر\]/i.test(rawText);
+  const isPureSticker = message.isSticker === true || /^(?:sticker|ملصق|استيكر|ستيكر|صورهملصق|صورةملصق|🖼️sticker|📷ملصق|🖼️ملصق|ملصقمتحرك|animatedsticker|صورة|صوره|gif)$/i.test(cleanedSignal) || /ملصق|استيكر|ستيكر|sticker|\[ملصق\]|\[sticker\]|\[استيكر\]|\[ستيكر\]/i.test(rawText);
   const isMinimalCompletionSignal = isPureSticker || /^(?:تم|تمت|حصلت|حصل|حصلنا|لقيت|لقينا|خلاص|خلص|انحجز|انحجزت|اخذت|اخذته|اخذوه|أخذوه|شالوه|انشال|مشكور|مشكورين|يعطيكالعافيه|يعطيكمالعافيه|تسلم|تسلمون|قواكمالله|تمخلاص|خلاصتم|حصلتخلاص|خلاصحصلت|تممشكورين|حصلتمشكورين|انحجزخلاص|خلاصانحجز|تماخذالطلب|تمالاتفاق|توفرمندوب|حصلتمندوب|تمالتوصيل|تمالطلب|👍+|👌+|🙏+|✅+|✔️+|🤝+|👏+|🎯+|💐+|🌷+|🤍+|✨+|📦+|🛵+|🚗+|🔒+|💯+|🎉+|🌹+|🤲+|🏁+)$/iu.test(cleanedSignal) || /^[\p{Emoji}\s.,!؟👍✅👌🙏🤝👏🎯💐🌷🤍✨📦🛵🚗🔒💯🎉🌹🤲]+$/iu.test(rawText.trim()) && /[\p{Extended_Pictographic}👍✅👌🙏🤝👏🎯💐🌷🤍✨📦🛵🚗🔒💯🎉🌹🤲]/u.test(rawText);
   const { matchedWords, matchedEmojis, hasClosureIntent } = extractClosureKeywords(rawText);
   if (!hasClosureIntent && !isMinimalCompletionSignal) return null;
@@ -3063,11 +3042,10 @@ function checkIncomingMessageForClosure(message, activeOrders) {
   }
   const candidateOrders = activeOrders.filter((order) => {
     if (order.status === "accepted" || order.status === "closed_taken") return false;
-    const inSameGroup = msgGroup && order.groupName && (order.groupName.includes(msgGroup) || msgGroup.includes(order.groupName)) || order.crossPostedGroups && order.crossPostedGroups.some((g) => g.includes(msgGroup) || msgGroup.includes(g));
+    const inSameGroup = msgGroup && order.groupName && cleanSenderText(order.groupName) === cleanSenderText(msgGroup) || order.crossPostedGroups && order.crossPostedGroups.some((g) => cleanSenderText(g) === cleanSenderText(msgGroup));
     if (!msgGroup || !inSameGroup) return false;
     const orderTime = new Date(order.receivedAt).getTime();
-    const diffHours = (msgTime - orderTime) / (1e3 * 60 * 60);
-    return diffHours >= 0 && diffHours <= 3.5;
+    return Number.isFinite(orderTime) && msgTime >= orderTime;
   });
   if (candidateOrders.length === 0) return null;
   for (const order of candidateOrders) {
@@ -3081,7 +3059,12 @@ function checkIncomingMessageForClosure(message, activeOrders) {
     const quoteMatchesOrder = Boolean(
       rawQuoteClean && (rawQuoteClean.length >= 8 && rawOrderClean.includes(rawQuoteClean.slice(0, 25)) || rawOrderClean.length >= 8 && rawQuoteClean.includes(rawOrderClean.slice(0, 25)) || order.from && rawQuoteClean.includes(cleanDialectText(order.from)) || order.to && rawQuoteClean.includes(cleanDialectText(order.to)) || order.senderPhone && rawQuoteClean.includes(order.senderPhone.replace(/\D/g, "").slice(-8)))
     );
-    const isQuoted = quoteMatchesOrder || rawText.includes(`> ${orderSnippet}`) || rawText.includes(orderSnippet) || (fromMention && toMention || fromMention && priceMention || toMention && priceMention);
+    const quoteMatchCount = rawQuoteClean.length >= 8 ? candidateOrders.filter((candidate) => {
+      const candidateRaw = cleanDialectText(candidate.rawText);
+      return candidateRaw.includes(rawQuoteClean.slice(0, 25)) || candidateRaw.length >= 8 && rawQuoteClean.includes(candidateRaw.slice(0, 25));
+    }).length : 0;
+    const quoteMatchesUniqueOrder = quoteMatchesOrder && quoteMatchCount === 1;
+    const isQuoted = quoteMatchesUniqueOrder || candidateOrders.length === 1 && (rawText.includes(`> ${orderSnippet}`) || rawText.includes(orderSnippet) || (fromMention && toMention || fromMention && priceMention || toMention && priceMention));
     const isSenderMatch = isAdvertiserSenderMatch(msgSender, msgPhone, order.senderName, order.senderPhone, order.rawText);
     if (isQuoted && isSenderMatch) {
       processedMessageHashes.add(dedupeKey);
@@ -3107,12 +3090,7 @@ function checkIncomingMessageForClosure(message, activeOrders) {
   const matchingAdvertiserOrders = candidateOrders.filter(
     (order) => isAdvertiserSenderMatch(msgSender, msgPhone, order.senderName, order.senderPhone, order.rawText)
   );
-  if (matchingAdvertiserOrders.length > 0) {
-    matchingAdvertiserOrders.sort((a, b) => {
-      const diffA = Math.abs(msgTime - new Date(a.receivedAt).getTime());
-      const diffB = Math.abs(msgTime - new Date(b.receivedAt).getTime());
-      return diffA - diffB;
-    });
+  if (matchingAdvertiserOrders.length === 1) {
     const targetOrder = matchingAdvertiserOrders[0];
     processedMessageHashes.add(dedupeKey);
     markOrderPermanentlyClosed(targetOrder.id);
@@ -3167,7 +3145,7 @@ function markOrderPermanentlyClosed(orderId) {
     const existing = getPermanentlyClosedOrderIds();
     if (!existing.includes(orderId)) {
       existing.push(orderId);
-      localStorage.setItem(STORAGE_KEY_CLOSED_ORDERS, JSON.stringify(existing.slice(-300)));
+      localStorage.setItem(STORAGE_KEY_CLOSED_ORDERS, JSON.stringify(existing));
     }
   } catch {
   }
@@ -3301,67 +3279,24 @@ function classifyAdvertiserPrivateReply(rawText) {
 }
 
 // src/utils/personalChatClassifier.ts
-var STORAGE_KEY_KNOWN_ADVERTISERS = "orderi_known_group_advertisers";
-var knownAdvertisersSet = /* @__PURE__ */ new Set();
-function initKnownAdvertisers() {
-  if (typeof window === "undefined") return;
+var LEGACY_STORAGE_KEYS_TO_PURGE = [
+  "orderi_known_group_advertisers",
+  "orderi_advertiser_phone_vault"
+];
+function purgeLegacyAdvertiserRegistries() {
+  if (typeof window === "undefined" || typeof localStorage === "undefined") return;
   try {
-    const saved = localStorage.getItem(STORAGE_KEY_KNOWN_ADVERTISERS);
-    if (saved) {
-      const list = JSON.parse(saved);
-      if (Array.isArray(list)) {
-        list.forEach((item) => knownAdvertisersSet.add(normalizeIdentifier(item)));
-      }
+    for (const key of LEGACY_STORAGE_KEYS_TO_PURGE) {
+      localStorage.removeItem(key);
     }
   } catch {
   }
 }
-if (typeof window !== "undefined") {
-  initKnownAdvertisers();
+purgeLegacyAdvertiserRegistries();
+function registerKnownGroupAdvertiser(_senderName, _phone) {
+  purgeLegacyAdvertiserRegistries();
 }
-function normalizeIdentifier(val) {
-  if (!val) return "";
-  return val.toLowerCase().replace(/[^\w\u0600-\u06FF]/g, "").trim();
-}
-function registerKnownGroupAdvertiser(senderName, phone) {
-  let updated = false;
-  if (senderName && senderName.trim() && senderName !== "\u0648\u0627\u062A\u0633\u0627\u0628" && senderName !== "\u0635\u0627\u062D\u0628 \u0627\u0644\u0625\u0639\u0644\u0627\u0646") {
-    const key = normalizeIdentifier(senderName);
-    if (key && !knownAdvertisersSet.has(key)) {
-      knownAdvertisersSet.add(key);
-      updated = true;
-    }
-  }
-  if (phone) {
-    const digits = phone.replace(/\D/g, "");
-    if (digits.length >= 8) {
-      const last8 = digits.slice(-8);
-      if (!knownAdvertisersSet.has(last8)) {
-        knownAdvertisersSet.add(last8);
-        updated = true;
-      }
-    }
-  }
-  if (updated && typeof window !== "undefined") {
-    try {
-      const list = Array.from(knownAdvertisersSet).slice(-2e3);
-      localStorage.setItem(STORAGE_KEY_KNOWN_ADVERTISERS, JSON.stringify(list));
-    } catch {
-    }
-  }
-}
-function isKnownGroupAdvertiser(senderName, phone) {
-  if (phone) {
-    const digits = phone.replace(/\D/g, "");
-    if (digits.length >= 8) {
-      const last8 = digits.slice(-8);
-      if (knownAdvertisersSet.has(last8)) return true;
-    }
-  }
-  if (senderName && senderName.trim()) {
-    const key = normalizeIdentifier(senderName);
-    if (key && knownAdvertisersSet.has(key)) return true;
-  }
+function isKnownGroupAdvertiser(_senderName, _phone) {
   return false;
 }
 var CASUAL_GREETINGS_AND_CHAT = [
@@ -5039,8 +4974,6 @@ app.post("/api/ai/evaluate-match", async (req, res) => {
   try {
     const {
       rawText = "",
-      senderName = "",
-      senderPhone = "",
       groupName = "",
       from = "",
       to = "",
@@ -5065,10 +4998,8 @@ app.post("/api/ai/evaluate-match", async (req, res) => {
       const prompt = `\u0623\u0646\u062A \u062E\u0628\u064A\u0631 \u0644\u0648\u062C\u0633\u062A\u064A \u0630\u0643\u064A \u0648\u0645\u0633\u0627\u0639\u062F \u0627\u0633\u062A\u0631\u0627\u062A\u064A\u062C\u064A \u0644\u0643\u0628\u0627\u062A\u0646 \u0648\u0645\u0646\u0627\u062F\u064A\u0628 \u0627\u0644\u062A\u0648\u0635\u064A\u0644 \u0641\u064A \u0645\u0645\u0644\u0643\u0629 \u0627\u0644\u0628\u062D\u0631\u064A\u0646 \u{1F1E7}\u{1F1ED}.
 \u0645\u0647\u0645\u062A\u0643: \u0642\u0631\u0627\u0621\u0629 \u0631\u0633\u0627\u0644\u0629 \u0627\u0644\u0625\u0639\u0644\u0627\u0646 \u0627\u0644\u0623\u0635\u0644\u064A\u0629 \u0627\u0644\u062A\u064A \u0646\u0634\u0631\u0647\u0627 \u0627\u0644\u062A\u0627\u062C\u0631/\u0627\u0644\u0645\u0639\u0644\u0646 \u0641\u064A \u0648\u0627\u062A\u0633\u0627\u0628 \u0628\u062F\u0642\u0629 \u0648\u0641\u0647\u0645 \u0644\u0647\u062C\u062A\u0647\u0627 \u0627\u0644\u0628\u062D\u0631\u064A\u0646\u064A\u0629/\u0627\u0644\u062E\u0644\u064A\u062C\u064A\u0629\u060C \u0648\u0645\u0642\u0627\u0631\u0646\u062A\u0647\u0627 \u0646\u0642\u0637\u0629 \u0628\u0646\u0642\u0637\u0629 \u0645\u0639 \u0634\u0631\u0648\u0637 \u0648\u062A\u0641\u0636\u064A\u0644\u0627\u062A \u0627\u0644\u0643\u0627\u0628\u062A\u0646\u060C \u0648\u062A\u062D\u062F\u064A\u062F \u0647\u0644 \u0627\u0644\u0625\u0639\u0644\u0627\u0646 \u064A\u0637\u0627\u0628\u0642 \u0634\u0631\u0648\u0637 \u0627\u0644\u0643\u0627\u0628\u062A\u0646 \u0648\u0645\u0631\u0628\u062D \u0648\u0645\u062C\u062F\u064D \u0644\u0647 \u0623\u0645 \u0644\u0627.
 
-\u0628\u064A\u0627\u0646\u0627\u062A \u0631\u0633\u0627\u0644\u0629 \u0627\u0644\u0645\u0639\u0644\u0646 \u0645\u0646 \u0648\u0627\u062A\u0633\u0627\u0628:
+\u0628\u064A\u0627\u0646\u0627\u062A \u0631\u0633\u0627\u0644\u0629 \u0627\u0644\u0625\u0639\u0644\u0627\u0646 (\u0628\u062F\u0648\u0646 \u0628\u064A\u0627\u0646\u0627\u062A \u0627\u0644\u0645\u0639\u0644\u0646 \u0627\u0644\u0634\u062E\u0635\u064A\u0629):
 - \u0646\u0635 \u0631\u0633\u0627\u0644\u0629 \u0627\u0644\u0625\u0639\u0644\u0627\u0646 \u0627\u0644\u0623\u0635\u0644\u064A\u0629: """${rawText}"""
-- \u0627\u0633\u0645 \u0627\u0644\u0645\u0639\u0644\u0646: ${senderName || "\u063A\u064A\u0631 \u0645\u0639\u0631\u0648\u0641"}
-- \u0631\u0642\u0645 \u0647\u0627\u062A\u0641 \u0627\u0644\u0645\u0639\u0644\u0646: ${senderPhone || "\u063A\u064A\u0631 \u0645\u0633\u062C\u0644"}
 - \u0627\u0644\u0642\u0631\u0648\u0628 \u0623\u0648 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629: ${groupName || "\u0648\u0627\u062A\u0633\u0627\u0628"}
 - \u0645\u0646\u0637\u0642\u0629 \u0627\u0644\u0627\u0633\u062A\u0644\u0627\u0645 \u0627\u0644\u0645\u0633\u062A\u062E\u0644\u0635\u0629: ${from || "\u063A\u064A\u0631 \u0645\u062D\u062F\u062F\u0629"}
 - \u0645\u0646\u0637\u0642\u0629 \u0627\u0644\u062A\u0633\u0644\u064A\u0645 \u0627\u0644\u0645\u0633\u062A\u062E\u0644\u0635\u0629: ${to || "\u063A\u064A\u0631 \u0645\u062D\u062F\u062F\u0629"}
@@ -5227,7 +5158,7 @@ app.post("/api/ai/evaluate-match", async (req, res) => {
 });
 app.post("/api/ai/cloud-parse-order", async (req, res) => {
   try {
-    const { rawText = "", senderName = "", groupName = "" } = req.body || {};
+    const { rawText = "", groupName = "" } = req.body || {};
     if (!rawText || typeof rawText !== "string") {
       return res.status(400).json({
         success: false,
@@ -5238,9 +5169,8 @@ app.post("/api/ai/cloud-parse-order", async (req, res) => {
     const prompt = `\u0623\u0646\u062A \u062E\u0628\u064A\u0631 \u0630\u0643\u0627\u0621 \u0627\u0635\u0637\u0646\u0627\u0639\u064A \u0644\u0648\u062C\u0633\u062A\u064A \u0645\u062A\u062E\u0635\u0635 \u0641\u064A \u062A\u062D\u0644\u064A\u0644 \u0625\u0639\u0644\u0627\u0646\u0627\u062A \u0648\u0631\u0633\u0627\u0626\u0644 \u0637\u0644\u0628\u0627\u062A \u0627\u0644\u062A\u0648\u0635\u064A\u0644 \u0641\u064A \u0642\u0631\u0648\u0628\u0627\u062A \u0648\u0627\u062A\u0633\u0627\u0628 \u0645\u0645\u0644\u0643\u0629 \u0627\u0644\u0628\u062D\u0631\u064A\u0646 \u{1F1E7}\u{1F1ED}.
 \u0645\u0647\u0645\u062A\u0643: \u0642\u0631\u0627\u0621\u0629 \u0627\u0644\u0625\u0639\u0644\u0627\u0646 \u0648\u0641\u0647\u0645 \u0627\u0644\u0644\u0647\u062C\u0629 \u0627\u0644\u0628\u062D\u0631\u064A\u0646\u064A\u0629 \u0648\u0627\u0644\u062E\u0644\u064A\u062C\u064A\u0629 \u0628\u062F\u0642\u0629 \u0641\u0627\u0626\u0642\u0629 \u0648\u0627\u0633\u062A\u062E\u0631\u0627\u062C \u062A\u0641\u0627\u0635\u064A\u0644 \u0627\u0644\u0637\u0644\u0628 \u0648\u0645\u0646\u0639 \u0623\u064A \u0644\u0628\u0633.
 
-\u0646\u0635 \u0627\u0644\u0625\u0639\u0644\u0627\u0646 \u0627\u0644\u0623\u0635\u0644\u064A \u0645\u0646 \u0648\u0627\u062A\u0633\u0627\u0628:
+\u0646\u0635 \u0627\u0644\u0625\u0639\u0644\u0627\u0646 \u0627\u0644\u0623\u0635\u0644\u064A \u0645\u0646 \u0648\u0627\u062A\u0633\u0627\u0628 (\u0628\u062F\u0648\u0646 \u0628\u064A\u0627\u0646\u0627\u062A \u0634\u062E\u0635\u064A\u0629 \u0644\u0644\u0645\u0631\u0633\u0644):
 """${rawText}"""
-\u0627\u0633\u0645 \u0627\u0644\u0645\u0631\u0633\u0644 \u0641\u064A \u0648\u0627\u062A\u0633\u0627\u0628: "${senderName}"
 \u0627\u0633\u0645 \u0627\u0644\u0642\u0631\u0648\u0628: "${groupName}"
 
 \u0642\u0648\u0627\u0639\u062F \u0635\u0627\u0631\u0645\u0629:
@@ -5356,16 +5286,15 @@ app.get("/api/ai/status", async (req, res) => {
 });
 app.post("/api/analyze-and-learn-closure", async (req, res) => {
   try {
-    const { text = "", context = "", senderName = "", groupName = "" } = req.body || {};
+    const { text = "", context = "", groupName = "" } = req.body || {};
     if (!text || typeof text !== "string") {
       return res.status(400).json({ success: false, error: "\u0627\u0644\u0646\u0635 \u0641\u0627\u0631\u063A" });
     }
     const ai = getGenAI();
     const prompt = `\u0623\u0646\u062A \u062E\u0628\u064A\u0631 \u0630\u0643\u0627\u0621 \u0627\u0635\u0637\u0646\u0627\u0639\u064A \u0644\u063A\u0648\u064A \u0641\u064A \u0627\u0644\u0644\u0647\u062C\u0629 \u0627\u0644\u0628\u062D\u0631\u064A\u0646\u064A\u0629 \u0648\u0627\u0644\u062E\u0644\u064A\u062C\u064A\u0629 \u0648\u0645\u062D\u0627\u062F\u062B\u0627\u062A \u0645\u062C\u0645\u0648\u0639\u0627\u062A \u0648\u0627\u062A\u0633\u0627\u0628 \u0644\u0637\u0644\u0628\u0627\u062A \u0627\u0644\u062A\u0648\u0635\u064A\u0644.
-\u0627\u0644\u0645\u0647\u0645\u0629: \u062A\u062D\u0644\u064A\u0644 \u0631\u0633\u0627\u0644\u0629 \u0623\u0631\u0633\u0644\u0647\u0627 \u0639\u0636\u0648/\u0645\u0639\u0644\u0646 \u0641\u064A \u0642\u0631\u0648\u0628 \u062A\u0648\u0635\u064A\u0644 \u0648\u0645\u0639\u0631\u0641\u0629 \u0645\u0627 \u0625\u0630\u0627 \u0643\u0627\u0646\u062A \u062A\u0641\u064A\u062F \u0628\u0623\u0646 \u0627\u0644\u0637\u0644\u0628 \u0642\u062F \u0627\u0646\u062D\u062C\u0632 \u0623\u0648 \u062D\u0635\u0644 \u0639\u0644\u0649 \u0645\u0646\u062F\u0648\u0628 \u0623\u0648 \u062A\u0645 \u0625\u0646\u062C\u0627\u0632\u0647 \u0623\u0648 \u062A\u0643\u0646\u0633\u0644.
+\u0627\u0644\u0645\u0647\u0645\u0629: \u062A\u062D\u0644\u064A\u0644 \u0631\u0633\u0627\u0644\u0629 \u0623\u0631\u0633\u0644\u0647\u0627 \u0639\u0636\u0648 \u0641\u064A \u0642\u0631\u0648\u0628 \u062A\u0648\u0635\u064A\u0644 \u0648\u0645\u0639\u0631\u0641\u0629 \u0645\u0627 \u0625\u0630\u0627 \u0643\u0627\u0646\u062A \u062A\u0641\u064A\u062F \u0628\u0623\u0646 \u0627\u0644\u0637\u0644\u0628 \u0642\u062F \u0627\u0646\u062D\u062C\u0632 \u0623\u0648 \u062D\u0635\u0644 \u0639\u0644\u0649 \u0645\u0646\u062F\u0648\u0628 \u0623\u0648 \u062A\u0645 \u0625\u0646\u062C\u0627\u0632\u0647 \u0623\u0648 \u062A\u0643\u0646\u0633\u0644.
 
 \u0646\u0635 \u0627\u0644\u0631\u0633\u0627\u0644\u0629: "${text}"
-\u0627\u0633\u0645 \u0627\u0644\u0645\u0631\u0633\u0644: "${senderName}"
 \u0627\u0633\u0645 \u0627\u0644\u0642\u0631\u0648\u0628: "${groupName}"
 \u0633\u064A\u0627\u0642 \u0627\u0644\u0637\u0644\u0628 \u0627\u0644\u0633\u0627\u0628\u0642 (\u0625\u0646 \u0648\u062C\u062F): "${context}"
 

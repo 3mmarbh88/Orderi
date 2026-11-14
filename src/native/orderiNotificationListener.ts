@@ -56,7 +56,16 @@ interface OrderiNotificationListenerPlugin {
   openSettings(): Promise<void>;
   isAccessibilityEnabled(): Promise<{ enabled: boolean }>;
   openAccessibilitySettings(): Promise<void>;
-  getPrivateOutreachStatus(): Promise<{ status: string; statusLabel?: string; updatedAt?: number }>;
+  getPrivateOutreachStatus(): Promise<{
+    operationId?: string;
+    executionState?: string;
+    status: string;
+    statusLabel?: string;
+    retryBlocked?: boolean;
+    sentVerifiedInUi?: boolean;
+    deliveryConfirmed?: boolean;
+    updatedAt?: number;
+  }>;
   checkPrivateOutreachCapability?(options?: {
     phone?: string;
     memberName?: string;
@@ -73,11 +82,16 @@ interface OrderiNotificationListenerPlugin {
     reasonCode?: string;
   }>;
   reachAdvertiserPrivateChat(options: {
+    operationId?: string;
+    orderId?: string;
     phone?: string;
     memberName?: string;
     senderIdentityKey?: string;
     senderUri?: string;
     sourceNotificationKey?: string;
+    sourceMessageId?: string;
+    shortcutId?: string;
+    originalMessageRef?: string;
     sourceMessageTimestamp?: number;
     groupName?: string;
     sourceMessageText?: string;
@@ -88,10 +102,15 @@ interface OrderiNotificationListenerPlugin {
   }): Promise<{
     success: boolean;
     method: string;
+    operationId?: string;
+    executionState?: string;
     status?: string;
     reasonCode?: string;
     packageName?: string;
     deliveryConfirmed?: boolean;
+    sentVerifiedInUi?: boolean;
+    retryBlocked?: boolean;
+    asyncPending?: boolean;
     statusLabel?: string;
     accessibilityRequired?: boolean;
     submitted?: boolean;
@@ -147,6 +166,28 @@ interface OrderiNotificationListenerPlugin {
   getReadAllStatus(): Promise<{ status: string; visited: number; detail?: string; updatedAt?: number }>;
   hasUnreadNotifications(): Promise<{ hasUnread: boolean; unreadCount: number }>;
   markGroupAsRead(options: { groupName: string }): Promise<{ success: boolean; markedCount: number; method: string }>;
+  dryRunLocateOriginalSender?(options: {
+    orderId: string;
+    rawText: string;
+    groupName: string;
+    senderDisplayName: string;
+    sourceMessageTimestamp?: number;
+    sourceNotificationKey?: string;
+    sourceMessageId?: string;
+    shortcutId?: string;
+    senderIdentityKey?: string;
+    senderUri?: string;
+    senderPhone?: string;
+  }): Promise<{
+    status: string;
+    resolved: boolean;
+    matchedRowIndex?: number;
+    boundHeaderRowIndex?: number;
+    boundSenderLabel?: string;
+    recommendedInteraction?: string;
+    originalMessageRef?: string;
+    reason?: string;
+  }>;
   addListener(
     eventName: 'whatsappNotification',
     listenerFunc: (event: WhatsAppNativeEvent) => void,

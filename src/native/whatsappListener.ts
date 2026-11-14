@@ -197,11 +197,16 @@ export async function sendNativeQuickReply(options: {
 }
 
 export async function reachNativeAdvertiserPrivateChat(options: {
+  operationId?: string;
+  orderId?: string;
   phone?: string;
   memberName?: string;
   senderIdentityKey?: string;
   senderUri?: string;
   sourceNotificationKey?: string;
+  sourceMessageId?: string;
+  shortcutId?: string;
+  originalMessageRef?: string;
   sourceMessageTimestamp?: number;
   groupName?: string;
   sourceMessageText?: string;
@@ -212,21 +217,36 @@ export async function reachNativeAdvertiserPrivateChat(options: {
 }): Promise<{
   success: boolean;
   method: string;
+  operationId?: string;
+  executionState?: string;
   status?: string;
   reasonCode?: string;
   packageName?: string;
   deliveryConfirmed?: boolean;
+  sentVerifiedInUi?: boolean;
+  retryBlocked?: boolean;
+  asyncPending?: boolean;
   statusLabel?: string;
   accessibilityRequired?: boolean;
   submitted?: boolean;
 }> {
   if (!isNativeAndroid()) {
-    return { success: false, method: 'not_native', status: 'BACKGROUND_SEND_UNAVAILABLE' };
+    return {
+      success: false,
+      method: 'not_native',
+      status: 'BACKGROUND_SEND_UNAVAILABLE',
+      executionState: 'NEEDS_USER_INTERACTION',
+    };
   }
   try {
     return await OrderiNotificationListener.reachAdvertiserPrivateChat(options);
   } catch {
-    return { success: false, method: 'error', status: 'SEND_FAILED' };
+    return {
+      success: false,
+      method: 'error',
+      status: 'SEND_FAILED',
+      executionState: 'FAILED',
+    };
   }
 }
 
@@ -313,14 +333,39 @@ export async function waitForWhatsAppReadAllCompletion(timeoutMs = 300000): Prom
 
 
 
-/** Wait for the native accessibility service to report an explicit submission or failure status. */
-export async function getNativePrivateOutreachStatus(timeoutMs = 30000): Promise<{ status: string; statusLabel?: string }> {
-  if (!isNativeAndroid()) return { status: 'BACKGROUND_SEND_UNAVAILABLE', statusLabel: 'يلزم أندرويد' };
+/** Wait for the native accessibility service to report an explicit terminal state. */
+export async function getNativePrivateOutreachStatus(
+  timeoutMs = 30000,
+  expectedOperationId?: string,
+): Promise<{
+  operationId?: string;
+  executionState?: string;
+  status: string;
+  statusLabel?: string;
+  retryBlocked?: boolean;
+  sentVerifiedInUi?: boolean;
+  deliveryConfirmed?: boolean;
+}> {
+  if (!isNativeAndroid()) {
+    return {
+      status: 'BACKGROUND_SEND_UNAVAILABLE',
+      executionState: 'NEEDS_USER_INTERACTION',
+      statusLabel: 'يلزم أندرويد',
+    };
+  }
+  const terminalExecutionStates = new Set([
+    'SENT',
+    'FAILED',
+    'IDENTITY_NOT_CONFIRMED',
+    'SEND_RESULT_UNKNOWN',
+    'NEEDS_USER_INTERACTION',
+  ]);
   const terminalStatuses = new Set([
     'MESSAGE_SUBMITTED',
     'DELIVERY_CONFIRMED',
     'IDENTITY_NOT_VERIFIED',
     'BACKGROUND_SEND_UNAVAILABLE',
+    'SEND_RESULT_UNKNOWN',
     'SEND_FAILED',
     'PRIVATE_CHAT_RESOLVED',
     'SUBMITTED_UNCONFIRMED',
@@ -336,11 +381,23 @@ export async function getNativePrivateOutreachStatus(timeoutMs = 30000): Promise
   while (Date.now() - started < timeoutMs) {
     try {
       const result = await OrderiNotificationListener.getPrivateOutreachStatus();
-      if (result && terminalStatuses.has(result.status)) {
+      const opMatches = !expectedOperationId || !result?.operationId || result.operationId === expectedOperationId;
+      if (
+        result &&
+        opMatches &&
+        ((result.executionState && terminalExecutionStates.has(result.executionState)) ||
+          terminalStatuses.has(result.status))
+      ) {
         return result;
       }
     } catch {}
     await new Promise((resolve) => setTimeout(resolve, 350));
   }
-  return { status: 'SEND_FAILED', statusLabel: 'انتهت مهلة انتظار نتيجة المراسلة' };
+  return {
+    operationId: expectedOperationId,
+    executionState: 'SEND_RESULT_UNKNOWN',
+    status: 'SEND_RESULT_UNKNOWN',
+    retryBlocked: true,
+    statusLabel: 'انتهت مهلة انتظار نتيجة الإرسال؛ تعذر الجزم بالإرسال ومُنع التكرار التلقائي.',
+  };
 }

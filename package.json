@@ -18,7 +18,9 @@
     "test:whatsapp-connection": "tsx test/whatsappConnection.test.ts",
     "test:chat-importer": "tsx test/whatsappChatImporter.test.ts",
     "test:advertiser-outreach": "tsx test/advertiserOutreach.test.ts",
-    "test:order-closure": "tsx test/orderClosureSync.test.ts"
+    "test:order-closure": "tsx test/orderClosureSync.test.ts",
+    "test:original-locator": "tsx test/originalMessageSenderLocator.test.ts",
+    "test:execution-engine": "tsx test/whatsAppExecutionEngine.test.ts"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.2",

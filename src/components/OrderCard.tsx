@@ -43,6 +43,7 @@ import {
   getAdvertiserTargetPhone,
   isMeaningfulAdvertiserName,
 } from '../utils/whatsappPrivateOutreach';
+import { getExecutionStateArabicLabel } from '../utils/whatsAppExecutionEngine';
 
 interface OrderCardProps {
   key?: string;
@@ -606,7 +607,11 @@ export function OrderCard({
                 {order.outreachStatus === 'MESSAGE_SUBMITTED' && (
                   <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-blue-100 text-blue-900 border border-blue-300 shadow-2xs">
                     <MessageCircle className="w-3 h-3 text-blue-700" />
-                    <span>تم تمرير الرد للخاص (بانتظار تأكيد التسليم) 💬</span>
+                    <span>
+                      {order.outreachDetails?.sentVerifiedInUi
+                        ? 'تم الإرسال عبر واتساب العادي (حالة التسليم والقراءة تعتمد على واتساب) ✓'
+                        : 'تم تمرير الرد للخاص (بانتظار تأكيد التسليم) 💬'}
+                    </span>
                   </span>
                 )}
                 {(order.outreachStatus === 'IDENTIFYING_ADVERTISER' ||
@@ -615,7 +620,11 @@ export function OrderCard({
                   order.outreachStatus === 'BACKGROUND_SEND_READY') && (
                   <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-sky-100 text-sky-900 border border-sky-300 shadow-2xs">
                     <RefreshCw className="w-3 h-3 text-sky-700 animate-spin" />
-                    <span>جاري التحقق من المعلن والمراسلة بالخلفية...</span>
+                    <span>
+                      {order.outreachExecutionState
+                        ? getExecutionStateArabicLabel(order.outreachExecutionState)
+                        : 'جاري التحقق من المعلن والمراسلة بالخلفية...'}
+                    </span>
                   </span>
                 )}
                 {order.outreachStatus === 'IDENTITY_NOT_VERIFIED' && (
@@ -627,7 +636,13 @@ export function OrderCard({
                 {order.outreachStatus === 'BACKGROUND_SEND_UNAVAILABLE' && (
                   <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs">
                     <AlertTriangle className="w-3 h-3 text-amber-700" />
-                    <span>الإرسال الصامت بالخلفية غير متاح — للمتابعة اليدوية ⚠️</span>
+                    <span>يتطلب تدخل المستخدم أو تفعيل خدمة الوصول ⚠️</span>
+                  </span>
+                )}
+                {order.outreachStatus === 'SEND_RESULT_UNKNOWN' && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-orange-100 text-orange-950 border border-orange-300 shadow-2xs">
+                    <AlertTriangle className="w-3 h-3 text-orange-700" />
+                    <span>تعذر الجزم بنتيجة الإرسال — ممنوع التكرار التلقائي ⚠️</span>
                   </span>
                 )}
                 {order.outreachStatus === 'SEND_FAILED' && (
@@ -698,7 +713,9 @@ export function OrderCard({
               <div className="px-3.5 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200/70 text-left shadow-2xs">
                 <span className="text-[10px] text-emerald-800 font-bold block text-center">أجرة التوصيل</span>
                 <div className="flex items-baseline justify-center gap-1">
-                  <span className="text-xl font-black text-emerald-700 tracking-tight">{order.price.toFixed(1)}</span>
+                  <span className="text-xl font-black text-emerald-700 tracking-tight">
+                    {(typeof order.price === 'number' && Number.isFinite(order.price) ? order.price : 0).toFixed(1)}
+                  </span>
                   <span className="text-[11px] font-bold text-emerald-600">د.ب</span>
                 </div>
               </div>
@@ -733,7 +750,7 @@ export function OrderCard({
                 <div className="text-sm sm:text-base font-black text-slate-900 truncate flex items-center gap-1.5">
                   <span>{order.from || 'غير محدد'}</span>
                 </div>
-                {match.distanceKm !== null && (
+                {typeof match.distanceKm === 'number' && Number.isFinite(match.distanceKm) && (
                   <span className="text-[11px] font-medium text-slate-500 block">
                     يبعد {match.distanceKm.toFixed(1)} كم {fromLandmark ? `(${fromLandmark.parentAreaName})` : ''}
                   </span>
@@ -745,7 +762,7 @@ export function OrderCard({
                 <div className="w-7 h-7 rounded-full bg-white shadow-2xs border border-slate-200 flex items-center justify-center text-slate-400">
                   <ArrowLeft className="w-3.5 h-3.5 text-blue-600 rotate-180" />
                 </div>
-                {match.pickupToDeliveryDistanceKm !== undefined && (
+                {typeof match.pickupToDeliveryDistanceKm === 'number' && Number.isFinite(match.pickupToDeliveryDistanceKm) && (
                   <span className="text-[10px] font-bold text-slate-500 mt-0.5">
                     ~{match.pickupToDeliveryDistanceKm.toFixed(0)} كم
                   </span>
@@ -766,7 +783,7 @@ export function OrderCard({
                 <div className="text-sm sm:text-base font-black text-slate-900 truncate">
                   {order.to || 'غير محدد'}
                 </div>
-                {order.ratePerKm && (
+                {typeof order.ratePerKm === 'number' && Number.isFinite(order.ratePerKm) && order.ratePerKm > 0 && (
                   <span className="text-[11px] font-bold text-emerald-700 block">
                     {order.ratePerKm.toFixed(2)} د.ب/كم
                   </span>
@@ -892,6 +909,16 @@ export function OrderCard({
                     )}
                   </div>
                 </div>
+              ) : order.outreachStatus === 'SEND_RESULT_UNKNOWN' || order.outreachDetails?.retryBlocked ? (
+                <div className="flex-1 min-h-[48px] flex items-center justify-center gap-2 py-2.5 px-3.5 rounded-xl sm:rounded-2xl bg-orange-50 border border-orange-300 text-orange-950 font-black text-xs text-center">
+                  <AlertTriangle className="w-4 h-4 text-orange-600 shrink-0" />
+                  <div className="flex flex-col items-center leading-tight">
+                    <span>تعذر الجزم بنتيجة الإرسال — ممنوع التكرار التلقائي ⚠️</span>
+                    <span className="text-[10px] font-medium text-orange-800">
+                      تحقق من محادثة واتساب قبل أي إعادة إرسال يدوية لمنع الإرسال المزدوج
+                    </span>
+                  </div>
+                </div>
               ) : (
                 <button
                   type="button"
@@ -922,7 +949,7 @@ export function OrderCard({
                           <span className="text-[11px] font-bold text-amber-200">⚠️</span>
                         </span>
                         <span className="text-[10px] font-normal text-emerald-100">
-                          (تعذر الإرسال الصامت بالخلفية — اضغط لإعادة المحاولة أو المتابعة يدوياً)
+                          (يتطلب تدخل أو مراجعة — اضغط لإعادة المحاولة أو المتابعة يدوياً)
                         </span>
                       </div>
                     </>

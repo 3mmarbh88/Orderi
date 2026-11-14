@@ -14,7 +14,7 @@ import {
   Copy,
   RefreshCw,
 } from 'lucide-react';
-import { ParsedOrder, OutreachDeliveryStatus } from '../types';
+import { ParsedOrder, OutreachDeliveryStatus, WhatsAppExecutionState } from '../types';
 import {
   AdvertiserContactResolution,
   formatFilterOutreachMessage,
@@ -22,6 +22,7 @@ import {
   executePrivateAdvertiserOutreach,
   formatDisplayPhone,
   openManualRegularWhatsAppChat,
+  checkBackgroundOutreachAvailability,
 } from '../utils/whatsappPrivateOutreach';
 import { openWhatsAppAccessibilitySettings, openWhatsAppGroupConversation } from '../native/whatsappListener';
 import { isNativeAndroid, OrderiNotificationListener } from '../native/orderiNotificationListener';
@@ -34,6 +35,8 @@ interface AdvertiserOutreachModalProps {
   driverArea?: string;
   failureStatus?: OutreachDeliveryStatus;
   failureReason?: string;
+  allowAccessibilityAutoOutreach?: boolean;
+  onToggleAccessibilityAutoOutreach?: (enabled: boolean) => void;
   onClose: () => void;
   onConfirmAccept: (
     order: ParsedOrder,
@@ -45,6 +48,11 @@ interface AdvertiserOutreachModalProps {
       | 'accessibility_member_click'
       | 'manual_regular_whatsapp',
     status?: OutreachDeliveryStatus,
+    meta?: {
+      executionState?: WhatsAppExecutionState;
+      operationId?: string;
+      sentVerifiedInUi?: boolean;
+    },
   ) => void;
   onToast: (msg: string) => void;
 }
@@ -57,6 +65,8 @@ export function AdvertiserOutreachModal({
   driverArea = 'البحرين',
   failureStatus,
   failureReason,
+  allowAccessibilityAutoOutreach = false,
+  onToggleAccessibilityAutoOutreach,
   onClose,
   onConfirmAccept,
   onToast,
@@ -76,6 +86,12 @@ export function AdvertiserOutreachModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isBackgroundExecuting, setIsBackgroundExecuting] = useState(false);
   const [isAccessibilityEnabled, setIsAccessibilityEnabled] = useState<boolean | null>(null);
+  const [nativeCapability, setNativeCapability] = useState<{
+    regularWhatsAppInstalled: boolean;
+    notificationListenerEnabled: boolean;
+    accessibilityEnabled: boolean;
+    hasPrivateNotificationReplyAction: boolean;
+  } | null>(null);
 
   useEffect(() => {
     setCustomPhone((resolution.phone || resolution.advertiserCandidate?.phone || '').replace(/^973/, ''));
@@ -84,21 +100,51 @@ export function AdvertiserOutreachModal({
 
   useEffect(() => {
     let mounted = true;
-    if (isNativeAndroid()) {
-      OrderiNotificationListener.isAccessibilityEnabled()
-        .then((res) => {
-          if (mounted) setIsAccessibilityEnabled(Boolean(res?.enabled));
-        })
-        .catch(() => {
-          if (mounted) setIsAccessibilityEnabled(false);
-        });
-    } else {
-      setIsAccessibilityEnabled(false);
+    const refreshCapabilities = () => {
+      if (!isNativeAndroid()) {
+        if (mounted) {
+          setIsAccessibilityEnabled(false);
+          setNativeCapability(null);
+        }
+        return;
+      }
+
+      Promise.all([
+        OrderiNotificationListener.isAccessibilityEnabled().catch(() => ({ enabled: false })),
+        checkBackgroundOutreachAvailability(order).catch(() => null),
+      ]).then(([accRes, capRes]) => {
+        if (!mounted) return;
+        const accEnabled = Boolean(accRes?.enabled || capRes?.accessibilityEnabled);
+        setIsAccessibilityEnabled(accEnabled);
+        if (capRes) {
+          setNativeCapability({
+            regularWhatsAppInstalled: capRes.regularWhatsAppInstalled,
+            notificationListenerEnabled: capRes.notificationListenerEnabled,
+            accessibilityEnabled: accEnabled,
+            hasPrivateNotificationReplyAction: capRes.hasPrivateNotificationReplyAction,
+          });
+        }
+      });
+    };
+
+    refreshCapabilities();
+    const onFocusOrVisible = () => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        refreshCapabilities();
+      }
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', onFocusOrVisible);
+      document.addEventListener('visibilitychange', onFocusOrVisible);
     }
     return () => {
       mounted = false;
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('focus', onFocusOrVisible);
+        document.removeEventListener('visibilitychange', onFocusOrVisible);
+      }
     };
-  }, []);
+  }, [isOpen, order.id]);
 
   const cleanInputPhone = normalizeBahrainPhone(customPhone);
   const isPhoneValid = cleanInputPhone.length >= 8;
@@ -121,8 +167,13 @@ export function AdvertiserOutreachModal({
    * Explicit user-triggered Accessibility assisted outreach inside regular WhatsApp (com.whatsapp).
    * Tries Reply privately / member click or private chat send with allowUiFallback = true.
    */
+  const isRetryBlocked =
+    failureStatus === 'SEND_RESULT_UNKNOWN' ||
+    order.outreachStatus === 'SEND_RESULT_UNKNOWN' ||
+    Boolean(order.outreachDetails?.retryBlocked);
+
   const handleExecuteExplicitAssistedOutreach = async () => {
-    if (isBackgroundExecuting) return;
+    if (isBackgroundExecuting || isRetryBlocked) return;
     if (isCustomerSelected) {
       onToast('هذا الرقم يخص الزبون أو المستلم؛ لن نرسل إليه رسالة القبول.');
       return;
@@ -148,8 +199,13 @@ export function AdvertiserOutreachModal({
           result.message,
           result.deliveryMethod === 'none' ? 'accessibility_member_click' : result.deliveryMethod,
           result.status,
+          {
+            executionState: result.executionState,
+            operationId: result.operationId,
+            sentVerifiedInUi: result.sentVerifiedInUi,
+          },
         );
-        onToast(result.statusLabel || `تم تمرير رسالة القبول إلى «${advertiserName}»`);
+        onToast(result.statusLabel || `تم إرسال رسالة القبول إلى «${advertiserName}»`);
         onClose();
         return;
       }
@@ -177,13 +233,12 @@ export function AdvertiserOutreachModal({
     try {
       const res = await openWhatsAppGroupConversation(groupName, { rawText: order.rawText });
       if (res.success) {
-        onToast(`👥 فُتح قروب «${groupName}» مع نسخ ردك — استخدم «الرد بشكل خاص» على إعلان «${advertiserName}»`);
-        onClose();
+        onToast(`👥 فُتح قروب «${groupName}» مع نسخ ردك — اضغط «الرد بشكل خاص» ثم ارجع هنا لتأكيد القبول`);
       } else {
-        onToast('افتح WhatsApp العادي يدوياً على القروب واستخدم «الرد بشكل خاص» على إعلان المعلن (الرد منسوخ).');
+        onToast('افتح WhatsApp العادي على القروب واستخدم «الرد بشكل خاص» (الرد منسوخ في الحافظة)، ثم ارجع لتأكيد القبول.');
       }
     } catch {
-      onToast('يرجى فتح WhatsApp العادي يدوياً ومراسلة المعلن (الرد منسوخ).');
+      onToast('افتح WhatsApp العادي يدوياً ومراسلة المعلن (الرد منسوخ في الحافظة).');
     }
   };
 
@@ -209,9 +264,8 @@ export function AdvertiserOutreachModal({
         return;
       }
       onToast(
-        `💬 تم فتح محادثة «${advertiserName}» في WhatsApp العادي (${formatDisplayPhone(cleanInputPhone)}) وتجهيز الرد — اضغط إرسال داخل واتساب.`,
+        `💬 تم فتح محادثة «${advertiserName}» وتجهيز الرد (${formatDisplayPhone(cleanInputPhone)}) — أرسله ثم اضغط «أرسلت الرد يدوياً» بالأسفل.`,
       );
-      onClose();
     } catch {
       onToast('تعذر فتح محادثة المعلن الخاصة في WhatsApp العادي.');
     } finally {
@@ -245,11 +299,13 @@ export function AdvertiserOutreachModal({
   };
 
   const statusBadgeText =
-    failureStatus === 'IDENTITY_NOT_VERIFIED'
+    failureStatus === 'SEND_RESULT_UNKNOWN'
+      ? 'تعذر الجزم بنتيجة الإرسال — ممنوع التكرار التلقائي'
+      : failureStatus === 'IDENTITY_NOT_VERIFIED'
       ? 'هوية المعلن غير مؤكدة'
       : failureStatus === 'SEND_FAILED'
       ? 'تعذر تنفيذ المراسلة'
-      : 'الإرسال الصامت بالخلفية غير متاح لهذا الإعلان';
+      : 'يتطلب تدخل المستخدم لإتمام التواصل';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-md overflow-y-auto animate-in fade-in select-none">
@@ -337,38 +393,80 @@ export function AdvertiserOutreachModal({
             </div>
           </div>
 
-          {/* Explicit Accessibility / Reply Privately Action */}
+          {/* Explicit Accessibility / Direct Regular WhatsApp Solutions */}
           <div className="p-4 rounded-2xl bg-gradient-to-br from-emerald-50 via-teal-50 to-emerald-100/70 border border-emerald-300 space-y-3">
             <div>
               <h4 className="text-xs sm:text-sm font-black text-emerald-950">
-                متابعة عبر WhatsApp Messenger العادي (اختياري وبإذنك)
+                الحل المباشر للتواصل مع «{advertiserName}» عبر WhatsApp العادي
               </h4>
-              <p className="text-[11px] text-emerald-800 font-medium mt-0.5">
-                {resolution.phone
-                  ? `الرقم المحدد للمعلن: ${resolution.displayPhone}`
-                  : `لا يشترط رقم هاتف — سيتم مطابقة «${advertiserName}» أو ميزة «الرد بشكل خاص» على رسالته الأصلية داخل القروب.`}
+              <p className="text-[11px] text-emerald-800 font-medium mt-0.5 leading-relaxed">
+                {!isNativeAndroid()
+                  ? isPhoneValid && !isCustomerSelected
+                    ? `في المتصفح لا يمكن الإرسال الصامت بالخلفية — اضغط أدناه لفتح محادثة ${formatDisplayPhone(cleanInputPhone)} في واتساب العادي والرسالة جاهزة للإرسال فوراً.`
+                    : `في المتصفح لا يمكن الإرسال الصامت بالخلفية ولا يوجد رقم هاتف في نص الإعلان — يمكنك نسخ الرد وفتح القروب للرد بشكل خاص، أو إدخال رقم المعلن أدناه.`
+                  : isAccessibilityEnabled
+                  ? `خدمة وصول Orderi مفعّلة: اضغط الآن لتنفيذ «الرد بشكل خاص» وإرسال رسالتك تلقائياً لـ «${advertiserName}».`
+                  : `يعمل الإرسال الصامت فقط إذا سبق أن راسلك المعلن على الخاص؛ أما لبدء مراسلة جديدة أو «الرد بشكل خاص» من القروب تلقائياً ففعّل خدمة وصول Orderi لمرة واحدة أو افتح واتساب مباشرة أدناه.`}
               </p>
             </div>
 
+            {isNativeAndroid() && nativeCapability && (
+              <div className="flex flex-wrap gap-1.5 text-[10px] font-bold">
+                <span className={`px-2 py-0.5 rounded-lg border ${nativeCapability.regularWhatsAppInstalled ? 'bg-emerald-100 border-emerald-300 text-emerald-900' : 'bg-rose-100 border-rose-300 text-rose-900'}`}>
+                  WhatsApp العادي: {nativeCapability.regularWhatsAppInstalled ? 'مثبت ✓' : 'غير مثبت ✗'}
+                </span>
+                <span className={`px-2 py-0.5 rounded-lg border ${nativeCapability.notificationListenerEnabled ? 'bg-emerald-100 border-emerald-300 text-emerald-900' : 'bg-amber-100 border-amber-300 text-amber-900'}`}>
+                  قراءة الإشعارات: {nativeCapability.notificationListenerEnabled ? 'مفعل ✓' : 'غير مفعل'}
+                </span>
+                <span className={`px-2 py-0.5 rounded-lg border ${isAccessibilityEnabled ? 'bg-emerald-100 border-emerald-300 text-emerald-900' : 'bg-amber-100 border-amber-300 text-amber-900'}`}>
+                  خدمة الوصول: {isAccessibilityEnabled ? 'مفعلة ✓' : 'غير مفعلة'}
+                </span>
+              </div>
+            )}
+
             {isAccessibilityEnabled ? (
-              <button
-                type="button"
-                onClick={handleExecuteExplicitAssistedOutreach}
-                disabled={isBackgroundExecuting}
-                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs sm:text-sm shadow-md flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer disabled:opacity-50"
-              >
-                {isBackgroundExecuting ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin text-white" />
-                    <span>جاري فتح محادثة «{advertiserName}» الخاصة...</span>
-                  </>
-                ) : (
-                  <>
-                    <Zap className="w-4 h-4 fill-amber-300 text-amber-300" />
-                    <span>تنفيذ المراسلة الخاصة عبر خدمة وصول Orderi الآن ⚡</span>
-                  </>
+              <div className="space-y-2.5">
+                <button
+                  type="button"
+                  onClick={handleExecuteExplicitAssistedOutreach}
+                  disabled={isBackgroundExecuting || isRetryBlocked}
+                  className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs sm:text-sm shadow-md flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer disabled:opacity-50"
+                >
+                  {isBackgroundExecuting ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                      <span>جاري فتح محادثة «{advertiserName}» الخاصة...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Zap className="w-4 h-4 fill-amber-300 text-amber-300" />
+                      <span>تنفيذ المراسلة الخاصة عبر خدمة وصول Orderi الآن ⚡</span>
+                    </>
+                  )}
+                </button>
+
+                {onToggleAccessibilityAutoOutreach && (
+                  <label className="flex items-start gap-2 p-2.5 rounded-xl bg-white/80 border border-emerald-200 cursor-pointer text-[11px] text-emerald-950 font-bold">
+                    <input
+                      type="checkbox"
+                      checked={allowAccessibilityAutoOutreach}
+                      onChange={(e) => {
+                        const next = e.target.checked;
+                        onToggleAccessibilityAutoOutreach(next);
+                        onToast(
+                          next
+                            ? '⚡ تم تفعيل المتابعة التلقائية عبر خدمة الوصول عند عدم توفر رد صامت'
+                            : 'تم إرجاع الوضع إلى الإرسال الصامت فقط مع السؤال قبل فتح واتساب',
+                        );
+                      }}
+                      className="mt-0.5 w-4 h-4 rounded text-emerald-600 cursor-pointer shrink-0"
+                    />
+                    <span className="leading-relaxed">
+                      في المرات القادمة: تابع تلقائياً عبر خدمة الوصول عند عدم توفر رد صامت (يفتح واتساب تلقائياً لتنفيذ «الرد بشكل خاص»)
+                    </span>
+                  </label>
                 )}
-              </button>
+              </div>
             ) : (
               <div className="space-y-2">
                 {isNativeAndroid() && (
@@ -381,13 +479,24 @@ export function AdvertiserOutreachModal({
                     <span>تفعيل خدمة وصول Orderi للمراسلة الخاصة التلقائية ⚙️</span>
                   </button>
                 )}
+                {isPhoneValid && !isCustomerSelected && (
+                  <button
+                    type="button"
+                    onClick={handleOpenManualPrivateDraft}
+                    disabled={isSubmitting}
+                    className="w-full py-3 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs sm:text-sm flex items-center justify-center gap-2 shadow-sm transition-colors cursor-pointer"
+                  >
+                    <Send className="w-4 h-4" />
+                    <span>فتح محادثة «{advertiserName}» في WhatsApp العادي والرد جاهز ({formatDisplayPhone(cleanInputPhone)}) 💬</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={handleOpenGroupDirectly}
                   className="w-full py-2.5 px-3 rounded-xl bg-white hover:bg-emerald-50 border border-emerald-300 text-emerald-950 font-bold text-xs flex items-center justify-center gap-2 transition-colors cursor-pointer"
                 >
                   <Users className="w-4 h-4 text-emerald-700" />
-                  <span>فتح القروب في WhatsApp العادي للرد الخاص على «{advertiserName}» (الرد منسوخ) 👥</span>
+                  <span>نسخ الرد وفتح قروب «{groupName}» للرد خاصاً على «{advertiserName}» 👥</span>
                 </button>
               </div>
             )}
@@ -477,9 +586,9 @@ export function AdvertiserOutreachModal({
                 onChange={(e) => setCustomPhone(e.target.value)}
                 placeholder="33XXXXXX أو 3XXXXXXX"
                 dir="ltr"
-                className="w-full px-4 py-3 rounded-xl border border-slate-300 bg-white font-mono font-bold text-sm text-slate-900 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-400/20 outline-none"
+                className="w-full pl-14 pr-4 py-3 rounded-xl border border-slate-300 bg-white font-mono font-bold text-sm text-slate-900 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-400/20 outline-none"
               />
-              <span className="absolute left-3 text-xs font-bold text-slate-400 pointer-events-none">+973</span>
+              <span className="absolute left-3.5 text-xs font-bold text-slate-400 pointer-events-none" dir="ltr">+973</span>
             </div>
 
             {isPhoneValid && !isCustomerSelected && (

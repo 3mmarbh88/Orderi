@@ -64,6 +64,7 @@ export interface OrderFilter {
   customGroups?: string[];
   allJoinedGroupsMode?: boolean;
   customResponseTemplate: string;
+  allowAccessibilityAutoOutreach?: boolean;
   contacts?: StoreContact[];
   autoBlockBlacklist?: boolean;
   backgroundNotificationsEnabled?: boolean;
@@ -187,6 +188,10 @@ export interface ParsedOrder {
   senderUri?: string;
   sourceMessageTimestamp?: number;
   sourceNotificationKey?: string;
+  sourceMessageId?: string;
+  shortcutId?: string;
+  contentHash?: string;
+  originalMessageRef?: string;
   receivedAt: Date;
   confidence: number;
   type: string;
@@ -214,10 +219,26 @@ export interface ParsedOrder {
     routeLabel?: string;
   };
   outreachStatus?: OutreachDeliveryStatus;
+  outreachExecutionState?: WhatsAppExecutionState;
+  outreachOperationId?: string;
   outreachDetails?: OutreachAttemptDetails;
   isOwnAd?: boolean;                // إعلان شخصي يخص الكابتن
   ownAdReason?: string;             // سبب التمييز كإعلان شخصي
 }
+
+export type WhatsAppExecutionState =
+  | 'PENDING'
+  | 'IDENTIFYING_SENDER'
+  | 'LOCATING_ORIGINAL_MESSAGE'
+  | 'OPENING_PRIVATE_CHAT'
+  | 'VERIFYING_RECIPIENT'
+  | 'READY_TO_SEND'
+  | 'EXECUTING'
+  | 'SENT'
+  | 'FAILED'
+  | 'IDENTITY_NOT_CONFIRMED'
+  | 'SEND_RESULT_UNKNOWN'
+  | 'NEEDS_USER_INTERACTION';
 
 export type OutreachDeliveryStatus =
   | 'NOT_ATTEMPTED'
@@ -229,10 +250,16 @@ export type OutreachDeliveryStatus =
   | 'DELIVERY_CONFIRMED'
   | 'IDENTITY_NOT_VERIFIED'
   | 'BACKGROUND_SEND_UNAVAILABLE'
+  | 'SEND_RESULT_UNKNOWN'
   | 'SEND_FAILED';
 
 export interface OutreachAttemptDetails {
   status: OutreachDeliveryStatus;
+  executionState?: WhatsAppExecutionState;
+  operationId?: string;
+  retryBlocked?: boolean;
+  sentVerifiedInUi?: boolean;
+  deliveryReceiptStatus?: 'sent_only' | 'delivered' | 'read' | 'unknown' | 'not_sent';
   phoneUsed?: string | null;
   advertiserName?: string;
   attemptedAt: string;

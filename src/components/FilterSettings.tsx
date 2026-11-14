@@ -2086,6 +2086,29 @@ export function FilterSettings({
                   {(localFilter.customResponseTemplate || '#مندوب_توصيل انا في ({area})').replace('{area}', driverLocation?.areaName || 'الموقع الحالي')}
                 </div>
               </div>
+
+              {/* Opt-in Accessibility fallback when silent RemoteInput is absent */}
+              <label className="flex items-start gap-2.5 p-3.5 rounded-2xl bg-emerald-50/70 border border-emerald-200 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={Boolean(localFilter.allowAccessibilityAutoOutreach)}
+                  onChange={(e) =>
+                    setLocalFilter({
+                      ...localFilter,
+                      allowAccessibilityAutoOutreach: e.target.checked,
+                    })
+                  }
+                  className="mt-0.5 w-4 h-4 rounded text-emerald-600 cursor-pointer shrink-0"
+                />
+                <div className="space-y-0.5 text-right">
+                  <span className="text-xs font-black text-emerald-950 block">
+                    المتابعة التلقائية عبر خدمة وصول Orderi عند عدم توفر رد صامت ⚡
+                  </span>
+                  <span className="text-[11px] text-emerald-800 leading-relaxed block">
+                    إذا لم يوجد إشعار رد خاص مباشر في الخلفية (وهو الوضع الطبيعي في معظم رسائل المجموعات)، يفتح التطبيق WhatsApp العادي عبر خدمة الوصول لتنفيذ «الرد بشكل خاص» وإرسال رسالتك تلقائياً دون توقف.
+                  </span>
+                </div>
+              </label>
             </div>
           )}
         </div>

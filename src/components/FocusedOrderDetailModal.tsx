@@ -413,32 +413,39 @@ export const FocusedOrderDetailModal: React.FC<FocusedOrderDetailModalProps> = (
             <div className="space-y-2">
               {/* Primary Accept & Auto-reply in Private Button */}
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleAcceptOrder}
-                  disabled={isAutoReplying}
-                  className="flex-1 min-h-[50px] flex items-center justify-center gap-2 py-3 px-4 rounded-2xl text-white font-black text-xs sm:text-sm shadow-md transition-all active:scale-[0.98] cursor-pointer bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-500 hover:to-teal-500 shadow-emerald-700/25"
-                >
-                  {isAutoReplying ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 animate-spin text-white" />
-                      <span>جاري فتح الخاص مع صاحب الإعلان...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Zap className="w-4 h-4 fill-amber-300 text-amber-300 animate-pulse" />
-                      <div className="flex flex-col items-center leading-tight">
-                        <span className="flex items-center gap-1">
-                          <span>قبول الطلب والتواصل عبر واتساب</span>
-                          <span className="text-[11px] font-bold text-amber-200">👤⚡</span>
-                        </span>
-                        <span className="text-[10px] font-normal text-emerald-100">
-                          (محادثة خاصة في واتساب العادي — بدون أي رد بالقروب 🔒)
-                        </span>
-                      </div>
-                    </>
-                  )}
-                </button>
+                {order.outreachStatus === 'SEND_RESULT_UNKNOWN' || order.outreachDetails?.retryBlocked ? (
+                  <div className="flex-1 min-h-[50px] flex items-center justify-center gap-2 py-3 px-4 rounded-2xl bg-orange-50 border border-orange-300 text-orange-950 font-black text-xs text-center">
+                    <AlertTriangle className="w-4 h-4 text-orange-600 shrink-0" />
+                    <span>تعذر الجزم بنتيجة الإرسال — ممنوع التكرار التلقائي ⚠️</span>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleAcceptOrder}
+                    disabled={isAutoReplying}
+                    className="flex-1 min-h-[50px] flex items-center justify-center gap-2 py-3 px-4 rounded-2xl text-white font-black text-xs sm:text-sm shadow-md transition-all active:scale-[0.98] cursor-pointer bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-500 hover:to-teal-500 shadow-emerald-700/25"
+                  >
+                    {isAutoReplying ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                        <span>جاري فتح الخاص مع صاحب الإعلان...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Zap className="w-4 h-4 fill-amber-300 text-amber-300 animate-pulse" />
+                        <div className="flex flex-col items-center leading-tight">
+                          <span className="flex items-center gap-1">
+                            <span>قبول الطلب والتواصل عبر واتساب</span>
+                            <span className="text-[11px] font-bold text-amber-200">👤⚡</span>
+                          </span>
+                          <span className="text-[10px] font-normal text-emerald-100">
+                            (محادثة خاصة في واتساب العادي — بدون أي رد بالقروب 🔒)
+                          </span>
+                        </div>
+                      </>
+                    )}
+                  </button>
+                )}
               </div>
 
               {/* Secondary Actions: Ignore/Delete and Close */}

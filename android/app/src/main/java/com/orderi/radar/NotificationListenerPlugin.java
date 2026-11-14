@@ -498,8 +498,13 @@ public class NotificationListenerPlugin extends Plugin {
     public void getPrivateOutreachStatus(PluginCall call) {
         android.content.SharedPreferences prefs = getContext().getSharedPreferences("orderi_private_outreach", Context.MODE_PRIVATE);
         JSObject ret = new JSObject();
+        ret.put("operationId", prefs.getString("operation_id", ""));
+        ret.put("executionState", prefs.getString("execution_state", ""));
         ret.put("status", prefs.getString("status", "not_started"));
         ret.put("statusLabel", prefs.getString("status_label", ""));
+        ret.put("retryBlocked", prefs.getBoolean("retry_blocked", false));
+        ret.put("sentVerifiedInUi", prefs.getBoolean("sent_verified_in_ui", false));
+        ret.put("deliveryConfirmed", prefs.getBoolean("delivery_confirmed", false));
         ret.put("updatedAt", prefs.getLong("updated_at", 0L));
         call.resolve(ret);
     }
@@ -673,9 +678,20 @@ public class NotificationListenerPlugin extends Plugin {
         call.resolve(ret);
     }
 
+    private boolean isDeviceLockedOrScreenOff() {
+        try {
+            android.app.KeyguardManager km = (android.app.KeyguardManager) getContext().getSystemService(Context.KEYGUARD_SERVICE);
+            android.os.PowerManager pm = (android.os.PowerManager) getContext().getSystemService(Context.POWER_SERVICE);
+            return (km != null && km.isKeyguardLocked()) || (pm != null && !pm.isInteractive());
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
     /**
      * Private advertiser outreach via regular WhatsApp Messenger (com.whatsapp) ONLY.
-     * When backgroundOnly=true and allowUiFallback=false, NEVER launches WhatsApp UI or wa.me links.
+     * Enforces 12-state execution lifecycle, concurrency/SEND_RESULT_UNKNOWN locks,
+     * OriginalAdContext forwarding, and lock-screen safety.
      */
     @PluginMethod
     public void reachAdvertiserPrivateChat(PluginCall call) {
@@ -684,6 +700,15 @@ public class NotificationListenerPlugin extends Plugin {
             String memberName = call.getString("memberName", "").trim();
             String senderIdentityKey = call.getString("senderIdentityKey", "").trim();
             String senderUri = call.getString("senderUri", "").trim();
+            String sourceNotificationKey = call.getString("sourceNotificationKey", "").trim();
+            String orderId = call.getString("orderId", "").trim();
+            String requestedOperationId = call.getString("operationId", "").trim();
+            String sourceMessageId = call.getString("sourceMessageId", "").trim();
+            String shortcutId = call.getString("shortcutId", "").trim();
+            String originalMessageRefArg = call.getString("originalMessageRef", "").trim();
+            Object rawTs = call.getData() != null ? call.getData().opt("sourceMessageTimestamp") : null;
+            long sourceMessageTimestamp = (rawTs instanceof Number) ? ((Number) rawTs).longValue() : 0L;
+
             String groupName = call.getString("groupName", "").trim();
             String sourceMessageText = call.getString("sourceMessageText", "");
             String message = call.getString("message", "");
@@ -696,13 +721,76 @@ public class NotificationListenerPlugin extends Plugin {
                 return;
             }
 
+            String normalizedPhone = normalizeBahrainPhoneNumber(rawPhone);
+            String cleanPhone = (normalizedPhone.length() >= 8 && normalizedPhone.length() <= 15) ? normalizedPhone : "";
+            String validMemberName = isGenericPlaceholderMemberName(memberName) ? "" : memberName;
+
+            OriginalMessageSenderResolver.OriginalAdContext adContext =
+                    new OriginalMessageSenderResolver.OriginalAdContext(
+                            orderId,
+                            sourceMessageText,
+                            groupName,
+                            validMemberName,
+                            sourceMessageTimestamp,
+                            sourceNotificationKey,
+                            sourceMessageId,
+                            shortcutId,
+                            senderIdentityKey,
+                            senderUri,
+                            cleanPhone
+                    );
+            String effectiveMessageRef = !android.text.TextUtils.isEmpty(originalMessageRefArg)
+                    ? originalMessageRefArg
+                    : adContext.originalMessageRef;
+
+            WhatsAppExecutionState.ExecutionRecord lock =
+                    WhatsAppExecutionState.tryAcquireLock(requestedOperationId, orderId, effectiveMessageRef);
+            if (lock == null) {
+                WhatsAppExecutionState.ExecutionRecord existing =
+                        WhatsAppExecutionState.getRecord(orderId, effectiveMessageRef);
+                boolean retryBlocked = WhatsAppExecutionState.isRetryBlocked(orderId, effectiveMessageRef);
+                String existingOpId = existing != null ? existing.operationId : requestedOperationId;
+                JSObject lockedRet = new JSObject();
+                lockedRet.put("success", false);
+                lockedRet.put("submitted", false);
+                lockedRet.put("deliveryConfirmed", false);
+                lockedRet.put("sentVerifiedInUi", false);
+                lockedRet.put("retryBlocked", retryBlocked);
+                lockedRet.put("operationId", existingOpId);
+                lockedRet.put("packageName", "com.whatsapp");
+                if (retryBlocked) {
+                    String msg = "تعذر الجزم بنتيجة الإرسال السابقة لهذا الإعلان؛ مُنع التكرار التلقائي لمنع الإرسال المزدوج";
+                    lockedRet.put("executionState", WhatsAppExecutionState.State.SEND_RESULT_UNKNOWN.name());
+                    lockedRet.put("status", "SEND_RESULT_UNKNOWN");
+                    lockedRet.put("reasonCode", "send_result_unknown_retry_blocked");
+                    lockedRet.put("method", "send_result_unknown_retry_blocked");
+                    lockedRet.put("statusLabel", msg);
+                } else {
+                    String msg = "توجد عملية مراسلة جارية بالفعل لهذا الإعلان؛ لم نكرر الرسالة";
+                    lockedRet.put("executionState", WhatsAppExecutionState.State.FAILED.name());
+                    lockedRet.put("status", "SEND_FAILED");
+                    lockedRet.put("reasonCode", "operation_in_flight");
+                    lockedRet.put("method", "operation_in_flight");
+                    lockedRet.put("statusLabel", msg);
+                }
+                call.resolve(lockedRet);
+                return;
+            }
+
+            final String opId = lock.operationId;
+            final String dedupKey = lock.dedupKey;
+
             if (!com.orderi.whatsapp.WhatsAppPermissionManager.isRegularWhatsAppInstalled(getContext())) {
                 String msg = "تطبيق واتساب العادي (WhatsApp Messenger) غير مثبت؛ يلزم لإرسال رسالة القبول بالخلفية من رقمك الشخصي";
-                saveOutreachState("BACKGROUND_SEND_UNAVAILABLE", msg);
+                WhatsAppExecutionState.updateState(getContext(), opId, dedupKey, WhatsAppExecutionState.State.FAILED, msg, false);
                 JSObject unavailable = new JSObject();
                 unavailable.put("success", false);
                 unavailable.put("submitted", false);
                 unavailable.put("deliveryConfirmed", false);
+                unavailable.put("sentVerifiedInUi", false);
+                unavailable.put("retryBlocked", false);
+                unavailable.put("operationId", opId);
+                unavailable.put("executionState", WhatsAppExecutionState.State.FAILED.name());
                 unavailable.put("status", "BACKGROUND_SEND_UNAVAILABLE");
                 unavailable.put("reasonCode", "regular_whatsapp_not_installed");
                 unavailable.put("packageName", "com.whatsapp");
@@ -712,20 +800,36 @@ public class NotificationListenerPlugin extends Plugin {
                 return;
             }
 
-            String normalizedPhone = normalizeBahrainPhoneNumber(rawPhone);
-            String cleanPhone = (normalizedPhone.length() >= 8 && normalizedPhone.length() <= 15) ? normalizedPhone : "";
-            String validMemberName = isGenericPlaceholderMemberName(memberName) ? "" : memberName;
+            WhatsAppExecutionState.updateState(
+                    getContext(),
+                    opId,
+                    dedupKey,
+                    WhatsAppExecutionState.State.IDENTIFYING_SENDER,
+                    "جاري تحديد هوية صاحب الإعلان من الرسالة الحالية...",
+                    false
+            );
 
             if (android.text.TextUtils.isEmpty(cleanPhone)
                     && android.text.TextUtils.isEmpty(validMemberName)
                     && android.text.TextUtils.isEmpty(senderIdentityKey)
                     && android.text.TextUtils.isEmpty(senderUri)) {
                 String msg = "تعذر تحديد هوية المعلن من الإعلان أو الإشعار؛ يلزم التحقق قبل التواصل";
-                saveOutreachState("IDENTITY_NOT_VERIFIED", msg);
+                WhatsAppExecutionState.updateState(
+                        getContext(),
+                        opId,
+                        dedupKey,
+                        WhatsAppExecutionState.State.IDENTITY_NOT_CONFIRMED,
+                        msg,
+                        false
+                );
                 JSObject unverified = new JSObject();
                 unverified.put("success", false);
                 unverified.put("submitted", false);
                 unverified.put("deliveryConfirmed", false);
+                unverified.put("sentVerifiedInUi", false);
+                unverified.put("retryBlocked", false);
+                unverified.put("operationId", opId);
+                unverified.put("executionState", WhatsAppExecutionState.State.IDENTITY_NOT_CONFIRMED.name());
                 unverified.put("status", "IDENTITY_NOT_VERIFIED");
                 unverified.put("reasonCode", "missing_advertiser_identity");
                 unverified.put("packageName", "com.whatsapp");
@@ -737,15 +841,35 @@ public class NotificationListenerPlugin extends Plugin {
 
             // 1. Primary path: Silent background send via com.whatsapp private notification RemoteInput
             if (autoSend) {
+                WhatsAppExecutionState.updateState(
+                        getContext(),
+                        opId,
+                        dedupKey,
+                        WhatsAppExecutionState.State.OPENING_PRIVATE_CHAT,
+                        "جاري فحص إجراء الرد المباشر عبر إشعار واتساب الخاص...",
+                        false
+                );
                 boolean remoteInputSubmitted = WhatsAppNotificationListenerService.sendPrivateNotificationReply(
                         getContext(), cleanPhone, validMemberName, senderIdentityKey, senderUri, message);
                 if (remoteInputSubmitted) {
                     String okLabel = "تم تمرير رسالة القبول عبر إشعار واتساب الخاص في الخلفية؛ التسليم بانتظار تأكيد واتساب";
-                    saveOutreachState("MESSAGE_SUBMITTED", okLabel);
+                    WhatsAppExecutionState.updateState(
+                            getContext(),
+                            opId,
+                            dedupKey,
+                            WhatsAppExecutionState.State.SENT,
+                            okLabel,
+                            false
+                    );
                     JSObject ret = new JSObject();
                     ret.put("success", true);
                     ret.put("submitted", true);
                     ret.put("deliveryConfirmed", false);
+                    ret.put("sentVerifiedInUi", false);
+                    ret.put("retryBlocked", false);
+                    ret.put("asyncPending", false);
+                    ret.put("operationId", opId);
+                    ret.put("executionState", WhatsAppExecutionState.State.SENT.name());
                     ret.put("status", "MESSAGE_SUBMITTED");
                     ret.put("packageName", "com.whatsapp");
                     ret.put("method", "notification_remote_input");
@@ -760,12 +884,23 @@ public class NotificationListenerPlugin extends Plugin {
                 boolean accessibilityEnabled = OrderiAccessibilityService.isAccessibilityEnabled(getContext());
                 String unavailableLabel = !android.text.TextUtils.isEmpty(cleanPhone)
                         ? "تعذر الإرسال الصامت بالخلفية: لم يوفر واتساب إشعار رد خاص مباشر للمعلن"
-                        : "تعذر الإرسال الصامت بالخلفية: لا يتيح WhatsApp Messenger تنفيذ «الرد بشكل خاص» من القروب أو فتح محادثة جديدة بالخلفية بدون إشعار خاص سابق";
-                saveOutreachState("BACKGROUND_SEND_UNAVAILABLE", unavailableLabel);
+                        : "تعذر الإرسال الصامت بالخلفية: لا يتيح WhatsApp Messenger تنفيذ «الرد بشكل خاص» بالخلفية دون واجهة أو إشعار خاص سابق";
+                WhatsAppExecutionState.updateState(
+                        getContext(),
+                        opId,
+                        dedupKey,
+                        WhatsAppExecutionState.State.NEEDS_USER_INTERACTION,
+                        unavailableLabel,
+                        false
+                );
                 JSObject unavailable = new JSObject();
                 unavailable.put("success", false);
                 unavailable.put("submitted", false);
                 unavailable.put("deliveryConfirmed", false);
+                unavailable.put("sentVerifiedInUi", false);
+                unavailable.put("retryBlocked", false);
+                unavailable.put("operationId", opId);
+                unavailable.put("executionState", WhatsAppExecutionState.State.NEEDS_USER_INTERACTION.name());
                 unavailable.put("status", "BACKGROUND_SEND_UNAVAILABLE");
                 unavailable.put("reasonCode", "remote_input_unavailable");
                 unavailable.put("accessibilityRequired", !accessibilityEnabled);
@@ -776,15 +911,54 @@ public class NotificationListenerPlugin extends Plugin {
                 return;
             }
 
-            // 3. Explicit user-authorized UI fallback ONLY (allowUiFallback == true)
+            // Before any UI/Accessibility action, verify phone is unlocked & screen is on.
+            if (isDeviceLockedOrScreenOff()) {
+                String lockedLabel = "الهاتف مقفل أو الشاشة مطفأة؛ افتح قفل الشاشة للمتابعة داخل واتساب العادي";
+                WhatsAppExecutionState.updateState(
+                        getContext(),
+                        opId,
+                        dedupKey,
+                        WhatsAppExecutionState.State.NEEDS_USER_INTERACTION,
+                        lockedLabel,
+                        false
+                );
+                JSObject lockedRes = new JSObject();
+                lockedRes.put("success", false);
+                lockedRes.put("submitted", false);
+                lockedRes.put("deliveryConfirmed", false);
+                lockedRes.put("sentVerifiedInUi", false);
+                lockedRes.put("retryBlocked", false);
+                lockedRes.put("operationId", opId);
+                lockedRes.put("executionState", WhatsAppExecutionState.State.NEEDS_USER_INTERACTION.name());
+                lockedRes.put("status", "BACKGROUND_SEND_UNAVAILABLE");
+                lockedRes.put("reasonCode", "device_locked_or_screen_off");
+                lockedRes.put("packageName", "com.whatsapp");
+                lockedRes.put("method", "device_locked_or_screen_off");
+                lockedRes.put("statusLabel", lockedLabel);
+                call.resolve(lockedRes);
+                return;
+            }
+
+            // 3. Explicit user-authorized UI fallback ONLY (allowUiFallback == true) with known phone
             if (!android.text.TextUtils.isEmpty(cleanPhone)) {
                 if (autoSend && !OrderiAccessibilityService.isAccessibilityEnabled(getContext())) {
                     String msg = "فعّل خدمة وصول Orderi حتى يتمكن من إدخال رسالة القبول وإرسالها في محادثة المعلن الخاصة";
-                    saveOutreachState("BACKGROUND_SEND_UNAVAILABLE", msg);
+                    WhatsAppExecutionState.updateState(
+                            getContext(),
+                            opId,
+                            dedupKey,
+                            WhatsAppExecutionState.State.NEEDS_USER_INTERACTION,
+                            msg,
+                            false
+                    );
                     JSObject required = new JSObject();
                     required.put("success", false);
                     required.put("submitted", false);
                     required.put("deliveryConfirmed", false);
+                    required.put("sentVerifiedInUi", false);
+                    required.put("retryBlocked", false);
+                    required.put("operationId", opId);
+                    required.put("executionState", WhatsAppExecutionState.State.NEEDS_USER_INTERACTION.name());
                     required.put("status", "BACKGROUND_SEND_UNAVAILABLE");
                     required.put("reasonCode", "accessibility_required");
                     required.put("accessibilityRequired", true);
@@ -796,21 +970,31 @@ public class NotificationListenerPlugin extends Plugin {
                 }
                 try {
                     String expectedTarget = !android.text.TextUtils.isEmpty(validMemberName) ? validMemberName : cleanPhone;
-                    if (autoSend) OrderiAccessibilityService.queueMessageToSend(expectedTarget, message, true);
+                    if (autoSend) {
+                        OrderiAccessibilityService.queueMessageToSend(expectedTarget, message, true, opId, dedupKey);
+                    }
                     Intent intent = new Intent(Intent.ACTION_VIEW);
                     intent.setData(android.net.Uri.parse("https://api.whatsapp.com/send?phone=" + cleanPhone + "&text=" + android.net.Uri.encode(message)));
                     intent.setPackage("com.whatsapp");
                     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                     getContext().startActivity(intent);
                     String statusOut = autoSend ? "MESSAGE_SUBMITTED" : "PRIVATE_CHAT_RESOLVED";
+                    WhatsAppExecutionState.State execOut = autoSend
+                            ? WhatsAppExecutionState.State.OPENING_PRIVATE_CHAT
+                            : WhatsAppExecutionState.State.NEEDS_USER_INTERACTION;
                     String label = autoSend
                             ? "تم فتح محادثة المعلن الخاصة في واتساب لتنفيذ الإرسال الآلي؛ بانتظار تأكيد الإرسال"
                             : "تم فتح مسودة محادثة المعلن الخاصة في واتساب للمراجعة اليدوية 💬";
-                    saveOutreachState(statusOut, label);
+                    WhatsAppExecutionState.updateState(getContext(), opId, dedupKey, execOut, label, false);
                     JSObject ret = new JSObject();
                     ret.put("success", true);
                     ret.put("submitted", autoSend);
                     ret.put("deliveryConfirmed", false);
+                    ret.put("sentVerifiedInUi", false);
+                    ret.put("retryBlocked", false);
+                    ret.put("asyncPending", autoSend);
+                    ret.put("operationId", opId);
+                    ret.put("executionState", execOut.name());
                     ret.put("status", statusOut);
                     ret.put("packageName", "com.whatsapp");
                     ret.put("method", autoSend ? "exact_private_chat_queued_for_accessibility_send" : "exact_private_chat_opened");
@@ -822,15 +1006,26 @@ public class NotificationListenerPlugin extends Plugin {
                 }
             }
 
-            // 4. Explicit user-authorized Accessibility Group->ReplyPrivately fallback without phone number
+            // 4. Explicit user-authorized Accessibility Group -> Original Message -> Sender -> Private Chat fallback without phone number
             if (!android.text.TextUtils.isEmpty(validMemberName)) {
                 if (isGenericPlaceholderMemberName(groupName)) {
                     String msg = "اسم مجموعة الإعلان غير محدد؛ لم نفتح بحث واتساب عام ولم نرسل أي رسالة";
-                    saveOutreachState("IDENTITY_NOT_VERIFIED", msg);
+                    WhatsAppExecutionState.updateState(
+                            getContext(),
+                            opId,
+                            dedupKey,
+                            WhatsAppExecutionState.State.IDENTITY_NOT_CONFIRMED,
+                            msg,
+                            false
+                    );
                     JSObject failed = new JSObject();
                     failed.put("success", false);
                     failed.put("submitted", false);
                     failed.put("deliveryConfirmed", false);
+                    failed.put("sentVerifiedInUi", false);
+                    failed.put("retryBlocked", false);
+                    failed.put("operationId", opId);
+                    failed.put("executionState", WhatsAppExecutionState.State.IDENTITY_NOT_CONFIRMED.name());
                     failed.put("status", "IDENTITY_NOT_VERIFIED");
                     failed.put("reasonCode", "missing_exact_group_name");
                     failed.put("packageName", "com.whatsapp");
@@ -842,11 +1037,22 @@ public class NotificationListenerPlugin extends Plugin {
 
                 if (!OrderiAccessibilityService.isAccessibilityEnabled(getContext())) {
                     String msg = "تتطلب المراسلة عبر الرد الخاص داخل القروب تفعيل خدمة وصول Orderi";
-                    saveOutreachState("BACKGROUND_SEND_UNAVAILABLE", msg);
+                    WhatsAppExecutionState.updateState(
+                            getContext(),
+                            opId,
+                            dedupKey,
+                            WhatsAppExecutionState.State.NEEDS_USER_INTERACTION,
+                            msg,
+                            false
+                    );
                     JSObject ret = new JSObject();
                     ret.put("success", false);
                     ret.put("submitted", false);
                     ret.put("deliveryConfirmed", false);
+                    ret.put("sentVerifiedInUi", false);
+                    ret.put("retryBlocked", false);
+                    ret.put("operationId", opId);
+                    ret.put("executionState", WhatsAppExecutionState.State.NEEDS_USER_INTERACTION.name());
                     ret.put("status", "BACKGROUND_SEND_UNAVAILABLE");
                     ret.put("reasonCode", "accessibility_required");
                     ret.put("accessibilityRequired", true);
@@ -857,7 +1063,7 @@ public class NotificationListenerPlugin extends Plugin {
                     return;
                 }
 
-                OrderiAccessibilityService.queueOutreachToMember(validMemberName, groupName, sourceMessageText, message, autoSend);
+                OrderiAccessibilityService.queueOutreachToOriginalAd(adContext, message, autoSend, opId);
                 boolean opened = WhatsAppNotificationListenerService.openWhatsAppGroupConversation(getContext(), groupName);
                 if (!opened) {
                     opened = OrderiAccessibilityService.launchWhatsAppForOutreach(getContext());
@@ -865,11 +1071,22 @@ public class NotificationListenerPlugin extends Plugin {
 
                 if (!opened) {
                     String msg = "تعذر فتح واتساب العادي للوصول إلى قروب الإعلان؛ لم يتم إرسال أي رسالة";
-                    saveOutreachState("SEND_FAILED", msg);
+                    WhatsAppExecutionState.updateState(
+                            getContext(),
+                            opId,
+                            dedupKey,
+                            WhatsAppExecutionState.State.FAILED,
+                            msg,
+                            false
+                    );
                     JSObject failed = new JSObject();
                     failed.put("success", false);
                     failed.put("submitted", false);
                     failed.put("deliveryConfirmed", false);
+                    failed.put("sentVerifiedInUi", false);
+                    failed.put("retryBlocked", false);
+                    failed.put("operationId", opId);
+                    failed.put("executionState", WhatsAppExecutionState.State.FAILED.name());
                     failed.put("status", "SEND_FAILED");
                     failed.put("reasonCode", "whatsapp_launch_failed");
                     failed.put("packageName", "com.whatsapp");
@@ -879,12 +1096,24 @@ public class NotificationListenerPlugin extends Plugin {
                     return;
                 }
 
-                String label = "جاري فتح القروب واستخدام «الرد بشكل خاص» لمراسلة المعلن «" + validMemberName + "»";
-                saveOutreachState("sending", label);
+                String label = "جاري فتح القروب وتحديد الرسالة الأصلية ومراسلة «" + validMemberName + "» بالخاص...";
+                WhatsAppExecutionState.updateState(
+                        getContext(),
+                        opId,
+                        dedupKey,
+                        WhatsAppExecutionState.State.LOCATING_ORIGINAL_MESSAGE,
+                        label,
+                        false
+                );
                 JSObject ret = new JSObject();
                 ret.put("success", true);
                 ret.put("submitted", true);
                 ret.put("deliveryConfirmed", false);
+                ret.put("sentVerifiedInUi", false);
+                ret.put("retryBlocked", false);
+                ret.put("asyncPending", true);
+                ret.put("operationId", opId);
+                ret.put("executionState", WhatsAppExecutionState.State.LOCATING_ORIGINAL_MESSAGE.name());
                 ret.put("status", "MESSAGE_SUBMITTED");
                 ret.put("packageName", "com.whatsapp");
                 ret.put("method", "accessibility_reply_privately");
@@ -894,11 +1123,22 @@ public class NotificationListenerPlugin extends Plugin {
             }
 
             String failMsg = "لم تُرسل الرسالة: تعذر التحقق من وجهة المعلن الخاصة في واتساب";
-            saveOutreachState("SEND_FAILED", failMsg);
+            WhatsAppExecutionState.updateState(
+                    getContext(),
+                    opId,
+                    dedupKey,
+                    WhatsAppExecutionState.State.FAILED,
+                    failMsg,
+                    false
+            );
             JSObject ret = new JSObject();
             ret.put("success", false);
             ret.put("submitted", false);
             ret.put("deliveryConfirmed", false);
+            ret.put("sentVerifiedInUi", false);
+            ret.put("retryBlocked", false);
+            ret.put("operationId", opId);
+            ret.put("executionState", WhatsAppExecutionState.State.FAILED.name());
             ret.put("status", "SEND_FAILED");
             ret.put("reasonCode", "private_outreach_unavailable");
             ret.put("packageName", "com.whatsapp");
@@ -910,6 +1150,9 @@ public class NotificationListenerPlugin extends Plugin {
             ret.put("success", false);
             ret.put("submitted", false);
             ret.put("deliveryConfirmed", false);
+            ret.put("sentVerifiedInUi", false);
+            ret.put("retryBlocked", false);
+            ret.put("executionState", WhatsAppExecutionState.State.FAILED.name());
             ret.put("status", "SEND_FAILED");
             ret.put("reasonCode", "private_outreach_exception");
             ret.put("packageName", "com.whatsapp");
@@ -943,6 +1186,32 @@ public class NotificationListenerPlugin extends Plugin {
             call.resolve();
         } catch (Exception e) {
             call.reject("Could not update native filter settings", e);
+        }
+    }
+
+    @PluginMethod
+    public void dryRunLocateOriginalSender(PluginCall call) {
+        try {
+            Object rawTs = call.getData() != null ? call.getData().opt("sourceMessageTimestamp") : null;
+            long sourceTimestamp = (rawTs instanceof Number) ? ((Number) rawTs).longValue() : 0L;
+            OriginalMessageSenderResolver.OriginalAdContext adContext =
+                    new OriginalMessageSenderResolver.OriginalAdContext(
+                            call.getString("orderId", ""),
+                            call.getString("rawText", ""),
+                            call.getString("groupName", ""),
+                            call.getString("senderDisplayName", ""),
+                            sourceTimestamp,
+                            call.getString("sourceNotificationKey", ""),
+                            call.getString("sourceMessageId", ""),
+                            call.getString("shortcutId", ""),
+                            call.getString("senderIdentityKey", ""),
+                            call.getString("senderUri", ""),
+                            call.getString("senderPhone", "")
+                    );
+            JSObject result = OrderiAccessibilityService.dryRunLocateOriginalSender(getContext(), adContext);
+            call.resolve(result);
+        } catch (Exception e) {
+            call.reject("Could not execute Phase 2 dry-run original message locate", e);
         }
     }
 

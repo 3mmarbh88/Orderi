@@ -220,7 +220,6 @@ export async function parseWhatsAppOrderWithLocalAi(
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               rawText,
-              senderName: options.senderName || '',
               groupName: options.groupName || '',
             }),
             signal: AbortSignal.timeout(10000),

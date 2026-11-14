@@ -52,8 +52,16 @@ jobs:
       - name: Run TypeScript type checking
         run: npm run lint
 
-      - name: Run privacy and Spider regression tests
-        run: npm run test:group-capture && npm run test:spider-privacy && npm run test:whatsapp-connection && npm run test:chat-importer
+      - name: Run privacy, Spider, and WhatsApp outreach regression tests
+        run: >
+          npm run test:group-capture &&
+          npm run test:spider-privacy &&
+          npm run test:whatsapp-connection &&
+          npm run test:chat-importer &&
+          npm run test:advertiser-outreach &&
+          npm run test:order-closure &&
+          npm run test:original-locator &&
+          npm run test:execution-engine
 
       - name: Build web application
         run: npm run build
@@ -71,9 +79,9 @@ jobs:
       - name: Sync Capacitor Android project
         run: npx cap sync android
 
-      - name: Build debug APK
+      - name: Run Android Java unit tests and build debug APK
         working-directory: android
-        run: bash ./gradlew assembleDebug
+        run: bash ./gradlew testDebugUnitTest assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

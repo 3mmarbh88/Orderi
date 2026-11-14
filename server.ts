@@ -1818,8 +1818,6 @@ app.post("/api/ai/evaluate-match", async (req, res) => {
   try {
     const { 
       rawText = "", 
-      senderName = "", 
-      senderPhone = "", 
       groupName = "", 
       from = "", 
       to = "", 
@@ -1847,10 +1845,8 @@ app.post("/api/ai/evaluate-match", async (req, res) => {
       const prompt = `أنت خبير لوجستي ذكي ومساعد استراتيجي لكباتن ومناديب التوصيل في مملكة البحرين 🇧🇭.
 مهمتك: قراءة رسالة الإعلان الأصلية التي نشرها التاجر/المعلن في واتساب بدقة وفهم لهجتها البحرينية/الخليجية، ومقارنتها نقطة بنقطة مع شروط وتفضيلات الكابتن، وتحديد هل الإعلان يطابق شروط الكابتن ومربح ومجدٍ له أم لا.
 
-بيانات رسالة المعلن من واتساب:
+بيانات رسالة الإعلان (بدون بيانات المعلن الشخصية):
 - نص رسالة الإعلان الأصلية: """${rawText}"""
-- اسم المعلن: ${senderName || "غير معروف"}
-- رقم هاتف المعلن: ${senderPhone || "غير مسجل"}
 - القروب أو المحادثة: ${groupName || "واتساب"}
 - منطقة الاستلام المستخلصة: ${from || "غير محددة"}
 - منطقة التسليم المستخلصة: ${to || "غير محددة"}
@@ -2028,7 +2024,7 @@ app.post("/api/ai/evaluate-match", async (req, res) => {
 // Feature 7: Cloud AI Deep Order Parser (الذكاء الاصطناعي السحابي عند الحاجة لاستخراج الطلبات الغامضة)
 app.post("/api/ai/cloud-parse-order", async (req, res) => {
   try {
-    const { rawText = "", senderName = "", groupName = "" } = req.body || {};
+    const { rawText = "", groupName = "" } = req.body || {};
 
     if (!rawText || typeof rawText !== "string") {
       return res.status(400).json({
@@ -2041,9 +2037,8 @@ app.post("/api/ai/cloud-parse-order", async (req, res) => {
     const prompt = `أنت خبير ذكاء اصطناعي لوجستي متخصص في تحليل إعلانات ورسائل طلبات التوصيل في قروبات واتساب مملكة البحرين 🇧🇭.
 مهمتك: قراءة الإعلان وفهم اللهجة البحرينية والخليجية بدقة فائقة واستخراج تفاصيل الطلب ومنع أي لبس.
 
-نص الإعلان الأصلي من واتساب:
+نص الإعلان الأصلي من واتساب (بدون بيانات شخصية للمرسل):
 """${rawText}"""
-اسم المرسل في واتساب: "${senderName}"
 اسم القروب: "${groupName}"
 
 قواعد صارمة:
@@ -2171,17 +2166,16 @@ app.get("/api/ai/status", async (req, res) => {
 // AI Closure Classifier & Learner (فهم وتحليل كلمات وتعابير إغلاق وحجز الطلبات بالذكاء الاصطناعي)
 app.post("/api/analyze-and-learn-closure", async (req, res) => {
   try {
-    const { text = "", context = "", senderName = "", groupName = "" } = req.body || {};
+    const { text = "", context = "", groupName = "" } = req.body || {};
     if (!text || typeof text !== "string") {
       return res.status(400).json({ success: false, error: "النص فارغ" });
     }
 
     const ai = getGenAI();
     const prompt = `أنت خبير ذكاء اصطناعي لغوي في اللهجة البحرينية والخليجية ومحادثات مجموعات واتساب لطلبات التوصيل.
-المهمة: تحليل رسالة أرسلها عضو/معلن في قروب توصيل ومعرفة ما إذا كانت تفيد بأن الطلب قد انحجز أو حصل على مندوب أو تم إنجازه أو تكنسل.
+المهمة: تحليل رسالة أرسلها عضو في قروب توصيل ومعرفة ما إذا كانت تفيد بأن الطلب قد انحجز أو حصل على مندوب أو تم إنجازه أو تكنسل.
 
 نص الرسالة: "${text}"
-اسم المرسل: "${senderName}"
 اسم القروب: "${groupName}"
 سياق الطلب السابق (إن وجد): "${context}"
 
