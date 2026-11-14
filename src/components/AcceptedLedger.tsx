@@ -129,9 +129,9 @@ export function AcceptedLedger({
                       <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-900 border border-emerald-300">
                         تم تأكيد التواصل بالخاص ✅
                       </span>
-                    ) : ord.outreachStatus === 'SUBMITTED_UNCONFIRMED' ? (
+                    ) : ord.outreachStatus === 'MESSAGE_SUBMITTED' ? (
                       <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-blue-100 text-blue-900 border border-blue-200">
-                        أُرسل الرد (بانتظار رد المعلن) 💬
+                        تم تمرير الرد (بانتظار رد المعلن) 💬
                       </span>
                     ) : null}
                     <span className="text-slate-300">•</span>

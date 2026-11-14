@@ -48,6 +48,9 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         public String title;
         public String senderName;
         public String senderPhone;
+        public String senderIdentityKey;
+        public String senderUri;
+        public String shortcutId;
     }
     private static final java.util.concurrent.ConcurrentHashMap<String, ReplyActionHolder> REPLY_ACTIONS = new java.util.concurrent.ConcurrentHashMap<>();
 
@@ -59,6 +62,9 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         public String packageName;
         public String senderName;
         public String senderPhone;
+        public String senderIdentityKey;
+        public String senderUri;
+        public String shortcutId;
     }
     private static final java.util.concurrent.ConcurrentHashMap<String, ChatIntentHolder> CHAT_INTENTS = new java.util.concurrent.ConcurrentHashMap<>();
 
@@ -345,11 +351,24 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
             String holderTitle,
             String holderSenderName,
             String holderSenderPhone,
+            String holderSenderIdentityKey,
+            String holderSenderUri,
             String targetPhone,
-            String targetName) {
+            String targetName,
+            String targetSenderKey,
+            String targetSenderUri) {
         if (isGroup || !PACKAGE_WHATSAPP.equals(packageName)) return false;
         long now = System.currentTimeMillis();
         if (timestamp <= 0L || now - timestamp < 0L || now - timestamp > 900_000L) return false;
+
+        if (!TextUtils.isEmpty(targetSenderKey) && !TextUtils.isEmpty(holderSenderIdentityKey)
+                && targetSenderKey.trim().equals(holderSenderIdentityKey.trim())) {
+            return true;
+        }
+        if (!TextUtils.isEmpty(targetSenderUri) && !TextUtils.isEmpty(holderSenderUri)
+                && targetSenderUri.trim().equals(holderSenderUri.trim())) {
+            return true;
+        }
 
         String cleanPhone = normalizeBahrainDigits(targetPhone);
         if (cleanPhone.length() >= 8 && cleanPhone.length() <= 15) {
@@ -417,8 +436,12 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                     holder.title,
                     holder.senderName,
                     holder.senderPhone,
+                    holder.senderIdentityKey,
+                    holder.senderUri,
                     "",
-                    targetTitle)) {
+                    targetTitle,
+                    "",
+                    "")) {
                 continue;
             }
             try {
@@ -436,7 +459,43 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         return sendPrivateNotificationReply(context, targetGroupOrPhone, replyText);
     }
 
+    public static boolean hasPrivateNotificationChatIntent(
+            android.content.Context context,
+            String targetPhone,
+            String targetName,
+            String targetSenderKey,
+            String targetSenderUri) {
+        for (ChatIntentHolder holder : CHAT_INTENTS.values()) {
+            if (holder == null || holder.contentIntent == null) continue;
+            if (matchesPrivateHolder(
+                    holder.packageName,
+                    holder.isGroup,
+                    holder.timestamp,
+                    holder.title,
+                    holder.senderName,
+                    holder.senderPhone,
+                    holder.senderIdentityKey,
+                    holder.senderUri,
+                    targetPhone,
+                    targetName,
+                    targetSenderKey,
+                    targetSenderUri)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public static boolean hasPrivateNotificationReplyAction(android.content.Context context, String targetPhone, String targetName) {
+        return hasPrivateNotificationReplyAction(context, targetPhone, targetName, "", "");
+    }
+
+    public static boolean hasPrivateNotificationReplyAction(
+            android.content.Context context,
+            String targetPhone,
+            String targetName,
+            String targetSenderKey,
+            String targetSenderUri) {
         for (ReplyActionHolder holder : REPLY_ACTIONS.values()) {
             if (holder == null || holder.pendingIntent == null
                     || holder.remoteInputs == null || holder.remoteInputs.length == 0) continue;
@@ -447,8 +506,12 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                     holder.title,
                     holder.senderName,
                     holder.senderPhone,
+                    holder.senderIdentityKey,
+                    holder.senderUri,
                     targetPhone,
-                    targetName)) {
+                    targetName,
+                    targetSenderKey,
+                    targetSenderUri)) {
                 return true;
             }
         }
@@ -459,6 +522,16 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
             android.content.Context context,
             String targetPhone,
             String targetName,
+            String replyText) {
+        return sendPrivateNotificationReply(context, targetPhone, targetName, "", "", replyText);
+    }
+
+    public static boolean sendPrivateNotificationReply(
+            android.content.Context context,
+            String targetPhone,
+            String targetName,
+            String targetSenderKey,
+            String targetSenderUri,
             String replyText) {
         if (TextUtils.isEmpty(replyText)) return false;
         ReplyActionHolder bestHolder = null;
@@ -472,8 +545,12 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                     holder.title,
                     holder.senderName,
                     holder.senderPhone,
+                    holder.senderIdentityKey,
+                    holder.senderUri,
                     targetPhone,
-                    targetName)) {
+                    targetName,
+                    targetSenderKey,
+                    targetSenderUri)) {
                 continue;
             }
             if (bestHolder == null || holder.timestamp > bestHolder.timestamp) {
@@ -493,7 +570,7 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         String digits = target.replaceAll("\\D", "");
         String phoneTarget = (digits.length() >= 8 && digits.length() <= 15 && strippedLetters.isEmpty()) ? digits : "";
         String nameTarget = TextUtils.isEmpty(phoneTarget) ? target : "";
-        return sendPrivateNotificationReply(context, phoneTarget, nameTarget, replyText);
+        return sendPrivateNotificationReply(context, phoneTarget, nameTarget, "", "", replyText);
     }
 
     /**
@@ -584,6 +661,10 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         // A group with no exposed sender must remain unidentified, not be matched to its owner.
         String detectedSenderName = "";
         String detectedSenderPhone = "";
+        String detectedSenderIdentityKey = "";
+        String detectedSenderUri = "";
+        long detectedMessageTimestamp = sbn.getPostTime();
+        String shortcutId = Build.VERSION.SDK_INT >= 29 ? safe(n.getShortcutId()) : "";
         boolean detectedSticker = false;
         String combinedVisibleText = !TextUtils.isEmpty(bigText) ? bigText : text;
         if (TextUtils.isEmpty(combinedVisibleText)) combinedVisibleText = subText;
@@ -678,18 +759,21 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         // the text mentions delivery keywords, Bahrain areas, or prices.
 
         // MessagingStyle can expose the actual sender separately from the visible title.
-        // If the sender differs from the notification title, the title is usually the group
-        // name (even when Android omits EXTRA_CONVERSATION_TITLE and the group name has no keywords).
-        // For direct chats, the sender normally matches the title, so they are not misclassified.
+        // Extract Person name, key (e.g. JID/LID), URI, and message timestamp strictly for this current order.
         if (!TextUtils.isEmpty(title) && Build.VERSION.SDK_INT >= 24) {
             try {
                 Object messages = extras.get(Notification.EXTRA_MESSAGES);
                 if (messages instanceof Parcelable[]) {
                     String latestSender = "";
                     String latestSenderPhone = "";
+                    String latestSenderKey = "";
+                    String latestSenderUri = "";
+                    long latestMsgTime = sbn.getPostTime();
                     for (Parcelable item : (Parcelable[]) messages) {
                         if (!(item instanceof Bundle)) continue;
                         Bundle message = (Bundle) item;
+                        long msgTime = message.getLong("time", 0L);
+                        if (msgTime > 0L) latestMsgTime = msgTime;
                         String senderName = "";
                         String messageMimeType = safe(message.getString("dataMimeType"));
                         if (messageMimeType.toLowerCase(java.util.Locale.ROOT).contains("sticker")
@@ -703,6 +787,8 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                                 senderName = safe(person.getName());
                                 String key = safe(person.getKey());
                                 String uri = safe(person.getUri());
+                                if (!TextUtils.isEmpty(key)) latestSenderKey = key.trim();
+                                if (!TextUtils.isEmpty(uri)) latestSenderUri = uri.trim();
                                 if (!TextUtils.isEmpty(key) && key.contains("@s.whatsapp.net")) {
                                     String digits = key.substring(0, key.indexOf('@')).replaceAll("\\D", "");
                                     if (digits.length() >= 8 && digits.length() <= 15) {
@@ -730,6 +816,15 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                     }
                     if (!TextUtils.isEmpty(latestSenderPhone)) {
                         detectedSenderPhone = latestSenderPhone;
+                    }
+                    if (!TextUtils.isEmpty(latestSenderKey)) {
+                        detectedSenderIdentityKey = latestSenderKey;
+                    }
+                    if (!TextUtils.isEmpty(latestSenderUri)) {
+                        detectedSenderUri = latestSenderUri;
+                    }
+                    if (latestMsgTime > 0L) {
+                        detectedMessageTimestamp = latestMsgTime;
                     }
                 }
             } catch (Exception ignored) {}
@@ -815,6 +910,11 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
             event.put("groupName", detectedGroupName);
             event.put("senderName", detectedSenderName);
             event.put("senderPhone", detectedSenderPhone);
+            event.put("senderIdentityKey", detectedSenderIdentityKey);
+            event.put("senderUri", detectedSenderUri);
+            event.put("sourceMessageTimestamp", detectedMessageTimestamp);
+            event.put("sourceNotificationKey", sbnKey);
+            event.put("shortcutId", shortcutId);
             event.put("text", text);
             event.put("bigText", bigText);
             event.put("subText", subText);
@@ -832,46 +932,60 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
             event.put("isExplicitGroup", isExplicitGroupFlag);
             event.put("hasConversationTitle", !TextUtils.isEmpty(conversationTitle));
 
-            // Cache WhatsApp direct reply action from notification if present
+            // Cache WhatsApp direct reply action from notification if present (n.actions + WearableExtender)
             String holderCacheKey = pkg + "|" + (!TextUtils.isEmpty(sbnKey) ? sbnKey : resolvedTitle);
+            java.util.List<Notification.Action> candidateActions = new java.util.ArrayList<>();
             if (n.actions != null) {
-                for (Notification.Action action : n.actions) {
-                    if (action == null || action.actionIntent == null) continue;
-                    
-                    // Reply action
-                    if (action.getRemoteInputs() != null && action.getRemoteInputs().length > 0) {
-                        ReplyActionHolder holder = new ReplyActionHolder();
-                        holder.pendingIntent = action.actionIntent;
-                        holder.remoteInputs = action.getRemoteInputs();
-                        holder.timestamp = sbn.getPostTime();
-                        holder.isGroup = looksLikeGroup;
-                        holder.packageName = pkg;
-                        holder.title = resolvedTitle;
-                        holder.senderName = detectedSenderName;
-                        holder.senderPhone = detectedSenderPhone;
-                        REPLY_ACTIONS.put(holderCacheKey, holder);
-                    } else {
-                        // Mark as read action (تمييز كمقروء)
-                        CharSequence aTitle = action.title;
-                        String aTitleStr = aTitle != null ? aTitle.toString().toLowerCase() : "";
-                        boolean isMarkRead = aTitleStr.contains("read") ||
-                                             aTitleStr.contains("مقروء") ||
-                                             aTitleStr.contains("قراءة") ||
-                                             aTitleStr.contains("تمييز") ||
-                                             aTitleStr.contains("تعليم") ||
-                                             aTitleStr.contains("mark");
-                        if (isMarkRead) {
-                            MarkAsReadHolder readHolder = new MarkAsReadHolder();
-                            readHolder.pendingIntent = action.actionIntent;
-                            readHolder.key = sbn.getKey();
-                            readHolder.timestamp = sbn.getPostTime();
-                            readHolder.title = resolvedTitle;
-                            readHolder.isGroup = looksLikeGroup;
-                            if (!TextUtils.isEmpty(resolvedTitle)) MARK_AS_READ_ACTIONS.put(resolvedTitle, readHolder);
-                            if (!TextUtils.isEmpty(title)) MARK_AS_READ_ACTIONS.put(title, readHolder);
-                            if (!TextUtils.isEmpty(conversationTitle)) MARK_AS_READ_ACTIONS.put(conversationTitle, readHolder);
-                            MARK_AS_READ_ACTIONS.put(sbn.getKey(), readHolder);
-                        }
+                for (Notification.Action a : n.actions) {
+                    if (a != null) candidateActions.add(a);
+                }
+            }
+            try {
+                Notification.WearableExtender wearableExtender = new Notification.WearableExtender(n);
+                if (wearableExtender.getActions() != null) {
+                    candidateActions.addAll(wearableExtender.getActions());
+                }
+            } catch (Exception ignored) {}
+
+            for (Notification.Action action : candidateActions) {
+                if (action == null || action.actionIntent == null) continue;
+
+                // Reply action (Note: group reply actions stay marked isGroup=true and are NEVER used for private outreach)
+                if (action.getRemoteInputs() != null && action.getRemoteInputs().length > 0) {
+                    ReplyActionHolder holder = new ReplyActionHolder();
+                    holder.pendingIntent = action.actionIntent;
+                    holder.remoteInputs = action.getRemoteInputs();
+                    holder.timestamp = sbn.getPostTime();
+                    holder.isGroup = looksLikeGroup;
+                    holder.packageName = pkg;
+                    holder.title = resolvedTitle;
+                    holder.senderName = detectedSenderName;
+                    holder.senderPhone = detectedSenderPhone;
+                    holder.senderIdentityKey = detectedSenderIdentityKey;
+                    holder.senderUri = detectedSenderUri;
+                    holder.shortcutId = shortcutId;
+                    REPLY_ACTIONS.put(holderCacheKey, holder);
+                } else {
+                    // Mark as read action (تمييز كمقروء)
+                    CharSequence aTitle = action.title;
+                    String aTitleStr = aTitle != null ? aTitle.toString().toLowerCase() : "";
+                    boolean isMarkRead = aTitleStr.contains("read") ||
+                                         aTitleStr.contains("مقروء") ||
+                                         aTitleStr.contains("قراءة") ||
+                                         aTitleStr.contains("تمييز") ||
+                                         aTitleStr.contains("تعليم") ||
+                                         aTitleStr.contains("mark");
+                    if (isMarkRead) {
+                        MarkAsReadHolder readHolder = new MarkAsReadHolder();
+                        readHolder.pendingIntent = action.actionIntent;
+                        readHolder.key = sbn.getKey();
+                        readHolder.timestamp = sbn.getPostTime();
+                        readHolder.title = resolvedTitle;
+                        readHolder.isGroup = looksLikeGroup;
+                        if (!TextUtils.isEmpty(resolvedTitle)) MARK_AS_READ_ACTIONS.put(resolvedTitle, readHolder);
+                        if (!TextUtils.isEmpty(title)) MARK_AS_READ_ACTIONS.put(title, readHolder);
+                        if (!TextUtils.isEmpty(conversationTitle)) MARK_AS_READ_ACTIONS.put(conversationTitle, readHolder);
+                        MARK_AS_READ_ACTIONS.put(sbn.getKey(), readHolder);
                     }
                 }
             }
@@ -886,6 +1000,9 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                 intentHolder.packageName = pkg;
                 intentHolder.senderName = detectedSenderName;
                 intentHolder.senderPhone = detectedSenderPhone;
+                intentHolder.senderIdentityKey = detectedSenderIdentityKey;
+                intentHolder.senderUri = detectedSenderUri;
+                intentHolder.shortcutId = shortcutId;
                 CHAT_INTENTS.put(holderCacheKey, intentHolder);
             }
 

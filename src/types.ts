@@ -183,6 +183,10 @@ export interface ParsedOrder {
   senderName: string;
   senderPhone: string;
   senderPhoneSource?: 'notification_metadata' | 'ad_text_advertiser' | 'user_verified' | 'none';
+  senderIdentityKey?: string;
+  senderUri?: string;
+  sourceMessageTimestamp?: number;
+  sourceNotificationKey?: string;
   receivedAt: Date;
   confidence: number;
   type: string;
@@ -219,12 +223,13 @@ export type OutreachDeliveryStatus =
   | 'NOT_ATTEMPTED'
   | 'IDENTIFYING_ADVERTISER'
   | 'ADVERTISER_VERIFIED'
-  | 'BACKGROUND_SEND_AVAILABLE'
-  | 'SUBMITTED_UNCONFIRMED'
+  | 'PRIVATE_CHAT_RESOLVED'
+  | 'BACKGROUND_SEND_READY'
+  | 'MESSAGE_SUBMITTED'
   | 'DELIVERY_CONFIRMED'
-  | 'VERIFICATION_REQUIRED'
+  | 'IDENTITY_NOT_VERIFIED'
   | 'BACKGROUND_SEND_UNAVAILABLE'
-  | 'FAILED';
+  | 'SEND_FAILED';
 
 export interface OutreachAttemptDetails {
   status: OutreachDeliveryStatus;

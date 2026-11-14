@@ -552,7 +552,7 @@ public class OrderiAccessibilityService extends AccessibilityService {
 
         // Allow enough time for WhatsApp launch, chat search, group open and member selection (bounded).
         if (System.currentTimeMillis() - pendingMessageTimestamp > 60000L) {
-            writeOutreachStatus("FAILED", "انتهت مهلة الوصول إلى محادثة المعلن أو الإرسال");
+            writeOutreachStatus("SEND_FAILED", "انتهت مهلة الوصول إلى محادثة المعلن أو الإرسال");
             resetOperation();
             return;
         }
@@ -704,7 +704,7 @@ public class OrderiAccessibilityService extends AccessibilityService {
                     arguments.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, pendingMessageToSend);
                     boolean textSet = inputField.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments);
                     if (!textSet) {
-                        writeOutreachStatus("FAILED", "تعذر إدخال رسالة القبول في المحادثة");
+                        writeOutreachStatus("SEND_FAILED", "تعذر إدخال رسالة القبول في المحادثة");
                         resetOperation();
                         return;
                     }
@@ -722,11 +722,11 @@ public class OrderiAccessibilityService extends AccessibilityService {
                                 return;
                             }
                         }
-                        writeOutreachStatus("FAILED", "لم يظهر زر إرسال قابل للتنفيذ في المحادثة");
+                        writeOutreachStatus("SEND_FAILED", "لم يظهر زر إرسال قابل للتنفيذ في المحادثة");
                         resetOperation();
                     } else {
                         // When autoSend is false, message is prepared in composer for user review and confirmation
-                        writeOutreachStatus("prepared", "تم تجهيز الرسالة في محادثة المعلن الخاصة؛ يمكنك الرد الآن 💬");
+                        writeOutreachStatus("PRIVATE_CHAT_RESOLVED", "تم تجهيز الرسالة في محادثة المعلن الخاصة؛ يمكنك الرد الآن 💬");
                         Log.i(TAG, "Private message prepared in composer; awaiting user send confirmation");
                         resetOperation();
                     }
@@ -744,12 +744,12 @@ public class OrderiAccessibilityService extends AccessibilityService {
                 }
                 if (composerCleared) {
                     // Clearing the composer confirms submission to the chat UI, not delivery/read receipt.
-                    writeOutreachStatus("SUBMITTED_UNCONFIRMED", "تم تمرير رسالة القبول إلى محادثة المعلن؛ لم يؤكد واتساب التسليم بعد");
+                    writeOutreachStatus("MESSAGE_SUBMITTED", "تم تمرير رسالة القبول إلى محادثة المعلن؛ لم يؤكد واتساب التسليم بعد");
                     Log.i(TAG, "WhatsApp composer cleared after send tap; submission is unconfirmed. Returning to Orderi...");
                     returnToOrderi();
                     resetOperation();
                 } else if (System.currentTimeMillis() - lastSendClickTime > 8000L) {
-                    writeOutreachStatus("FAILED", "لم يختفِ نص الرسالة من خانة الكتابة؛ تعذر تأكيد الإرسال");
+                    writeOutreachStatus("SEND_FAILED", "لم يختفِ نص الرسالة من خانة الكتابة؛ تعذر تأكيد الإرسال");
                     Log.w(TAG, "WhatsApp send could not be verified; leaving the order unaccepted");
                     returnToOrderi();
                     resetOperation();

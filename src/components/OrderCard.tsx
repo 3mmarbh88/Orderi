@@ -603,25 +603,34 @@ export function OrderCard({
                     <span>تم تأكيد التواصل بالخاص ✅</span>
                   </span>
                 )}
-                {order.outreachStatus === 'SUBMITTED_UNCONFIRMED' && (
+                {order.outreachStatus === 'MESSAGE_SUBMITTED' && (
                   <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-blue-100 text-blue-900 border border-blue-300 shadow-2xs">
                     <MessageCircle className="w-3 h-3 text-blue-700" />
-                    <span>أُرسل الرد (بانتظار رد المعلن) 💬</span>
+                    <span>تم تمرير الرد للخاص (بانتظار تأكيد التسليم) 💬</span>
                   </span>
                 )}
-                {order.outreachStatus === 'VERIFICATION_REQUIRED' && (
+                {(order.outreachStatus === 'IDENTIFYING_ADVERTISER' ||
+                  order.outreachStatus === 'ADVERTISER_VERIFIED' ||
+                  order.outreachStatus === 'PRIVATE_CHAT_RESOLVED' ||
+                  order.outreachStatus === 'BACKGROUND_SEND_READY') && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-sky-100 text-sky-900 border border-sky-300 shadow-2xs">
+                    <RefreshCw className="w-3 h-3 text-sky-700 animate-spin" />
+                    <span>جاري التحقق من المعلن والمراسلة بالخلفية...</span>
+                  </span>
+                )}
+                {order.outreachStatus === 'IDENTITY_NOT_VERIFIED' && (
                   <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs">
                     <AlertTriangle className="w-3 h-3 text-amber-700" />
-                    <span>يتطلب التحقق من هوية المعلن ⚠️</span>
+                    <span>هوية المعلن غير مؤكدة ⚠️</span>
                   </span>
                 )}
                 {order.outreachStatus === 'BACKGROUND_SEND_UNAVAILABLE' && (
                   <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs">
                     <AlertTriangle className="w-3 h-3 text-amber-700" />
-                    <span>الإرسال الصامت غير متاح — للمتابعة اليدوية ⚠️</span>
+                    <span>الإرسال الصامت بالخلفية غير متاح — للمتابعة اليدوية ⚠️</span>
                   </span>
                 )}
-                {order.outreachStatus === 'FAILED' && (
+                {order.outreachStatus === 'SEND_FAILED' && (
                   <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-rose-100 text-rose-900 border border-rose-300 shadow-2xs">
                     <AlertCircle className="w-3 h-3 text-rose-700" />
                     <span>تعذر إرسال الرد بالخاص ❌</span>
@@ -904,7 +913,7 @@ export function OrderCard({
                       <Reply className="w-4 h-4" />
                       <span>حصلت مندوب (رد: تم فوراً) 🎯</span>
                     </>
-                  ) : order.outreachStatus === 'BACKGROUND_SEND_UNAVAILABLE' || order.outreachStatus === 'VERIFICATION_REQUIRED' || order.outreachStatus === 'FAILED' ? (
+                  ) : order.outreachStatus === 'BACKGROUND_SEND_UNAVAILABLE' || order.outreachStatus === 'IDENTITY_NOT_VERIFIED' || order.outreachStatus === 'SEND_FAILED' ? (
                     <>
                       <MessageCircle className="w-4 h-4 text-amber-200" />
                       <div className="flex flex-col items-center leading-tight">

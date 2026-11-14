@@ -640,6 +640,8 @@ public class NotificationListenerPlugin extends Plugin {
     public void checkPrivateOutreachCapability(PluginCall call) {
         String phone = normalizeBahrainPhoneNumber(call.getString("phone", ""));
         String memberName = call.getString("memberName", "").trim();
+        String senderIdentityKey = call.getString("senderIdentityKey", "").trim();
+        String senderUri = call.getString("senderUri", "").trim();
         String validPhone = (phone.length() >= 8 && phone.length() <= 15) ? phone : "";
         String validMember = isGenericPlaceholderMemberName(memberName) ? "" : memberName;
 
@@ -647,7 +649,12 @@ public class NotificationListenerPlugin extends Plugin {
         boolean listenerEnabled = WhatsAppNotificationListenerService.isEnabled(getContext());
         boolean accessibilityEnabled = OrderiAccessibilityService.isAccessibilityEnabled(getContext());
         boolean hasPrivateReply = regularInstalled && listenerEnabled
-                && WhatsAppNotificationListenerService.hasPrivateNotificationReplyAction(getContext(), validPhone, validMember);
+                && WhatsAppNotificationListenerService.hasPrivateNotificationReplyAction(
+                        getContext(), validPhone, validMember, senderIdentityKey, senderUri);
+        boolean hasPrivateChatIntent = regularInstalled && listenerEnabled
+                && WhatsAppNotificationListenerService.hasPrivateNotificationChatIntent(
+                        getContext(), validPhone, validMember, senderIdentityKey, senderUri);
+        boolean privateChatResolved = regularInstalled && (!validPhone.isEmpty() || hasPrivateReply || hasPrivateChatIntent);
 
         String reasonCode = "ok";
         if (!regularInstalled) reasonCode = "regular_whatsapp_not_installed";
@@ -659,6 +666,7 @@ public class NotificationListenerPlugin extends Plugin {
         ret.put("notificationListenerEnabled", listenerEnabled);
         ret.put("accessibilityEnabled", accessibilityEnabled);
         ret.put("hasPrivateNotificationReplyAction", hasPrivateReply);
+        ret.put("privateChatResolved", privateChatResolved);
         ret.put("backgroundSendAvailable", hasPrivateReply);
         ret.put("packageName", "com.whatsapp");
         ret.put("reasonCode", reasonCode);
@@ -674,6 +682,8 @@ public class NotificationListenerPlugin extends Plugin {
         try {
             String rawPhone = call.getString("phone", "");
             String memberName = call.getString("memberName", "").trim();
+            String senderIdentityKey = call.getString("senderIdentityKey", "").trim();
+            String senderUri = call.getString("senderUri", "").trim();
             String groupName = call.getString("groupName", "").trim();
             String sourceMessageText = call.getString("sourceMessageText", "");
             String message = call.getString("message", "");
@@ -706,14 +716,17 @@ public class NotificationListenerPlugin extends Plugin {
             String cleanPhone = (normalizedPhone.length() >= 8 && normalizedPhone.length() <= 15) ? normalizedPhone : "";
             String validMemberName = isGenericPlaceholderMemberName(memberName) ? "" : memberName;
 
-            if (android.text.TextUtils.isEmpty(cleanPhone) && android.text.TextUtils.isEmpty(validMemberName)) {
+            if (android.text.TextUtils.isEmpty(cleanPhone)
+                    && android.text.TextUtils.isEmpty(validMemberName)
+                    && android.text.TextUtils.isEmpty(senderIdentityKey)
+                    && android.text.TextUtils.isEmpty(senderUri)) {
                 String msg = "تعذر تحديد هوية المعلن من الإعلان أو الإشعار؛ يلزم التحقق قبل التواصل";
-                saveOutreachState("VERIFICATION_REQUIRED", msg);
+                saveOutreachState("IDENTITY_NOT_VERIFIED", msg);
                 JSObject unverified = new JSObject();
                 unverified.put("success", false);
                 unverified.put("submitted", false);
                 unverified.put("deliveryConfirmed", false);
-                unverified.put("status", "VERIFICATION_REQUIRED");
+                unverified.put("status", "IDENTITY_NOT_VERIFIED");
                 unverified.put("reasonCode", "missing_advertiser_identity");
                 unverified.put("packageName", "com.whatsapp");
                 unverified.put("method", "missing_advertiser_identity");
@@ -725,15 +738,15 @@ public class NotificationListenerPlugin extends Plugin {
             // 1. Primary path: Silent background send via com.whatsapp private notification RemoteInput
             if (autoSend) {
                 boolean remoteInputSubmitted = WhatsAppNotificationListenerService.sendPrivateNotificationReply(
-                        getContext(), cleanPhone, validMemberName, message);
+                        getContext(), cleanPhone, validMemberName, senderIdentityKey, senderUri, message);
                 if (remoteInputSubmitted) {
                     String okLabel = "تم تمرير رسالة القبول عبر إشعار واتساب الخاص في الخلفية؛ التسليم بانتظار تأكيد واتساب";
-                    saveOutreachState("SUBMITTED_UNCONFIRMED", okLabel);
+                    saveOutreachState("MESSAGE_SUBMITTED", okLabel);
                     JSObject ret = new JSObject();
                     ret.put("success", true);
                     ret.put("submitted", true);
                     ret.put("deliveryConfirmed", false);
-                    ret.put("status", "SUBMITTED_UNCONFIRMED");
+                    ret.put("status", "MESSAGE_SUBMITTED");
                     ret.put("packageName", "com.whatsapp");
                     ret.put("method", "notification_remote_input");
                     ret.put("statusLabel", okLabel);
@@ -747,7 +760,7 @@ public class NotificationListenerPlugin extends Plugin {
                 boolean accessibilityEnabled = OrderiAccessibilityService.isAccessibilityEnabled(getContext());
                 String unavailableLabel = !android.text.TextUtils.isEmpty(cleanPhone)
                         ? "تعذر الإرسال الصامت بالخلفية: لم يوفر واتساب إشعار رد خاص مباشر للمعلن"
-                        : "تعذر الإرسال بالخلفية بدون فتح واتساب: لم يتوفر إشعار رد خاص مباشر للمعلن";
+                        : "تعذر الإرسال الصامت بالخلفية: لا يتيح WhatsApp Messenger تنفيذ «الرد بشكل خاص» من القروب أو فتح محادثة جديدة بالخلفية بدون إشعار خاص سابق";
                 saveOutreachState("BACKGROUND_SEND_UNAVAILABLE", unavailableLabel);
                 JSObject unavailable = new JSObject();
                 unavailable.put("success", false);
@@ -789,15 +802,16 @@ public class NotificationListenerPlugin extends Plugin {
                     intent.setPackage("com.whatsapp");
                     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                     getContext().startActivity(intent);
+                    String statusOut = autoSend ? "MESSAGE_SUBMITTED" : "PRIVATE_CHAT_RESOLVED";
                     String label = autoSend
                             ? "تم فتح محادثة المعلن الخاصة في واتساب لتنفيذ الإرسال الآلي؛ بانتظار تأكيد الإرسال"
                             : "تم فتح مسودة محادثة المعلن الخاصة في واتساب للمراجعة اليدوية 💬";
-                    saveOutreachState("SUBMITTED_UNCONFIRMED", label);
+                    saveOutreachState(statusOut, label);
                     JSObject ret = new JSObject();
                     ret.put("success", true);
-                    ret.put("submitted", true);
+                    ret.put("submitted", autoSend);
                     ret.put("deliveryConfirmed", false);
-                    ret.put("status", "SUBMITTED_UNCONFIRMED");
+                    ret.put("status", statusOut);
                     ret.put("packageName", "com.whatsapp");
                     ret.put("method", autoSend ? "exact_private_chat_queued_for_accessibility_send" : "exact_private_chat_opened");
                     ret.put("statusLabel", label);
@@ -812,12 +826,12 @@ public class NotificationListenerPlugin extends Plugin {
             if (!android.text.TextUtils.isEmpty(validMemberName)) {
                 if (isGenericPlaceholderMemberName(groupName)) {
                     String msg = "اسم مجموعة الإعلان غير محدد؛ لم نفتح بحث واتساب عام ولم نرسل أي رسالة";
-                    saveOutreachState("VERIFICATION_REQUIRED", msg);
+                    saveOutreachState("IDENTITY_NOT_VERIFIED", msg);
                     JSObject failed = new JSObject();
                     failed.put("success", false);
                     failed.put("submitted", false);
                     failed.put("deliveryConfirmed", false);
-                    failed.put("status", "VERIFICATION_REQUIRED");
+                    failed.put("status", "IDENTITY_NOT_VERIFIED");
                     failed.put("reasonCode", "missing_exact_group_name");
                     failed.put("packageName", "com.whatsapp");
                     failed.put("method", "missing_exact_group_name");
@@ -851,12 +865,12 @@ public class NotificationListenerPlugin extends Plugin {
 
                 if (!opened) {
                     String msg = "تعذر فتح واتساب العادي للوصول إلى قروب الإعلان؛ لم يتم إرسال أي رسالة";
-                    saveOutreachState("FAILED", msg);
+                    saveOutreachState("SEND_FAILED", msg);
                     JSObject failed = new JSObject();
                     failed.put("success", false);
                     failed.put("submitted", false);
                     failed.put("deliveryConfirmed", false);
-                    failed.put("status", "FAILED");
+                    failed.put("status", "SEND_FAILED");
                     failed.put("reasonCode", "whatsapp_launch_failed");
                     failed.put("packageName", "com.whatsapp");
                     failed.put("method", "whatsapp_launch_failed");
@@ -865,27 +879,27 @@ public class NotificationListenerPlugin extends Plugin {
                     return;
                 }
 
-                String label = "جاري فتح القروب واستخدام الرد الخاص لمراسلة المعلن «" + validMemberName + "»";
+                String label = "جاري فتح القروب واستخدام «الرد بشكل خاص» لمراسلة المعلن «" + validMemberName + "»";
                 saveOutreachState("sending", label);
                 JSObject ret = new JSObject();
                 ret.put("success", true);
                 ret.put("submitted", true);
                 ret.put("deliveryConfirmed", false);
-                ret.put("status", "SUBMITTED_UNCONFIRMED");
+                ret.put("status", "MESSAGE_SUBMITTED");
                 ret.put("packageName", "com.whatsapp");
-                ret.put("method", "accessibility_member_click_in_progress");
+                ret.put("method", "accessibility_reply_privately");
                 ret.put("statusLabel", label);
                 call.resolve(ret);
                 return;
             }
 
             String failMsg = "لم تُرسل الرسالة: تعذر التحقق من وجهة المعلن الخاصة في واتساب";
-            saveOutreachState("FAILED", failMsg);
+            saveOutreachState("SEND_FAILED", failMsg);
             JSObject ret = new JSObject();
             ret.put("success", false);
             ret.put("submitted", false);
             ret.put("deliveryConfirmed", false);
-            ret.put("status", "FAILED");
+            ret.put("status", "SEND_FAILED");
             ret.put("reasonCode", "private_outreach_unavailable");
             ret.put("packageName", "com.whatsapp");
             ret.put("method", "no_exact_private_reply_action");
@@ -896,7 +910,7 @@ public class NotificationListenerPlugin extends Plugin {
             ret.put("success", false);
             ret.put("submitted", false);
             ret.put("deliveryConfirmed", false);
-            ret.put("status", "FAILED");
+            ret.put("status", "SEND_FAILED");
             ret.put("reasonCode", "private_outreach_exception");
             ret.put("packageName", "com.whatsapp");
             ret.put("method", "private_outreach_failed");

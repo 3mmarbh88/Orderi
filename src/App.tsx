@@ -560,6 +560,10 @@ function OrderiApp({
                       senderName: resolvedSenderName,
                       senderPhone: resolvedSenderPhone,
                       senderPhoneSource,
+                      senderIdentityKey: event.senderIdentityKey || undefined,
+                      senderUri: event.senderUri || undefined,
+                      sourceNotificationKey: event.sourceNotificationKey || event.key || undefined,
+                      sourceMessageTimestamp: event.sourceMessageTimestamp || event.receivedAt || undefined,
                       receivedAt: new Date(event.receivedAt || Date.now()),
                       confidence: parsed.confidence, type: 'whatsapp_notification',
                       notes: parsed.notes, status: 'pending',
@@ -1580,6 +1584,8 @@ function OrderiApp({
         if (rawText) {
           const activeOutreachOrder = ordersRef.current.find((ord) => {
             if (ord.status !== 'pending' || !ord.outreachStatus || ord.outreachStatus === 'NOT_ATTEMPTED') return false;
+            if (ord.senderIdentityKey && event.senderIdentityKey && ord.senderIdentityKey === event.senderIdentityKey) return true;
+            if (ord.senderUri && event.senderUri && ord.senderUri === event.senderUri) return true;
             const ordPhone = (ord.senderPhone || '').replace(/\D/g, '');
             const evPhone = (event.senderPhone || '').replace(/\D/g, '');
             if (ordPhone.length >= 8 && evPhone.length >= 8 && ordPhone.slice(-8) === evPhone.slice(-8)) return true;
@@ -1791,6 +1797,10 @@ function OrderiApp({
               : (parsed.advertiserName || event.title || 'معلن بالقروب'),
             senderPhone: resolvedPhone,
             senderPhoneSource,
+            senderIdentityKey: event.senderIdentityKey || undefined,
+            senderUri: event.senderUri || undefined,
+            sourceNotificationKey: event.sourceNotificationKey || event.key || undefined,
+            sourceMessageTimestamp: event.sourceMessageTimestamp || event.receivedAt || undefined,
             receivedAt: new Date(event.receivedAt || Date.now()),
             confidence: parsed.confidence,
             type: 'whatsapp_notification',
@@ -2907,7 +2917,18 @@ function OrderiApp({
         order,
         filterRef.current.customResponseTemplate,
         driverLocation?.areaName || 'المنامة',
-        { autoSend: true, backgroundOnly: true, allowUiFallback: false },
+        {
+          autoSend: true,
+          backgroundOnly: true,
+          allowUiFallback: false,
+          onProgress: (progressStatus) => {
+            setOrders((prev) =>
+              prev.map((o) =>
+                o.id === order.id ? { ...o, outreachStatus: progressStatus } : o,
+              ),
+            );
+          },
+        },
       );
 
       const attemptDetails: OutreachAttemptDetails = {
@@ -3973,7 +3994,7 @@ function OrderiApp({
           failureReason={outreachFallbackState.failureReason}
           onClose={() => setOutreachFallbackState(null)}
           onConfirmAccept={(acceptedOrd, confirmedPhone, sentMessage, deliveryMethod, status) => {
-            const finalStatus: OutreachDeliveryStatus = status || 'SUBMITTED_UNCONFIRMED';
+            const finalStatus: OutreachDeliveryStatus = status || 'MESSAGE_SUBMITTED';
             finalizeOrderAcceptance(acceptedOrd, finalStatus, {
               status: finalStatus,
               phoneUsed: confirmedPhone || undefined,

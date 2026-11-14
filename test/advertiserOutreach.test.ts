@@ -174,7 +174,7 @@ const adMixedOrder: ParsedOrder = {
 assert.equal(getAdvertiserTargetPhone(adMixedOrder), '97333112233');
 console.log('✅ PASS: Rejects customer_recipient phone and isolates explicit advertiser phone');
 
-// Test 6: Ambiguous multiple unclassified numbers & placeholder sender => VERIFICATION_REQUIRED
+// Test 6: Ambiguous multiple unclassified numbers & placeholder sender => IDENTITY_NOT_VERIFIED
 const ambiguousOrder: ParsedOrder = {
   ...baseOrder,
   id: 'order-ambiguous-phones',
@@ -216,25 +216,31 @@ const fallbackMsg = formatFilterOutreachMessage(baseOrder, '   ');
 assert.equal(fallbackMsg, formatAdvertiserPrivateMessage(baseOrder));
 console.log('✅ PASS: Filter customResponseTemplate rendered verbatim with placeholders and safe blank fallback');
 
-// Test 8: Background silent outreach succeeds via com.whatsapp RemoteInput even WITHOUT senderPhone
+// Test 8: Background silent outreach succeeds via com.whatsapp RemoteInput even WITHOUT senderPhone,
+// emits progress states, and forwards senderIdentityKey/senderUri/sourceNotificationKey/sourceMessageTimestamp
+let capturedCapabilityPayload: any = null;
 let capturedNativePayload: any = null;
 const mockRemoteInputBridge: PrivateOutreachNativeBridge = {
   isNativeAndroid: () => true,
-  checkPrivateOutreachCapability: async () => ({
-    regularWhatsAppInstalled: true,
-    notificationListenerEnabled: true,
-    accessibilityEnabled: false,
-    hasPrivateNotificationReplyAction: true,
-    backgroundSendAvailable: true,
-    reasonCode: 'ok',
-  }),
+  checkPrivateOutreachCapability: async (opts) => {
+    capturedCapabilityPayload = opts;
+    return {
+      regularWhatsAppInstalled: true,
+      notificationListenerEnabled: true,
+      accessibilityEnabled: false,
+      hasPrivateNotificationReplyAction: true,
+      privateChatResolved: true,
+      backgroundSendAvailable: true,
+      reasonCode: 'ok',
+    };
+  },
   reachAdvertiserPrivateChat: async (opts) => {
     capturedNativePayload = opts;
     return {
       success: true,
       submitted: true,
       deliveryConfirmed: false,
-      status: 'SUBMITTED_UNCONFIRMED',
+      status: 'MESSAGE_SUBMITTED',
       packageName: 'com.whatsapp',
       method: 'notification_remote_input',
       statusLabel: 'تم تمرير رسالة القبول عبر إشعار واتساب الخاص في الخلفية',
@@ -242,13 +248,78 @@ const mockRemoteInputBridge: PrivateOutreachNativeBridge = {
   },
 };
 
-const cap = await checkBackgroundOutreachAvailability(baseOrder, mockRemoteInputBridge);
+const identityRichOrder: ParsedOrder = {
+  ...baseOrder,
+  id: 'order-silent-no-phone',
+  senderIdentityKey: '97339998877@s.whatsapp.net',
+  senderUri: 'tel:+97339998877',
+  sourceNotificationKey: '0|com.whatsapp|101|group-jid|10001',
+  sourceMessageTimestamp: 1763000000123,
+};
+
+const cap = await checkBackgroundOutreachAvailability(identityRichOrder, mockRemoteInputBridge);
 assert.equal(cap.backgroundSendAvailable, true);
+assert.equal(capturedCapabilityPayload.senderIdentityKey, '97339998877@s.whatsapp.net');
+assert.equal(capturedCapabilityPayload.senderUri, 'tel:+97339998877');
 
 windowOpenCount = 0;
 locationHrefWrites = 0;
+const progressStages: string[] = [];
 const silentNoPhoneRes = await executePrivateAdvertiserOutreach(
-  { ...baseOrder, id: 'order-silent-no-phone' },
+  identityRichOrder,
+  'موافق على {from} إلى {to}',
+  'المنامة',
+  {
+    autoSend: true,
+    backgroundOnly: true,
+    allowUiFallback: false,
+    nativeBridge: mockRemoteInputBridge,
+    onProgress: (status) => {
+      progressStages.push(status);
+    },
+  },
+);
+assert.equal(silentNoPhoneRes.success, true);
+assert.equal(silentNoPhoneRes.status, 'MESSAGE_SUBMITTED');
+assert.equal(silentNoPhoneRes.deliveryMethod, 'notification_remote_input');
+assert.deepEqual(progressStages, [
+  'IDENTIFYING_ADVERTISER',
+  'ADVERTISER_VERIFIED',
+  'PRIVATE_CHAT_RESOLVED',
+  'BACKGROUND_SEND_READY',
+]);
+assert.equal(capturedNativePayload.phone, undefined);
+assert.equal(capturedNativePayload.memberName, '~ اذكر الله');
+assert.equal(capturedNativePayload.senderIdentityKey, '97339998877@s.whatsapp.net');
+assert.equal(capturedNativePayload.senderUri, 'tel:+97339998877');
+assert.equal(capturedNativePayload.sourceNotificationKey, '0|com.whatsapp|101|group-jid|10001');
+assert.equal(capturedNativePayload.sourceMessageTimestamp, 1763000000123);
+assert.equal(capturedNativePayload.backgroundOnly, true);
+assert.equal(capturedNativePayload.allowUiFallback, false);
+assert.equal(capturedNativePayload.message, 'موافق على العدلية إلى مدينة زايد');
+assert.equal(windowOpenCount, 0);
+assert.equal(locationHrefWrites, 0);
+console.log('✅ PASS: Silent RemoteInput outreach emits stage states, forwards identity metadata, and returns MESSAGE_SUBMITTED');
+
+// Test 9: Placeholder/ambiguous order yields IDENTITY_NOT_VERIFIED; duplicate/native error yields SEND_FAILED;
+// non-autoSend UI open yields PRIVATE_CHAT_RESOLVED (not MESSAGE_SUBMITTED)
+const unverifiedOutreachRes = await executePrivateAdvertiserOutreach(
+  placeholderOnlyOrder,
+  'موافق',
+  'العدلية',
+  {
+    autoSend: true,
+    backgroundOnly: true,
+    allowUiFallback: false,
+    nativeBridge: mockRemoteInputBridge,
+  },
+);
+assert.equal(unverifiedOutreachRes.success, false);
+assert.equal(unverifiedOutreachRes.status, 'IDENTITY_NOT_VERIFIED');
+assert.equal(unverifiedOutreachRes.needsVerification, true);
+
+const duplicateSendRes = await executePrivateAdvertiserOutreach(
+  identityRichOrder,
   'موافق على {from} إلى {to}',
   'المنامة',
   {
@@ -258,19 +329,64 @@ const silentNoPhoneRes = await executePrivateAdvertiserOutreach(
     nativeBridge: mockRemoteInputBridge,
   },
 );
-assert.equal(silentNoPhoneRes.success, true);
-assert.equal(silentNoPhoneRes.status, 'SUBMITTED_UNCONFIRMED');
-assert.equal(silentNoPhoneRes.deliveryMethod, 'notification_remote_input');
-assert.equal(capturedNativePayload.phone, undefined);
-assert.equal(capturedNativePayload.memberName, '~ اذكر الله');
-assert.equal(capturedNativePayload.backgroundOnly, true);
-assert.equal(capturedNativePayload.allowUiFallback, false);
-assert.equal(capturedNativePayload.message, 'موافق على العدلية إلى مدينة زايد');
-assert.equal(windowOpenCount, 0);
-assert.equal(locationHrefWrites, 0);
-console.log('✅ PASS: Silent RemoteInput outreach works without phone and returns SUBMITTED_UNCONFIRMED');
+assert.equal(duplicateSendRes.success, false);
+assert.equal(duplicateSendRes.status, 'SEND_FAILED');
 
-// Test 9: When background RemoteInput is unavailable, NEVER auto-open WhatsApp or wa.me links
+const nativeErrorBridge: PrivateOutreachNativeBridge = {
+  isNativeAndroid: () => true,
+  reachAdvertiserPrivateChat: async () => ({
+    success: false,
+    submitted: false,
+    deliveryConfirmed: false,
+    status: 'SEND_FAILED',
+    reasonCode: 'remote_input_send_failed',
+    packageName: 'com.whatsapp',
+    method: 'notification_remote_input',
+    statusLabel: 'فشل تمرير الرد عبر إشعار واتساب',
+  }),
+};
+const nativeFailedRes = await executePrivateAdvertiserOutreach(
+  { ...orderWithPhone, id: 'order-native-send-failed' },
+  'موافق',
+  'العدلية',
+  {
+    autoSend: true,
+    backgroundOnly: true,
+    allowUiFallback: false,
+    nativeBridge: nativeErrorBridge,
+  },
+);
+assert.equal(nativeFailedRes.success, false);
+assert.equal(nativeFailedRes.status, 'SEND_FAILED');
+
+const draftOpenBridge: PrivateOutreachNativeBridge = {
+  isNativeAndroid: () => true,
+  reachAdvertiserPrivateChat: async () => ({
+    success: true,
+    submitted: false,
+    deliveryConfirmed: false,
+    status: 'PRIVATE_CHAT_RESOLVED',
+    packageName: 'com.whatsapp',
+    method: 'whatsapp_private_chat_opened',
+    statusLabel: 'تم فتح محادثة المعلن الخاصة لمراجعة الرسالة يدوياً',
+  }),
+};
+const draftOpenRes = await executePrivateAdvertiserOutreach(
+  { ...orderWithPhone, id: 'order-draft-open' },
+  'موافق',
+  'العدلية',
+  {
+    autoSend: false,
+    backgroundOnly: false,
+    allowUiFallback: true,
+    nativeBridge: draftOpenBridge,
+  },
+);
+assert.equal(draftOpenRes.success, true);
+assert.equal(draftOpenRes.status, 'PRIVATE_CHAT_RESOLVED');
+console.log('✅ PASS: IDENTITY_NOT_VERIFIED, SEND_FAILED, and PRIVATE_CHAT_RESOLVED semantics verified');
+
+// Test 10: When background RemoteInput is unavailable, NEVER auto-open WhatsApp or wa.me links
 const mockUnavailableBridge: PrivateOutreachNativeBridge = {
   isNativeAndroid: () => true,
   reachAdvertiserPrivateChat: async () => ({

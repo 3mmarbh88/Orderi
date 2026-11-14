@@ -229,7 +229,7 @@ export function AdvertiserOutreachModal({
       isPhoneValid ? cleanInputPhone : null,
       editedMessage,
       'manual_regular_whatsapp',
-      'SUBMITTED_UNCONFIRMED',
+      'MESSAGE_SUBMITTED',
     );
     onToast('✅ تم تسجيل قبول الطلب بعد إرسالك اليدوي للخاص');
     onClose();
@@ -245,9 +245,9 @@ export function AdvertiserOutreachModal({
   };
 
   const statusBadgeText =
-    failureStatus === 'VERIFICATION_REQUIRED'
-      ? 'يتطلب تأكيد هوية المعلن'
-      : failureStatus === 'FAILED'
+    failureStatus === 'IDENTITY_NOT_VERIFIED'
+      ? 'هوية المعلن غير مؤكدة'
+      : failureStatus === 'SEND_FAILED'
       ? 'تعذر تنفيذ المراسلة'
       : 'الإرسال الصامت بالخلفية غير متاح لهذا الإعلان';
 

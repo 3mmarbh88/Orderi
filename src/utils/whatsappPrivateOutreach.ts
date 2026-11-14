@@ -46,18 +46,25 @@ export interface PrivateOutreachNativeBridge {
   checkPrivateOutreachCapability?: (options: {
     phone?: string;
     memberName?: string;
+    senderIdentityKey?: string;
+    senderUri?: string;
     groupName?: string;
   }) => Promise<{
     regularWhatsAppInstalled: boolean;
     notificationListenerEnabled: boolean;
     accessibilityEnabled: boolean;
     hasPrivateNotificationReplyAction: boolean;
+    privateChatResolved?: boolean;
     backgroundSendAvailable: boolean;
     reasonCode?: string;
   }>;
   reachAdvertiserPrivateChat: (options: {
     phone?: string;
     memberName?: string;
+    senderIdentityKey?: string;
+    senderUri?: string;
+    sourceNotificationKey?: string;
+    sourceMessageTimestamp?: number;
     groupName?: string;
     sourceMessageText?: string;
     message: string;
@@ -624,6 +631,7 @@ export async function checkBackgroundOutreachAvailability(
   notificationListenerEnabled: boolean;
   accessibilityEnabled: boolean;
   hasPrivateNotificationReplyAction: boolean;
+  privateChatResolved?: boolean;
   backgroundSendAvailable: boolean;
   reasonCode?: string;
 }> {
@@ -642,6 +650,7 @@ export async function checkBackgroundOutreachAvailability(
       notificationListenerEnabled: false,
       accessibilityEnabled: false,
       hasPrivateNotificationReplyAction: false,
+      privateChatResolved: Boolean(resolution.phone),
       backgroundSendAvailable: false,
       reasonCode: 'not_native_android',
     };
@@ -651,6 +660,8 @@ export async function checkBackgroundOutreachAvailability(
     return await bridge.checkPrivateOutreachCapability({
       phone: resolution.phone || undefined,
       memberName: isMeaningfulAdvertiserName(order.senderName) ? order.senderName.trim() : undefined,
+      senderIdentityKey: order.senderIdentityKey || undefined,
+      senderUri: order.senderUri || undefined,
       groupName: order.groupName || undefined,
     });
   } catch {
@@ -659,6 +670,7 @@ export async function checkBackgroundOutreachAvailability(
       notificationListenerEnabled: false,
       accessibilityEnabled: false,
       hasPrivateNotificationReplyAction: false,
+      privateChatResolved: Boolean(resolution.phone),
       backgroundSendAvailable: false,
       reasonCode: 'capability_check_failed',
     };
@@ -693,11 +705,13 @@ export interface ExecutePrivateOutreachOptions {
   allowUiFallback?: boolean;
   phoneOverride?: string | null;
   nativeBridge?: PrivateOutreachNativeBridge;
+  onProgress?: (status: OutreachDeliveryStatus, statusLabel: string) => void;
 }
 
 /**
  * 4. المحرك الموحد لقبول الطلب ومحاولة إرسال رسالة خاصة عبر WhatsApp Messenger العادي (com.whatsapp).
- * - عند فشل الإرسال بالخلفية (backgroundOnly && !allowUiFallback): لا يفتح واتساب أبداً ويُعيد status دقيق.
+ * - يمر بالمراحل الفعلية: IDENTIFYING_ADVERTISER -> ADVERTISER_VERIFIED -> PRIVATE_CHAT_RESOLVED -> BACKGROUND_SEND_READY -> MESSAGE_SUBMITTED
+ * - عند فشل الإرسال بالخلفية (backgroundOnly && !allowUiFallback): لا يفتح واتساب أبداً ويُعيد BACKGROUND_SEND_UNAVAILABLE / IDENTITY_NOT_VERIFIED / SEND_FAILED.
  */
 export async function executePrivateAdvertiserOutreach(
   order: ParsedOrder,
@@ -720,11 +734,19 @@ export async function executePrivateAdvertiserOutreach(
           allowUiFallback: optionsOrAutoSend.allowUiFallback ?? false,
           phoneOverride: optionsOrAutoSend.phoneOverride ?? legacyPhoneOverride,
           nativeBridge: optionsOrAutoSend.nativeBridge,
+          onProgress: optionsOrAutoSend.onProgress,
         };
 
   const autoSend = opts.autoSend ?? true;
   const backgroundOnly = opts.backgroundOnly ?? true;
   const allowUiFallback = opts.allowUiFallback ?? false;
+  const emitProgress = (status: OutreachDeliveryStatus, label: string) => {
+    try {
+      opts.onProgress?.(status, label);
+    } catch {}
+  };
+
+  emitProgress('IDENTIFYING_ADVERTISER', 'جاري تحديد هوية المعلن من الإعلان الحالي...');
 
   const resolution = resolveAdvertiserContact(order);
   const messageText = formatFilterOutreachMessage(order, customTemplate, areaName);
@@ -732,6 +754,8 @@ export async function executePrivateAdvertiserOutreach(
   const normalizedOverride = opts.phoneOverride ? normalizeBahrainPhone(opts.phoneOverride) : '';
   const targetPhone = normalizedOverride || resolution.phone || null;
   const targetName = isMeaningfulAdvertiserName(order.senderName) ? order.senderName.trim() : '';
+  const targetSenderKey = (order.senderIdentityKey || '').trim();
+  const targetSenderUri = (order.senderUri || '').trim();
   const advertiserName = targetName || resolution.name || 'صاحب الإعلان';
 
   const makeFailure = (
@@ -742,9 +766,9 @@ export async function executePrivateAdvertiserOutreach(
   ): ExecutePrivateOutreachResult => ({
     success: false,
     status,
-    needsVerification: status === 'VERIFICATION_REQUIRED',
+    needsVerification: status === 'IDENTITY_NOT_VERIFIED',
     openFallbackModal:
-      status === 'VERIFICATION_REQUIRED' || status === 'BACKGROUND_SEND_UNAVAILABLE',
+      status === 'IDENTITY_NOT_VERIFIED' || status === 'BACKGROUND_SEND_UNAVAILABLE',
     resolution,
     message: messageText,
     phoneUsed: targetPhone,
@@ -757,7 +781,7 @@ export async function executePrivateAdvertiserOutreach(
   // Step 1: Must identify advertiser cleanly from the current ad/notification only (or explicit manual phone override)
   if (!normalizedOverride && !resolution.advertiserVerified) {
     return makeFailure(
-      'VERIFICATION_REQUIRED',
+      'IDENTITY_NOT_VERIFIED',
       resolution.verificationReason ||
         'تعذر التحقق من هوية صاحب الإعلان أو تم رصد أكثر من رقم بدون تحديد قاطع للمعلن.',
       resolution.confidence === 'multiple_candidates'
@@ -766,16 +790,21 @@ export async function executePrivateAdvertiserOutreach(
     );
   }
 
-  if (!targetPhone && !targetName) {
+  if (!targetPhone && !targetName && !targetSenderKey && !targetSenderUri) {
     return makeFailure(
-      'VERIFICATION_REQUIRED',
-      'لا يوجد اسم مرسل حقيقي أو رقم هاتف لصاحب الإعلان؛ لن يتم إرسال أي رسالة عشوائية.',
+      'IDENTITY_NOT_VERIFIED',
+      'لا يوجد اسم مرسل حقيقي أو معرف أو رقم هاتف لصاحب الإعلان؛ لن يتم إرسال أي رسالة عشوائية.',
       'missing_advertiser_identity',
     );
   }
 
+  emitProgress('ADVERTISER_VERIFIED', `تم التحقق من هوية المعلن: ${advertiserName}`);
+
   const bridge: PrivateOutreachNativeBridge = opts.nativeBridge || {
     isNativeAndroid,
+    checkPrivateOutreachCapability: OrderiNotificationListener.checkPrivateOutreachCapability
+      ? (payload) => OrderiNotificationListener.checkPrivateOutreachCapability!(payload)
+      : undefined,
     reachAdvertiserPrivateChat: (payload) => OrderiNotificationListener.reachAdvertiserPrivateChat(payload),
     openWhatsAppPrivateConversation: (payload) => OrderiNotificationListener.openWhatsAppPrivateConversation(payload),
   };
@@ -789,14 +818,35 @@ export async function executePrivateAdvertiserOutreach(
     );
   }
 
-  const dedupTarget = targetPhone || targetName;
+  // Step 3: Probe native private notification / RemoteInput capability honestly before submitting
+  if (bridge.checkPrivateOutreachCapability) {
+    try {
+      const cap = await bridge.checkPrivateOutreachCapability({
+        phone: targetPhone || undefined,
+        memberName: targetName || undefined,
+        senderIdentityKey: targetSenderKey || undefined,
+        senderUri: targetSenderUri || undefined,
+        groupName: order.groupName || undefined,
+      });
+      if (cap?.privateChatResolved || targetPhone || cap?.hasPrivateNotificationReplyAction) {
+        emitProgress('PRIVATE_CHAT_RESOLVED', 'تم تحديد مسار المحادثة الخاصة للمعلن');
+      }
+      if (cap?.backgroundSendAvailable) {
+        emitProgress('BACKGROUND_SEND_READY', 'إجراء الرد بالخلفية عبر WhatsApp Messenger العادي جاهز');
+      }
+    } catch {}
+  } else if (targetPhone) {
+    emitProgress('PRIVATE_CHAT_RESOLVED', 'تم تحديد رقم المعلن الخاص');
+  }
+
+  const dedupTarget = targetPhone || targetSenderKey || targetName;
   const requestKey = `${String(order.id || '')}:${dedupTarget}:${messageText}`;
   const lastSubmittedAt = privateOutreachRecentlySubmitted.get(requestKey) || 0;
 
   if (autoSend) {
     if (privateOutreachInFlight.has(requestKey)) {
       return makeFailure(
-        'FAILED',
+        'SEND_FAILED',
         'يوجد إرسال جارٍ بالفعل لهذا الطلب؛ لم نكرر الرسالة.',
         'outreach_in_flight',
         { openFallbackModal: false },
@@ -804,7 +854,7 @@ export async function executePrivateAdvertiserOutreach(
     }
     if (Date.now() - lastSubmittedAt < 30_000) {
       return makeFailure(
-        'FAILED',
+        'SEND_FAILED',
         'تم تمرير الرد لهذا الطلب مؤخراً؛ مُنع تكرار الإرسال.',
         'duplicate_recent_outreach',
         { openFallbackModal: false },
@@ -817,6 +867,10 @@ export async function executePrivateAdvertiserOutreach(
     const result = await bridge.reachAdvertiserPrivateChat({
       phone: targetPhone || undefined,
       memberName: targetName || undefined,
+      senderIdentityKey: targetSenderKey || undefined,
+      senderUri: targetSenderUri || undefined,
+      sourceNotificationKey: order.sourceNotificationKey || undefined,
+      sourceMessageTimestamp: order.sourceMessageTimestamp || undefined,
       groupName: order.groupName,
       sourceMessageText: order.rawText || '',
       message: messageText,
@@ -826,7 +880,7 @@ export async function executePrivateAdvertiserOutreach(
     });
 
     if (result && result.success) {
-      if (autoSend) {
+      if (autoSend && result.submitted !== false) {
         privateOutreachRecentlySubmitted.set(requestKey, Date.now());
       }
       const deliveryMethod: ExecutePrivateOutreachResult['deliveryMethod'] =
@@ -834,12 +888,16 @@ export async function executePrivateAdvertiserOutreach(
           ? 'notification_remote_input'
           : result.method?.includes('reply_privately')
           ? 'accessibility_reply_privately'
+          : result.method?.includes('opened') && !autoSend
+          ? 'manual_regular_whatsapp'
           : 'accessibility_member_click';
 
       const normalizedStatus: OutreachDeliveryStatus =
         result.status === 'DELIVERY_CONFIRMED'
           ? 'DELIVERY_CONFIRMED'
-          : 'SUBMITTED_UNCONFIRMED';
+          : !autoSend || result.status === 'PRIVATE_CHAT_RESOLVED'
+          ? 'PRIVATE_CHAT_RESOLVED'
+          : 'MESSAGE_SUBMITTED';
 
       return {
         success: true,
@@ -853,23 +911,25 @@ export async function executePrivateAdvertiserOutreach(
         reasonCode: result.reasonCode,
         statusLabel:
           result.statusLabel ||
-          `تم تمرير رسالة القبول إلى محادثة «${advertiserName}» الخاصة في WhatsApp العادي (بانتظار تأكيد التسليم) ⚡`,
+          (normalizedStatus === 'PRIVATE_CHAT_RESOLVED'
+            ? `تم فتح محادثة «${advertiserName}» الخاصة في WhatsApp العادي لمراجعة الرسالة وإرسالها يدوياً 💬`
+            : `تم تمرير رسالة القبول إلى محادثة «${advertiserName}» الخاصة في WhatsApp العادي (بانتظار تأكيد التسليم) ⚡`),
       };
     }
 
     const nativeStatus = result?.status;
-    if (nativeStatus === 'VERIFICATION_REQUIRED') {
+    if (nativeStatus === 'IDENTITY_NOT_VERIFIED' || nativeStatus === 'VERIFICATION_REQUIRED') {
       return makeFailure(
-        'VERIFICATION_REQUIRED',
+        'IDENTITY_NOT_VERIFIED',
         result.statusLabel || 'يتطلب التحقق من هوية المعلن أو المجموعة قبل المراسلة الخاصة.',
         result.reasonCode || 'native_verification_required',
         { accessibilityRequired: Boolean(result.accessibilityRequired) },
       );
     }
 
-    if (nativeStatus === 'FAILED') {
+    if (nativeStatus === 'SEND_FAILED' || nativeStatus === 'FAILED') {
       return makeFailure(
-        'FAILED',
+        'SEND_FAILED',
         result.statusLabel || 'تعذر إرسال الرسالة الخاصة عبر WhatsApp Messenger العادي.',
         result.reasonCode || 'native_outreach_failed',
         { accessibilityRequired: Boolean(result.accessibilityRequired) },
@@ -879,13 +939,13 @@ export async function executePrivateAdvertiserOutreach(
     return makeFailure(
       'BACKGROUND_SEND_UNAVAILABLE',
       result?.statusLabel ||
-        `تعذر الإرسال في الخلفية لعدم توفر إجراء رد خاص مباشر من WhatsApp العادي لـ «${advertiserName}»؛ يمكنك المتابعة يدوياً من الخيارات دون فتح واتساب قسراً.`,
+        `تعذر الإرسال الصامت بالخلفية لعدم وجود إشعار رد خاص مباشر من WhatsApp العادي لـ «${advertiserName}»؛ لأن Android وواتساب لا يتيحان إنشاء محادثة خاصة جديدة بالخلفية بدون فتح التطبيق.`,
       result?.reasonCode || 'background_send_unavailable',
       { accessibilityRequired: Boolean(result?.accessibilityRequired) },
     );
   } catch {
     return makeFailure(
-      'FAILED',
+      'SEND_FAILED',
       'حدث خطأ تقني أثناء محاولة التواصل الخاص عبر واتساب؛ بقي الطلب في الرادار.',
       'native_bridge_exception',
     );

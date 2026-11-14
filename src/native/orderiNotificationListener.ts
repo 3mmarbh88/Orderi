@@ -22,6 +22,11 @@ export interface WhatsAppNativeEvent {
   groupName?: string;
   senderName?: string;
   senderPhone?: string;
+  senderIdentityKey?: string;
+  senderUri?: string;
+  sourceMessageTimestamp?: number;
+  sourceNotificationKey?: string;
+  shortcutId?: string;
   summaryText?: string;
   category?: string;
   tag?: string;
@@ -55,18 +60,25 @@ interface OrderiNotificationListenerPlugin {
   checkPrivateOutreachCapability?(options?: {
     phone?: string;
     memberName?: string;
+    senderIdentityKey?: string;
+    senderUri?: string;
     groupName?: string;
   }): Promise<{
     regularWhatsAppInstalled: boolean;
     notificationListenerEnabled: boolean;
     accessibilityEnabled: boolean;
     hasPrivateNotificationReplyAction: boolean;
+    privateChatResolved?: boolean;
     backgroundSendAvailable: boolean;
     reasonCode?: string;
   }>;
   reachAdvertiserPrivateChat(options: {
     phone?: string;
     memberName?: string;
+    senderIdentityKey?: string;
+    senderUri?: string;
+    sourceNotificationKey?: string;
+    sourceMessageTimestamp?: number;
     groupName?: string;
     sourceMessageText?: string;
     message: string;

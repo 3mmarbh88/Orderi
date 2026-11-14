@@ -199,6 +199,10 @@ export async function sendNativeQuickReply(options: {
 export async function reachNativeAdvertiserPrivateChat(options: {
   phone?: string;
   memberName?: string;
+  senderIdentityKey?: string;
+  senderUri?: string;
+  sourceNotificationKey?: string;
+  sourceMessageTimestamp?: number;
   groupName?: string;
   sourceMessageText?: string;
   message: string;
@@ -222,7 +226,7 @@ export async function reachNativeAdvertiserPrivateChat(options: {
   try {
     return await OrderiNotificationListener.reachAdvertiserPrivateChat(options);
   } catch {
-    return { success: false, method: 'error', status: 'FAILED' };
+    return { success: false, method: 'error', status: 'SEND_FAILED' };
   }
 }
 
@@ -313,10 +317,14 @@ export async function waitForWhatsAppReadAllCompletion(timeoutMs = 300000): Prom
 export async function getNativePrivateOutreachStatus(timeoutMs = 30000): Promise<{ status: string; statusLabel?: string }> {
   if (!isNativeAndroid()) return { status: 'BACKGROUND_SEND_UNAVAILABLE', statusLabel: 'يلزم أندرويد' };
   const terminalStatuses = new Set([
-    'SUBMITTED_UNCONFIRMED',
+    'MESSAGE_SUBMITTED',
     'DELIVERY_CONFIRMED',
-    'VERIFICATION_REQUIRED',
+    'IDENTITY_NOT_VERIFIED',
     'BACKGROUND_SEND_UNAVAILABLE',
+    'SEND_FAILED',
+    'PRIVATE_CHAT_RESOLVED',
+    'SUBMITTED_UNCONFIRMED',
+    'VERIFICATION_REQUIRED',
     'FAILED',
     'submitted_unconfirmed',
     'sent_confirmed',
@@ -334,5 +342,5 @@ export async function getNativePrivateOutreachStatus(timeoutMs = 30000): Promise
     } catch {}
     await new Promise((resolve) => setTimeout(resolve, 350));
   }
-  return { status: 'FAILED', statusLabel: 'انتهت مهلة انتظار نتيجة المراسلة' };
+  return { status: 'SEND_FAILED', statusLabel: 'انتهت مهلة انتظار نتيجة المراسلة' };
 }
