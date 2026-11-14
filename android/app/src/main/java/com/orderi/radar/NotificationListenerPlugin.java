@@ -601,8 +601,8 @@ public class NotificationListenerPlugin extends Plugin {
     @PluginMethod
     public void reachAdvertiserPrivateChat(PluginCall call) {
         try {
-            String phone = call.getString("phone", "");
-            String memberName = call.getString("memberName", "");
+            String phone = call.getString("phone", "").trim();
+            String memberName = call.getString("memberName", "").trim();
             String groupName = call.getString("groupName", "");
             String sourceMessageText = call.getString("sourceMessageText", "");
             String message = call.getString("message", "");
@@ -613,71 +613,69 @@ public class NotificationListenerPlugin extends Plugin {
                 return;
             }
 
-            String targetPhone = phone;
-            if (android.text.TextUtils.isEmpty(targetPhone) && !android.text.TextUtils.isEmpty(memberName)) {
-                String memberDigits = memberName.replaceAll("\\D", "");
-                if (memberDigits.length() >= 8 && memberDigits.length() <= 15) targetPhone = memberDigits;
+            // Automatic acceptance is strictly background-only. WhatsApp Messenger
+            // exposes no public API to create a new private chat silently, so use
+            // only an existing, recent private-notification RemoteInput action.
+            // Never infer a phone number from a display name or nickname.
+            if (autoSend) {
+                String cleanPhone = phone.replaceAll("\\D", "");
+                if (cleanPhone.length() == 8) cleanPhone = "973" + cleanPhone;
+                boolean validPhone = cleanPhone.length() >= 8 && cleanPhone.length() <= 15;
+                boolean submitted = false;
+
+                if (validPhone) {
+                    submitted = WhatsAppNotificationListenerService.sendPrivateNotificationReply(
+                            getContext(), cleanPhone, message);
+                }
+                if (!submitted && !android.text.TextUtils.isEmpty(memberName)) {
+                    submitted = WhatsAppNotificationListenerService.sendPrivateNotificationReply(
+                            getContext(), memberName, message);
+                }
+
+                JSObject ret = new JSObject();
+                ret.put("success", submitted);
+                ret.put("submitted", submitted);
+                ret.put("deliveryConfirmed", false);
+                ret.put("method", submitted
+                        ? "private_notification_remote_input_submitted"
+                        : "no_exact_private_reply_action");
+                ret.put("statusLabel", submitted
+                        ? "تم تمرير الرد إلى إجراء إشعار المحادثة الخاصة؛ لم يتم تأكيد التسليم"
+                        : "لا يوجد إشعار خاص حديث مطابق للمعلن؛ لم نفتح واتساب ولم نرسل أي رسالة");
+                getContext().getSharedPreferences("orderi_private_outreach", Context.MODE_PRIVATE)
+                        .edit()
+                        .putString("status", submitted ? "submitted" : "failed")
+                        .putString("status_label", submitted
+                                ? "تم تمرير الرد إلى إجراء إشعار خاص؛ التسليم غير مؤكد"
+                                : "لا يوجد إشعار خاص حديث مطابق؛ لم يتم فتح واتساب أو إرسال رسالة")
+                        .putLong("updated_at", System.currentTimeMillis())
+                        .apply();
+                call.resolve(ret);
+                return;
             }
 
+            // Explicit draft/manual outreach may still open WhatsApp because the
+            // user chose a manual interaction. Do not derive a phone from a name.
+            String targetPhone = phone;
             boolean submitted = false;
-            // 1. Direct phone branch: if phone is known, message advertiser in 1-on-1 private chat
             if (!android.text.TextUtils.isEmpty(targetPhone)) {
                 String cleanPhone = targetPhone.replaceAll("\\D", "");
                 if (cleanPhone.length() == 8) cleanPhone = "973" + cleanPhone;
                 if (cleanPhone.length() >= 8 && cleanPhone.length() <= 15) {
-                    if (autoSend) {
-                        // Mirror group publishing: first use a recent exact-match notification RemoteInput
-                        // so the private reply can be submitted without launching WhatsApp.
-                        submitted = WhatsAppNotificationListenerService.sendPrivateNotificationReply(getContext(), cleanPhone, message);
-                        // Some WhatsApp builds expose the private notification under the contact name,
-                        // not the phone number. Exact-name matching is safe because group actions are excluded.
-                        if (!submitted && !android.text.TextUtils.isEmpty(memberName)) {
-                            submitted = WhatsAppNotificationListenerService.sendPrivateNotificationReply(getContext(), memberName, message);
-                        }
-                    }
-                    if (!submitted) {
-                        if (autoSend && !OrderiAccessibilityService.isAccessibilityEnabled(getContext())) {
-                            JSObject required = new JSObject();
-                            required.put("success", false);
-                            required.put("submitted", false);
-                            required.put("deliveryConfirmed", false);
-                            required.put("accessibilityRequired", true);
-                            required.put("method", "accessibility_required");
-                            required.put("statusLabel", "فعّل خدمة وصول Orderi حتى يتمكن من إدخال رسالة القبول وإرسالها في المحادثة الخاصة");
-                            call.resolve(required);
-                            return;
-                        }
-                        try {
-                            // Queue the exact reply before opening the target private chat when automatic sending is requested.
-                            if (autoSend) OrderiAccessibilityService.queueMessageToSend(message, true);
-                            Intent intent = new Intent(Intent.ACTION_VIEW);
-                            intent.setData(android.net.Uri.parse("https://api.whatsapp.com/send?phone=" + cleanPhone + "&text=" + android.net.Uri.encode(message)));
-                            intent.setPackage("com.whatsapp");
-                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                            getContext().startActivity(intent);
-                            submitted = true; // queued/opened; actual send remains unconfirmed until Accessibility reports it
-                        } catch (Exception launchError) {
-                            Log.e("NotificationListenerPlugin", "Unable to open advertiser private chat; queued operation will time out safely", launchError);
-                        }
-                    }
-                    if (submitted) {
-                        JSObject ret = new JSObject();
-                        ret.put("success", true);
-                        ret.put("submitted", true);
-                        ret.put("deliveryConfirmed", false);
-                        ret.put("method", autoSend ? "exact_private_chat_queued_for_accessibility_send" : "exact_private_chat_opened");
-                        ret.put("statusLabel", autoSend
-                                ? "جاري إرسال رسالة القبول للمعلن في محادثته الخاصة بالخلفية ⚡"
-                                : "تم فتح محادثة المعلن الخاصة بالواتساب؛ يمكنك الرد الآن 💬");
-                        call.resolve(ret);
-                        return;
+                    try {
+                        Intent intent = new Intent(Intent.ACTION_VIEW);
+                        intent.setData(android.net.Uri.parse("https://api.whatsapp.com/send?phone="
+                                + cleanPhone + "&text=" + android.net.Uri.encode(message)));
+                        intent.setPackage("com.whatsapp");
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        getContext().startActivity(intent);
+                        submitted = true;
+                    } catch (Exception launchError) {
+                        Log.e("NotificationListenerPlugin", "Unable to open manual advertiser chat", launchError);
                     }
                 }
             }
 
-            // 2. Second attempt: Background Member-Click Accessibility Automation!
-            // When an ad was posted in a group and no private reply notification action exists,
-            // click the advertiser's member name inside the group to open the private chat sheet and message them in the background.
             if (!submitted && !android.text.TextUtils.isEmpty(memberName)) {
                 String normalizedGroupName = groupName == null ? "" : groupName.trim();
                 if (normalizedGroupName.isEmpty() || normalizedGroupName.equalsIgnoreCase("WhatsApp")
@@ -692,81 +690,52 @@ public class NotificationListenerPlugin extends Plugin {
                     return;
                 }
                 if (OrderiAccessibilityService.isAccessibilityEnabled(getContext())) {
-                    android.util.Log.i("NotificationListenerPlugin", "Triggering Accessibility member-click automation for member: " + memberName + " in group: " + groupName);
-                    OrderiAccessibilityService.queueOutreachToMember(memberName, groupName, sourceMessageText, message, autoSend);
-
-                    // Prefer the exact cached group notification. If it is no longer available,
-                    // fall back to WhatsApp's own chat search and require an exact group-title match.
-                    boolean opened = !android.text.TextUtils.isEmpty(groupName)
-                            && WhatsAppNotificationListenerService.openWhatsAppGroupConversation(getContext(), groupName);
-                    if (!opened) {
-                        opened = OrderiAccessibilityService.launchWhatsAppForOutreach(getContext());
-                    }
-
+                    OrderiAccessibilityService.queueOutreachToMember(
+                            memberName, groupName, sourceMessageText, message, false);
+                    boolean opened = WhatsAppNotificationListenerService.openWhatsAppGroupConversation(
+                            getContext(), groupName);
+                    if (!opened) opened = OrderiAccessibilityService.launchWhatsAppForOutreach(getContext());
                     if (!opened) {
                         JSObject failed = new JSObject();
                         failed.put("success", false);
                         failed.put("submitted", false);
                         failed.put("deliveryConfirmed", false);
                         failed.put("method", "whatsapp_launch_failed");
-                        failed.put("statusLabel", "تعذر فتح واتساب أو تشغيل البحث عن القروب؛ لم يتم إرسال أي رسالة");
+                        failed.put("statusLabel", "تعذر فتح واتساب؛ لم يتم إرسال أي رسالة");
                         call.resolve(failed);
                         return;
                     }
-
-                    getContext().getSharedPreferences("orderi_private_outreach", Context.MODE_PRIVATE)
-                            .edit()
-                            .putString("status", "sending")
-                            .putString("status_label", "جاري فتح القروب والضغط على اسم المعلن «" + memberName + "» للبدء بالمراسلة الخاصة في الخلفية")
-                            .putLong("updated_at", System.currentTimeMillis())
-                            .apply();
-
                     JSObject ret = new JSObject();
                     ret.put("success", true);
                     ret.put("submitted", true);
                     ret.put("deliveryConfirmed", false);
-                    ret.put("method", "accessibility_member_click_in_progress");
-                    ret.put("statusLabel", "جاري فتح القروب والضغط على اسم المعلن «" + memberName + "» لمراسلته بالخاص في الخلفية");
-                    call.resolve(ret);
-                    return;
-                } else {
-                    JSObject ret = new JSObject();
-                    ret.put("success", false);
-                    ret.put("submitted", false);
-                    ret.put("deliveryConfirmed", false);
-                    ret.put("accessibilityRequired", true);
-                    ret.put("method", "accessibility_required");
-                    ret.put("statusLabel", "تتطلب المراسلة بالخلفية بدون رقم تفعيل خدمة الوصول للضغط على اسم المعلن بالقروب");
+                    ret.put("method", "manual_accessibility_chat_opened");
+                    ret.put("statusLabel", "تم فتح مسار المحادثة للمراجعة اليدوية؛ لم يتم تأكيد الإرسال");
                     call.resolve(ret);
                     return;
                 }
             }
 
-            getContext().getSharedPreferences("orderi_private_outreach", Context.MODE_PRIVATE)
-                    .edit()
-                    .putString("status", submitted ? "submitted" : "failed")
-                    .putString("status_label", submitted
-                            ? "تم تمرير إجراء الرد إلى إشعار المحادثة الخاصة؛ لم يتم التحقق من التسليم"
-                            : "لم تُرسل الرسالة: لا يوجد إشعار خاص حديث مطابق للمعلن")
-                    .putLong("updated_at", System.currentTimeMillis())
-                    .apply();
-
             JSObject ret = new JSObject();
             ret.put("success", submitted);
             ret.put("submitted", submitted);
             ret.put("deliveryConfirmed", false);
-            ret.put("method", submitted ? "private_notification_reply_submitted" : "no_exact_private_reply_action");
+            ret.put("method", submitted ? "manual_private_chat_opened" : "manual_private_chat_unavailable");
+            ret.put("statusLabel", submitted
+                    ? "تم فتح محادثة المعلن؛ اضغط إرسال بنفسك"
+                    : "تعذر تحديد محادثة خاصة للمعلن؛ لم يتم إرسال أي رسالة");
             call.resolve(ret);
         } catch (Exception e) {
+            Log.e("NotificationListenerPlugin", "Private advertiser outreach failed", e);
             JSObject ret = new JSObject();
             ret.put("success", false);
             ret.put("submitted", false);
             ret.put("deliveryConfirmed", false);
             ret.put("method", "private_outreach_failed");
+            ret.put("statusLabel", "تعذر تنفيذ التواصل مع المعلن؛ لم يتم تأكيد الإرسال");
             call.resolve(ret);
         }
     }
-
 
     @PluginMethod
     public void updateFilterSettings(PluginCall call) {
