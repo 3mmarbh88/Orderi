@@ -200,16 +200,29 @@ export async function reachNativeAdvertiserPrivateChat(options: {
   phone?: string;
   memberName?: string;
   groupName?: string;
+  sourceMessageText?: string;
   message: string;
   autoSend?: boolean;
-}): Promise<{ success: boolean; method: string }> {
+  backgroundOnly?: boolean;
+  allowUiFallback?: boolean;
+}): Promise<{
+  success: boolean;
+  method: string;
+  status?: string;
+  reasonCode?: string;
+  packageName?: string;
+  deliveryConfirmed?: boolean;
+  statusLabel?: string;
+  accessibilityRequired?: boolean;
+  submitted?: boolean;
+}> {
   if (!isNativeAndroid()) {
-    return { success: false, method: 'not_native' };
+    return { success: false, method: 'not_native', status: 'BACKGROUND_SEND_UNAVAILABLE' };
   }
   try {
     return await OrderiNotificationListener.reachAdvertiserPrivateChat(options);
-  } catch (err: any) {
-    return { success: false, method: 'error' };
+  } catch {
+    return { success: false, method: 'error', status: 'FAILED' };
   }
 }
 
@@ -296,18 +309,30 @@ export async function waitForWhatsAppReadAllCompletion(timeoutMs = 300000): Prom
 
 
 
-/** Wait for the native accessibility service to report the actual send-button action. */
+/** Wait for the native accessibility service to report an explicit submission or failure status. */
 export async function getNativePrivateOutreachStatus(timeoutMs = 30000): Promise<{ status: string; statusLabel?: string }> {
-  if (!isNativeAndroid()) return { status: 'failed', statusLabel: 'يلزم أندرويد' };
+  if (!isNativeAndroid()) return { status: 'BACKGROUND_SEND_UNAVAILABLE', statusLabel: 'يلزم أندرويد' };
+  const terminalStatuses = new Set([
+    'SUBMITTED_UNCONFIRMED',
+    'DELIVERY_CONFIRMED',
+    'VERIFICATION_REQUIRED',
+    'BACKGROUND_SEND_UNAVAILABLE',
+    'FAILED',
+    'submitted_unconfirmed',
+    'sent_confirmed',
+    'submitted',
+    'failed',
+    'verification_required',
+  ]);
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
     try {
       const result = await OrderiNotificationListener.getPrivateOutreachStatus();
-      if (result.status === 'sent_confirmed' || result.status === 'submitted' || result.status === 'failed' || result.status === 'verification_required') {
+      if (result && terminalStatuses.has(result.status)) {
         return result;
       }
     } catch {}
     await new Promise((resolve) => setTimeout(resolve, 350));
   }
-  return { status: 'failed', statusLabel: 'انتهت مهلة انتظار تأكيد الإرسال' };
+  return { status: 'FAILED', statusLabel: 'انتهت مهلة انتظار نتيجة المراسلة' };
 }

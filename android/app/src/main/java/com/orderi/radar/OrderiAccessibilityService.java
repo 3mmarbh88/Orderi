@@ -149,15 +149,19 @@ public class OrderiAccessibilityService extends AccessibilityService {
     }
 
     public static void queueMessageToSend(String message, boolean autoSend) {
+        queueMessageToSend(null, message, autoSend);
+    }
+
+    public static void queueMessageToSend(String expectedTarget, String message, boolean autoSend) {
         pendingMessageToSend = message;
-        pendingTargetMemberName = null;
+        pendingTargetMemberName = TextUtils.isEmpty(expectedTarget) ? null : expectedTarget.trim();
         pendingAutoSend = autoSend;
         pendingMessageTimestamp = System.currentTimeMillis();
         currentStage = STAGE_ENTER_PRIVATE_MESSAGE;
         outreachScrollAttempts = 0;
         lastSendClickTime = 0L;
         isSendingInProgress.set(true);
-        writeOutreachStatus("sending", "بانتظار تنفيذ الإرسال في المحادثة الخاصة");
+        writeOutreachStatus("sending", "بانتظار التحقق من هوية المحادثة الخاصة لتنفيذ الإرسال");
         Log.i(TAG, "Queued direct private message to send. autoSend=" + autoSend);
         if (instance != null) {
             instance.startOutreachWatchdog();
@@ -165,7 +169,7 @@ public class OrderiAccessibilityService extends AccessibilityService {
     }
 
     public static void queueMessageToSend(String message) {
-        queueMessageToSend(message, false);
+        queueMessageToSend(null, message, false);
     }
 
     /**
@@ -535,6 +539,9 @@ public class OrderiAccessibilityService extends AccessibilityService {
         }
 
         if (isSendingInProgress.get() && pendingMessageToSend != null) {
+            if (!PACKAGE_WHATSAPP.contentEquals(pkg)) {
+                return;
+            }
             handleOutreachEvent();
             return;
         }
@@ -545,7 +552,7 @@ public class OrderiAccessibilityService extends AccessibilityService {
 
         // Allow enough time for WhatsApp launch, chat search, group open and member selection (bounded).
         if (System.currentTimeMillis() - pendingMessageTimestamp > 60000L) {
-            writeOutreachStatus("failed", "انتهت مهلة الوصول إلى محادثة المعلن أو الإرسال");
+            writeOutreachStatus("FAILED", "انتهت مهلة الوصول إلى محادثة المعلن أو الإرسال");
             resetOperation();
             return;
         }
@@ -697,7 +704,7 @@ public class OrderiAccessibilityService extends AccessibilityService {
                     arguments.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, pendingMessageToSend);
                     boolean textSet = inputField.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments);
                     if (!textSet) {
-                        writeOutreachStatus("failed", "تعذر إدخال رسالة القبول في المحادثة");
+                        writeOutreachStatus("FAILED", "تعذر إدخال رسالة القبول في المحادثة");
                         resetOperation();
                         return;
                     }
@@ -715,7 +722,7 @@ public class OrderiAccessibilityService extends AccessibilityService {
                                 return;
                             }
                         }
-                        writeOutreachStatus("failed", "لم يظهر زر إرسال قابل للتنفيذ في المحادثة");
+                        writeOutreachStatus("FAILED", "لم يظهر زر إرسال قابل للتنفيذ في المحادثة");
                         resetOperation();
                     } else {
                         // When autoSend is false, message is prepared in composer for user review and confirmation
@@ -737,12 +744,12 @@ public class OrderiAccessibilityService extends AccessibilityService {
                 }
                 if (composerCleared) {
                     // Clearing the composer confirms submission to the chat UI, not delivery/read receipt.
-                    writeOutreachStatus("submitted_unconfirmed", "تم تمرير رسالة القبول إلى محادثة المعلن؛ لم يؤكد واتساب التسليم بعد");
+                    writeOutreachStatus("SUBMITTED_UNCONFIRMED", "تم تمرير رسالة القبول إلى محادثة المعلن؛ لم يؤكد واتساب التسليم بعد");
                     Log.i(TAG, "WhatsApp composer cleared after send tap; submission is unconfirmed. Returning to Orderi...");
                     returnToOrderi();
                     resetOperation();
                 } else if (System.currentTimeMillis() - lastSendClickTime > 8000L) {
-                    writeOutreachStatus("failed", "لم يختفِ نص الرسالة من خانة الكتابة؛ تعذر تأكيد الإرسال");
+                    writeOutreachStatus("FAILED", "لم يختفِ نص الرسالة من خانة الكتابة؛ تعذر تأكيد الإرسال");
                     Log.w(TAG, "WhatsApp send could not be verified; leaving the order unaccepted");
                     returnToOrderi();
                     resetOperation();
@@ -1365,13 +1372,23 @@ public class OrderiAccessibilityService extends AccessibilityService {
         CharSequence description = node.getContentDescription();
         String normText = normalizeLabel(text == null ? "" : text.toString());
         String normDesc = normalizeLabel(description == null ? "" : description.toString());
-        if (wanted.equals(normText) || wanted.equals(normDesc)) return true;
-        if (wanted.length() >= 3 && (normText.contains(wanted) || normDesc.contains(wanted))) return true;
-        return false;
+        return wanted.equals(normText) || wanted.equals(normDesc);
+    }
+
+    private static String normalizeBahrainDigits(String raw) {
+        if (raw == null) return "";
+        String digits = raw.replaceAll("\\D", "");
+        if (digits.startsWith("00973") && digits.length() == 13) {
+            digits = digits.substring(2);
+        }
+        if (digits.length() == 8) {
+            digits = "973" + digits;
+        }
+        return digits;
     }
 
     private boolean isPrivateConversationScreen(AccessibilityNodeInfo root, String expectedName) {
-        if (root == null) return false;
+        if (root == null || TextUtils.isEmpty(expectedName)) return false;
 
         // 1. Must have input composer
         AccessibilityNodeInfo input = findInputField(root);
@@ -1389,34 +1406,37 @@ public class OrderiAccessibilityService extends AccessibilityService {
             }
         }
 
-        // 3. If expected name is set, check if header matches clean name or phone digits
-        if (!TextUtils.isEmpty(expectedName)) {
-            String clean = normalizeAdvertiserIdentity(expectedName);
-            String[] headerIds = new String[]{
-                    "com.whatsapp:id/conversation_contact_name",
-                    "com.whatsapp:id/conversation_contact_name_container",
-                    "com.whatsapp:id/name"
-            };
-            boolean foundHeader = false;
-            for (String viewId : headerIds) {
-                List<AccessibilityNodeInfo> headers = root.findAccessibilityNodeInfosByViewId(viewId);
-                if (headers == null) continue;
-                for (AccessibilityNodeInfo header : headers) {
-                    foundHeader = true;
-                    String headerText = normalizeAdvertiserIdentity(
-                            header.getText() == null ? "" : header.getText().toString());
-                    String headerDescription = normalizeAdvertiserIdentity(
-                            header.getContentDescription() == null ? "" : header.getContentDescription().toString());
-                    if (!TextUtils.isEmpty(clean)
-                            && (clean.equals(headerText) || clean.equals(headerDescription))) return true;
+        // 3. Strictly verify the header matches expected identity or exact Bahrain phone digits
+        String clean = normalizeAdvertiserIdentity(expectedName);
+        String strippedLetters = expectedName.replaceAll("[\\d\\s+\\-()]", "");
+        String expectedDigits = strippedLetters.isEmpty() ? normalizeBahrainDigits(expectedName) : "";
+        String[] headerIds = new String[]{
+                "com.whatsapp:id/conversation_contact_name",
+                "com.whatsapp:id/conversation_contact_name_container",
+                "com.whatsapp:id/name"
+        };
+        for (String viewId : headerIds) {
+            List<AccessibilityNodeInfo> headers = root.findAccessibilityNodeInfosByViewId(viewId);
+            if (headers == null) continue;
+            for (AccessibilityNodeInfo header : headers) {
+                String rawHeaderText = header.getText() == null ? "" : header.getText().toString();
+                String rawHeaderDesc = header.getContentDescription() == null ? "" : header.getContentDescription().toString();
+                String headerText = normalizeAdvertiserIdentity(rawHeaderText);
+                String headerDescription = normalizeAdvertiserIdentity(rawHeaderDesc);
+                if (!TextUtils.isEmpty(clean)
+                        && (clean.equals(headerText) || clean.equals(headerDescription))) {
+                    return true;
+                }
+                if (expectedDigits.length() >= 8) {
+                    String headerTextDigits = normalizeBahrainDigits(rawHeaderText);
+                    String headerDescDigits = normalizeBahrainDigits(rawHeaderDesc);
+                    if (expectedDigits.equals(headerTextDigits) || expectedDigits.equals(headerDescDigits)) {
+                        return true;
+                    }
                 }
             }
-            // Never type into an unverified private chat.
-            if (foundHeader || !TextUtils.isEmpty(clean)) return false;
         }
-
-        // No expected identity: a composer alone is not proof of the intended recipient.
-        return TextUtils.isEmpty(expectedName);
+        return false;
     }
 
     private boolean isNodeInsideGroupHeader(AccessibilityNodeInfo node) {

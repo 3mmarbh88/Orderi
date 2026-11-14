@@ -52,6 +52,18 @@ interface OrderiNotificationListenerPlugin {
   isAccessibilityEnabled(): Promise<{ enabled: boolean }>;
   openAccessibilitySettings(): Promise<void>;
   getPrivateOutreachStatus(): Promise<{ status: string; statusLabel?: string; updatedAt?: number }>;
+  checkPrivateOutreachCapability?(options?: {
+    phone?: string;
+    memberName?: string;
+    groupName?: string;
+  }): Promise<{
+    regularWhatsAppInstalled: boolean;
+    notificationListenerEnabled: boolean;
+    accessibilityEnabled: boolean;
+    hasPrivateNotificationReplyAction: boolean;
+    backgroundSendAvailable: boolean;
+    reasonCode?: string;
+  }>;
   reachAdvertiserPrivateChat(options: {
     phone?: string;
     memberName?: string;
@@ -59,7 +71,19 @@ interface OrderiNotificationListenerPlugin {
     sourceMessageText?: string;
     message: string;
     autoSend?: boolean;
-  }): Promise<{ success: boolean; method: string; statusLabel?: string; accessibilityRequired?: boolean; submitted?: boolean }>;
+    backgroundOnly?: boolean;
+    allowUiFallback?: boolean;
+  }): Promise<{
+    success: boolean;
+    method: string;
+    status?: string;
+    reasonCode?: string;
+    packageName?: string;
+    deliveryConfirmed?: boolean;
+    statusLabel?: string;
+    accessibilityRequired?: boolean;
+    submitted?: boolean;
+  }>;
   sendPrivateNotificationReply(options: {
     target: string;
     message: string;
@@ -82,7 +106,17 @@ interface OrderiNotificationListenerPlugin {
   /** Acknowledge events only after processing succeeds or a deliberate filter decision is made. */
   acknowledgeEvents(options: { ids: string[] }): Promise<{ acknowledged: number }>;
   getClickedOrder?(): Promise<{ order?: any }>;
-  showOrderNotification(options: { orderId: string; from: string; to: string; price?: number; priceDisplay?: string; rawText?: string }): Promise<void>;
+  showOrderNotification(options: {
+    orderId: string;
+    from: string;
+    to: string;
+    price?: number;
+    priceDisplay?: string;
+    rawText?: string;
+    groupName?: string;
+    senderName?: string;
+    senderPhone?: string;
+  }): Promise<void>;
   cancelOrderNotification(options: { orderId: string }): Promise<void>;
   cancelAllOrderNotifications(): Promise<void>;
   syncOrderNotifications(options: { orderIds: string[] }): Promise<void>;

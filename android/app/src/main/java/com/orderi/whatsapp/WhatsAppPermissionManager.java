@@ -31,6 +31,17 @@ public class WhatsAppPermissionManager {
         }
     }
 
+    public static boolean isRegularWhatsAppInstalled(Context context) {
+        if (context == null) return false;
+        PackageManager pm = context.getPackageManager();
+        try {
+            pm.getPackageInfo(PACKAGE_WHATSAPP, 0);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     public static boolean isNotificationAccessGranted(Context context) {
         if (context == null) return false;
         String packageName = context.getPackageName();

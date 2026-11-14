@@ -11,6 +11,7 @@ import {
   Calendar
 } from 'lucide-react';
 import { ParsedOrder } from '../types';
+import { formatFilterOutreachMessage, getAdvertiserTargetPhone } from '../utils/whatsappPrivateOutreach';
 
 interface AcceptedLedgerProps {
   acceptedOrders: ParsedOrder[];
@@ -23,6 +24,7 @@ interface AcceptedLedgerProps {
 export function AcceptedLedger({
   acceptedOrders,
   onClearLedger,
+  customTemplate,
   driverLocation,
 }: AcceptedLedgerProps) {
   const totalEarnings = acceptedOrders.reduce((sum, ord) => sum + ord.price, 0);
@@ -106,9 +108,9 @@ export function AcceptedLedger({
           </div>
         ) : (
           acceptedOrders.map((ord, idx) => {
-            const cleanPhone = ord.senderPhone.replace(/[^\d+]/g, '');
+            const cleanPhone = getAdvertiserTargetPhone(ord) || '';
             const myArea = driverLocation?.areaName || 'البحرين';
-            const messageBody = `#مندوب_توصيل انا في (${myArea})`;
+            const messageBody = formatFilterOutreachMessage(ord, customTemplate, myArea);
 
             const waUrl = cleanPhone ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(messageBody)}` : null;
 
@@ -118,11 +120,20 @@ export function AcceptedLedger({
                 className="p-3.5 sm:p-5 rounded-2xl sm:rounded-3xl bg-white border border-slate-200/80 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4 w-full max-w-full overflow-hidden"
               >
                 <div className="space-y-2">
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-emerald-100 text-emerald-800">
                       طلب #{idx + 1}
                     </span>
                     <span className="text-xs text-slate-500 font-bold">{ord.groupName}</span>
+                    {ord.outreachStatus === 'DELIVERY_CONFIRMED' ? (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-900 border border-emerald-300">
+                        تم تأكيد التواصل بالخاص ✅
+                      </span>
+                    ) : ord.outreachStatus === 'SUBMITTED_UNCONFIRMED' ? (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-blue-100 text-blue-900 border border-blue-200">
+                        أُرسل الرد (بانتظار رد المعلن) 💬
+                      </span>
+                    ) : null}
                     <span className="text-slate-300">•</span>
                     <span className="flex items-center gap-1 text-xs text-slate-400 font-medium">
                       <Clock className="w-3.5 h-3.5" />
@@ -163,15 +174,15 @@ export function AcceptedLedger({
                         target="_blank"
                         rel="noopener noreferrer"
                         className="min-h-[44px] min-w-[44px] flex items-center justify-center p-2.5 rounded-xl sm:rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white shadow-xs active:scale-95 transition-all"
-                        title="مراسلة العميل في واتساب"
+                        title="فتح محادثة المعلن في واتساب العادي"
                       >
                         <MessageCircle className="w-4 h-4 sm:w-5 sm:h-5" />
                       </a>
                     )}
 
-                    {ord.senderPhone && (
+                    {cleanPhone && (
                       <a
-                        href={`tel:+${ord.senderPhone}`}
+                        href={`tel:+${cleanPhone}`}
                         className="min-h-[44px] min-w-[44px] flex items-center justify-center p-2.5 rounded-xl sm:rounded-2xl bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 active:scale-95 transition-all"
                         title="اتصال هاتفي"
                       >

@@ -2,95 +2,38 @@ import { normalizeArabicText } from '../data/bahrainAreas';
 import { normalizeArabicMessageForMatching } from './arabicMessageNormalizer';
 
 /**
- * Personal WhatsApp Chat Classifier & Known Group Advertisers Registry
- * يتعرف الذكاء الاصطناعي على رسائل الواتساب الخاصة العادية من الأصدقاء والمعارف
- * ويفرق بينها وبين التجار الحقيقيين المعلنين في قروبات التوصيل
+ * Personal WhatsApp Chat Classifier
+ * يفرّق بين محادثات واتساب الخاصة الفردية وبين رسائل المجموعات المصرّح بها،
+ * مع منع إنشاء أو تخزين أي سجل دائم لهويات المعلنين بين الطلبات.
  */
 
-const STORAGE_KEY_KNOWN_ADVERTISERS = 'orderi_known_group_advertisers';
+const LEGACY_STORAGE_KEYS_TO_PURGE = [
+  'orderi_known_group_advertisers',
+  'orderi_advertiser_phone_vault',
+];
 
-// In-memory cache of known advertisers
-const knownAdvertisersSet = new Set<string>();
-
-/**
- * Initialize known advertisers from local storage
- */
-function initKnownAdvertisers(): void {
-  if (typeof window === 'undefined') return;
+function purgeLegacyAdvertiserRegistries(): void {
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
   try {
-    const saved = localStorage.getItem(STORAGE_KEY_KNOWN_ADVERTISERS);
-    if (saved) {
-      const list: string[] = JSON.parse(saved);
-      if (Array.isArray(list)) {
-        list.forEach((item) => knownAdvertisersSet.add(normalizeIdentifier(item)));
-      }
+    for (const key of LEGACY_STORAGE_KEYS_TO_PURGE) {
+      localStorage.removeItem(key);
     }
   } catch {}
 }
 
-// Auto init
-if (typeof window !== 'undefined') {
-  initKnownAdvertisers();
-}
+purgeLegacyAdvertiserRegistries();
 
-function normalizeIdentifier(val: string): string {
-  if (!val) return '';
-  return val
-    .toLowerCase()
-    .replace(/[^\w\u0600-\u06FF]/g, '')
-    .trim();
+/**
+ * Intentionally a no-op: Orderi never builds or persists an internal advertiser registry.
+ */
+export function registerKnownGroupAdvertiser(_senderName?: string, _phone?: string): void {
+  purgeLegacyAdvertiserRegistries();
 }
 
 /**
- * Register a sender as a known group advertiser (when an ad or message is captured in a monitored group)
+ * Always returns false because historical advertiser registries are forbidden.
  */
-export function registerKnownGroupAdvertiser(senderName?: string, phone?: string): void {
-  let updated = false;
-
-  if (senderName && senderName.trim() && senderName !== 'واتساب' && senderName !== 'صاحب الإعلان') {
-    const key = normalizeIdentifier(senderName);
-    if (key && !knownAdvertisersSet.has(key)) {
-      knownAdvertisersSet.add(key);
-      updated = true;
-    }
-  }
-
-  if (phone) {
-    const digits = phone.replace(/\D/g, '');
-    if (digits.length >= 8) {
-      const last8 = digits.slice(-8);
-      if (!knownAdvertisersSet.has(last8)) {
-        knownAdvertisersSet.add(last8);
-        updated = true;
-      }
-    }
-  }
-
-  if (updated && typeof window !== 'undefined') {
-    try {
-      const list = Array.from(knownAdvertisersSet).slice(-2000);
-      localStorage.setItem(STORAGE_KEY_KNOWN_ADVERTISERS, JSON.stringify(list));
-    } catch {}
-  }
-}
-
-/**
- * Check if the sender has previously published orders or messages in the delivery groups
- */
-export function isKnownGroupAdvertiser(senderName?: string, phone?: string): boolean {
-  if (phone) {
-    const digits = phone.replace(/\D/g, '');
-    if (digits.length >= 8) {
-      const last8 = digits.slice(-8);
-      if (knownAdvertisersSet.has(last8)) return true;
-    }
-  }
-
-  if (senderName && senderName.trim()) {
-    const key = normalizeIdentifier(senderName);
-    if (key && knownAdvertisersSet.has(key)) return true;
-  }
-
+export function isKnownGroupAdvertiser(_senderName?: string, _phone?: string): boolean {
   return false;
 }
 

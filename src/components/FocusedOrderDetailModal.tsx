@@ -21,17 +21,14 @@ import {
   ExternalLink
 } from 'lucide-react';
 import { ParsedOrder } from '../types';
-import { 
-  executePrivateAdvertiserOutreach, 
-  AdvertiserContactResolution, 
-  formatAdvertiserPrivateMessage,
-  resolveAdvertiserContact,
-  openRegularWhatsAppPrivateChat,
-  getAdvertiserTargetPhone
+import {
+  formatFilterOutreachMessage,
+  openManualRegularWhatsAppChat,
+  getAdvertiserTargetPhone,
+  isMeaningfulAdvertiserName,
 } from '../utils/whatsappPrivateOutreach';
-import { openWhatsAppGroupConversation, reachNativeAdvertiserPrivateChat } from '../native/whatsappListener';
+import { openWhatsAppGroupConversation } from '../native/whatsappListener';
 import { isNativeAndroid, OrderiNotificationListener } from '../native/orderiNotificationListener';
-import { AdvertiserOutreachModal } from './AdvertiserOutreachModal';
 
 interface FocusedOrderDetailModalProps {
   order: ParsedOrder | null;
@@ -54,23 +51,19 @@ export const FocusedOrderDetailModal: React.FC<FocusedOrderDetailModalProps> = (
 
   const [copied, setCopied] = useState(false);
   const [isAutoReplying, setIsAutoReplying] = useState(false);
-  const [showOutreachModal, setShowOutreachModal] = useState(false);
-  const [outreachResolution, setOutreachResolution] = useState<AdvertiserContactResolution | null>(null);
 
   const isClosed = order.status === 'closed_taken' || order.status === 'suspicious_closed';
   const isPassenger = order.passengerDetection?.level === 'confirmed_passenger' || !!order.passengerCount;
   const count = order.passengerCount || order.passengerDetection?.passengerCount;
 
-  // Clean advertiser phone
-  const cleanPhone = order.senderPhone ? order.senderPhone.replace(/[^\d+]/g, '') : '';
-  const phoneFromText = (order.rawText && /(?:973)?[\s-]*(3\d{7}|6\d{7}|17\d{6})/g.exec(order.rawText)?.[0]?.replace(/\D/g, '')) || '';
-  const effectivePhone = (cleanPhone && cleanPhone !== '97300000000' && cleanPhone.length >= 8)
-    ? cleanPhone
-    : phoneFromText ? (phoneFromText.startsWith('973') ? phoneFromText : '973' + phoneFromText)
-    : cleanPhone;
+  const effectivePhone = getAdvertiserTargetPhone(order);
+  const privateAdvertiserMessage = formatFilterOutreachMessage(order, customTemplate, driverArea);
 
-  // Tailored message to advertiser
-  const privateAdvertiserMessage = formatAdvertiserPrivateMessage(order);
+  const emitToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('orderi-toast', { detail: { message, type } }));
+    }
+  };
 
   const handleCopyText = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -80,33 +73,43 @@ export const FocusedOrderDetailModal: React.FC<FocusedOrderDetailModalProps> = (
 
   const handleOpenOrderGroup = async () => {
     const groupName = (order.groupName || '').trim();
-    await openWhatsAppGroupConversation(groupName || 'واتساب');
+    const res = await openWhatsAppGroupConversation(groupName || 'واتساب', { rawText: order.rawText });
+    if (!res.success) {
+      emitToast('لم يتم العثور على إشعار نشط لهذه المجموعة لفتحها تلقائياً.', 'error');
+    }
   };
 
   const handleOpenAdvertiserPrivateChat = async () => {
     if (isAutoReplying) return;
     setIsAutoReplying(true);
     try {
-      // In accordance with requirement: When clicking advertiser name, prepare draft in private chat WITHOUT auto-sending
-      const result = await executePrivateAdvertiserOutreach(order, customTemplate, driverArea, false);
-      if (result.success) {
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('orderi-toast', {
-            detail: { message: result.statusLabel, type: 'info' }
-          }));
-        }
-      } else if (result.needsVerification) {
-        setOutreachResolution(result.resolution);
-        setShowOutreachModal(true);
-      } else {
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('orderi-toast', {
-            detail: { message: result.statusLabel, type: 'error' }
-          }));
+      if (typeof navigator !== 'undefined' && navigator.clipboard) {
+        try {
+          await navigator.clipboard.writeText(privateAdvertiserMessage);
+        } catch {}
+      }
+
+      if (effectivePhone) {
+        const res = await openManualRegularWhatsAppChat(effectivePhone, privateAdvertiserMessage);
+        if (res.success) {
+          emitToast(`💬 تم فتح محادثة «${order.senderName || 'صاحب الإعلان'}» في WhatsApp العادي وتجهيز رد الفلتر.`, 'info');
+          return;
         }
       }
-    } catch (err) {
-      console.warn('[Orderi] Private chat error:', err);
+
+      if (isNativeAndroid() && isMeaningfulAdvertiserName(order.senderName)) {
+        const res = await OrderiNotificationListener.openWhatsAppPrivateConversation({
+          memberName: order.senderName.trim(),
+        });
+        if (res?.success) {
+          emitToast(`💬 تم فتح المحادثة الخاصة مع «${order.senderName}» (الرد منسوخ وجاهز للصق).`, 'info');
+          return;
+        }
+      }
+
+      emitToast('لا يتوفر رقم أو محادثة خاصة مفتوحة حالياً للمعلن؛ اضغط «قبول الطلب والتواصل عبر واتساب» أو افتح القروب للرد الخاص (تم نسخ الرسالة).', 'info');
+    } catch {
+      emitToast('تعذر فتح المحادثة الخاصة للمعلن.', 'error');
     } finally {
       setIsAutoReplying(false);
     }
@@ -121,7 +124,7 @@ export const FocusedOrderDetailModal: React.FC<FocusedOrderDetailModalProps> = (
   };
 
   const handleOpenAdvertiserWhatsApp = () => {
-    handleAcceptOrder();
+    void handleOpenAdvertiserPrivateChat();
   };
 
   const handleIgnoreOrder = () => {
@@ -345,17 +348,16 @@ export const FocusedOrderDetailModal: React.FC<FocusedOrderDetailModalProps> = (
                 onClick={async () => {
                   const groupName = (order.groupName || '').trim();
                   if (!groupName || groupName === 'واتساب') {
-                    alert('اسم القروب غير متوفر في بيانات هذا الأوردر.');
+                    emitToast('اسم القروب غير متوفر في بيانات هذا الأوردر.', 'error');
                     return;
                   }
                   try {
-                    const { openWhatsAppGroupConversation } = await import('../native/whatsappListener');
-                    const result = await openWhatsAppGroupConversation(groupName);
+                    const result = await openWhatsAppGroupConversation(groupName, { rawText: order.rawText });
                     if (!result.success) {
-                      alert('لم أجد إشعار واتساب محفوظًا لهذا القروب. افتح واتساب وتأكد من وجود إشعار حديث من القروب، ثم حاول مرة أخرى.');
+                      emitToast('لم أجد إشعار واتساب محفوظًا لهذا القروب. افتح واتساب العادي وتأكد من وجود إشعار حديث من القروب.', 'info');
                     }
                   } catch {
-                    alert('تعذّر فتح القروب. تأكد من تثبيت واتساب وتفعيل صلاحية إشعارات Orderi.');
+                    emitToast('تعذّر فتح القروب. تأكد من تثبيت واتساب العادي وتفعيل صلاحية إشعارات Orderi.', 'error');
                   }
                 }}
                 className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] font-bold text-emerald-800 hover:bg-emerald-100 active:scale-[0.98] transition"
@@ -465,39 +467,6 @@ export const FocusedOrderDetailModal: React.FC<FocusedOrderDetailModalProps> = (
         </div>
 
       </div>
-
-      {/* Advertiser Private Outreach & Identity Verification Modal */}
-      {showOutreachModal && (
-        <AdvertiserOutreachModal
-          isOpen={showOutreachModal}
-          order={order}
-          resolution={outreachResolution}
-          onClose={() => setShowOutreachModal(false)}
-          onConfirmAccept={(acceptedOrd, confirmedPhone, sentMessage) => {
-            onAccept({
-              ...acceptedOrd,
-              status: 'accepted',
-              outreachStatus: 'submitted_unconfirmed',
-              outreachDetails: {
-                status: 'submitted_unconfirmed',
-                phoneUsed: confirmedPhone || undefined,
-                advertiserName: acceptedOrd.senderName,
-                attemptedAt: new Date().toISOString(),
-                message: sentMessage || formatAdvertiserPrivateMessage(acceptedOrd),
-                deliveryMethod: confirmedPhone ? 'background_private_chat' : 'accessibility_group_member_outreach',
-                verifiedAdvertiser: true,
-              },
-            });
-            setShowOutreachModal(false);
-            onClose();
-          }}
-          onToast={(msg) => {
-            if (typeof window !== 'undefined') {
-              window.dispatchEvent(new CustomEvent('orderi-toast', { detail: { message: msg, type: 'info' } }));
-            }
-          }}
-        />
-      )}
     </div>
   );
 };

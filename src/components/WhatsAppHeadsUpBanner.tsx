@@ -11,7 +11,13 @@ import {
   Clock
 } from 'lucide-react';
 import { ParsedOrder } from '../types';
-import { executePrivateAdvertiserOutreach } from '../utils/whatsappPrivateOutreach';
+import {
+  formatFilterOutreachMessage,
+  getAdvertiserTargetPhone,
+  isMeaningfulAdvertiserName,
+  openManualRegularWhatsAppChat,
+} from '../utils/whatsappPrivateOutreach';
+import { isNativeAndroid, OrderiNotificationListener } from '../native/orderiNotificationListener';
 
 interface WhatsAppHeadsUpBannerProps {
   order: ParsedOrder | null;
@@ -58,33 +64,60 @@ export const WhatsAppHeadsUpBanner: React.FC<WhatsAppHeadsUpBannerProps> = ({
     return () => clearInterval(timer);
   }, [order, isPaused, isOpeningChat, isAcceptingOrder, onClose]);
 
-  // 1. زر «رد خاص عن طريق الواتساب»: يفتح محادثة خاصة مع المعلن دون إرسال رسالة تلقائياً
+  // 1. زر «رد خاص عن طريق الواتساب»: يفتح محادثة خاصة في WhatsApp العادي (com.whatsapp) بدون إرسال تلقائي
   const handleOpenPrivateChat = async () => {
     if (!order || isOpeningChat || isAcceptingOrder) return;
     setIsOpeningChat(true);
     setIsPaused(true);
     try {
-      // autoSend = false: فتح المحادثة الخاصة أو تجهيز المسودة بدون إرسال تلقائي
-      const result = await executePrivateAdvertiserOutreach(order, customTemplate, driverAreaName, false);
-      if (result.success) {
-        window.dispatchEvent(new CustomEvent('orderi-toast', { 
-          detail: { 
-            message: result.statusLabel || `💬 تم فتح محادثة المعلن (${order.senderName || 'صاحب الإعلان'}) الخاصة؛ يمكنك الرد الآن`, 
-            type: 'info' 
-          } 
-        }));
-        onClose();
-      } else {
-        window.dispatchEvent(new CustomEvent('orderi-toast', { 
-          detail: { 
-            message: result.statusLabel || 'تعذر فتح المحادثة الخاصة بالمعلن مباشرة.', 
-            type: 'error' 
-          } 
-        }));
+      const msg = formatFilterOutreachMessage(order, customTemplate, driverAreaName);
+      if (typeof navigator !== 'undefined' && navigator.clipboard) {
+        try {
+          await navigator.clipboard.writeText(msg);
+        } catch {}
       }
-    } catch (error) {
-      console.warn('[Orderi] Heads-up private chat open failed:', error);
-      window.dispatchEvent(new CustomEvent('orderi-toast', { detail: { message: 'تعذر فتح المحادثة الخاصة بالمعلن.', type: 'error' } }));
+
+      const targetPhone = getAdvertiserTargetPhone(order);
+      if (targetPhone) {
+        const res = await openManualRegularWhatsAppChat(targetPhone, msg);
+        if (res.success) {
+          window.dispatchEvent(new CustomEvent('orderi-toast', {
+            detail: {
+              message: `💬 تم فتح محادثة المعلن (${order.senderName || 'صاحب الإعلان'}) في WhatsApp العادي وتجهيز رد الفلتر`,
+              type: 'info',
+            },
+          }));
+          onClose();
+          return;
+        }
+      }
+
+      if (isNativeAndroid() && isMeaningfulAdvertiserName(order.senderName)) {
+        const nativeOpen = await OrderiNotificationListener.openWhatsAppPrivateConversation({
+          memberName: order.senderName.trim(),
+        });
+        if (nativeOpen?.success) {
+          window.dispatchEvent(new CustomEvent('orderi-toast', {
+            detail: {
+              message: `💬 تم فتح محادثة المعلن (${order.senderName}) الخاصة (الرد منسوخ للصق)`,
+              type: 'info',
+            },
+          }));
+          onClose();
+          return;
+        }
+      }
+
+      window.dispatchEvent(new CustomEvent('orderi-toast', {
+        detail: {
+          message: 'تعذر فتح محادثة خاصة مباشرة الآن — اضغط «قبول الطلب» للمحاولة بالخلفية أو فتح خيارات المعلن.',
+          type: 'info',
+        },
+      }));
+    } catch {
+      window.dispatchEvent(new CustomEvent('orderi-toast', {
+        detail: { message: 'تعذر فتح المحادثة الخاصة بالمعلن.', type: 'error' },
+      }));
     } finally {
       setIsOpeningChat(false);
     }

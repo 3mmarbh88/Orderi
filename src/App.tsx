@@ -97,7 +97,13 @@ import {
 } from './utils/whatsappConnection';
 import { isNativeAndroid, OrderiNotificationListener, WhatsAppNativeEvent } from './native/orderiNotificationListener';
 import { getWhatsAppListenerStatus, markAllWhatsAppAsRead, openWhatsAppAccessibilitySettings, waitForWhatsAppReadAllCompletion, checkHasUnreadWhatsAppNotifications, orderiWhatsAppClient } from './native/whatsappListener';
-import { executePrivateAdvertiserOutreach } from './utils/whatsappPrivateOutreach';
+import {
+  executePrivateAdvertiserOutreach,
+  AdvertiserContactResolution,
+  classifyTextPhoneNumbers,
+} from './utils/whatsappPrivateOutreach';
+import { AdvertiserOutreachModal } from './components/AdvertiserOutreachModal';
+import { OutreachDeliveryStatus, OutreachAttemptDetails } from './types';
 import { isDuplicateOrder, findDuplicateOrderMatch, rememberOrderFingerprint, registerOrderInDedupRegistry } from './utils/orderDedup';
 import { computeClientAiEvaluation } from './utils/aiEvaluator';
 import { detectPassengerDelivery } from './utils/passengerClassifier';
@@ -112,7 +118,7 @@ import {
 import { closeOrderPermanently, flushPendingOrderClosures, isOrderClosedLocally } from './utils/orderClosureSync';
 import { classifyAdvertiserPrivateReply } from './utils/advertiserReplyClassifier';
 import { detectAdvertisementMessage } from './utils/advertisementClassifier';
-import { classifyPrivateWhatsAppMessage, registerKnownGroupAdvertiser } from './utils/personalChatClassifier';
+import { classifyPrivateWhatsAppMessage } from './utils/personalChatClassifier';
 import {
   discriminateConversationSource,
   allowsVerifiedBackgroundGroupCapture,
@@ -525,11 +531,21 @@ function OrderiApp({
                         console.warn('[Orderi Native] Could not mark source WhatsApp group as read:', error);
                       });
                     }
-                    const phoneFromSender = (event.senderName || '').replace(/[^\d+]/g, '');
-                    const resolvedSenderName = (event.senderName && event.senderName.trim()) 
-                      ? event.senderName.trim() 
+                    const segText = (parsed as any).rawSegment || rawText || event.title || '';
+                    const resolvedSenderName = (event.senderName && event.senderName.trim())
+                      ? event.senderName.trim()
                       : (parsed.advertiserName || (event.isGroup ? '' : event.title) || 'معلن بالقروب');
-                    const resolvedSenderPhone = parsed.phone || (phoneFromSender.length >= 8 ? phoneFromSender : '');
+                    const metaPhone = event.senderPhone ? normalizeBahrainPhone(event.senderPhone) : '';
+                    const textAdvCandidates = classifyTextPhoneNumbers(segText).filter((c) => c.role === 'advertiser');
+                    const resolvedSenderPhone =
+                      metaPhone ||
+                      (textAdvCandidates.length === 1 ? textAdvCandidates[0].phone : '') ||
+                      (parsed.phone ? normalizeBahrainPhone(parsed.phone) : '');
+                    const senderPhoneSource = metaPhone
+                      ? ('notification_metadata' as const)
+                      : resolvedSenderPhone
+                      ? ('ad_text_advertiser' as const)
+                      : ('none' as const);
                     const orderIdSuffix = parsedList.length > 1 ? `-part-${idx + 1}` : '';
 
                     handleProcessIncomingRawOrder({
@@ -540,9 +556,10 @@ function OrderiApp({
                       scheduledTime: parsed.scheduledTime,
                       scheduledTimeMinutes: parsed.scheduledTimeMinutes,
                       isFutureSchedule: parsed.isFutureSchedule,
-                      rawText: (parsed as any).rawSegment || rawText || event.title || '', groupName,
+                      rawText: segText, groupName,
                       senderName: resolvedSenderName,
                       senderPhone: resolvedSenderPhone,
+                      senderPhoneSource,
                       receivedAt: new Date(event.receivedAt || Date.now()),
                       confidence: parsed.confidence, type: 'whatsapp_notification',
                       notes: parsed.notes, status: 'pending',
@@ -697,6 +714,14 @@ function OrderiApp({
 
   // 8b. Focused Order Detail State (Direct deep-link from phone notification clicks)
   const [focusedOrder, setFocusedOrder] = useState<ParsedOrder | null>(null);
+
+  // 8b-2. Honest Outreach Fallback Modal State (when background private send is unavailable)
+  const [outreachFallbackState, setOutreachFallbackState] = useState<{
+    order: ParsedOrder;
+    resolution: AdvertiserContactResolution;
+    failureStatus: OutreachDeliveryStatus;
+    failureReason: string;
+  } | null>(null);
 
   // 8c. Advertiser Confirmation Awarded Celebration Modal State («تم / لك / عندك»)
   const [awardedOrderData, setAwardedOrderData] = useState<{
@@ -1554,9 +1579,9 @@ function OrderiApp({
         // Check if driver has an ACTIVE outreach to this specific contact/phone for a pending order
         if (rawText) {
           const activeOutreachOrder = ordersRef.current.find((ord) => {
-            if (ord.status !== 'pending' || !ord.outreachStatus) return false;
+            if (ord.status !== 'pending' || !ord.outreachStatus || ord.outreachStatus === 'NOT_ATTEMPTED') return false;
             const ordPhone = (ord.senderPhone || '').replace(/\D/g, '');
-            const evPhone = (event.senderPhone || event.title || '').replace(/\D/g, '');
+            const evPhone = (event.senderPhone || '').replace(/\D/g, '');
             if (ordPhone.length >= 8 && evPhone.length >= 8 && ordPhone.slice(-8) === evPhone.slice(-8)) return true;
             if (ord.senderName && event.title && ord.senderName.trim() === event.title.trim()) return true;
             return false;
@@ -1565,6 +1590,13 @@ function OrderiApp({
           if (activeOutreachOrder) {
             const replyVerdict = classifyAdvertiserPrivateReply(rawText);
             if (replyVerdict.verdict === 'CONFIRMED_AWARDED') {
+              setOrders((prev) =>
+                prev.map((o) =>
+                  o.id === activeOutreachOrder.id
+                    ? { ...o, outreachStatus: 'DELIVERY_CONFIRMED' }
+                    : o,
+                ),
+              );
               setAwardedOrderData({
                 orderId: activeOutreachOrder.id,
                 advertiserName: event.title || activeOutreachOrder.senderName || 'صاحب الإعلان',
@@ -1674,8 +1706,7 @@ function OrderiApp({
         }
       }
 
-      // Register advertiser as a known group advertiser when active in monitored groups
-      registerKnownGroupAdvertiser(event.senderName || event.title);
+      // Group outreach works directly from the current message/notification (no advertiser registry stored).
 
       // Check for Smart Order Closure (الكشف الذكي عن الطلبات المحجوزة أو المنتهية)
       if (filterRef.current.autoCloseOrdersEnabled !== false) {
@@ -1730,6 +1761,19 @@ function OrderiApp({
         for (let idx = 0; idx < parsedList.length; idx++) {
           const parsed = parsedList[idx];
           const orderIdSuffix = parsedList.length > 1 ? `-part-${idx + 1}` : '';
+          const segText = (parsed as any).rawSegment || rawText || event.title || '';
+          const metaPhone = event.senderPhone ? normalizeBahrainPhone(event.senderPhone) : '';
+          const textAdvCandidates = classifyTextPhoneNumbers(segText).filter((c) => c.role === 'advertiser');
+          const resolvedPhone =
+            metaPhone ||
+            (textAdvCandidates.length === 1 ? textAdvCandidates[0].phone : '') ||
+            (parsed.phone ? normalizeBahrainPhone(parsed.phone) : '');
+          const senderPhoneSource = metaPhone
+            ? ('notification_metadata' as const)
+            : resolvedPhone
+            ? ('ad_text_advertiser' as const)
+            : ('none' as const);
+
           const order = {
             id: `android-wa-${event.id}${orderIdSuffix}`,
             from: parsed.from,
@@ -1740,11 +1784,13 @@ function OrderiApp({
             scheduledTime: parsed.scheduledTime,
             scheduledTimeMinutes: parsed.scheduledTimeMinutes,
             isFutureSchedule: parsed.isFutureSchedule,
-            rawText: (parsed as any).rawSegment || rawText || event.title || '',
+            rawText: segText,
+            groupName,
             senderName: (event.senderName && event.senderName.trim()) 
               ? event.senderName.trim() 
               : (parsed.advertiserName || event.title || 'معلن بالقروب'),
-            senderPhone: parsed.phone || ((event.senderName || '').replace(/[^\d+]/g, '').length >= 8 ? (event.senderName || '').replace(/[^\d+]/g, '') : ''),
+            senderPhone: resolvedPhone,
+            senderPhoneSource,
             receivedAt: new Date(event.receivedAt || Date.now()),
             confidence: parsed.confidence,
             type: 'whatsapp_notification',
@@ -1817,9 +1863,10 @@ function OrderiApp({
               price: rawPrice,
               isPriceUnspecified: rawPrice <= 0,
               rawText: data.rawText || `${rawFrom} ← ${rawTo}`,
-              groupName: 'واتساب',
-              senderName: data.senderName || 'معلن واتساب',
-              senderPhone: '',
+              groupName: (data.groupName && String(data.groupName).trim()) || 'واتساب',
+              senderName: (data.senderName && String(data.senderName).trim()) || 'معلن واتساب',
+              senderPhone: data.senderPhone ? normalizeBahrainPhone(String(data.senderPhone)) : '',
+              senderPhoneSource: data.senderPhone ? 'notification_metadata' : 'none',
               receivedAt: new Date(),
               confidence: 90,
               match,
@@ -1864,9 +1911,10 @@ function OrderiApp({
                 price: rawPrice,
                 isPriceUnspecified: rawPrice <= 0,
                 rawText: data.rawText || '',
-                groupName: 'واتساب',
-                senderName: data.senderName || 'معلن واتساب',
-                senderPhone: '',
+                groupName: (data.groupName && String(data.groupName).trim()) || 'واتساب',
+                senderName: (data.senderName && String(data.senderName).trim()) || 'معلن واتساب',
+                senderPhone: data.senderPhone ? normalizeBahrainPhone(String(data.senderPhone)) : '',
+                senderPhoneSource: data.senderPhone ? 'notification_metadata' : 'none',
                 receivedAt: new Date(),
                 confidence: 90,
                 match,
@@ -2785,7 +2833,61 @@ function OrderiApp({
     showToast('✓ تم إلغاء الاشتباه وتثبيت الطلب كمتاح في الرادار');
   };
 
-  // Accept order and trigger background private outreach directly without blocking
+  const finalizeOrderAcceptance = (
+    order: ParsedOrder,
+    outreachStatus: OutreachDeliveryStatus,
+    outreachDetails: OutreachAttemptDetails,
+  ) => {
+    dismissBackgroundOrderNotification(order.id);
+    if (isNativeAndroid()) {
+      void OrderiNotificationListener.cancelOrderNotification({ orderId: order.id }).catch(() => {});
+    }
+    try {
+      const saved = JSON.parse(localStorage.getItem('orderi_notification_dismissed_order_ids') || '[]');
+      if (Array.isArray(saved) && !saved.includes(order.id)) {
+        localStorage.setItem('orderi_notification_dismissed_order_ids', JSON.stringify([...saved, order.id].slice(-500)));
+      }
+    } catch {}
+
+    const updated: ParsedOrder = {
+      ...order,
+      status: 'accepted',
+      outreachStatus,
+      outreachDetails,
+    };
+
+    setOrders((prev) => prev.filter((o) => o.id !== order.id));
+    setAcceptedOrders((prev) => [updated, ...prev]);
+
+    const newActiveRoute: ActiveRoute = {
+      id: order.id,
+      from: order.from,
+      to: order.to,
+      price: order.price || 0,
+      acceptedAt: new Date().toLocaleTimeString('ar-BH', { hour: '2-digit', minute: '2-digit' }),
+    };
+    setActiveAcceptedRoute(newActiveRoute);
+
+    const remainingOrders = ordersRef.current.filter((o) => o.id !== order.id);
+    const onSameRoute = findOrdersOnSameRoute(remainingOrders, newActiveRoute);
+    if (onSameRoute.length > 0) {
+      if (filterRef.current.soundEnabled) {
+        playAlertTone('cash_register', 90);
+      }
+      showToast(`🛣️ تم رصد ${onSameRoute.length} طلبات إضافية على نفس طريقك (${order.from} ← ${order.to})!`);
+    } else {
+      const priceText = (!order.price || order.price <= 0 || order.isPriceUnspecified)
+        ? '(بالاتفاق مع العميل 🤝)'
+        : `(+${order.price.toFixed(1)} د.ب)`;
+      const deliveryNote =
+        outreachStatus === 'DELIVERY_CONFIRMED'
+          ? 'وتأكد تسليم الرسالة بالخاص ✅'
+          : 'وتم تمرير الرد للخاص (لم يؤكد واتساب التسليم بعد) ⚡';
+      showToast(`✅ تم قبول الطلب ${deliveryNote} (${order.senderName || 'صاحب الإعلان'}) ${priceText}`);
+    }
+  };
+
+  // Unified Accept & Private Outreach Pipeline (never opens WhatsApp automatically on failure)
   const handleAcceptOrder = async (order: ParsedOrder, forceAccept = false) => {
     if (!forceAccept) {
       const conflict = checkOrderConflictWithCommitments(commitments, 40);
@@ -2801,78 +2903,48 @@ function OrderiApp({
     }
 
     try {
-      // Child actions may already have submitted the private reply. Do not send it twice.
-      let outreachDetails = order.outreachDetails;
-      let outreachStatus = order.outreachStatus;
-      if (outreachStatus !== 'submitted_unconfirmed') {
-        const outreach = await executePrivateAdvertiserOutreach(
-          order,
-          filterRef.current.customResponseTemplate,
-          driverLocation?.areaName || 'المنامة'
+      const outreach = await executePrivateAdvertiserOutreach(
+        order,
+        filterRef.current.customResponseTemplate,
+        driverLocation?.areaName || 'المنامة',
+        { autoSend: true, backgroundOnly: true, allowUiFallback: false },
+      );
+
+      const attemptDetails: OutreachAttemptDetails = {
+        status: outreach.status,
+        phoneUsed: outreach.phoneUsed,
+        advertiserName: outreach.resolution.name || order.senderName || 'صاحب الإعلان',
+        attemptedAt: new Date().toISOString(),
+        message: outreach.message,
+        reasonCode: outreach.reasonCode,
+        packageName: 'com.whatsapp',
+        deliveryMethod: outreach.deliveryMethod,
+        verifiedAdvertiser: outreach.resolution.advertiserVerified,
+      };
+
+      if (!outreach.success) {
+        // Keep order pending in Radar with honest outreach state; NEVER open WhatsApp automatically
+        setOrders((prev) =>
+          prev.map((o) =>
+            o.id === order.id
+              ? { ...o, outreachStatus: outreach.status, outreachDetails: attemptDetails }
+              : o,
+          ),
         );
-        if (!outreach.success) {
-          showToast(outreach.statusLabel);
-          return;
+        showToast(outreach.statusLabel);
+        if (outreach.openFallbackModal) {
+          setOutreachFallbackState({
+            order,
+            resolution: outreach.resolution,
+            failureStatus: outreach.status,
+            failureReason: outreach.statusLabel,
+          });
         }
-        outreachStatus = outreach.status;
-        outreachDetails = {
-          status: outreach.status,
-          phoneUsed: outreach.phoneUsed,
-          advertiserName: outreach.resolution.name || order.senderName || 'صاحب الإعلان',
-          attemptedAt: new Date().toISOString(),
-          message: outreach.message,
-          deliveryMethod: 'background_private_chat',
-          verifiedAdvertiser: true,
-        };
+        return;
       }
 
-      // Only remove the Radar item/notification after the outreach engine accepted the send attempt.
-      dismissBackgroundOrderNotification(order.id);
-      if (isNativeAndroid()) {
-        void OrderiNotificationListener.cancelOrderNotification({ orderId: order.id }).catch(() => {});
-      }
-      try {
-        const saved = JSON.parse(localStorage.getItem('orderi_notification_dismissed_order_ids') || '[]');
-        if (Array.isArray(saved) && !saved.includes(order.id)) {
-          localStorage.setItem('orderi_notification_dismissed_order_ids', JSON.stringify([...saved, order.id].slice(-500)));
-        }
-      } catch {}
-
-      const updated = {
-        ...order,
-        status: 'accepted' as const,
-        outreachStatus: outreachStatus || 'not_attempted',
-        outreachDetails,
-      };
-
-      setOrders((prev) => prev.filter((o) => o.id !== order.id));
-      setAcceptedOrders((prev) => [updated, ...prev]);
-
-      // Set active route for on-the-way corridor alerts
-      const newActiveRoute: ActiveRoute = {
-        id: order.id,
-        from: order.from,
-        to: order.to,
-        price: order.price || 0,
-        acceptedAt: new Date().toLocaleTimeString('ar-BH', { hour: '2-digit', minute: '2-digit' }),
-      };
-      setActiveAcceptedRoute(newActiveRoute);
-
-      const remainingOrders = orders.filter((o) => o.id !== order.id);
-      const onSameRoute = findOrdersOnSameRoute(remainingOrders, newActiveRoute);
-      if (onSameRoute.length > 0) {
-        if (filterRef.current.soundEnabled) {
-          playAlertTone('cash_register', 90);
-        }
-        showToast(`🛣️ تم رصد ${onSameRoute.length} طلبات إضافية على نفس طريقك (${order.from} ← ${order.to})!`);
-      } else {
-        const priceText = (!order.price || order.price <= 0 || order.isPriceUnspecified)
-          ? '(بالاتفاق مع العميل 🤝)'
-          : `(+${order.price.toFixed(1)} د.ب)`;
-        showToast(`✅ تم قبول الطلب وتمرير الرد الخاص للمعلن (${order.senderName || 'صاحب الإعلان'})؛ لم يؤكد واتساب التسليم ${priceText} ⚡`);
-      }
+      finalizeOrderAcceptance(order, outreach.status, attemptDetails);
     } catch (error) {
-      // A failed outreach must never be recorded as an accepted order.
       console.error('[Orderi] Private WhatsApp outreach error:', error);
       showToast('تعذر إرسال رسالة القبول؛ بقي الطلب في الرادار ولم يتم تسجيله كمقبول.');
     }
@@ -3886,6 +3958,35 @@ function OrderiApp({
             handleIgnoreOrder(orderIdToIgnore);
             setFocusedOrder(null);
           }}
+        />
+      )}
+
+      {/* Honest Outreach Fallback Modal: Triggered only when background private send fails */}
+      {outreachFallbackState && (
+        <AdvertiserOutreachModal
+          isOpen={true}
+          order={outreachFallbackState.order}
+          resolution={outreachFallbackState.resolution}
+          customTemplate={filter.customResponseTemplate}
+          driverArea={driverLocation?.areaName || 'البحرين'}
+          failureStatus={outreachFallbackState.failureStatus}
+          failureReason={outreachFallbackState.failureReason}
+          onClose={() => setOutreachFallbackState(null)}
+          onConfirmAccept={(acceptedOrd, confirmedPhone, sentMessage, deliveryMethod, status) => {
+            const finalStatus: OutreachDeliveryStatus = status || 'SUBMITTED_UNCONFIRMED';
+            finalizeOrderAcceptance(acceptedOrd, finalStatus, {
+              status: finalStatus,
+              phoneUsed: confirmedPhone || undefined,
+              advertiserName: outreachFallbackState.resolution.name || acceptedOrd.senderName,
+              attemptedAt: new Date().toISOString(),
+              message: sentMessage || filter.customResponseTemplate,
+              packageName: 'com.whatsapp',
+              deliveryMethod: deliveryMethod || 'manual_regular_whatsapp',
+              verifiedAdvertiser: true,
+            });
+            setOutreachFallbackState(null);
+          }}
+          onToast={(msg) => showToast(msg)}
         />
       )}
 

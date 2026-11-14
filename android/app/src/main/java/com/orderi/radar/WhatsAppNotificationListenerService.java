@@ -44,6 +44,10 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         public android.app.RemoteInput[] remoteInputs;
         public long timestamp;
         public boolean isGroup;
+        public String packageName;
+        public String title;
+        public String senderName;
+        public String senderPhone;
     }
     private static final java.util.concurrent.ConcurrentHashMap<String, ReplyActionHolder> REPLY_ACTIONS = new java.util.concurrent.ConcurrentHashMap<>();
 
@@ -52,6 +56,9 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         public long timestamp;
         public boolean isGroup;
         public String title;
+        public String packageName;
+        public String senderName;
+        public String senderPhone;
     }
     private static final java.util.concurrent.ConcurrentHashMap<String, ChatIntentHolder> CHAT_INTENTS = new java.util.concurrent.ConcurrentHashMap<>();
 
@@ -275,19 +282,98 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
         return count;
     }
 
-    public static boolean openWhatsAppConversation(android.content.Context context, String targetTitle) {
-        if (TextUtils.isEmpty(targetTitle)) return false;
-        String targetNormalized = targetTitle.toLowerCase().trim();
-        for (java.util.Map.Entry<String, ChatIntentHolder> entry : CHAT_INTENTS.entrySet()) {
-            String key = entry.getKey().toLowerCase().trim();
-            if (key.equals(targetNormalized) || key.contains(targetNormalized) || targetNormalized.contains(key)) {
-                try {
-                    entry.getValue().contentIntent.send();
-                    return true;
-                } catch (Exception ignored) {}
+    private static String normalizePrivateIdentity(String raw) {
+        if (raw == null) return "";
+        String s = raw.replaceAll("[\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069]", "").trim();
+        if (s.isEmpty()) return "";
+        boolean hasLetterOrDigit = false;
+        for (int i = 0; i < s.length();) {
+            int cp = s.codePointAt(i);
+            if (Character.isLetterOrDigit(cp)) {
+                hasLetterOrDigit = true;
+                break;
+            }
+            i += Character.charCount(cp);
+        }
+        if (hasLetterOrDigit) {
+            s = s.replaceAll("^[\\s~@+：:،,؛;\\p{So}\\p{Sk}]+", "")
+                 .replaceAll("[\\s~@+：:،,؛;\\p{So}\\p{Sk}]+$", "").trim();
+        } else {
+            s = s.replaceAll("^[\\s~@+：:،,؛;]+", "")
+                 .replaceAll("[\\s~@+：:،,؛;]+$", "").trim();
+        }
+        s = java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFKC);
+        s = s.replaceAll("[\\u064B-\\u065F\\u0670]", "");
+        return s.toLowerCase(java.util.Locale.ROOT).replaceAll("\\s+", " ").trim();
+    }
+
+    private static String normalizeBahrainDigits(String raw) {
+        if (raw == null) return "";
+        String digits = raw.replaceAll("\\D", "");
+        if (digits.startsWith("00973") && digits.length() == 13) {
+            digits = digits.substring(2);
+        }
+        if (digits.length() == 8) {
+            digits = "973" + digits;
+        }
+        return digits;
+    }
+
+    private static boolean digitsMatchExactBahrain(String a, String b) {
+        String na = normalizeBahrainDigits(a);
+        String nb = normalizeBahrainDigits(b);
+        return na.length() >= 8 && nb.length() >= 8 && na.equals(nb);
+    }
+
+    private static boolean isGenericPlaceholderName(String normalizedIdentity) {
+        if (TextUtils.isEmpty(normalizedIdentity)) return true;
+        return normalizedIdentity.equals("صاحب الاعلان")
+                || normalizedIdentity.equals("صاحب الإعلان")
+                || normalizedIdentity.equals("واتساب")
+                || normalizedIdentity.equals("whatsapp")
+                || normalizedIdentity.equals("whatsapp messenger")
+                || normalizedIdentity.equals("معلن بالقروب")
+                || normalizedIdentity.equals("معلن في القروب")
+                || normalizedIdentity.equals("معلن بالقروب المؤرشف")
+                || normalizedIdentity.equals("مجهول");
+    }
+
+    private static boolean matchesPrivateHolder(
+            String packageName,
+            boolean isGroup,
+            long timestamp,
+            String holderTitle,
+            String holderSenderName,
+            String holderSenderPhone,
+            String targetPhone,
+            String targetName) {
+        if (isGroup || !PACKAGE_WHATSAPP.equals(packageName)) return false;
+        long now = System.currentTimeMillis();
+        if (timestamp <= 0L || now - timestamp < 0L || now - timestamp > 900_000L) return false;
+
+        String cleanPhone = normalizeBahrainDigits(targetPhone);
+        if (cleanPhone.length() >= 8 && cleanPhone.length() <= 15) {
+            if (digitsMatchExactBahrain(holderSenderPhone, cleanPhone)
+                    || digitsMatchExactBahrain(holderTitle, cleanPhone)
+                    || digitsMatchExactBahrain(holderSenderName, cleanPhone)) {
+                return true;
+            }
+        }
+
+        String wantedIdentity = normalizePrivateIdentity(targetName);
+        if (!isGenericPlaceholderName(wantedIdentity)) {
+            String normSender = normalizePrivateIdentity(holderSenderName);
+            String normTitle = normalizePrivateIdentity(holderTitle);
+            if ((!TextUtils.isEmpty(normSender) && normSender.equals(wantedIdentity))
+                    || (!TextUtils.isEmpty(normTitle) && normTitle.equals(wantedIdentity))) {
+                return true;
             }
         }
         return false;
+    }
+
+    public static boolean openWhatsAppConversation(android.content.Context context, String targetTitle) {
+        return openWhatsAppGroupConversation(context, targetTitle);
     }
 
     /**
@@ -296,15 +382,16 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
      */
     public static boolean openWhatsAppGroupConversation(android.content.Context context, String targetTitle) {
         if (TextUtils.isEmpty(targetTitle)) return false;
-        String targetNormalized = targetTitle.trim().toLowerCase(java.util.Locale.ROOT);
+        String targetNormalized = targetTitle.trim().toLowerCase(java.util.Locale.ROOT).replaceAll("\\s+", " ");
         long now = System.currentTimeMillis();
         for (java.util.Map.Entry<String, ChatIntentHolder> entry : CHAT_INTENTS.entrySet()) {
             ChatIntentHolder holder = entry.getValue();
             if (holder == null || !holder.isGroup || holder.contentIntent == null
                     || holder.timestamp <= 0L || now - holder.timestamp < 0L
                     || now - holder.timestamp > 900_000L) continue;
-            String key = entry.getKey();
-            if (key == null || !key.trim().toLowerCase(java.util.Locale.ROOT).equals(targetNormalized)) continue;
+            if (!PACKAGE_WHATSAPP.equals(holder.packageName)) continue;
+            String title = holder.title != null ? holder.title : entry.getKey();
+            if (title == null || !title.trim().toLowerCase(java.util.Locale.ROOT).replaceAll("\\s+", " ").equals(targetNormalized)) continue;
             try {
                 holder.contentIntent.send();
                 return true;
@@ -316,22 +403,24 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
     }
 
     /**
-     * Open only a recent, exactly named private conversation from a WhatsApp notification.
-     * Group intents and fuzzy/partial title matches are deliberately rejected.
+     * Open only a recent, exactly named private conversation from regular WhatsApp Messenger (com.whatsapp).
+     * Group intents, WhatsApp Business, and fuzzy/partial title matches are deliberately rejected.
      */
     public static boolean openWhatsAppPrivateConversation(android.content.Context context, String targetTitle) {
         if (TextUtils.isEmpty(targetTitle)) return false;
-        String targetNormalized = targetTitle.trim().toLowerCase(java.util.Locale.ROOT).replaceAll("\\s+", " ");
-        long now = System.currentTimeMillis();
-        for (java.util.Map.Entry<String, ChatIntentHolder> entry : CHAT_INTENTS.entrySet()) {
-            ChatIntentHolder holder = entry.getValue();
-            if (holder == null || holder.isGroup || holder.contentIntent == null
-                    || holder.timestamp <= 0L || now - holder.timestamp < 0L
-                    || now - holder.timestamp > 900_000L) continue;
-            String key = entry.getKey();
-            if (key == null) continue;
-            String normalizedKey = key.trim().toLowerCase(java.util.Locale.ROOT).replaceAll("\\s+", " ");
-            if (!normalizedKey.equals(targetNormalized)) continue;
+        for (ChatIntentHolder holder : CHAT_INTENTS.values()) {
+            if (holder == null || holder.contentIntent == null) continue;
+            if (!matchesPrivateHolder(
+                    holder.packageName,
+                    holder.isGroup,
+                    holder.timestamp,
+                    holder.title,
+                    holder.senderName,
+                    holder.senderPhone,
+                    "",
+                    targetTitle)) {
+                continue;
+            }
             try {
                 holder.contentIntent.send();
                 return true;
@@ -343,59 +432,68 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
     }
 
     public static boolean sendQuickReply(android.content.Context context, String targetGroupOrPhone, String replyText) {
-        if (TextUtils.isEmpty(replyText)) return false;
+        if (TextUtils.isEmpty(targetGroupOrPhone) || TextUtils.isEmpty(replyText)) return false;
+        return sendPrivateNotificationReply(context, targetGroupOrPhone, replyText);
+    }
 
-        if (!TextUtils.isEmpty(targetGroupOrPhone)) {
-            String targetNormalized = targetGroupOrPhone.toLowerCase().trim();
-            for (java.util.Map.Entry<String, ReplyActionHolder> entry : REPLY_ACTIONS.entrySet()) {
-                // RULE 5: Strictly prevent replying into groups!
-                if (entry.getValue().isGroup) continue;
-
-                String key = entry.getKey().toLowerCase().trim();
-                if (key.equals(targetNormalized) || key.contains(targetNormalized) || targetNormalized.contains(key)) {
-                    if (executeReply(context, entry.getValue(), replyText)) return true;
-                }
-            }
-        }
-
-        // Fallback: try latest action if less than 15 minutes old AND NOT A GROUP
-        long now = System.currentTimeMillis();
-        for (java.util.Map.Entry<String, ReplyActionHolder> entry : REPLY_ACTIONS.entrySet()) {
-            if (entry.getValue().isGroup) continue; // NEVER group
-            if (now - entry.getValue().timestamp < 900_000L) {
-                if (executeReply(context, entry.getValue(), replyText)) return true;
+    public static boolean hasPrivateNotificationReplyAction(android.content.Context context, String targetPhone, String targetName) {
+        for (ReplyActionHolder holder : REPLY_ACTIONS.values()) {
+            if (holder == null || holder.pendingIntent == null
+                    || holder.remoteInputs == null || holder.remoteInputs.length == 0) continue;
+            if (matchesPrivateHolder(
+                    holder.packageName,
+                    holder.isGroup,
+                    holder.timestamp,
+                    holder.title,
+                    holder.senderName,
+                    holder.senderPhone,
+                    targetPhone,
+                    targetName)) {
+                return true;
             }
         }
         return false;
     }
 
+    public static boolean sendPrivateNotificationReply(
+            android.content.Context context,
+            String targetPhone,
+            String targetName,
+            String replyText) {
+        if (TextUtils.isEmpty(replyText)) return false;
+        ReplyActionHolder bestHolder = null;
+        for (ReplyActionHolder holder : REPLY_ACTIONS.values()) {
+            if (holder == null || holder.pendingIntent == null
+                    || holder.remoteInputs == null || holder.remoteInputs.length == 0) continue;
+            if (!matchesPrivateHolder(
+                    holder.packageName,
+                    holder.isGroup,
+                    holder.timestamp,
+                    holder.title,
+                    holder.senderName,
+                    holder.senderPhone,
+                    targetPhone,
+                    targetName)) {
+                continue;
+            }
+            if (bestHolder == null || holder.timestamp > bestHolder.timestamp) {
+                bestHolder = holder;
+            }
+        }
+        return bestHolder != null && executeReply(context, bestHolder, replyText);
+    }
+
     /**
-     * Try to reply to a specifically identified private-chat notification without
-     * bringing WhatsApp to the foreground. Never falls back to an unrelated chat.
+     * Try to reply to a specifically identified private-chat notification in regular WhatsApp (com.whatsapp)
+     * without bringing WhatsApp to the foreground. Never falls back to an unrelated chat.
      */
     public static boolean sendPrivateNotificationReply(android.content.Context context, String target, String replyText) {
         if (TextUtils.isEmpty(target) || TextUtils.isEmpty(replyText)) return false;
-        String wanted = target.toLowerCase(java.util.Locale.ROOT).replaceAll("\\D", "");
-        String wantedText = target.toLowerCase(java.util.Locale.ROOT).trim();
-        long now = System.currentTimeMillis();
-        for (java.util.Map.Entry<String, ReplyActionHolder> entry : REPLY_ACTIONS.entrySet()) {
-            ReplyActionHolder holder = entry.getValue();
-            if (holder == null || holder.isGroup || holder.pendingIntent == null
-                    || holder.remoteInputs == null || holder.timestamp <= 0L
-                    || now - holder.timestamp < 0L || now - holder.timestamp > 900_000L) continue;
-            String key = entry.getKey() == null ? "" : entry.getKey().toLowerCase(java.util.Locale.ROOT).trim();
-            String keyDigits = key.replaceAll("\\D", "");
-            String normalizedKey = key.replaceAll("\\s+", " ").trim();
-            String normalizedWanted = wantedText.replaceAll("\\s+", " ").trim();
-            boolean exactName = !normalizedWanted.isEmpty() && normalizedKey.equals(normalizedWanted);
-            // Allow a local Bahrain number to match its +973 form, but never use arbitrary suffix matches.
-            boolean exactPhone = wanted.length() >= 8 && keyDigits.length() >= 8
-                    && (keyDigits.equals(wanted)
-                    || (wanted.length() == 11 && keyDigits.length() == 8 && wanted.endsWith(keyDigits))
-                    || (keyDigits.length() == 11 && wanted.length() == 8 && keyDigits.endsWith(wanted)));
-            if ((exactName || exactPhone) && executeReply(context, holder, replyText)) return true;
-        }
-        return false;
+        String strippedLetters = target.replaceAll("[\\d\\s+\\-()]", "");
+        String digits = target.replaceAll("\\D", "");
+        String phoneTarget = (digits.length() >= 8 && digits.length() <= 15 && strippedLetters.isEmpty()) ? digits : "";
+        String nameTarget = TextUtils.isEmpty(phoneTarget) ? target : "";
+        return sendPrivateNotificationReply(context, phoneTarget, nameTarget, replyText);
     }
 
     /**
@@ -416,9 +514,9 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                     || holder.remoteInputs == null || holder.remoteInputs.length == 0
                     || holder.timestamp <= 0L || now - holder.timestamp < 0L
                     || now - holder.timestamp > 900_000L) continue;
-            String key = entry.getKey();
-            if (key == null) continue;
-            String normalizedKey = key.toLowerCase(java.util.Locale.ROOT).replaceAll("\\s+", " ").trim();
+            String title = holder.title != null ? holder.title : entry.getKey();
+            if (title == null) continue;
+            String normalizedKey = title.toLowerCase(java.util.Locale.ROOT).replaceAll("\\s+", " ").trim();
             if (!normalizedKey.equals(wanted)) continue;
             if (executeReply(context, holder, message)) return true;
         }
@@ -735,6 +833,7 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
             event.put("hasConversationTitle", !TextUtils.isEmpty(conversationTitle));
 
             // Cache WhatsApp direct reply action from notification if present
+            String holderCacheKey = pkg + "|" + (!TextUtils.isEmpty(sbnKey) ? sbnKey : resolvedTitle);
             if (n.actions != null) {
                 for (Notification.Action action : n.actions) {
                     if (action == null || action.actionIntent == null) continue;
@@ -746,15 +845,11 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                         holder.remoteInputs = action.getRemoteInputs();
                         holder.timestamp = sbn.getPostTime();
                         holder.isGroup = looksLikeGroup;
-                        if (!TextUtils.isEmpty(resolvedTitle)) {
-                            REPLY_ACTIONS.put(resolvedTitle, holder);
-                        }
-                        if (!TextUtils.isEmpty(title)) {
-                            REPLY_ACTIONS.put(title, holder);
-                        }
-                        if (!TextUtils.isEmpty(conversationTitle)) {
-                            REPLY_ACTIONS.put(conversationTitle, holder);
-                        }
+                        holder.packageName = pkg;
+                        holder.title = resolvedTitle;
+                        holder.senderName = detectedSenderName;
+                        holder.senderPhone = detectedSenderPhone;
+                        REPLY_ACTIONS.put(holderCacheKey, holder);
                     } else {
                         // Mark as read action (تمييز كمقروء)
                         CharSequence aTitle = action.title;
@@ -788,9 +883,10 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
                 intentHolder.timestamp = sbn.getPostTime();
                 intentHolder.isGroup = looksLikeGroup;
                 intentHolder.title = resolvedTitle;
-                if (!TextUtils.isEmpty(resolvedTitle)) CHAT_INTENTS.put(resolvedTitle, intentHolder);
-                if (!TextUtils.isEmpty(title)) CHAT_INTENTS.put(title, intentHolder);
-                if (!TextUtils.isEmpty(conversationTitle)) CHAT_INTENTS.put(conversationTitle, intentHolder);
+                intentHolder.packageName = pkg;
+                intentHolder.senderName = detectedSenderName;
+                intentHolder.senderPhone = detectedSenderPhone;
+                CHAT_INTENTS.put(holderCacheKey, intentHolder);
             }
 
             // Android-native Heads-Up notification. This runs inside the

@@ -163,6 +163,9 @@ export function sendBackgroundOrderNotification(order: ParsedOrder, filter?: Ord
         price: order.price || 0,
         priceDisplay: priceText,
         rawText: order.rawText || '',
+        groupName: order.groupName || '',
+        senderName: order.senderName || '',
+        senderPhone: order.senderPhone || '',
       }).catch((err) => console.warn('[Orderi Native] showOrderNotification error:', err));
     } catch (e) {
       console.warn('[Orderi Native] Failed to dispatch native order notification:', e);

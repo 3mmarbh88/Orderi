@@ -182,6 +182,7 @@ export interface ParsedOrder {
   groupName: string;
   senderName: string;
   senderPhone: string;
+  senderPhoneSource?: 'notification_metadata' | 'ad_text_advertiser' | 'user_verified' | 'none';
   receivedAt: Date;
   confidence: number;
   type: string;
@@ -214,13 +215,16 @@ export interface ParsedOrder {
   ownAdReason?: string;             // سبب التمييز كإعلان شخصي
 }
 
-export type OutreachDeliveryStatus = 
-  | 'not_attempted'
-  | 'verification_required'
-  | 'chat_opened_pending_send'
-  | 'sent_confirmed'
-  | 'submitted_unconfirmed'
-  | 'failed';
+export type OutreachDeliveryStatus =
+  | 'NOT_ATTEMPTED'
+  | 'IDENTIFYING_ADVERTISER'
+  | 'ADVERTISER_VERIFIED'
+  | 'BACKGROUND_SEND_AVAILABLE'
+  | 'SUBMITTED_UNCONFIRMED'
+  | 'DELIVERY_CONFIRMED'
+  | 'VERIFICATION_REQUIRED'
+  | 'BACKGROUND_SEND_UNAVAILABLE'
+  | 'FAILED';
 
 export interface OutreachAttemptDetails {
   status: OutreachDeliveryStatus;
@@ -228,7 +232,14 @@ export interface OutreachAttemptDetails {
   advertiserName?: string;
   attemptedAt: string;
   message: string;
-  deliveryMethod: 'direct_whatsapp_url' | 'native_private_intent' | 'verified_gateway' | 'background_private_chat' | 'accessibility_group_member_outreach';
+  reasonCode?: string;
+  packageName?: 'com.whatsapp';
+  deliveryMethod:
+    | 'notification_remote_input'
+    | 'accessibility_reply_privately'
+    | 'accessibility_member_click'
+    | 'manual_regular_whatsapp'
+    | 'none';
   verifiedAdvertiser: boolean;
 }
 

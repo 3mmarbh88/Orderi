@@ -34,18 +34,15 @@ import { ParsedOrder } from '../types';
 import { MatcherLocation } from '../utils/matcher';
 import { AIMatchModal } from './AIMatchModal';
 import { findLandmarkByName } from '../data/bahrainLandmarks';
-import { sendNativeQuickReply, openWhatsAppGroupConversation, reachNativeAdvertiserPrivateChat } from '../native/whatsappListener';
+import { openWhatsAppGroupConversation } from '../native/whatsappListener';
 import { isNativeAndroid, OrderiNotificationListener } from '../native/orderiNotificationListener';
 import { detectPassengerDelivery } from '../utils/passengerClassifier';
-import { 
-  executePrivateAdvertiserOutreach, 
-  AdvertiserContactResolution, 
-  formatAdvertiserPrivateMessage,
-  resolveAdvertiserContact,
-  openRegularWhatsAppPrivateChat,
-  getAdvertiserTargetPhone
+import {
+  formatFilterOutreachMessage,
+  openManualRegularWhatsAppChat,
+  getAdvertiserTargetPhone,
+  isMeaningfulAdvertiserName,
 } from '../utils/whatsappPrivateOutreach';
-import { AdvertiserOutreachModal } from './AdvertiserOutreachModal';
 
 interface OrderCardProps {
   key?: string;
@@ -82,8 +79,6 @@ export function OrderCard({
   const [showAcceptDialog, setShowAcceptDialog] = useState(false);
   const [showAiModal, setShowAiModal] = useState(false);
   const [showReviewConfirmModal, setShowReviewConfirmModal] = useState(false);
-  const [showOutreachModal, setShowOutreachModal] = useState(false);
-  const [outreachResolution, setOutreachResolution] = useState<AdvertiserContactResolution | null>(null);
 
   // Swipe-to-delete state & handlers (سحب لليمين أو لليسار يمسح الأوردر)
   const [dragOffset, setDragOffset] = useState(0);
@@ -227,12 +222,8 @@ export function OrderCard({
   const fromLandmark = findLandmarkByName(order.from);
   const toLandmark = findLandmarkByName(order.to);
 
-  // Standardized response message for Private Direct chat with advertiser
   const myArea = driverLocation?.areaName || 'البحرين';
-  const baseCourierText = customTemplate && customTemplate.trim()
-    ? customTemplate.replace(/{area}/g, myArea)
-    : `#مندوب_توصيل انا في (${myArea})`;
-  
+
   // Replay (تم) message for user's own published broadcast orders
   const replayDoneMessage = `(تم) ✅ تم العثور على مندوب
 
@@ -240,26 +231,12 @@ export function OrderCard({
 
 شكراً لكم جميعاً!`;
 
-  // Private direct response to the advertiser:
-  // الرد يُرسل في الخاص للمعلن مباشرة مع الإشارة للطلب المنشور بالقروب
-  const privateAdvertiserMessage = `السلام عليكم، بخصوص طلبك (${order.from} ← ${order.to}):\n${baseCourierText} ومستعد للاستلام والتوصيل فوراً 🚗`;
+  // Exact outreach message from FilterSettings.customResponseTemplate
+  const privateAdvertiserMessage = formatFilterOutreachMessage(order, customTemplate, myArea);
 
   const fullWhatsAppMessage = isMyBroadcast ? replayDoneMessage : privateAdvertiserMessage;
 
-  // Extract phone number from sender or detected in message text
-  const cleanPhone = order.senderPhone ? order.senderPhone.replace(/[^\d+]/g, '') : '';
-  const phoneFromText = (order.rawText && /(?:973)?[\s-]*(3\d{7}|6\d{7}|17\d{6})/g.exec(order.rawText)?.[0]?.replace(/\D/g, '')) || '';
-  const effectivePhone = (cleanPhone && cleanPhone !== '97300000000' && cleanPhone.length >= 8)
-    ? cleanPhone
-    : phoneFromText ? (phoneFromText.startsWith('973') ? phoneFromText : '973' + phoneFromText)
-    : cleanPhone;
-
-  // Direct private WhatsApp chat with advertiser
-  const waUrl = isMyBroadcast
-    ? `https://api.whatsapp.com/send?text=${encodeURIComponent(fullWhatsAppMessage)}`
-    : effectivePhone && effectivePhone !== '97300000000'
-    ? `https://wa.me/${effectivePhone}?text=${encodeURIComponent(fullWhatsAppMessage)}`
-    : `https://api.whatsapp.com/send?text=${encodeURIComponent(fullWhatsAppMessage)}`;
+  const effectivePhone = getAdvertiserTargetPhone(order) || '';
 
   const handleCopy = () => {
     navigator.clipboard.writeText(fullWhatsAppMessage);
@@ -294,68 +271,48 @@ export function OrderCard({
     if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('orderi-toast', { detail: { message, type } }));
   };
 
-  const submitAdvertiserPrivateReply = async (autoSend: boolean = true) => {
-    const result = await executePrivateAdvertiserOutreach(order, customTemplate, driverLocation?.areaName || 'البحرين', autoSend);
-    if (result.success) {
-      showOutreachToast(result.statusLabel, autoSend ? 'success' : 'info');
-    } else if (result.needsVerification) {
-      setOutreachResolution(result.resolution);
-      setShowOutreachModal(true);
-    } else {
-      showOutreachToast(result.statusLabel, 'error');
-    }
-    return result;
-  };
-
   const handleOpenAdvertiserPrivateChat = async (e?: React.MouseEvent) => {
     if (e) { e.preventDefault(); e.stopPropagation(); }
     if (isAutoReplying) return;
     setIsAutoReplying(true);
     try {
-      // In accordance with requirement: When clicking advertiser name, prepare draft in private chat WITHOUT auto-sending
-      await submitAdvertiserPrivateReply(false);
-    } catch (error) {
-      console.warn('[Orderi] Private reply failed:', error);
+      if (typeof navigator !== 'undefined' && navigator.clipboard) {
+        try {
+          await navigator.clipboard.writeText(privateAdvertiserMessage);
+        } catch {}
+      }
+
+      if (effectivePhone) {
+        const res = await openManualRegularWhatsAppChat(effectivePhone, privateAdvertiserMessage);
+        if (res.success) {
+          showOutreachToast(`💬 تم فتح محادثة «${order.senderName || 'صاحب الإعلان'}» في WhatsApp العادي وتجهيز رد الفلتر`, 'info');
+          return;
+        }
+      }
+
+      if (isNativeAndroid() && isMeaningfulAdvertiserName(order.senderName)) {
+        const nativeRes = await OrderiNotificationListener.openWhatsAppPrivateConversation({
+          memberName: order.senderName.trim(),
+        });
+        if (nativeRes?.success) {
+          showOutreachToast(`💬 تم فتح محادثة «${order.senderName}» الخاصة (الرد منسوخ وجاهز للصق)`, 'info');
+          return;
+        }
+      }
+
+      showOutreachToast('اضغط «قبول الطلب والتواصل عبر واتساب» لمحاولة الإرسال بالخلفية أو فتح خيارات المعلن (تم نسخ الرد).', 'info');
+    } catch {
       showOutreachToast('تعذر الوصول إلى محادثة المعلن الخاصة.', 'error');
     } finally {
       setIsAutoReplying(false);
     }
   };
 
-  const handleAdvertiserNameClick = (e: React.MouseEvent) => { void handleOpenAdvertiserPrivateChat(e); };
-
-  const handleExecuteBackgroundAccept = async (e?: React.MouseEvent) => {
+  const handleExecuteBackgroundAccept = (e?: React.MouseEvent) => {
     if (e) { e.preventDefault(); e.stopPropagation(); }
     if (isAutoReplying) return;
-    setIsAutoReplying(true);
-    try {
-      if (isMyBroadcast) { onAccept(order); setShowAcceptDialog(false); return; }
-      // Accept order: autoSend = true (sends automatically in background without redundant confirmation)
-      const result = await submitAdvertiserPrivateReply(true);
-      if (!result.success && result.needsVerification) {
-        // Outreach modal is opened by submitAdvertiserPrivateReply
-        return;
-      }
-      if (!result.success) return;
-      onAccept({
-        ...order,
-        status: 'accepted',
-        outreachStatus: 'submitted_unconfirmed',
-        outreachDetails: {
-          status: 'submitted_unconfirmed',
-          phoneUsed: result.phoneUsed,
-          advertiserName: result.resolution.name || order.senderName || 'صاحب الإعلان',
-          attemptedAt: new Date().toISOString(),
-          message: result.message,
-          deliveryMethod: result.phoneUsed ? 'background_private_chat' : 'accessibility_group_member_outreach',
-          verifiedAdvertiser: true,
-        },
-      });
-      setShowAcceptDialog(false);
-    } catch (error) {
-      console.warn('[Orderi] Accept/private reply failed:', error);
-      showOutreachToast('تعذر تنفيذ الرد الخاص؛ لم يتم تسجيل قبول الطلب.', 'error');
-    } finally { setIsAutoReplying(false); }
+    onAccept(order);
+    setShowAcceptDialog(false);
   };
 
   const handleQuickAutoReply = (e?: React.MouseEvent) => handleExecuteBackgroundAccept(e);
@@ -640,22 +597,34 @@ export function OrderCard({
                     <span>على نفس مسارك 🛣️</span>
                   </span>
                 )}
-                {order.outreachStatus === 'chat_opened_pending_send' && (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-blue-100 text-blue-900 border border-blue-300 shadow-2xs">
-                    <MessageCircle className="w-3 h-3 text-blue-700" />
-                    <span>فُتحت المحادثة بالخاص (بانتظار إرسالك) 💬</span>
-                  </span>
-                )}
-                {order.outreachStatus === 'sent_confirmed' && (
+                {order.outreachStatus === 'DELIVERY_CONFIRMED' && (
                   <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-900 border border-emerald-300 shadow-2xs">
                     <CheckCircle2 className="w-3 h-3 text-emerald-700" />
-                    <span>تم التواصل الخاص ✅</span>
+                    <span>تم تأكيد التواصل بالخاص ✅</span>
                   </span>
                 )}
-                {order.outreachStatus === 'verification_required' && (
+                {order.outreachStatus === 'SUBMITTED_UNCONFIRMED' && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-blue-100 text-blue-900 border border-blue-300 shadow-2xs">
+                    <MessageCircle className="w-3 h-3 text-blue-700" />
+                    <span>أُرسل الرد (بانتظار رد المعلن) 💬</span>
+                  </span>
+                )}
+                {order.outreachStatus === 'VERIFICATION_REQUIRED' && (
                   <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs">
                     <AlertTriangle className="w-3 h-3 text-amber-700" />
-                    <span>يتطلب التحقق من رقم المعلن ⚠️</span>
+                    <span>يتطلب التحقق من هوية المعلن ⚠️</span>
+                  </span>
+                )}
+                {order.outreachStatus === 'BACKGROUND_SEND_UNAVAILABLE' && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs">
+                    <AlertTriangle className="w-3 h-3 text-amber-700" />
+                    <span>الإرسال الصامت غير متاح — للمتابعة اليدوية ⚠️</span>
+                  </span>
+                )}
+                {order.outreachStatus === 'FAILED' && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-rose-100 text-rose-900 border border-rose-300 shadow-2xs">
+                    <AlertCircle className="w-3 h-3 text-rose-700" />
+                    <span>تعذر إرسال الرد بالخاص ❌</span>
                   </span>
                 )}
                 {order.aiTierUsed === 'local_ai' && (
@@ -935,16 +904,16 @@ export function OrderCard({
                       <Reply className="w-4 h-4" />
                       <span>حصلت مندوب (رد: تم فوراً) 🎯</span>
                     </>
-                  ) : order.outreachStatus === 'chat_opened_pending_send' ? (
+                  ) : order.outreachStatus === 'BACKGROUND_SEND_UNAVAILABLE' || order.outreachStatus === 'VERIFICATION_REQUIRED' || order.outreachStatus === 'FAILED' ? (
                     <>
-                      <MessageCircle className="w-4 h-4 text-emerald-200" />
+                      <MessageCircle className="w-4 h-4 text-amber-200" />
                       <div className="flex flex-col items-center leading-tight">
                         <span className="flex items-center gap-1">
-                          <span>المحادثة مفتوحة في واتساب</span>
-                          <span className="text-[11px] font-bold text-emerald-200">💬</span>
+                          <span>قبول الطلب والتواصل عبر واتساب</span>
+                          <span className="text-[11px] font-bold text-amber-200">⚠️</span>
                         </span>
                         <span className="text-[10px] font-normal text-emerald-100">
-                          (الرسالة جاهزة — اضغط لإعادة فتح المحادثة الخاصة)
+                          (تعذر الإرسال الصامت بالخلفية — اضغط لإعادة المحاولة أو المتابعة يدوياً)
                         </span>
                       </div>
                     </>
@@ -1208,47 +1177,6 @@ export function OrderCard({
             setShowAiModal(false);
             onAccept(acceptedOrder);
           }}
-        />
-      )}
-
-      {/* AI Match Analysis Details Modal */}
-      {showAiModal && order.aiAnalysis && (
-        <AIMatchModal
-          order={order}
-          analysis={order.aiAnalysis}
-          onClose={() => setShowAiModal(false)}
-          onAccept={(acceptedOrder) => {
-            setShowAiModal(false);
-            onAccept(acceptedOrder);
-          }}
-        />
-      )}
-
-      {/* Advertiser Private Outreach & Identity Verification Modal */}
-      {showOutreachModal && (
-        <AdvertiserOutreachModal
-          isOpen={showOutreachModal}
-          order={order}
-          resolution={outreachResolution}
-          onClose={() => setShowOutreachModal(false)}
-          onConfirmAccept={(acceptedOrd, confirmedPhone, sentMessage) => {
-            onAccept({
-              ...acceptedOrd,
-              status: 'accepted',
-              outreachStatus: 'submitted_unconfirmed',
-              outreachDetails: {
-                status: 'submitted_unconfirmed',
-                phoneUsed: confirmedPhone || undefined,
-                advertiserName: acceptedOrd.senderName,
-                attemptedAt: new Date().toISOString(),
-                message: sentMessage || formatAdvertiserPrivateMessage(acceptedOrd),
-                deliveryMethod: confirmedPhone ? 'background_private_chat' : 'accessibility_group_member_outreach',
-                verifiedAdvertiser: true,
-              },
-            });
-            setShowOutreachModal(false);
-          }}
-          onToast={(msg) => showOutreachToast(msg, 'info')}
         />
       )}
     </>

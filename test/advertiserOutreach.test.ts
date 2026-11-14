@@ -1,44 +1,52 @@
 import assert from 'node:assert/strict';
-import { 
-  resolveAdvertiserContact, 
-  classifyTextPhoneNumbers, 
-  normalizeBahrainPhone, 
-  formatAdvertiserPrivateMessage 
+import {
+  cleanAdvertiserIdentityName,
+  isMeaningfulAdvertiserName,
+  resolveAdvertiserContact,
+  getAdvertiserTargetPhone,
+  classifyTextPhoneNumbers,
+  normalizeBahrainPhone,
+  formatFilterOutreachMessage,
+  formatAdvertiserPrivateMessage,
+  executePrivateAdvertiserOutreach,
+  checkBackgroundOutreachAvailability,
+  PrivateOutreachNativeBridge,
 } from '../src/utils/whatsappPrivateOutreach';
-import { 
-  saveAdvertiserPhone, 
-  getAdvertiserSavedPhone, 
-  cleanAdvertiserKey 
-} from '../src/utils/advertiserVault';
+import { isKnownGroupAdvertiser, registerKnownGroupAdvertiser } from '../src/utils/personalChatClassifier';
 import { ParsedOrder } from '../src/types';
 
-// Mock localStorage for Node test runner
+// Mock localStorage & window for Node test runner
 const memoryStore = new Map<string, string>();
 (globalThis as any).localStorage = {
   getItem: (k: string) => memoryStore.get(k) ?? null,
-  setItem: (k: string, v: string) => { memoryStore.set(k, String(v)); },
-  removeItem: (k: string) => { memoryStore.delete(k); },
-  clear: () => { memoryStore.clear(); },
+  setItem: (k: string, v: string) => {
+    memoryStore.set(k, String(v));
+  },
+  removeItem: (k: string) => {
+    memoryStore.delete(k);
+  },
+  clear: () => {
+    memoryStore.clear();
+  },
 };
 
-console.log('🧪 Starting Advertiser Outreach & Vault Test Suite');
+let windowOpenCount = 0;
+let locationHrefWrites = 0;
+(globalThis as any).window = {
+  open: () => {
+    windowOpenCount++;
+    return null;
+  },
+  location: {
+    set href(_val: string) {
+      locationHrefWrites++;
+    },
+  },
+};
 
-// Test 1: Symmetrical Advertiser Name normalization
-assert.equal(cleanAdvertiserKey('~ اذكر الله'), 'اذكر الله');
-assert.equal(cleanAdvertiserKey('اذكر الله:'), 'اذكر الله');
-assert.equal(cleanAdvertiserKey(' @متجر الورود '), 'متجر الورود');
-console.log('✅ PASS: Advertiser key normalization strips ~, @, : correctly');
-
-// Test 2: Vault phone persistence and auto-recognition
-saveAdvertiserPhone('~ اذكر الله', '39123456');
-assert.equal(getAdvertiserSavedPhone('اذكر الله'), '97339123456');
-assert.equal(getAdvertiserSavedPhone('~ اذكر الله'), '97339123456');
-console.log('✅ PASS: Vault remembers advertiser phone across ~ and clean variations');
-
-// Test 3: Resolution with vault match
-const sampleOrderFromScreenshot: ParsedOrder = {
-  id: 'order-test-1',
-  rawText: 'عدليه\nم زايد\nفواكه\nدينارين\nمكيف',
+const baseOrder: ParsedOrder = {
+  id: 'order-base-1',
+  rawText: 'طلب توصيل من العدلية إلى مدينة زايد 2 دينار',
   from: 'العدلية',
   to: 'مدينة زايد',
   price: 2.0,
@@ -49,111 +57,276 @@ const sampleOrderFromScreenshot: ParsedOrder = {
   confidence: 0.95,
   type: 'order',
   status: 'pending',
-  match: { 
-    score: 90, 
-    startMatched: true, 
-    destinationMatched: true, 
-    priceMatched: true, 
-    distanceMatched: true,
-    timeMatched: true,
-    distanceKm: 5,
-    statusLabel: 'طلب ممتاز',
-    statusColor: 'emerald'
-  },
-};
-
-const resolutionVault = resolveAdvertiserContact(sampleOrderFromScreenshot);
-assert.equal(resolutionVault.source, 'advertiser_vault');
-assert.equal(resolutionVault.phone, '97339123456');
-console.log('✅ PASS: Order without phone in text automatically recognizes phone from advertiser vault');
-
-// Test 4: Text classification distinguishes advertiser from customer
-const adWithBothPhones = `
-مطلوب توصيل طلبية من محل العطور
-للتواصل مع المحل: 33112233
-بيانات الزبون والمستلم: 39887766
-`;
-const classified = classifyTextPhoneNumbers(adWithBothPhones);
-const advertiserCandidate = classified.find(c => c.role === 'advertiser');
-const customerCandidate = classified.find(c => c.role === 'customer_recipient');
-assert.ok(advertiserCandidate);
-assert.equal(advertiserCandidate.phone, '97333112233');
-assert.ok(customerCandidate);
-assert.equal(customerCandidate.phone, '97339887766');
-console.log('✅ PASS: Text phone classifier correctly identifies advertiser vs customer');
-
-// Test 5: Message formatting respects polite accept template
-const msg = formatAdvertiserPrivateMessage(sampleOrderFromScreenshot);
-assert.ok(msg.includes('العدلية'));
-assert.ok(msg.includes('مدينة زايد'));
-assert.ok(msg.includes('2 د.ب') || msg.includes('2.0 د.ب'));
-console.log('✅ PASS: Private message formatted with polite courier acceptance template');
-
-// Test 6: Button 1 «رد خاص عن طريق الواتساب» opens private chat without auto-sending (autoSend = false)
-import { executePrivateAdvertiserOutreach } from '../src/utils/whatsappPrivateOutreach';
-const outreachOpenOnly = await executePrivateAdvertiserOutreach(
-  sampleOrderFromScreenshot,
-  'مرحباً {name}، أنا كابتن في {area} بخصوص طلب {from} إلى {to}',
-  'المنامة',
-  false // autoSend = false
-);
-assert.equal(outreachOpenOnly.success, true);
-assert.equal(outreachOpenOnly.status, 'chat_opened_pending_send');
-assert.ok(outreachOpenOnly.phoneUsed === '97339123456');
-assert.ok(outreachOpenOnly.statusLabel.includes('المعلن'));
-console.log('✅ PASS: Button 1 «رد خاص عن طريق الواتساب» (autoSend: false) opens 1-on-1 private chat without auto-sending');
-
-// Test 7: Button 2 «قبول الطلب» (autoSend = true) accepts with phone
-const orderWithPhone: ParsedOrder = {
-  ...sampleOrderFromScreenshot,
-  id: 'order-dup-check-1',
-  senderPhone: '97339888777',
-};
-const outreachFirst = await executePrivateAdvertiserOutreach(
-  orderWithPhone,
-  undefined,
-  'الرفاع',
-  true // autoSend = true
-);
-assert.equal(outreachFirst.success, true);
-assert.equal(outreachFirst.status, 'submitted_unconfirmed');
-assert.ok(outreachFirst.message.includes('الرفاع') || outreachFirst.message.includes('العدلية'));
-console.log('✅ PASS: Button 2 «قبول الطلب» (autoSend: true) formats message and submits outreach');
-
-// Test 8: Fresh advertiser without phone in ad or vault executes background member-outreach
-const orderNoPhoneEver: ParsedOrder = {
-  id: 'order-fresh-no-phone',
-  rawText: 'طلب مستعجل سلماباد الى الدراز',
-  from: 'سلماباد',
-  to: 'الدراز',
-  price: 2.5,
-  senderName: '~ ابو عبدالله',
-  groupName: 'قروب توصيل الساحل',
-  senderPhone: '',
-  receivedAt: new Date(),
-  confidence: 0.9,
-  type: 'order',
-  status: 'pending',
   match: {
-    score: 85,
+    score: 90,
     startMatched: true,
     destinationMatched: true,
     priceMatched: true,
     distanceMatched: true,
     timeMatched: true,
-    distanceKm: 8,
-    statusLabel: 'مطابق جداً',
-    statusColor: 'emerald'
+    distanceKm: 5,
+    statusLabel: 'طلب ممتاز',
+    statusColor: 'emerald',
   },
 };
-const outreachFresh = await executePrivateAdvertiserOutreach(
-  orderNoPhoneEver,
-  undefined,
-  'سلماباد',
-  true
-);
-assert.equal(outreachFresh.success, true);
-assert.ok(outreachFresh.statusLabel.includes('ابو عبدالله'));
-console.log('✅ PASS: Fresh advertiser without phone executes background member-click outreach without blocking');
 
-console.log('🎉 All Advertiser Outreach & Heads-up Banner tests passed successfully!');
+console.log('🧪 Starting Zero-Registry Advertiser Outreach Test Suite');
+
+// Test 1: Legacy advertiser registry / vault localStorage keys are purged and never written
+memoryStore.set('orderi_advertiser_phone_vault', JSON.stringify({ 'اذكر الله': '97339123456' }));
+memoryStore.set('orderi_known_group_advertisers', JSON.stringify(['اذكر الله']));
+registerKnownGroupAdvertiser('~ اذكر الله');
+assert.equal(isKnownGroupAdvertiser('~ اذكر الله'), false);
+const legacyResolved = resolveAdvertiserContact(baseOrder);
+assert.equal(memoryStore.has('orderi_advertiser_phone_vault'), false);
+assert.equal(memoryStore.has('orderi_known_group_advertisers'), false);
+assert.equal(legacyResolved.phone, null);
+assert.equal(legacyResolved.advertiserVerified, true);
+assert.equal(legacyResolved.confidence, 'name_only_verified');
+assert.equal(legacyResolved.source, 'sender_identity_only');
+console.log('✅ PASS: Zero advertiser database/registry; legacy storage keys purged and ignored');
+
+// Test 2: Cross-order isolation — phone in Order A does NOT carry over to Order B from same senderName
+const orderWithPhone: ParsedOrder = {
+  ...baseOrder,
+  id: 'order-isolation-a',
+  senderName: 'متجر الورود',
+  senderPhone: '97333112233',
+  senderPhoneSource: 'notification_metadata',
+};
+const resolvedA = resolveAdvertiserContact(orderWithPhone);
+assert.equal(resolvedA.phone, '97333112233');
+
+const laterOrderSameSenderNoPhone: ParsedOrder = {
+  ...baseOrder,
+  id: 'order-isolation-b',
+  senderName: 'متجر الورود',
+  senderPhone: '',
+  rawText: 'طلب توصيل المنامة إلى الرفاع 2.5 دينار',
+};
+const resolvedB = resolveAdvertiserContact(laterOrderSameSenderNoPhone);
+assert.equal(resolvedB.phone, null);
+assert.equal(resolvedB.confidence, 'name_only_verified');
+assert.equal(resolvedB.advertiserVerified, true);
+console.log('✅ PASS: Strict per-order isolation — no phone leaks between orders with same senderName');
+
+// Test 3: Pure symbol / emoji identities and aliases without phone numbers
+assert.equal(cleanAdvertiserIdentityName('~ اذكر الله'), 'اذكر الله');
+assert.equal(cleanAdvertiserIdentityName('🚕✨'), '🚕✨');
+assert.equal(isMeaningfulAdvertiserName('🚕✨'), true);
+assert.equal(isMeaningfulAdvertiserName('صاحب الإعلان'), false);
+assert.equal(isMeaningfulAdvertiserName('واتساب'), false);
+
+const emojiAdvertiserOrder: ParsedOrder = {
+  ...baseOrder,
+  id: 'order-emoji-sender',
+  senderName: '🚕✨',
+  senderPhone: '',
+};
+const resolvedEmoji = resolveAdvertiserContact(emojiAdvertiserOrder);
+assert.equal(resolvedEmoji.advertiserVerified, true);
+assert.equal(resolvedEmoji.name, '🚕✨');
+assert.equal(resolvedEmoji.confidence, 'name_only_verified');
+console.log('✅ PASS: Pure emoji/symbol and alias identities accepted without requiring phone');
+
+// Test 4: Never guess phone digits from senderName (even when senderName contains 8+ digits)
+const trickyNameOrder: ParsedOrder = {
+  ...baseOrder,
+  id: 'order-digits-in-name',
+  senderName: 'مندوب 39112233 السريع',
+  senderPhone: '',
+  senderPhoneSource: 'none',
+  rawText: 'مشوار من سار إلى السيف دينارين',
+};
+const resolvedTricky = resolveAdvertiserContact(trickyNameOrder);
+assert.equal(resolvedTricky.phone, null);
+assert.equal(getAdvertiserTargetPhone(trickyNameOrder), null);
+assert.equal(resolvedTricky.advertiserVerified, true);
+assert.equal(resolvedTricky.confidence, 'name_only_verified');
+console.log('✅ PASS: Never guesses/extracts phone digits from senderName');
+
+// Test 5: Customer phone rejection & advertiser-vs-customer separation
+const adCustomerOnly: ParsedOrder = {
+  ...baseOrder,
+  id: 'order-customer-only-phone',
+  senderName: 'أم محمد',
+  rawText: 'توصيل من المحرق إلى المنامة 2 دينار\nرقم الزبون 39887766',
+};
+const resolvedCustomerOnly = resolveAdvertiserContact(adCustomerOnly);
+assert.equal(resolvedCustomerOnly.phone, null);
+assert.equal(getAdvertiserTargetPhone(adCustomerOnly), null);
+assert.equal(resolvedCustomerOnly.confidence, 'name_only_verified');
+
+const adMixedPhones = `
+مطلوب توصيل طلبية من محل العطور
+للتواصل مع المحل: 33112233
+بيانات الزبون والمستلم: 39887766
+`;
+const classified = classifyTextPhoneNumbers(adMixedPhones);
+assert.equal(classified.find((c) => c.role === 'advertiser')?.phone, '97333112233');
+assert.equal(classified.find((c) => c.role === 'customer_recipient')?.phone, '97339887766');
+
+const adMixedOrder: ParsedOrder = {
+  ...baseOrder,
+  id: 'order-mixed-phones',
+  rawText: adMixedPhones,
+};
+assert.equal(getAdvertiserTargetPhone(adMixedOrder), '97333112233');
+console.log('✅ PASS: Rejects customer_recipient phone and isolates explicit advertiser phone');
+
+// Test 6: Ambiguous multiple unclassified numbers & placeholder sender => VERIFICATION_REQUIRED
+const ambiguousOrder: ParsedOrder = {
+  ...baseOrder,
+  id: 'order-ambiguous-phones',
+  rawText: 'طلب توصيل المنامة إلى الرفاع\n33112233\n39445566',
+};
+const resolvedAmbiguous = resolveAdvertiserContact(ambiguousOrder);
+assert.equal(resolvedAmbiguous.phone, null);
+assert.equal(resolvedAmbiguous.advertiserVerified, false);
+assert.equal(resolvedAmbiguous.confidence, 'multiple_candidates');
+
+const placeholderOnlyOrder: ParsedOrder = {
+  ...baseOrder,
+  id: 'order-placeholder-only',
+  senderName: 'واتساب',
+  senderPhone: '',
+  rawText: 'توصيل من الرفاع إلى المنامة 2 دينار',
+};
+const resolvedPlaceholder = resolveAdvertiserContact(placeholderOnlyOrder);
+assert.equal(resolvedPlaceholder.advertiserVerified, false);
+assert.equal(resolvedPlaceholder.confidence, 'needs_verification');
+console.log('✅ PASS: Ambiguous numbers and placeholder senders require verification');
+
+// Test 7: Filter customResponseTemplate used verbatim with placeholders & clean fallback when blank
+const renderedFilterMsg = formatFilterOutreachMessage(
+  baseOrder,
+  'هلا {name}، أنا قريب من {area} وبآخذ طلب {from} إلى {to} بـ {price} د.ب',
+  'العدلية',
+);
+assert.equal(
+  renderedFilterMsg,
+  'هلا ~ اذكر الله، أنا قريب من العدلية وبآخذ طلب العدلية إلى مدينة زايد بـ 2 د.ب',
+);
+
+memoryStore.set('orderi_filter_settings', JSON.stringify({ customResponseTemplate: 'أقبل طلب {from} -> {to}' }));
+assert.equal(formatFilterOutreachMessage(baseOrder), 'أقبل طلب العدلية -> مدينة زايد');
+memoryStore.delete('orderi_filter_settings');
+
+const fallbackMsg = formatFilterOutreachMessage(baseOrder, '   ');
+assert.equal(fallbackMsg, formatAdvertiserPrivateMessage(baseOrder));
+console.log('✅ PASS: Filter customResponseTemplate rendered verbatim with placeholders and safe blank fallback');
+
+// Test 8: Background silent outreach succeeds via com.whatsapp RemoteInput even WITHOUT senderPhone
+let capturedNativePayload: any = null;
+const mockRemoteInputBridge: PrivateOutreachNativeBridge = {
+  isNativeAndroid: () => true,
+  checkPrivateOutreachCapability: async () => ({
+    regularWhatsAppInstalled: true,
+    notificationListenerEnabled: true,
+    accessibilityEnabled: false,
+    hasPrivateNotificationReplyAction: true,
+    backgroundSendAvailable: true,
+    reasonCode: 'ok',
+  }),
+  reachAdvertiserPrivateChat: async (opts) => {
+    capturedNativePayload = opts;
+    return {
+      success: true,
+      submitted: true,
+      deliveryConfirmed: false,
+      status: 'SUBMITTED_UNCONFIRMED',
+      packageName: 'com.whatsapp',
+      method: 'notification_remote_input',
+      statusLabel: 'تم تمرير رسالة القبول عبر إشعار واتساب الخاص في الخلفية',
+    };
+  },
+};
+
+const cap = await checkBackgroundOutreachAvailability(baseOrder, mockRemoteInputBridge);
+assert.equal(cap.backgroundSendAvailable, true);
+
+windowOpenCount = 0;
+locationHrefWrites = 0;
+const silentNoPhoneRes = await executePrivateAdvertiserOutreach(
+  { ...baseOrder, id: 'order-silent-no-phone' },
+  'موافق على {from} إلى {to}',
+  'المنامة',
+  {
+    autoSend: true,
+    backgroundOnly: true,
+    allowUiFallback: false,
+    nativeBridge: mockRemoteInputBridge,
+  },
+);
+assert.equal(silentNoPhoneRes.success, true);
+assert.equal(silentNoPhoneRes.status, 'SUBMITTED_UNCONFIRMED');
+assert.equal(silentNoPhoneRes.deliveryMethod, 'notification_remote_input');
+assert.equal(capturedNativePayload.phone, undefined);
+assert.equal(capturedNativePayload.memberName, '~ اذكر الله');
+assert.equal(capturedNativePayload.backgroundOnly, true);
+assert.equal(capturedNativePayload.allowUiFallback, false);
+assert.equal(capturedNativePayload.message, 'موافق على العدلية إلى مدينة زايد');
+assert.equal(windowOpenCount, 0);
+assert.equal(locationHrefWrites, 0);
+console.log('✅ PASS: Silent RemoteInput outreach works without phone and returns SUBMITTED_UNCONFIRMED');
+
+// Test 9: When background RemoteInput is unavailable, NEVER auto-open WhatsApp or wa.me links
+const mockUnavailableBridge: PrivateOutreachNativeBridge = {
+  isNativeAndroid: () => true,
+  reachAdvertiserPrivateChat: async () => ({
+    success: false,
+    submitted: false,
+    deliveryConfirmed: false,
+    status: 'BACKGROUND_SEND_UNAVAILABLE',
+    reasonCode: 'remote_input_unavailable',
+    packageName: 'com.whatsapp',
+    method: 'background_remote_input_unavailable',
+    statusLabel: 'تعذر الإرسال الصامت بالخلفية: لم يوفر واتساب إشعار رد خاص مباشر للمعلن',
+  }),
+};
+
+windowOpenCount = 0;
+locationHrefWrites = 0;
+const failedNativeRes = await executePrivateAdvertiserOutreach(
+  { ...orderWithPhone, id: 'order-bg-unavailable-native' },
+  'تم قبول {from} -> {to}',
+  'العدلية',
+  {
+    autoSend: true,
+    backgroundOnly: true,
+    allowUiFallback: false,
+    nativeBridge: mockUnavailableBridge,
+  },
+);
+assert.equal(failedNativeRes.success, false);
+assert.equal(failedNativeRes.status, 'BACKGROUND_SEND_UNAVAILABLE');
+assert.equal(failedNativeRes.openFallbackModal, true);
+assert.equal(windowOpenCount, 0);
+assert.equal(locationHrefWrites, 0);
+
+// Non-native runtime also returns BACKGROUND_SEND_UNAVAILABLE with zero window.open calls
+const failedWebRes = await executePrivateAdvertiserOutreach(
+  { ...orderWithPhone, id: 'order-bg-unavailable-web' },
+  'تم قبول {from} -> {to}',
+  'العدلية',
+  {
+    autoSend: true,
+    backgroundOnly: true,
+    allowUiFallback: false,
+    nativeBridge: {
+      isNativeAndroid: () => false,
+      reachAdvertiserPrivateChat: async () => {
+        throw new Error('should not call');
+      },
+    },
+  },
+);
+assert.equal(failedWebRes.success, false);
+assert.equal(failedWebRes.status, 'BACKGROUND_SEND_UNAVAILABLE');
+assert.equal(failedWebRes.openFallbackModal, true);
+assert.equal(windowOpenCount, 0);
+assert.equal(locationHrefWrites, 0);
+assert.equal(normalizeBahrainPhone('39123456'), '97339123456');
+console.log('✅ PASS: Failed background outreach never opens WhatsApp UI or wa.me and triggers fallback modal cleanly');
+
+console.log('🎉 All Zero-Registry Advertiser Outreach tests passed successfully!');
