@@ -270,6 +270,46 @@ test('async Accessibility timeout resolves to SEND_RESULT_UNKNOWN and locks retr
   assert.equal(isSendRetryBlocked(timeoutOrder), true);
 });
 
+test('pre-send LOCATING_ORIGINAL_MESSAGE timeout resolves to FAILED without blocking retries', async () => {
+  clearExecutionLocksForTesting();
+  const locateTimeoutOrder: ParsedOrder = {
+    ...baseOrder,
+    id: 'order-presend-locate-timeout',
+    senderName: 'مطبخ النور',
+  };
+
+  const preSendHangingBridge: PrivateOutreachNativeBridge = {
+    isNativeAndroid: () => true,
+    reachAdvertiserPrivateChat: async (opts) => ({
+      success: true,
+      submitted: true,
+      asyncPending: true,
+      operationId: opts.operationId,
+      executionState: 'LOCATING_ORIGINAL_MESSAGE',
+      status: 'MESSAGE_SUBMITTED',
+      method: 'accessibility_reply_privately',
+    }),
+    getPrivateOutreachStatus: async () => ({
+      executionState: 'LOCATING_ORIGINAL_MESSAGE',
+      status: 'sending',
+    }),
+  };
+
+  const res = await executePrivateAdvertiserOutreach(locateTimeoutOrder, 'موافق', 'المنامة', {
+    autoSend: true,
+    backgroundOnly: false,
+    allowUiFallback: true,
+    pollTimeoutMs: 50,
+    nativeBridge: preSendHangingBridge,
+  });
+
+  assert.equal(res.success, false);
+  assert.equal(res.status, 'SEND_FAILED');
+  assert.equal(res.executionState, 'FAILED');
+  assert.equal(res.retryBlocked, false);
+  assert.equal(isSendRetryBlocked(locateTimeoutOrder), false);
+});
+
 test('Section 11 privacy sanitizer strips all advertiser PII before Gemini calls', () => {
   const piiOrder: ParsedOrder = {
     ...baseOrder,

@@ -44,6 +44,10 @@ public class OrderiAccessibilityService extends AccessibilityService {
     private static final int STAGE_LONG_PRESS_SOURCE_MESSAGE = 8;
     private static final int STAGE_SELECT_REPLY_PRIVATELY = 9;
     private static volatile int outreachScrollAttempts = 0;
+    private static volatile long lastOutreachScrollAt = 0L;
+    private static volatile long lastGroupBackPressAt = 0L;
+    private static volatile boolean whatsappWindowSeen = false;
+    private static volatile long whatsappLastSeenAt = 0L;
     private static volatile long lastSendClickTime = 0L;
     private static volatile boolean hasTappedSendButton = false;
 
@@ -150,6 +154,15 @@ public class OrderiAccessibilityService extends AccessibilityService {
 
     public static boolean isServiceRunning() {
         return instance != null;
+    }
+
+    public static boolean isPreSendActivelyRunningFor(String operationId) {
+        if (!isSendingInProgress.get() || pendingMessageToSend == null) return false;
+        if (!TextUtils.isEmpty(operationId) && !operationId.equals(pendingOperationId)) {
+            return false;
+        }
+        long elapsed = System.currentTimeMillis() - pendingMessageTimestamp;
+        return elapsed >= 0L && elapsed < 35_000L;
     }
 
     public static void queueMessageToSend(String message, boolean autoSend) {
@@ -365,13 +378,38 @@ public class OrderiAccessibilityService extends AccessibilityService {
 
     private AccessibilityNodeInfo findGroupSearchResult(AccessibilityNodeInfo root, String groupName) {
         if (root == null || TextUtils.isEmpty(groupName)) return null;
-        String expected = normalizeAdvertiserIdentity(groupName);
+        String expected = OriginalMessageSenderResolver.normalizeSenderLabel(groupName);
+        if (expected.isEmpty()) return null;
+
+        // 1. Prioritize exact conversation row title viewIds in WhatsApp search results
+        String[] resultNameIds = new String[]{
+                "com.whatsapp:id/conversations_row_contact_name",
+                "com.whatsapp:id/contact_row_container",
+                "com.whatsapp:id/row_content"
+        };
+        for (String vid : resultNameIds) {
+            List<AccessibilityNodeInfo> idNodes = root.findAccessibilityNodeInfosByViewId(vid);
+            if (idNodes == null) continue;
+            for (AccessibilityNodeInfo node : idNodes) {
+                if (node == null) continue;
+                StringBuilder buf = new StringBuilder();
+                appendNodeText(node, buf, 0);
+                String normLabel = OriginalMessageSenderResolver.normalizeSenderLabel(describeNode(node));
+                String normTree = OriginalMessageSenderResolver.normalizeSenderLabel(buf.toString());
+                if (expected.equals(normLabel) || expected.equals(normTree)) {
+                    AccessibilityNodeInfo clickable = node.isClickable() ? node : clickableAncestor(node, 6);
+                    if (clickable != null && !containsText(clickable, new String[]{"Search", "بحث"})) return clickable;
+                }
+            }
+        }
+
+        // 2. Fallback: exact text match excluding editable search bar
         List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByText(groupName);
         if (nodes == null) return null;
         for (AccessibilityNodeInfo node : nodes) {
             if ("android.widget.EditText".contentEquals(node.getClassName())) continue;
-            String label = normalizeAdvertiserIdentity(node.getText() == null ? "" : node.getText().toString());
-            String description = normalizeAdvertiserIdentity(node.getContentDescription() == null ? "" : node.getContentDescription().toString());
+            String label = OriginalMessageSenderResolver.normalizeSenderLabel(node.getText() == null ? "" : node.getText().toString());
+            String description = OriginalMessageSenderResolver.normalizeSenderLabel(node.getContentDescription() == null ? "" : node.getContentDescription().toString());
             if (!expected.equals(label) && !expected.equals(description)) continue;
             AccessibilityNodeInfo clickable = clickableAncestor(node, 6);
             if (clickable != null && !containsText(clickable, new String[]{"Search", "بحث"})) return clickable;
@@ -415,14 +453,28 @@ public class OrderiAccessibilityService extends AccessibilityService {
             String message,
             boolean autoSend,
             String operationId) {
+        String fallbackKey = adContext != null
+                ? WhatsAppExecutionState.buildDedupKey(adContext.orderId, adContext.originalMessageRef)
+                : "";
+        queueOutreachToOriginalAd(adContext, message, autoSend, operationId, fallbackKey);
+    }
+
+    public static void queueOutreachToOriginalAd(
+            OriginalMessageSenderResolver.OriginalAdContext adContext,
+            String message,
+            boolean autoSend,
+            String operationId,
+            String dedupKey) {
         String memberName = adContext != null ? adContext.senderDisplayName : "";
         String groupName = adContext != null ? adContext.groupName : "";
         String sourceMessageText = adContext != null ? adContext.rawText : "";
         pendingAdContext = adContext;
         pendingOperationId = operationId;
-        pendingDedupKey = adContext != null
-                ? WhatsAppExecutionState.buildDedupKey(adContext.orderId, adContext.originalMessageRef)
-                : "";
+        pendingDedupKey = !TextUtils.isEmpty(dedupKey)
+                ? dedupKey
+                : (adContext != null
+                    ? WhatsAppExecutionState.buildDedupKey(adContext.orderId, adContext.originalMessageRef)
+                    : "");
         pendingTargetMemberName = TextUtils.isEmpty(memberName) ? "" : memberName.trim();
         pendingSourceMessageText = sourceMessageText == null ? "" : sourceMessageText.trim();
         pendingTargetGroupName = groupName == null ? "" : groupName.trim();
@@ -431,6 +483,10 @@ public class OrderiAccessibilityService extends AccessibilityService {
         pendingMessageTimestamp = System.currentTimeMillis();
         currentStage = STAGE_LONG_PRESS_SOURCE_MESSAGE;
         outreachScrollAttempts = 0;
+        lastOutreachScrollAt = 0L;
+        lastGroupBackPressAt = 0L;
+        whatsappWindowSeen = false;
+        whatsappLastSeenAt = 0L;
         lastSendClickTime = 0L;
         hasTappedSendButton = false;
         isSendingInProgress.set(true);
@@ -675,8 +731,11 @@ public class OrderiAccessibilityService extends AccessibilityService {
             }
         } catch (Exception ignored) {}
 
+        long now = System.currentTimeMillis();
+        long maxTimeoutMs = hasTappedSendButton ? 60000L : 32000L;
+
         // Bounded timeout with honest SEND_RESULT_UNKNOWN guard if Send was already tapped.
-        if (System.currentTimeMillis() - pendingMessageTimestamp > 60000L) {
+        if (now - pendingMessageTimestamp > maxTimeoutMs) {
             if (hasTappedSendButton) {
                 writeExecutionState(
                         WhatsAppExecutionState.State.SEND_RESULT_UNKNOWN,
@@ -697,18 +756,49 @@ public class OrderiAccessibilityService extends AccessibilityService {
         if (rootNode == null) return;
 
         try {
+            CharSequence activePkg = rootNode.getPackageName();
+            boolean inWhatsApp = activePkg != null && PACKAGE_WHATSAPP.contentEquals(activePkg);
+            if (!inWhatsApp) {
+                // If user returned manually to Orderi after WhatsApp had already opened (before tapping Send),
+                // release the lock cleanly so user is not blocked by "عملية مراسلة جارية".
+                if (whatsappWindowSeen
+                        && !hasTappedSendButton
+                        && activePkg != null
+                        && getPackageName().contentEquals(activePkg)
+                        && (now - whatsappLastSeenAt) > 2500L) {
+                    writeExecutionState(
+                            WhatsAppExecutionState.State.NEEDS_USER_INTERACTION,
+                            "تم الرجوع إلى Orderi قبل إتمام المراسلة الخاصة داخل واتساب",
+                            false);
+                    resetOperation();
+                }
+                return;
+            }
+            whatsappWindowSeen = true;
+            whatsappLastSeenAt = now;
+
             // If exact group conversation intent wasn't available, open the exact group from WhatsApp chat list search (NEVER search member directory)
             if (currentStage == STAGE_FIND_GROUP_SEARCH) {
                 if (isGroupConversationScreenForTarget(rootNode, pendingTargetGroupName)) {
                     currentStage = STAGE_LONG_PRESS_SOURCE_MESSAGE;
+                    outreachScrollAttempts = 0;
+                    lastOutreachScrollAt = 0L;
                     writeExecutionState(
                             WhatsAppExecutionState.State.LOCATING_ORIGINAL_MESSAGE,
                             "تم التحقق من قروب «" + pendingTargetGroupName + "»؛ جاري تحديد رسالة الإعلان الأصلية",
                             false);
                     return;
                 }
+                // If WhatsApp opened inside an unrelated chat, back out to the Chats list so Search becomes visible
+                if (findChatComposer(rootNode) != null) {
+                    if (now - lastGroupBackPressAt > 900L) {
+                        lastGroupBackPressAt = now;
+                        performGlobalAction(GLOBAL_ACTION_BACK);
+                    }
+                    return;
+                }
                 AccessibilityNodeInfo existingSearch = findInputField(rootNode);
-                if (existingSearch != null && findChatComposer(rootNode) == null) {
+                if (existingSearch != null) {
                     Bundle args = new Bundle();
                     args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, pendingTargetGroupName);
                     if (existingSearch.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) {
@@ -739,10 +829,19 @@ public class OrderiAccessibilityService extends AccessibilityService {
                 return;
             }
             if (currentStage == STAGE_OPEN_GROUP_SEARCH_RESULT) {
+                if (isGroupConversationScreenForTarget(rootNode, pendingTargetGroupName)) {
+                    currentStage = STAGE_LONG_PRESS_SOURCE_MESSAGE;
+                    outreachScrollAttempts = 0;
+                    lastOutreachScrollAt = 0L;
+                    pendingMessageTimestamp = now;
+                    return;
+                }
                 AccessibilityNodeInfo groupResult = findGroupSearchResult(rootNode, pendingTargetGroupName);
                 if (groupResult != null && groupResult.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
                     currentStage = STAGE_LONG_PRESS_SOURCE_MESSAGE;
-                    pendingMessageTimestamp = System.currentTimeMillis();
+                    outreachScrollAttempts = 0;
+                    lastOutreachScrollAt = 0L;
+                    pendingMessageTimestamp = now;
                     writeExecutionState(
                             WhatsAppExecutionState.State.LOCATING_ORIGINAL_MESSAGE,
                             "تم فتح القروب الصحيح؛ جاري ربط رسالة الإعلان الأصلية بصاحبها",
@@ -753,6 +852,19 @@ public class OrderiAccessibilityService extends AccessibilityService {
 
             // Primary path: Resolve the EXACT original advertisement row and its bound sender via OriginalMessageSenderResolver
             if (currentStage == STAGE_LONG_PRESS_SOURCE_MESSAGE) {
+                // Ensure we are actually inside the target group chat before scanning or consuming scroll attempts
+                if (!isGroupConversationScreenForTarget(rootNode, pendingTargetGroupName)) {
+                    if (now - pendingMessageTimestamp > 2200L) {
+                        currentStage = STAGE_FIND_GROUP_SEARCH;
+                    }
+                    return;
+                }
+
+                // Wait briefly after a scroll action so RecyclerView finishes layout of newly loaded rows
+                if (lastOutreachScrollAt > 0L && (now - lastOutreachScrollAt) < 650L) {
+                    return;
+                }
+
                 OriginalMessageSenderResolver.OriginalAdContext ctx = pendingAdContext != null
                         ? pendingAdContext
                         : new OriginalMessageSenderResolver.OriginalAdContext(
@@ -812,10 +924,11 @@ public class OrderiAccessibilityService extends AccessibilityService {
                     return;
                 }
 
-                if (outreachScrollAttempts < 5) {
+                if (outreachScrollAttempts < 12) {
                     AccessibilityNodeInfo scrollable = findScrollableNode(rootNode);
                     if (scrollable != null && scrollable.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)) {
                         outreachScrollAttempts++;
+                        lastOutreachScrollAt = now;
                         return;
                     }
                 }
@@ -1568,6 +1681,10 @@ public class OrderiAccessibilityService extends AccessibilityService {
         pendingAutoSend = false;
         currentStage = STAGE_IDLE;
         outreachScrollAttempts = 0;
+        lastOutreachScrollAt = 0L;
+        lastGroupBackPressAt = 0L;
+        whatsappWindowSeen = false;
+        whatsappLastSeenAt = 0L;
         lastSendClickTime = 0L;
         hasTappedSendButton = false;
         isSendingInProgress.set(false);
@@ -1625,7 +1742,8 @@ public class OrderiAccessibilityService extends AccessibilityService {
         if (wantedGroup.isEmpty()) return false;
         String[] headerIds = new String[]{
                 "com.whatsapp:id/conversation_contact_name",
-                "com.whatsapp:id/conversation_contact_name_container"
+                "com.whatsapp:id/conversation_contact_name_container",
+                "com.whatsapp:id/toolbar"
         };
         for (String viewId : headerIds) {
             List<AccessibilityNodeInfo> headers = root.findAccessibilityNodeInfosByViewId(viewId);
@@ -1634,6 +1752,14 @@ public class OrderiAccessibilityService extends AccessibilityService {
                 String label = OriginalMessageSenderResolver.normalizeSenderLabel(describeNode(header));
                 if (!label.isEmpty() && label.equals(wantedGroup)) {
                     return true;
+                }
+                if (header != null) {
+                    for (int i = 0; i < header.getChildCount(); i++) {
+                        String childLabel = OriginalMessageSenderResolver.normalizeSenderLabel(describeNode(header.getChild(i)));
+                        if (!childLabel.isEmpty() && childLabel.equals(wantedGroup)) {
+                            return true;
+                        }
+                    }
                 }
             }
         }

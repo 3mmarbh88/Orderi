@@ -40,7 +40,8 @@ export interface ExecutionLockEntry {
 
 const inFlightOperationLocks = new Map<string, ExecutionLockEntry>();
 const sendResultUnknownLocks = new Set<string>();
-const LOCK_STALE_TIMEOUT_MS = 65_000;
+const LOCK_STALE_TIMEOUT_MS = 35_000;
+const STALE_PRESEND_TAKEOVER_MS = 12_000;
 
 export function createOutreachOperationId(): string {
   const rand = Math.random().toString(36).slice(2, 10);
@@ -65,6 +66,7 @@ export function clearExecutionLocksForTesting(): void {
 export function acquireExecutionLock(
   order: Pick<ParsedOrder, 'id' | 'originalMessageRef' | 'rawText' | 'sourceMessageTimestamp'>,
   operationId?: string,
+  allowTakeoverOfStalePreSend = false,
 ): { acquired: true; entry: ExecutionLockEntry } | { acquired: false; reason: 'SEND_RESULT_UNKNOWN' | 'IN_FLIGHT'; existing?: ExecutionLockEntry } {
   const lockKey = buildExecutionLockKey(order);
 
@@ -78,12 +80,17 @@ export function acquireExecutionLock(
 
   const existing = inFlightOperationLocks.get(lockKey);
   if (existing && !TERMINAL_EXECUTION_STATES.has(existing.state)) {
-    if (Date.now() - existing.updatedAt < LOCK_STALE_TIMEOUT_MS) {
-      return {
-        acquired: false,
-        reason: 'IN_FLIGHT',
-        existing,
-      };
+    const age = Date.now() - existing.updatedAt;
+    if (age < LOCK_STALE_TIMEOUT_MS) {
+      const isExecutingOrReady = existing.state === 'EXECUTING' || existing.state === 'READY_TO_SEND';
+      const canSupersede = allowTakeoverOfStalePreSend && !isExecutingOrReady && age >= STALE_PRESEND_TAKEOVER_MS;
+      if (!canSupersede) {
+        return {
+          acquired: false,
+          reason: 'IN_FLIGHT',
+          existing,
+        };
+      }
     }
   }
 

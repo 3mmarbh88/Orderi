@@ -993,7 +993,7 @@ export async function executePrivateAdvertiserOutreach(
       );
     }
 
-    const lockResult = acquireExecutionLock(orderWithRef, operationId);
+    const lockResult = acquireExecutionLock(orderWithRef, operationId, allowUiFallback);
     if (!lockResult.acquired) {
       if ('reason' in lockResult && lockResult.reason === 'SEND_RESULT_UNKNOWN') {
         return makeFailure(
@@ -1045,9 +1045,10 @@ export async function executePrivateAdvertiserOutreach(
     // we receive an explicit terminal execution state (SENT / SEND_RESULT_UNKNOWN / IDENTITY_NOT_CONFIRMED / FAILED / NEEDS_USER_INTERACTION).
     if (result?.success && result?.asyncPending && autoSend && bridge.getPrivateOutreachStatus) {
       const activeOpId = result.operationId || operationId;
-      const pollTimeout = opts.pollTimeoutMs ?? 18_000;
+      const pollTimeout = opts.pollTimeoutMs ?? 35_000;
       const pollStartedAt = Date.now();
       let terminalPoll: Awaited<ReturnType<NonNullable<PrivateOutreachNativeBridge['getPrivateOutreachStatus']>>> | null = null;
+      let lastObservedExecState: WhatsAppExecutionState | undefined = parseExecutionState(result?.executionState);
       const terminalStates = new Set([
         'SENT',
         'FAILED',
@@ -1062,6 +1063,9 @@ export async function executePrivateAdvertiserOutreach(
           const pollOpMatches = !poll?.operationId || poll.operationId === activeOpId;
           const pollExec = parseExecutionState(poll?.executionState);
           if (poll && pollOpMatches) {
+            if (pollExec) {
+              lastObservedExecState = pollExec;
+            }
             if (pollExec && !terminalStates.has(pollExec)) {
               emitExecutionState(pollExec, poll.statusLabel);
             }
@@ -1114,8 +1118,8 @@ export async function executePrivateAdvertiserOutreach(
             statusLabel: terminalPoll.statusLabel || result.statusLabel,
           };
         }
-      } else {
-        // Never blindly report success or allow automatic duplicate retry if Accessibility outcome timed out after launching WhatsApp.
+      } else if (lastObservedExecState === 'EXECUTING' || lastObservedExecState === 'READY_TO_SEND') {
+        // Never blindly report success or allow automatic duplicate retry if Accessibility timed out during send stage.
         result = {
           ...result,
           success: false,
@@ -1126,6 +1130,19 @@ export async function executePrivateAdvertiserOutreach(
           reasonCode: 'outreach_verification_timeout',
           statusLabel:
             'انتهت مهلة التحقق من إرسال الرسالة داخل واتساب؛ تعذر الجزم بالإرسال ومُنع التكرار التلقائي.',
+        };
+      } else {
+        // Pre-send timeout (e.g. locating group/original message): fail cleanly without permanently locking retries.
+        result = {
+          ...result,
+          success: false,
+          submitted: false,
+          executionState: 'FAILED',
+          status: 'SEND_FAILED',
+          retryBlocked: false,
+          reasonCode: 'outreach_presend_locate_timeout',
+          statusLabel:
+            'تعذر إتمام الوصول إلى الرسالة الأصلية في الوقت المتاح؛ يمكنك المحاولة مجدداً أو المتابعة يدوياً.',
         };
       }
     }

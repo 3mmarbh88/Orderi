@@ -744,7 +744,11 @@ public class NotificationListenerPlugin extends Plugin {
                     : adContext.originalMessageRef;
 
             WhatsAppExecutionState.ExecutionRecord lock =
-                    WhatsAppExecutionState.tryAcquireLock(requestedOperationId, orderId, effectiveMessageRef);
+                    WhatsAppExecutionState.tryAcquireLock(
+                            requestedOperationId,
+                            orderId,
+                            effectiveMessageRef,
+                            allowUiFallback);
             if (lock == null) {
                 WhatsAppExecutionState.ExecutionRecord existing =
                         WhatsAppExecutionState.getRecord(orderId, effectiveMessageRef);
@@ -779,6 +783,7 @@ public class NotificationListenerPlugin extends Plugin {
 
             final String opId = lock.operationId;
             final String dedupKey = lock.dedupKey;
+            try {
 
             if (!com.orderi.whatsapp.WhatsAppPermissionManager.isRegularWhatsAppInstalled(getContext())) {
                 String msg = "تطبيق واتساب العادي (WhatsApp Messenger) غير مثبت؛ يلزم لإرسال رسالة القبول بالخلفية من رقمك الشخصي";
@@ -1063,7 +1068,7 @@ public class NotificationListenerPlugin extends Plugin {
                     return;
                 }
 
-                OrderiAccessibilityService.queueOutreachToOriginalAd(adContext, message, autoSend, opId);
+                OrderiAccessibilityService.queueOutreachToOriginalAd(adContext, message, autoSend, opId, dedupKey);
                 boolean opened = WhatsAppNotificationListenerService.openWhatsAppGroupConversation(getContext(), groupName);
                 if (!opened) {
                     opened = OrderiAccessibilityService.launchWhatsAppForOutreach(getContext());
@@ -1145,6 +1150,17 @@ public class NotificationListenerPlugin extends Plugin {
             ret.put("method", "no_exact_private_reply_action");
             ret.put("statusLabel", failMsg);
             call.resolve(ret);
+            } catch (Exception innerEx) {
+                WhatsAppExecutionState.updateState(
+                        getContext(),
+                        opId,
+                        dedupKey,
+                        WhatsAppExecutionState.State.FAILED,
+                        "تعذر إكمال محاولة المراسلة الخاصة عبر واتساب",
+                        false
+                );
+                throw innerEx;
+            }
         } catch (Exception e) {
             JSObject ret = new JSObject();
             ret.put("success", false);

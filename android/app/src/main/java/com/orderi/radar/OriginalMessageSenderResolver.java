@@ -249,7 +249,8 @@ public final class OriginalMessageSenderResolver {
     }
 
     /**
-     * Matches two message bodies strictly without rejecting short ads (< 12 chars).
+     * Matches two message bodies strictly without rejecting short ads (< 12 chars),
+     * while tolerating WhatsApp notification truncation ("...", "…", "قراءة المزيد").
      */
     public static boolean messageBodiesMatch(String candidateRowText, String expectedRawText) {
         String cand = normalizeMessageBody(candidateRowText);
@@ -260,6 +261,14 @@ public final class OriginalMessageSenderResolver {
         // Allow containment only when both sides are sufficiently descriptive to avoid false hits
         if (expected.length() >= 8 && cand.contains(expected)) return true;
         if (cand.length() >= 18 && expected.contains(cand)) return true;
+
+        // Tolerate WhatsApp notification truncation ("..." / "…" / "قراءة المزيد" / "read more")
+        String trimmedExpected = expected
+                .replaceAll("(?:\\s*(?:\\.\\.\\.|…|قراءة المزيد|read more))+$", "")
+                .trim();
+        if (trimmedExpected.length() >= 12 && (cand.startsWith(trimmedExpected) || cand.contains(trimmedExpected))) {
+            return true;
+        }
         return false;
     }
 
@@ -511,6 +520,37 @@ public final class OriginalMessageSenderResolver {
             });
             String timeLabel = dateNode != null ? describeText(dateNode) : "";
 
+            // Strict single-row fallback when WhatsApp renders message/sender without legacy ViewIds
+            if (bodyText.isEmpty()) {
+                List<AccessibilityNodeInfo> rowTextNodes = new ArrayList<>();
+                collectTextLeafNodes(rowNode, rowTextNodes, 0, 6);
+                String bestBody = "";
+                AccessibilityNodeInfo bestBodyNode = null;
+                for (AccessibilityNodeInfo leaf : rowTextNodes) {
+                    String vid = leaf.getViewIdResourceName();
+                    if (vid != null && (vid.endsWith(":id/date") || vid.endsWith(":id/status")
+                            || vid.endsWith(":id/name_in_group") || vid.endsWith(":id/push_name")
+                            || vid.endsWith(":id/quoted_title") || vid.endsWith(":id/quoted_text"))) {
+                        continue;
+                    }
+                    String t = describeText(leaf);
+                    if (t.isEmpty() || (!timeLabel.isEmpty() && t.equals(timeLabel))) continue;
+                    if (!senderText.isEmpty() && t.equals(senderText)) continue;
+                    if (t.matches("^\\d{1,2}:\\d{2}(\\s?[APap][Mm]|\\s?[صم])?$")) {
+                        if (timeLabel.isEmpty()) timeLabel = t;
+                        continue;
+                    }
+                    if (t.length() > bestBody.length()) {
+                        bestBody = t;
+                        bestBodyNode = leaf;
+                    }
+                }
+                if (!bestBody.isEmpty()) {
+                    bodyText = bestBody;
+                    bodyNode = bestBodyNode;
+                }
+            }
+
             // Outgoing messages usually carry a delivery-status icon (single/double ticks)
             boolean isOutgoing = findFirstByViewIds(rowNode, new String[]{"com.whatsapp:id/status"}) != null;
 
@@ -534,6 +574,21 @@ public final class OriginalMessageSenderResolver {
                     bodyNode));
         }
         return rows;
+    }
+
+    private static void collectTextLeafNodes(
+            AccessibilityNodeInfo node,
+            List<AccessibilityNodeInfo> out,
+            int depth,
+            int maxDepth) {
+        if (node == null || depth > maxDepth) return;
+        CharSequence cls = node.getClassName();
+        if (cls != null && cls.toString().contains("TextView")) {
+            out.add(node);
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            collectTextLeafNodes(node.getChild(i), out, depth + 1, maxDepth);
+        }
     }
 
     /**
@@ -587,12 +642,14 @@ public final class OriginalMessageSenderResolver {
                 "com.whatsapp:id/unread_divider"
         });
         if (divider != null) return true;
-        // If there is no message_text/caption/image/video, treat as non-message divider row
         AccessibilityNodeInfo msg = findFirstByViewIds(rowNode, new String[]{
                 "com.whatsapp:id/message_text",
                 "com.whatsapp:id/caption"
         });
-        return msg == null && rowNode.getChildCount() <= 2;
+        if (msg != null) return false;
+        List<AccessibilityNodeInfo> leaves = new ArrayList<>();
+        collectTextLeafNodes(rowNode, leaves, 0, 5);
+        return leaves.size() <= 1 && rowNode.getChildCount() <= 2;
     }
 
     private static AccessibilityNodeInfo findFirstByViewIds(AccessibilityNodeInfo root, String[] ids) {

@@ -32,7 +32,8 @@ public final class WhatsAppExecutionState {
     }
 
     public static final String PREFS_NAME = "orderi_private_outreach";
-    private static final long ACTIVE_LOCK_TTL_MS = 65_000L;
+    private static final long ACTIVE_LOCK_TTL_MS = 35_000L;
+    private static final long STALE_PRESEND_TAKEOVER_MS = 12_000L;
 
     public static final class ExecutionRecord {
         public final String operationId;
@@ -81,6 +82,14 @@ public final class WhatsAppExecutionState {
             String requestedOperationId,
             String orderId,
             String originalMessageRef) {
+        return tryAcquireLock(requestedOperationId, orderId, originalMessageRef, false);
+    }
+
+    public static synchronized ExecutionRecord tryAcquireLock(
+            String requestedOperationId,
+            String orderId,
+            String originalMessageRef,
+            boolean allowTakeoverOfStalePreSend) {
         String key = buildDedupKey(orderId, originalMessageRef);
         long now = System.currentTimeMillis();
 
@@ -90,7 +99,14 @@ public final class WhatsAppExecutionState {
                 return null;
             }
             if (!isTerminalState(existing.state) && (now - existing.updatedAt) < ACTIVE_LOCK_TTL_MS) {
-                return null;
+                boolean isExecutingOrReady = existing.state == State.EXECUTING || existing.state == State.READY_TO_SEND;
+                boolean canSupersedePreSend = allowTakeoverOfStalePreSend
+                        && !isExecutingOrReady
+                        && (!OrderiAccessibilityService.isPreSendActivelyRunningFor(existing.operationId)
+                            || (now - existing.updatedAt) >= STALE_PRESEND_TAKEOVER_MS);
+                if (!canSupersedePreSend) {
+                    return null;
+                }
             }
         }
 
@@ -116,18 +132,24 @@ public final class WhatsAppExecutionState {
             State state,
             String statusLabel,
             boolean sentVerifiedInUi) {
-        if (!TextUtils.isEmpty(dedupKey)) {
-            ExecutionRecord existing = IN_MEMORY_RECORDS.get(dedupKey);
-            if (existing != null && (TextUtils.isEmpty(operationId) || operationId.equals(existing.operationId))) {
-                existing.state = state;
-                existing.label = statusLabel == null ? "" : statusLabel;
-                existing.updatedAt = System.currentTimeMillis();
-                if (state == State.SEND_RESULT_UNKNOWN) {
-                    existing.retryBlocked = true;
+        ExecutionRecord existing = !TextUtils.isEmpty(dedupKey) ? IN_MEMORY_RECORDS.get(dedupKey) : null;
+        if (existing == null && !TextUtils.isEmpty(operationId)) {
+            for (ExecutionRecord candidate : IN_MEMORY_RECORDS.values()) {
+                if (candidate != null && operationId.equals(candidate.operationId)) {
+                    existing = candidate;
+                    break;
                 }
-                if (sentVerifiedInUi) {
-                    existing.sentVerifiedInUi = true;
-                }
+            }
+        }
+        if (existing != null && (TextUtils.isEmpty(operationId) || operationId.equals(existing.operationId))) {
+            existing.state = state;
+            existing.label = statusLabel == null ? "" : statusLabel;
+            existing.updatedAt = System.currentTimeMillis();
+            if (state == State.SEND_RESULT_UNKNOWN) {
+                existing.retryBlocked = true;
+            }
+            if (sentVerifiedInUi) {
+                existing.sentVerifiedInUi = true;
             }
         }
 
