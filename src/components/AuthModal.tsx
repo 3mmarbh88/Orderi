@@ -492,6 +492,8 @@ export function AuthModal({
 
   const handleTriggerBiometrics =
     async () => {
+      if (isLoading || showBiometricScanner) return;
+
       setErrorMsg('');
       setSuccessMsg('');
       setShowBiometricScanner(true);
@@ -511,12 +513,9 @@ export function AuthModal({
       }
 
       try {
-        await new Promise<void>((resolve) =>
-          setTimeout(resolve, 900)
-        );
-
+        // Call immediately inside the click gesture so browser WebAuthn & Android BiometricPrompt activate properly
         const res =
-          await authenticateWithBiometrics();
+          await authenticateWithBiometrics('fingerprint');
 
         if (res.success && res.user) {
           setScannerStatus('success');
@@ -534,14 +533,14 @@ export function AuthModal({
             setShowBiometricScanner(false);
 
             setSuccessMsg(
-              `تم التحقق بنجاح! أهلاً ${res.user!.name}`
+              `تم التحقق من البصمة بنجاح! أهلاً ${res.user!.name}`
             );
 
             setTimeout(() => {
               onSuccess(res.user!);
               onClose();
-            }, 500);
-          }, 800);
+            }, 400);
+          }, 600);
         } else {
           setScannerStatus('failed');
 
@@ -550,9 +549,9 @@ export function AuthModal({
 
             setErrorMsg(
               res.error ||
-                'لم يتم التحقق من الحساب. يمكنك الدخول بكلمة المرور.'
+                'فشل التحقق من بصمة الإصبع. يرجى الدخول برقم الهاتف وكلمة المرور.'
             );
-          }, 900);
+          }, 700);
         }
       } catch (error) {
         setScannerStatus('failed');
@@ -563,9 +562,9 @@ export function AuthModal({
           setErrorMsg(
             error instanceof Error
               ? error.message
-              : 'تعذر التحقق من الحساب'
+              : 'تعذر التحقق من بصمة الإصبع'
           );
-        }, 900);
+        }, 700);
       }
     };
 
@@ -1171,7 +1170,7 @@ export function AuthModal({
                   <button
                     type="button"
                     onClick={handleTriggerBiometrics}
-                    disabled={isLoading}
+                    disabled={isLoading || showBiometricScanner}
                     className="py-3 px-2 rounded-2xl bg-gradient-to-r from-teal-50 to-emerald-50 border border-emerald-300 hover:border-emerald-400 text-emerald-950 font-black text-xs flex items-center justify-center gap-1.5 hover:bg-emerald-100/60 shadow-xs transition-all active:scale-[0.98] disabled:opacity-50 min-h-[44px] cursor-pointer"
                     title="تسجيل الدخول بمستشعر بصمة الإصبع"
                   >

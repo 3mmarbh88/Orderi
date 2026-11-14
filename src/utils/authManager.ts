@@ -1,4 +1,6 @@
+import { Capacitor } from '@capacitor/core';
 import { CaptainUser, ActivationCodeInfo, VehicleType } from '../types';
+import OrderiBiometric from '../native/orderiBiometric';
 
 /*
  * ============================================================
@@ -62,6 +64,40 @@ interface LocalProfile {
   phone: string;
   vehicleType: VehicleType;
   biometricsEnabled: boolean;
+}
+
+export interface BiometricBindingRecord {
+  userId: string;
+  name: string;
+  phone: string;
+  vehicleType: VehicleType;
+  isActivated: boolean;
+  licensePlan?: string;
+  expiresAt?: string;
+  credentialId?: string;
+  rpId?: string;
+  platform: 'android-biometric-prompt' | 'webauthn';
+  enrolledAt: string;
+}
+
+export function getBiometricBinding(): BiometricBindingRecord | null {
+  const raw = readStorage(STORAGE_BIOMETRIC_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as BiometricBindingRecord;
+    if (!parsed || (!parsed.phone && !parsed.userId)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function saveBiometricBinding(record: BiometricBindingRecord): void {
+  writeStorage(STORAGE_BIOMETRIC_KEY, JSON.stringify(record));
+}
+
+export function clearBiometricBinding(): void {
+  removeStorage(STORAGE_BIOMETRIC_KEY);
 }
 
 /*
@@ -768,6 +804,26 @@ export async function loginWithPhoneAndPassword(
 
     setCurrentUser(captain);
 
+    if (profile.biometricsEnabled !== false) {
+      const existingBinding = getBiometricBinding();
+      saveBiometricBinding({
+        userId: captain.id,
+        name: captain.name,
+        phone: captain.phone,
+        vehicleType: captain.vehicleType,
+        isActivated: captain.isActivated,
+        licensePlan: captain.licensePlan,
+        expiresAt: captain.expiresAt,
+        credentialId:
+          existingBinding?.phone === captain.phone ? existingBinding.credentialId : undefined,
+        rpId: existingBinding?.phone === captain.phone ? existingBinding.rpId : undefined,
+        platform: Capacitor.isNativePlatform() ? 'android-biometric-prompt' : 'webauthn',
+        enrolledAt: existingBinding?.enrolledAt || new Date().toISOString(),
+      });
+    } else {
+      clearBiometricBinding();
+    }
+
     return {
       success: true,
       user: captain,
@@ -929,6 +985,22 @@ export async function registerCaptain(
       );
 
     setCurrentUser(captain);
+
+    if (data.biometricsEnabled) {
+      saveBiometricBinding({
+        userId: captain.id,
+        name: captain.name,
+        phone: captain.phone,
+        vehicleType: captain.vehicleType,
+        isActivated: captain.isActivated,
+        licensePlan: captain.licensePlan,
+        expiresAt: captain.expiresAt,
+        platform: Capacitor.isNativePlatform() ? 'android-biometric-prompt' : 'webauthn',
+        enrolledAt: new Date().toISOString(),
+      });
+    } else {
+      clearBiometricBinding();
+    }
 
     /*
      * تفعيل الكود اختيارياً بعد إنشاء الحساب.
@@ -1221,78 +1293,529 @@ export async function logout(): Promise<{
  * ============================================================
  */
 
-export function isBiometricsAvailable(): boolean {
-  if (
-    typeof window === 'undefined' ||
-    typeof navigator === 'undefined'
-  ) {
-    return false;
+function uint8ArrayToBase64Url(bytes: Uint8Array): string {
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  const base64 =
+    typeof btoa === 'function'
+      ? btoa(binary)
+      : Buffer.from(bytes).toString('base64');
+  return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function base64UrlToUint8Array(value: string): Uint8Array {
+  const padded = value.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((value.length + 3) % 4);
+  const binary =
+    typeof atob === 'function'
+      ? atob(padded)
+      : Buffer.from(padded, 'base64').toString('binary');
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+function decodeClientDataJson(clientDataJSON: ArrayBuffer): {
+  type?: string;
+  challenge?: string;
+  origin?: string;
+} | null {
+  try {
+    const text = new TextDecoder().decode(new Uint8Array(clientDataJSON));
+    return JSON.parse(text) as { type?: string; challenge?: string; origin?: string };
+  } catch {
+    return null;
+  }
+}
+
+export function parseAuthenticatorDataFlags(authenticatorData?: ArrayBuffer | null): {
+  validLength: boolean;
+  userPresent: boolean;
+  userVerified: boolean;
+} {
+  if (!authenticatorData || authenticatorData.byteLength < 37) {
+    return { validLength: false, userPresent: false, userVerified: false };
+  }
+  const bytes = new Uint8Array(authenticatorData);
+  const flags = bytes[32];
+  return {
+    validLength: true,
+    userPresent: (flags & 0x01) !== 0,
+    userVerified: (flags & 0x04) !== 0,
+  };
+}
+
+export function verifyWebAuthnGetResponse(params: {
+  credential: {
+    id?: string;
+    rawId?: ArrayBuffer;
+    response?: {
+      clientDataJSON?: ArrayBuffer;
+      authenticatorData?: ArrayBuffer;
+      signature?: ArrayBuffer;
+    };
+  } | null | undefined;
+  expectedCredentialId: string;
+  expectedChallenge: Uint8Array;
+  expectedOrigin: string;
+}): { verified: boolean; reason?: string } {
+  const { credential, expectedCredentialId, expectedChallenge, expectedOrigin } = params;
+  if (!credential || !credential.response) {
+    return { verified: false, reason: 'لم يرجع متصفحك استجابة تحقق صالحة من مستشعر البصمة.' };
+  }
+  const credId =
+    credential.id ||
+    (credential.rawId ? uint8ArrayToBase64Url(new Uint8Array(credential.rawId)) : '');
+  if (!credId || credId !== expectedCredentialId) {
+    return { verified: false, reason: 'بصمة المصادقة لا تطابق البصمة المربوطة بهذا الحساب.' };
+  }
+  if (!credential.response.clientDataJSON || !credential.response.authenticatorData || !credential.response.signature) {
+    return { verified: false, reason: 'بيانات التوقيع الحيوي من المستشعر غير مكتملة.' };
+  }
+  const clientData = decodeClientDataJson(credential.response.clientDataJSON);
+  if (!clientData) {
+    return { verified: false, reason: 'تعذر قراءة بيانات التحقق الحيوي (clientDataJSON).' };
+  }
+  if (clientData.type !== 'webauthn.get') {
+    return { verified: false, reason: 'نوع عملية التحقق غير صالح.' };
+  }
+  if (clientData.challenge !== uint8ArrayToBase64Url(expectedChallenge)) {
+    return { verified: false, reason: 'رمز التحدي الأمني للبصمة غير متطابق.' };
+  }
+  if (expectedOrigin && clientData.origin !== expectedOrigin) {
+    return { verified: false, reason: 'نطاق المصدر الأمني للبصمة غير متطابق.' };
+  }
+  const flags = parseAuthenticatorDataFlags(credential.response.authenticatorData);
+  if (!flags.validLength || !flags.userPresent || !flags.userVerified) {
+    return {
+      verified: false,
+      reason: 'لم يكتمل التحقق الحيوي الفعلي من المستخدم (User Verification) على مستشعر البصمة.',
+    };
+  }
+  if (credential.response.signature.byteLength === 0) {
+    return { verified: false, reason: 'التوقيع الرقمي للمصادقة بالبصمة فارغ.' };
+  }
+  return { verified: true };
+}
+
+export function verifyWebAuthnCreateResponse(params: {
+  credential: {
+    id?: string;
+    rawId?: ArrayBuffer;
+    response?: {
+      clientDataJSON?: ArrayBuffer;
+      attestationObject?: ArrayBuffer;
+      getAuthenticatorData?: () => ArrayBuffer;
+    };
+  } | null | undefined;
+  expectedChallenge: Uint8Array;
+  expectedOrigin: string;
+}): { verified: boolean; credentialId?: string; reason?: string } {
+  const { credential, expectedChallenge, expectedOrigin } = params;
+  if (!credential || !credential.response || !credential.response.clientDataJSON || !credential.response.attestationObject) {
+    return { verified: false, reason: 'لم يتم إنشاء بصمة موثقة من مستشعر الجهاز.' };
+  }
+  const credId =
+    credential.id ||
+    (credential.rawId ? uint8ArrayToBase64Url(new Uint8Array(credential.rawId)) : '');
+  if (!credId) {
+    return { verified: false, reason: 'لم يرجع الجهاز معرّف البصمة المسجلة.' };
+  }
+  const clientData = decodeClientDataJson(credential.response.clientDataJSON);
+  if (!clientData || clientData.type !== 'webauthn.create') {
+    return { verified: false, reason: 'استجابة تسجيل البصمة غير صالحة.' };
+  }
+  if (clientData.challenge !== uint8ArrayToBase64Url(expectedChallenge)) {
+    return { verified: false, reason: 'رمز التحدي الأمني لتسجيل البصمة غير متطابق.' };
+  }
+  if (expectedOrigin && clientData.origin !== expectedOrigin) {
+    return { verified: false, reason: 'نطاق المصدر لتسجيل البصمة غير متطابق.' };
+  }
+  if (typeof credential.response.getAuthenticatorData === 'function') {
+    const authData = credential.response.getAuthenticatorData();
+    const flags = parseAuthenticatorDataFlags(authData);
+    if (!flags.validLength || !flags.userPresent || !flags.userVerified) {
+      return {
+        verified: false,
+        reason: 'يشترط تسجيل البصمة تأكيداً حيوياً فعلياً (بصمة الإصبع) على الجهاز.',
+      };
+    }
+  }
+  return { verified: true, credentialId: credId };
+}
+
+export interface BiometricRuntimeDeps {
+  isNativePlatform?: () => boolean;
+  nativeCheckAvailability?: () => Promise<{
+    available: boolean;
+    hasEnrolledBiometrics?: boolean;
+    reason?: string;
+    reasonCode?: string;
+  }>;
+  nativeAuthenticate?: (opts?: {
+    title?: string;
+    subtitle?: string;
+    description?: string;
+    negativeButtonText?: string;
+  }) => Promise<{
+    verified: boolean;
+    cancelled?: boolean;
+    error?: string;
+    reasonCode?: string;
+  }>;
+  isPlatformAuthenticatorAvailable?: () => Promise<boolean>;
+  credentialsGet?: (options: CredentialRequestOptions) => Promise<any>;
+  credentialsCreate?: (options: CredentialCreationOptions) => Promise<any>;
+  getRandomValues?: (arr: Uint8Array) => Uint8Array;
+  origin?: string;
+  rpId?: string;
+}
+
+export async function checkRealFingerprintAvailability(
+  deps?: BiometricRuntimeDeps
+): Promise<{
+  available: boolean;
+  runtime: 'android_native' | 'webauthn' | 'unavailable';
+  hasEnrolledCredential: boolean;
+  reason: string;
+}> {
+  const isNative = deps?.isNativePlatform ? deps.isNativePlatform() : Capacitor.isNativePlatform();
+  const binding = getBiometricBinding();
+
+  if (isNative) {
+    try {
+      const checkFn = deps?.nativeCheckAvailability || (() => OrderiBiometric.checkAvailability());
+      const res = await checkFn();
+      return {
+        available: Boolean(res?.available),
+        runtime: 'android_native',
+        hasEnrolledCredential: Boolean(res?.available && res?.hasEnrolledBiometrics !== false),
+        reason: res?.reason || (res?.available ? 'مستشعر بصمة أندرويد جاهز' : 'مستشعر البصمة غير متاح'),
+      };
+    } catch {
+      return {
+        available: false,
+        runtime: 'android_native',
+        hasEnrolledCredential: false,
+        reason: 'تعذر فحص مستشعر البصمة في نظام أندرويد.',
+      };
+    }
   }
 
-  return (
-    !!(
-      window.PublicKeyCredential ||
-      (navigator as any).credentials ||
-      (window as any).Capacitor
-    )
+  const hasWebAuthn =
+    Boolean(deps?.credentialsGet) ||
+    (typeof window !== 'undefined' &&
+      typeof window.PublicKeyCredential === 'function' &&
+      typeof navigator !== 'undefined' &&
+      Boolean(navigator.credentials?.get));
+
+  if (!hasWebAuthn) {
+    return {
+      available: false,
+      runtime: 'unavailable',
+      hasEnrolledCredential: false,
+      reason: 'هذا المتصفح لا يدعم مصادقة بصمة الإصبع (WebAuthn). استخدم رقم الهاتف وكلمة المرور.',
+    };
+  }
+
+  try {
+    const checkPlatform =
+      deps?.isPlatformAuthenticatorAvailable ||
+      (() => window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable());
+    const available = await checkPlatform();
+    return {
+      available: Boolean(available),
+      runtime: available ? 'webauthn' : 'unavailable',
+      hasEnrolledCredential: Boolean(binding?.credentialId),
+      reason: available
+        ? 'مستشعر البصمة المحلي (Platform Authenticator) مدعوم'
+        : 'لا يوجد مستشعر بصمة إصبع متاح أو مفعّل على هذا المتصفح/الجهاز.',
+    };
+  } catch {
+    return {
+      available: false,
+      runtime: 'unavailable',
+      hasEnrolledCredential: false,
+      reason: 'تعذر التحقق من دعم مستشعر البصمة في هذا المتصفح.',
+    };
+  }
+}
+
+export function isBiometricsAvailable(): boolean {
+  if (Capacitor.isNativePlatform()) {
+    return true;
+  }
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') {
+    return false;
+  }
+  return Boolean(
+    typeof window.PublicKeyCredential === 'function' &&
+      navigator.credentials &&
+      typeof navigator.credentials.get === 'function'
   );
 }
 
-export async function authenticateWithBiometrics(mode: 'fingerprint' | 'face' = 'fingerprint'): Promise<{
+function mapWebAuthnErrorToArabic(err: unknown): string {
+  const name = err instanceof Error ? err.name : '';
+  const msg = err instanceof Error ? err.message : String(err || '');
+  const lower = msg.toLowerCase();
+
+  if (name === 'NotAllowedError' || lower.includes('cancel') || lower.includes('abort')) {
+    if (lower.includes('publickey-credentials') || lower.includes('permissions policy') || lower.includes('feature is not enabled')) {
+      return 'مستشعر البصمة محظور داخل نافذة المعاينة المضمنة. افتح التطبيق في متصفح الهاتف مباشرة أو عبر تطبيق أندرويد APK.';
+    }
+    return 'تم إلغاء التحقق ببصمة الإصبع أو لم يكتمل مسح البصمة. لن يتم الدخول دون بصمة صحيحة.';
+  }
+  if (name === 'SecurityError' || lower.includes('insecure') || lower.includes('rpid')) {
+    return 'تتطلب بصمة الإصبع في المتصفح اتصالاً آمناً (HTTPS) أو تطبيق أندرويد APK.';
+  }
+  if (name === 'InvalidStateError') {
+    return 'تمت مصادقة هذه البصمة مسبقاً أو يلزم إعادة ربطها عبر تسجيل الدخول بكلمة المرور.';
+  }
+  return 'فشل التحقق من بصمة الإصبع عبر مستشعر الجهاز. يرجى الدخول برقم الهاتف وكلمة المرور.';
+}
+
+export async function authenticateWithBiometrics(
+  _mode: 'fingerprint' | 'face' = 'fingerprint',
+  deps?: BiometricRuntimeDeps
+): Promise<{
   success: boolean;
   user?: CaptainUser;
+  cancelled?: boolean;
   error?: string;
 }> {
-  // Check for saved captain account or profile on the device
-  let user = getCurrentUser();
   const profile = getProfile();
+  const binding = getBiometricBinding();
+  let user = getCurrentUser();
 
   if (!user && profile) {
     user = {
-      id: `captain_${profile.phone || 'device'}`,
+      id: binding?.userId || `captain_${profile.phone || 'device'}`,
       name: profile.name || 'كابتن النظام',
       phone: profile.phone || '',
       password: '',
       vehicleType: profile.vehicleType || 'car',
-      isActivated: true,
-      licensePlan: 'Orderi Pro 🇧🇭',
-      createdAt: new Date().toISOString(),
+      isActivated: binding?.isActivated ?? false,
+      licensePlan: binding?.licensePlan || 'بانتظار كود التفعيل',
+      expiresAt: binding?.expiresAt,
+      biometricsEnabled: profile.biometricsEnabled,
+      createdAt: binding?.enrolledAt || new Date().toISOString(),
+    };
+  } else if (!user && binding) {
+    user = {
+      id: binding.userId,
+      name: binding.name,
+      phone: binding.phone,
+      password: '',
+      vehicleType: binding.vehicleType || 'car',
+      isActivated: binding.isActivated,
+      licensePlan: binding.licensePlan || 'بانتظار كود التفعيل',
+      expiresAt: binding.expiresAt,
+      biometricsEnabled: true,
+      createdAt: binding.enrolledAt || new Date().toISOString(),
     };
   }
 
-  // If no user has ever logged in or registered on this device
-  if (!user) {
+  // 1. Account must already have been authenticated on this device at least once
+  if (!user || (!user.phone && !user.id)) {
     return {
       success: false,
-      error: 'يرجى تسجيل الدخول برقم هاتف واتساب وكلمة المرور لأول مرة لربط بصمة الإصبع بجهازك.',
+      error: 'يرجى تسجيل الدخول برقم هاتف واتساب وكلمة المرور لأول مرة لربط بصمة الإصبع بحسابك.',
     };
   }
 
-  // Attempt WebAuthn biometric prompt if supported by device/browser
-  if (typeof window !== 'undefined' && window.PublicKeyCredential && navigator?.credentials?.get) {
-    try {
-      const challenge = new Uint8Array(32);
-      window.crypto.getRandomValues(challenge);
-      await navigator.credentials.get({
-        publicKey: {
-          challenge,
-          timeout: 60000,
-          userVerification: 'preferred',
-        },
-      }).catch(() => {
-        // Platform authenticator fallback for WebView / local biometrics
-      });
-    } catch {}
+  // 2. User explicitly disabled biometric login in profile
+  if (profile?.biometricsEnabled === false || user.biometricsEnabled === false) {
+    return {
+      success: false,
+      error: 'الدخول بالبصمة معطّل لهذا الحساب. يرجى تسجيل الدخول برقم الهاتف وكلمة المرور.',
+    };
   }
 
-  // Ensure active session token exists
+  const isNative = deps?.isNativePlatform ? deps.isNativePlatform() : Capacitor.isNativePlatform();
+  let verifiedCredentialId = binding?.phone === user.phone ? binding.credentialId : undefined;
+  let verifiedRpId = binding?.phone === user.phone ? binding.rpId : undefined;
+
+  if (isNative) {
+    // STRICT REAL ANDROID BIOMETRICPROMPT VERIFICATION — NO BYPASSES
+    try {
+      const checkFn = deps?.nativeCheckAvailability || (() => OrderiBiometric.checkAvailability());
+      const availability = await checkFn();
+      if (!availability || !availability.available) {
+        return {
+          success: false,
+          error:
+            availability?.reason ||
+            'مستشعر بصمة الإصبع غير متاح أو لا توجد بصمة مسجلة في إعدادات الهاتف.',
+        };
+      }
+
+      const authFn =
+        deps?.nativeAuthenticate ||
+        ((opts) => OrderiBiometric.authenticate(opts));
+      const nativeResult = await authFn({
+        title: 'التحقق ببصمة الإصبع — Orderi',
+        subtitle: `تأكيد دخول الكابتن (${user.name})`,
+        description: 'ضع إصبعك على مستشعر البصمة لفتح حسابك بأمان.',
+        negativeButtonText: 'إلغاء',
+      });
+
+      if (!nativeResult || nativeResult.verified !== true) {
+        return {
+          success: false,
+          cancelled: Boolean(nativeResult?.cancelled),
+          error:
+            nativeResult?.error ||
+            'لم يتم التحقق من بصمة الإصبع. لن يتم فتح الحساب بدون بصمة مطابقة.',
+        };
+      }
+    } catch {
+      return {
+        success: false,
+        error: 'تعذر إتمام التحقق من بصمة الإصبع عبر مستشعر الهاتف.',
+      };
+    }
+  } else {
+    // STRICT REAL WEBAUTHN PLATFORM AUTHENTICATOR VERIFICATION — NO BYPASSES
+    const availability = await checkRealFingerprintAvailability(deps);
+    if (!availability.available) {
+      return {
+        success: false,
+        error: availability.reason,
+      };
+    }
+
+    const origin =
+      deps?.origin ?? (typeof window !== 'undefined' ? window.location.origin : '');
+    const rpId =
+      deps?.rpId ??
+      (typeof window !== 'undefined' ? window.location.hostname : '');
+
+    if (!rpId || !origin) {
+      return {
+        success: false,
+        error: 'تعذر تحديد نطاق الأمان المطلوب لمصادقة البصمة.',
+      };
+    }
+
+    const getRandom =
+      deps?.getRandomValues ||
+      ((arr: Uint8Array) => window.crypto.getRandomValues(arr));
+    const challenge = new Uint8Array(32);
+    getRandom(challenge);
+
+    const credGet =
+      deps?.credentialsGet ||
+      ((opts: CredentialRequestOptions) => navigator.credentials.get(opts));
+    const credCreate =
+      deps?.credentialsCreate ||
+      ((opts: CredentialCreationOptions) => navigator.credentials.create(opts));
+
+    const hasMatchingBoundCredential =
+      Boolean(verifiedCredentialId) && (!verifiedRpId || verifiedRpId === rpId);
+
+    if (hasMatchingBoundCredential && verifiedCredentialId) {
+      try {
+        const assertion = await credGet({
+          publicKey: {
+            challenge,
+            rpId,
+            allowCredentials: [
+              {
+                type: 'public-key',
+                id: base64UrlToUint8Array(verifiedCredentialId) as BufferSource,
+                transports: ['internal'],
+              },
+            ],
+            userVerification: 'required',
+            timeout: 60000,
+          },
+        });
+
+        const check = verifyWebAuthnGetResponse({
+          credential: assertion,
+          expectedCredentialId: verifiedCredentialId,
+          expectedChallenge: challenge,
+          expectedOrigin: origin,
+        });
+
+        if (!check.verified) {
+          return {
+            success: false,
+            error: check.reason || 'فشل التحقق من تطابق بصمة الإصبع.',
+          };
+        }
+      } catch (err) {
+        return {
+          success: false,
+          error: mapWebAuthnErrorToArabic(err),
+        };
+      }
+    } else {
+      // First-time binding of a real platform biometric passkey on this browser
+      // Still strictly enforces hardware biometric userVerification: 'required' via OS prompt
+      try {
+        const userBytes = new TextEncoder().encode(String(user.phone || user.id));
+        const created = await credCreate({
+          publicKey: {
+            challenge,
+            rp: {
+              name: 'Orderi',
+              id: rpId,
+            },
+            user: {
+              id: userBytes as BufferSource,
+              name: user.phone || user.id,
+              displayName: user.name || user.phone || 'Orderi Captain',
+            },
+            pubKeyCredParams: [
+              { type: 'public-key', alg: -7 },
+              { type: 'public-key', alg: -257 },
+            ],
+            authenticatorSelection: {
+              authenticatorAttachment: 'platform',
+              userVerification: 'required',
+              residentKey: 'preferred',
+            },
+            attestation: 'none',
+            timeout: 60000,
+          },
+        });
+
+        const check = verifyWebAuthnCreateResponse({
+          credential: created,
+          expectedChallenge: challenge,
+          expectedOrigin: origin,
+        });
+
+        if (!check.verified || !check.credentialId) {
+          return {
+            success: false,
+            error: check.reason || 'تعذر توثيق بصمة الإصبع على هذا المتصفح.',
+          };
+        }
+
+        verifiedCredentialId = check.credentialId;
+        verifiedRpId = rpId;
+      } catch (err) {
+        return {
+          success: false,
+          error: mapWebAuthnErrorToArabic(err),
+        };
+      }
+    }
+  }
+
+  // 3. Hardware/WebAuthn biometric verification SUCCEEDED — restore session safely
   if (!getToken()) {
     const sessionToken = `ORD-BIO-${Date.now()}-${user.phone || 'auth'}`;
     const expiresAt = new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString();
     saveToken(sessionToken, expiresAt);
   }
 
-  // Ensure updated profile with biometrics enabled
   const updatedProfile: LocalProfile = {
     name: user.name,
     phone: user.phone,
@@ -1301,13 +1824,26 @@ export async function authenticateWithBiometrics(mode: 'fingerprint' | 'face' = 
   };
   saveProfile(updatedProfile);
 
-  // Mark user as active and authenticated
   const authenticatedUser: CaptainUser = {
     ...user,
-    isActivated: true,
-    licensePlan: user.licensePlan || 'Orderi Pro 🇧🇭',
+    biometricsEnabled: true,
+    biometricCredentialId: verifiedCredentialId,
   };
   setCurrentUser(authenticatedUser);
+
+  saveBiometricBinding({
+    userId: authenticatedUser.id,
+    name: authenticatedUser.name,
+    phone: authenticatedUser.phone,
+    vehicleType: authenticatedUser.vehicleType,
+    isActivated: authenticatedUser.isActivated,
+    licensePlan: authenticatedUser.licensePlan,
+    expiresAt: authenticatedUser.expiresAt,
+    credentialId: verifiedCredentialId,
+    rpId: verifiedRpId,
+    platform: isNative ? 'android-biometric-prompt' : 'webauthn',
+    enrolledAt: binding?.enrolledAt || new Date().toISOString(),
+  });
 
   return {
     success: true,

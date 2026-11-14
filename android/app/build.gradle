@@ -36,6 +36,7 @@ dependencies {
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation project(':capacitor-android')
+    implementation "androidx.biometric:biometric:1.1.0"
     // LiteRT-LM runtime for actual on-device Gemma inference when the user imports the model file.
     implementation "com.google.ai.edge.litertlm:litertlm-android:0.18.0"
     testImplementation "junit:junit:$junitVersion"
