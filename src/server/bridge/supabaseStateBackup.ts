@@ -58,8 +58,8 @@ async function ensurePrivateBucket(baseUrl: string, headers: Record<string, stri
 
   // Surface the Storage API's actual error while avoiding accidental credential disclosure.
   const safeMessage = message
-    .replace(/Bearer\\s+[^\\s"'\x60]+/gi, 'Bearer [REDACTED]')
-    .replace(/\\b(?:sb_secret_[A-Za-z0-9_-]+|eyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+)\\b/g, '[REDACTED]')
+    .replace(/Bearer\s+[^\s"'\x60]+/gi, 'Bearer [REDACTED]')
+    .replace(/\b(?:sb_secret_[A-Za-z0-9_-]+|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)\\b/g, '[REDACTED]')
     .slice(0, 1000);
   throw new Error(
     `Supabase Storage bucket setup failed (HTTP ${response.status})${safeMessage ? `: ${safeMessage}` : '.'}`
