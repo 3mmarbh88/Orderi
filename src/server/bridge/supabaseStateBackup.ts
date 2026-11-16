@@ -138,11 +138,30 @@ export async function restoreBridgeStateFromSupabase(options: {
     `${baseUrl}/object/authenticated/${encodeURIComponent(bucket)}/${SNAPSHOT_OBJECT}`,
     { headers }
   );
-  if (response.status === 404) return { restored: false, fileCount: 0 };
   if (!response.ok) {
-    const message = safeStorageError(
-      await response.text().catch(() => '')
-    );
+    const responseBody = await response.text().catch(() => '');
+    let storageError: { code?: unknown; message?: unknown; statusCode?: unknown } | null = null;
+    try {
+      storageError = JSON.parse(responseBody) as {
+        code?: unknown;
+        message?: unknown;
+        statusCode?: unknown;
+      };
+    } catch {
+      // Non-JSON Storage errors are handled as genuine failures below.
+    }
+
+    const errorCode = typeof storageError?.code === 'string' ? storageError.code : '';
+    const errorMessage = typeof storageError?.message === 'string' ? storageError.message : '';
+    const errorStatus = String(storageError?.statusCode ?? '');
+    const missingSnapshot =
+      response.status === 404 ||
+      errorCode === 'NoSuchKey' ||
+      (errorStatus === '404' && /object not found/i.test(errorMessage));
+
+    if (missingSnapshot) return { restored: false, fileCount: 0 };
+
+    const message = safeStorageError(responseBody);
     throw new Error(
       `Supabase Bridge state restore failed (HTTP ${response.status})${message ? `: ${message}` : '.'}`
     );
