@@ -98,6 +98,8 @@ function rateLimit(maxRequests: number, windowMs: number) {
   };
 }
 
+let bridgeWsHub: BridgeWsHub | null = null;
+
 const supervisor = new WhatsAppBridgeSupervisor({
   stateDir,
   events: {
@@ -122,7 +124,6 @@ app.use('/api/bridge/session/connect', rateLimit(5, 10 * 60_000));
 app.use('/api/bridge', createBridgeRouter(supervisor, resolveOrderiUser));
 
 const server = http.createServer(app);
-let bridgeWsHub: BridgeWsHub | null = null;
 bridgeWsHub = new BridgeWsHub(server, supervisor);
 
 server.listen(port, '0.0.0.0', () => {
