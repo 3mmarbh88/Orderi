@@ -15,6 +15,19 @@ function storageBaseUrl(supabaseUrl: string): string {
   return `${supabaseUrl.replace(/\/+$/, '')}/storage/v1`;
 }
 
+/**
+ * Supabase publishable/secret API keys are not JWTs and must not be sent as
+ * Authorization Bearer tokens. Legacy service_role keys are JWTs and still
+ * require the Authorization header for Storage requests.
+ */
+function storageAuthHeaders(apiKey: string): Record<string, string> {
+  const headers: Record<string, string> = { apikey: apiKey };
+  if (/^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(apiKey)) {
+    headers.Authorization = `Bearer ${apiKey}`;
+  }
+  return headers;
+}
+
 function safeRelativePath(value: string): boolean {
   if (!value || path.isAbsolute(value)) return false;
   const normalized = path.posix.normalize(value.replace(/\\/g, '/'));
@@ -79,10 +92,7 @@ export async function restoreBridgeStateFromSupabase(options: {
 }): Promise<{ restored: boolean; fileCount: number }> {
   const bucket = options.bucket || 'orderi-bridge-state';
   const baseUrl = storageBaseUrl(options.supabaseUrl);
-  const headers = {
-    apikey: options.supabaseSecretKey,
-    Authorization: `Bearer ${options.supabaseSecretKey}`,
-  };
+  const headers = storageAuthHeaders(options.supabaseSecretKey);
   await fs.mkdir(options.stateDir, { recursive: true, mode: 0o700 });
   await ensurePrivateBucket(baseUrl, headers, bucket);
 
@@ -130,10 +140,7 @@ export function startBridgeStateBackup(options: {
 }): () => Promise<void> {
   const bucket = options.bucket || 'orderi-bridge-state';
   const baseUrl = storageBaseUrl(options.supabaseUrl);
-  const headers = {
-    apikey: options.supabaseSecretKey,
-    Authorization: `Bearer ${options.supabaseSecretKey}`,
-  };
+  const headers = storageAuthHeaders(options.supabaseSecretKey);
   let running = false;
   let stopped = false;
 
