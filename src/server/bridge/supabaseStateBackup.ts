@@ -12,12 +12,12 @@ const SNAPSHOT_CONTEXT = 'bridge-state-backup';
 const SNAPSHOT_OBJECT = 'bridge-state-v1.enc';
 
 function storageBaseUrl(supabaseUrl: string): string {
-  return `${supabaseUrl.replace(/\\/+$/, '')}/storage/v1`;
+  return `${supabaseUrl.replace(/\/+$/, '')}/storage/v1`;
 }
 
 function safeRelativePath(value: string): boolean {
   if (!value || path.isAbsolute(value)) return false;
-  const normalized = path.posix.normalize(value.replace(/\\\\/g, '/'));
+  const normalized = path.posix.normalize(value.replace(/\\/g, '/'));
   return normalized !== '..' && !normalized.startsWith('../') && !normalized.includes('/../');
 }
 
