@@ -6,6 +6,7 @@ import { BridgeWsHub } from './src/server/bridge/bridgeWsServer';
 import {
   restoreBridgeStateFromSupabase,
   startBridgeStateBackup,
+  storageAuthHeaders,
 } from './src/server/bridge/supabaseStateBackup';
 
 async function startBridgeService(): Promise<void> {
@@ -61,9 +62,10 @@ async function startBridgeService(): Promise<void> {
     const sessionToken = authHeader.slice(7).trim();
     if (!sessionToken || sessionToken.length > 4096) return null;
 
+    // Use the same key-aware auth rules as Supabase Storage:
+    // legacy JWT keys need Bearer; sb_secret_ keys must only be sent as apikey.
     const headers = {
-      apikey: supabaseSecret,
-      Authorization: `Bearer ${supabaseSecret}`,
+      ...storageAuthHeaders(supabaseSecret),
       Accept: 'application/json',
     };
 

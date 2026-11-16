@@ -20,7 +20,7 @@ function storageBaseUrl(supabaseUrl: string): string {
  * Authorization Bearer tokens. Legacy service_role keys are JWTs and still
  * require the Authorization header for Storage requests.
  */
-function storageAuthHeaders(apiKey: string): Record<string, string> {
+export function storageAuthHeaders(apiKey: string): Record<string, string> {
   const headers: Record<string, string> = { apikey: apiKey };
   if (/^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(apiKey)) {
     headers.Authorization = `Bearer ${apiKey}`;
@@ -59,23 +59,34 @@ async function collectFiles(root: string): Promise<Record<string, string>> {
   return files;
 }
 
+function safeStorageError(message: string): string {
+  return message
+    .replace(/Bearer\s+[^\s"'\x60]+/gi, 'Bearer [REDACTED]')
+    .replace(/\b(?:sb_secret_[A-Za-z0-9_-]+|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)\b/g, '[REDACTED]')
+    .slice(0, 1000);
+}
+
 async function ensurePrivateBucket(baseUrl: string, headers: Record<string, string>, bucket: string): Promise<void> {
-  const response = await fetch(`${baseUrl}/bucket`, {
+  // Check first: an existing private bucket should not be recreated on every startup.
+  const check = await fetch(`${baseUrl}/bucket/${encodeURIComponent(bucket)}`, { headers });
+  if (check.ok) return;
+  if (check.status !== 404) {
+    const message = safeStorageError(await check.text().catch(() => ''));
+    throw new Error(
+      `Supabase Storage bucket check failed (HTTP ${check.status})${message ? `: ${message}` : '.'}`
+    );
+  }
+
+  const create = await fetch(`${baseUrl}/bucket`, {
     method: 'POST',
     headers: { ...headers, 'Content-Type': 'application/json' },
     body: JSON.stringify({ id: bucket, name: bucket, public: false }),
   });
-  if (response.ok || response.status === 409) return;
-  const message = await response.text().catch(() => '');
+  if (create.ok || create.status === 409) return;
+  const message = safeStorageError(await create.text().catch(() => ''));
   if (/already exists|duplicate/i.test(message)) return;
-
-  // Surface the Storage API's actual error while avoiding accidental credential disclosure.
-  const safeMessage = message
-    .replace(/Bearer\s+[^\s"'\x60]+/gi, 'Bearer [REDACTED]')
-    .replace(/\b(?:sb_secret_[A-Za-z0-9_-]+|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)\b/g, '[REDACTED]')
-    .slice(0, 1000);
   throw new Error(
-    `Supabase Storage bucket setup failed (HTTP ${response.status})${safeMessage ? `: ${safeMessage}` : '.'}`
+    `Supabase Storage bucket creation failed (HTTP ${create.status})${message ? `: ${message}` : '.'}`
   );
 }
 
