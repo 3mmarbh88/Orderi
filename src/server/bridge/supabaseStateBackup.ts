@@ -12,7 +12,7 @@ const SNAPSHOT_CONTEXT = 'bridge-state-backup';
 const SNAPSHOT_OBJECT = 'bridge-state-v1.enc';
 
 function storageBaseUrl(supabaseUrl: string): string {
-  return supabaseUrl.replace(/\\/+$/, '') + '/storage/v1';
+  return supabaseUrl.replace(/\/+$/, '') + '/storage/v1';
 }
 
 /**
