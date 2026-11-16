@@ -107,21 +107,17 @@ async function startBridgeService(): Promise<void> {
 
       const captainUrl = new URL(`${supabaseUrl}/rest/v1/captains`);
       captainUrl.searchParams.set('id', `eq.${session.captain_id}`);
-      captainUrl.searchParams.set('select', 'id,is_active');
+      captainUrl.searchParams.set('select', 'id');
       captainUrl.searchParams.set('limit', '1');
       const captainResponse = await fetch(captainUrl, { headers });
       if (!captainResponse.ok) {
         console.error(`[Orderi Bridge] Orderi auth lookup failed: captains returned HTTP ${captainResponse.status}.`);
         return null;
       }
-      const captains = await captainResponse.json() as Array<{ id?: string; is_active?: boolean }>;
+      const captains = await captainResponse.json() as Array<{ id?: string }>;
       const captain = captains[0];
       if (!captain?.id) {
         console.warn('[Orderi Bridge] Orderi auth rejected: no captain row matches the session captain_id.');
-        return null;
-      }
-      if (captain.is_active === false) {
-        console.warn('[Orderi Bridge] Orderi auth rejected: captain account is inactive.');
         return null;
       }
       console.info('[Orderi Bridge] Orderi auth validated successfully.');
