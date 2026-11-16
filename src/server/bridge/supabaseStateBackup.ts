@@ -32,10 +32,23 @@ export function supabaseApiHeaders(apiKey: string): Record<string, string> {
  * as well as apikey. For opaque secret keys Storage accepts the same key in
  * this header; this mirrors the official @supabase/storage-js backend setup.
  */
-export function storageAuthHeaders(apiKey: string): Record<string, string> {
+/**
+ * Storage validates Authorization as a JWT. New sb_secret keys are opaque API
+ * keys, so pair them with the project's legacy service_role JWT for this header.
+ * Older deployments that still use a legacy JWT as the API key remain supported.
+ */
+export function storageAuthHeaders(apiKey: string, serviceRoleJwt?: string): Record<string, string> {
+  const bearerToken = serviceRoleJwt || (
+    /^eyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$/.test(apiKey) ? apiKey : ''
+  );
+  if (!/^eyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$/.test(bearerToken)) {
+    throw new Error(
+      'SUPABASE_SERVICE_ROLE_KEY must be a legacy service_role JWT when SUPABASE_SECRET_KEY is an sb_secret key.'
+    );
+  }
   return {
-    ...supabaseApiHeaders(apiKey),
-    Authorization: `Bearer ${apiKey}`,
+    apikey: apiKey,
+    Authorization: `Bearer ${bearerToken}`,
   };
 }
 
@@ -108,12 +121,13 @@ export async function restoreBridgeStateFromSupabase(options: {
   stateDir: string;
   supabaseUrl: string;
   supabaseSecretKey: string;
+  supabaseServiceRoleKey?: string;
   encryptionSecret: string;
   bucket?: string;
 }): Promise<{ restored: boolean; fileCount: number }> {
   const bucket = options.bucket || 'orderi-bridge-state';
   const baseUrl = storageBaseUrl(options.supabaseUrl);
-  const headers = storageAuthHeaders(options.supabaseSecretKey);
+  const headers = storageAuthHeaders(options.supabaseSecretKey, options.supabaseServiceRoleKey);
   await fs.mkdir(options.stateDir, { recursive: true, mode: 0o700 });
   await ensurePrivateBucket(baseUrl, headers, bucket);
 
@@ -161,7 +175,7 @@ export function startBridgeStateBackup(options: {
 }): () => Promise<void> {
   const bucket = options.bucket || 'orderi-bridge-state';
   const baseUrl = storageBaseUrl(options.supabaseUrl);
-  const headers = storageAuthHeaders(options.supabaseSecretKey);
+  const headers = storageAuthHeaders(options.supabaseSecretKey, options.supabaseServiceRoleKey);
   let running = false;
   let stopped = false;
 
