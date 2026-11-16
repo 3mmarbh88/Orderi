@@ -1,6 +1,5 @@
 import { isNativeAndroid } from '../native/orderiNotificationListener';
-import { getCurrentUser, ORDERI_SERVER_URL } from './authManager';
-import { getDeviceId } from './whatsappConnection';
+import { getAuthToken, getCurrentUser, ORDERI_SERVER_URL } from './authManager';
 
 export type WhatsAppBridgeConnectionState =
   | 'Disconnected'
@@ -161,7 +160,7 @@ export function resolveBridgeUserId(): string {
   const user = getCurrentUser();
   if (user?.id) return String(user.id);
   if (user?.phone) return `captain_${user.phone}`;
-  return `device_${getDeviceId()}`;
+  return '';
 }
 
 export interface BridgeClientListeners {
@@ -281,15 +280,30 @@ class OrderiBridgeClient {
     }
 
     this.handshakePromise = (async () => {
+      if (!userId) {
+        throw new Error('يرجى تسجيل الدخول إلى حساب Orderi قبل ربط واتساب.');
+      }
+      const orderiToken = getAuthToken();
+      if (!orderiToken) {
+        throw new Error('انتهت جلسة Orderi؛ سجّل الدخول مجدداً قبل ربط واتساب.');
+      }
       const origin = resolveBridgeApiOrigin();
       const resp = await fetch(`${origin}/api/bridge/auth/session`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${orderiToken}`,
+        },
         body: JSON.stringify({ userId }),
       });
-      const data = await resp.json();
+      let data: any = null;
+      try {
+        data = await resp.json();
+      } catch {
+        throw new Error(`خدمة WhatsApp Bridge أعادت استجابة غير صالحة (HTTP ${resp.status}). تحقق من عنوان الخدمة ونشرها.`);
+      }
       if (!resp.ok || !data?.bridgeToken) {
-        throw new Error(data?.error || 'تعذر مصادقة جلسة WhatsApp Bridge');
+        throw new Error(data?.error || `تعذرت مصادقة جلسة WhatsApp Bridge (HTTP ${resp.status}).`);
       }
       this.bridgeToken = data.bridgeToken;
       this.tokenUserId = userId;
