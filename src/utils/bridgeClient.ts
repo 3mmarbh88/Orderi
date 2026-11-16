@@ -130,7 +130,7 @@ export function resolveBridgeApiOrigin(): string {
   }
 
   // WhatsApp Bridge is deployed independently from the Orderi account/API server.
-  return 'https://orderi-bridge.onrender.com';
+  return 'https://orderi-bridge-gcmz.onrender.com';
 }
 
 export function setBridgeServerUrlOverride(url: string): void {
@@ -220,7 +220,7 @@ class OrderiBridgeClient {
       ticks += 1;
       if (
         !this.enabled ||
-        ticks > 50 ||
+        ticks > 100 ||
         (this.currentStatus.state !== 'Connecting' && this.currentStatus.state !== 'Reconnecting')
       ) {
         this.stopTransitionPoll();
@@ -361,6 +361,11 @@ class OrderiBridgeClient {
 
   public async connectWithPhoneNumber(phoneNumber: string): Promise<BridgeSessionStatus> {
     this.enabled = true;
+    try {
+      console.info(`[Orderi Bridge] Starting pairing request against ${new URL(resolveBridgeApiOrigin()).host}.`);
+    } catch {
+      console.warn('[Orderi Bridge] Bridge API origin is invalid.');
+    }
     this.emitStatus({
       ...this.currentStatus,
       state: 'Connecting',
