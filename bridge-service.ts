@@ -107,17 +107,30 @@ async function startBridgeService(): Promise<void> {
 
       const captainUrl = new URL(`${supabaseUrl}/rest/v1/captains`);
       captainUrl.searchParams.set('id', `eq.${session.captain_id}`);
-      captainUrl.searchParams.set('select', 'id');
+      captainUrl.searchParams.set('select', 'id,is_active');
       captainUrl.searchParams.set('limit', '1');
-      const captainResponse = await fetch(captainUrl, { headers });
+      let captainResponse = await fetch(captainUrl, { headers });
+
+      // The canonical Orderi schema does not define is_active. Prefer the
+      // richer account-state check when the deployed database has that column,
+      // but fall back to the canonical id-only lookup when PostgREST rejects it.
+      if (captainResponse.status === 400) {
+        console.warn('[Orderi Bridge] Captain is_active lookup unavailable (HTTP 400); retrying with canonical id-only lookup.');
+        captainUrl.searchParams.set('select', 'id');
+        captainResponse = await fetch(captainUrl, { headers });
+      }
       if (!captainResponse.ok) {
         console.error(`[Orderi Bridge] Orderi auth lookup failed: captains returned HTTP ${captainResponse.status}.`);
         return null;
       }
-      const captains = await captainResponse.json() as Array<{ id?: string }>;
+      const captains = await captainResponse.json() as Array<{ id?: string; is_active?: boolean }>;
       const captain = captains[0];
       if (!captain?.id) {
         console.warn('[Orderi Bridge] Orderi auth rejected: no captain row matches the session captain_id.');
+        return null;
+      }
+      if (captain.is_active === false) {
+        console.warn('[Orderi Bridge] Orderi auth rejected: captain account is inactive.');
         return null;
       }
       console.info('[Orderi Bridge] Orderi auth validated successfully.');
