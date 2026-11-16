@@ -1,5 +1,4 @@
-import { isNativeAndroid } from '../native/orderiNotificationListener';
-import { getAuthToken, getCurrentUser, ORDERI_SERVER_URL } from './authManager';
+import { getAuthToken, getCurrentUser } from './authManager';
 
 export type WhatsAppBridgeConnectionState =
   | 'Disconnected'
@@ -121,20 +120,17 @@ export function resolveBridgeApiOrigin(): string {
   try {
     const customOverride = localStorage.getItem(STORAGE_SERVER_OVERRIDE_KEY)?.trim();
     if (customOverride) {
-      return customOverride.replace(/\/+$/, '');
+      return customOverride.replace(/\\/+$/, '');
     }
   } catch {}
 
-  if (!isNativeAndroid() && typeof window !== 'undefined' && window.location?.origin?.startsWith('http')) {
-    return window.location.origin.replace(/\/+$/, '');
-  }
-
-  const envUrl = ((import.meta as any)?.env?.VITE_ORDERI_API_BASE_URL || '').trim();
+  const envUrl = ((import.meta as any)?.env?.VITE_WHATSAPP_BRIDGE_URL || '').trim();
   if (envUrl) {
-    return envUrl.replace(/\/+$/, '');
+    return envUrl.replace(/\\/+$/, '');
   }
 
-  return ORDERI_SERVER_URL.replace(/\/+$/, '');
+  // WhatsApp Bridge is deployed independently from the Orderi account/API server.
+  return 'https://orderi-bridge.onrender.com';
 }
 
 export function setBridgeServerUrlOverride(url: string): void {
@@ -372,27 +368,36 @@ class OrderiBridgeClient {
       errorCode: null,
       errorMessage: null,
     });
-    const resp = await this.authedFetch('/api/bridge/session/connect', {
-      method: 'POST',
-      body: JSON.stringify({ phoneNumber }),
-    });
-    const data = await resp.json();
-    if (!resp.ok || !data?.status) {
+    try {
+      const resp = await this.authedFetch('/api/bridge/session/connect', {
+        method: 'POST',
+        body: JSON.stringify({ phoneNumber }),
+      });
+      let data: any = null;
+      try {
+        data = await resp.json();
+      } catch {
+        throw new Error(`خدمة WhatsApp Bridge أعادت استجابة غير صالحة (HTTP ${resp.status}).`);
+      }
+      if (!resp.ok || !data?.status) {
+        throw new Error(data?.error || data?.errorMessage || `تعذر بدء الربط (HTTP ${resp.status}).`);
+      }
+      this.emitStatus(data.status);
+      void this.syncAndConnectWs();
+      if (data.status.state === 'Connecting' || data.status.state === 'Reconnecting') {
+        this.startTransitionPoll();
+      }
+      return data.status as BridgeSessionStatus;
+    } catch (err: any) {
       const errStatus: BridgeSessionStatus = {
         ...this.currentStatus,
         state: 'Error',
-        errorCode: data?.errorCode || 'CONNECT_REQUEST_FAILED',
-        errorMessage: data?.error || 'تعذر إنشاء جلسة WhatsApp Bridge على الخادم.',
+        errorCode: 'CONNECT_REQUEST_FAILED',
+        errorMessage: String(err?.message || 'تعذر الاتصال بخدمة WhatsApp Bridge.'),
       };
       this.emitStatus(errStatus);
       return errStatus;
     }
-    this.emitStatus(data.status);
-    void this.syncAndConnectWs();
-    if (data.status.state === 'Connecting' || data.status.state === 'Reconnecting') {
-      this.startTransitionPoll();
-    }
-    return data.status as BridgeSessionStatus;
   }
 
   public async reconnect(): Promise<BridgeSessionStatus> {
