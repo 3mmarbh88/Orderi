@@ -60,10 +60,17 @@ async function startBridgeService(): Promise<void> {
 
   async function resolveOrderiUser(req: Request): Promise<string | null> {
     const authHeader = String(req.headers.authorization || '');
-    if (!authHeader.toLowerCase().startsWith('bearer ')) return null;
+    if (!authHeader.toLowerCase().startsWith('bearer ')) {
+      console.warn('[Orderi Bridge] Orderi auth rejected: missing bearer session token.');
+      return null;
+    }
     const sessionToken = authHeader.slice(7).trim();
-    if (!sessionToken || sessionToken.length > 4096) return null;
+    if (!sessionToken || sessionToken.length > 4096) {
+      console.warn('[Orderi Bridge] Orderi auth rejected: bearer session token is empty or malformed.');
+      return null;
+    }
 
+    // Never log the bearer token or include it in diagnostics.
     // Data API requests send sb_secret keys only as apikey; legacy JWT keys
     // retain their Authorization Bearer header for backward compatibility.
     const headers = {
@@ -71,30 +78,59 @@ async function startBridgeService(): Promise<void> {
       Accept: 'application/json',
     };
 
-    const sessionUrl = new URL(`${supabaseUrl}/rest/v1/auth_sessions`);
-    sessionUrl.searchParams.set('token', `eq.${sessionToken}`);
-    sessionUrl.searchParams.set('select', 'captain_id,expires_at');
-    sessionUrl.searchParams.set('limit', '1');
+    try {
+      const sessionUrl = new URL(`${supabaseUrl}/rest/v1/auth_sessions`);
+      sessionUrl.searchParams.set('token', `eq.${sessionToken}`);
+      sessionUrl.searchParams.set('select', 'captain_id,expires_at');
+      sessionUrl.searchParams.set('limit', '1');
 
-    const sessionResponse = await fetch(sessionUrl, { headers });
-    if (!sessionResponse.ok) return null;
-    const sessions = await sessionResponse.json() as Array<{ captain_id?: string; expires_at?: string }>;
-    const session = sessions[0];
-    if (!session?.captain_id || !session.expires_at) return null;
-    if (!Number.isFinite(Date.parse(session.expires_at)) || Date.parse(session.expires_at) <= Date.now()) {
+      const sessionResponse = await fetch(sessionUrl, { headers });
+      if (!sessionResponse.ok) {
+        console.error(`[Orderi Bridge] Orderi auth lookup failed: auth_sessions returned HTTP ${sessionResponse.status}.`);
+        return null;
+      }
+      const sessions = await sessionResponse.json() as Array<{ captain_id?: string; expires_at?: string }>;
+      const session = sessions[0];
+      if (!session) {
+        console.warn('[Orderi Bridge] Orderi auth rejected: no matching auth_sessions row in configured Supabase project.');
+        return null;
+      }
+      if (!session.captain_id || !session.expires_at) {
+        console.warn('[Orderi Bridge] Orderi auth rejected: auth_sessions row is missing captain_id or expires_at.');
+        return null;
+      }
+      const expiresAt = Date.parse(session.expires_at);
+      if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+        console.warn('[Orderi Bridge] Orderi auth rejected: matching auth_sessions row is expired or has an invalid expires_at.');
+        return null;
+      }
+
+      const captainUrl = new URL(`${supabaseUrl}/rest/v1/captains`);
+      captainUrl.searchParams.set('id', `eq.${session.captain_id}`);
+      captainUrl.searchParams.set('select', 'id,is_active');
+      captainUrl.searchParams.set('limit', '1');
+      const captainResponse = await fetch(captainUrl, { headers });
+      if (!captainResponse.ok) {
+        console.error(`[Orderi Bridge] Orderi auth lookup failed: captains returned HTTP ${captainResponse.status}.`);
+        return null;
+      }
+      const captains = await captainResponse.json() as Array<{ id?: string; is_active?: boolean }>;
+      const captain = captains[0];
+      if (!captain?.id) {
+        console.warn('[Orderi Bridge] Orderi auth rejected: no captain row matches the session captain_id.');
+        return null;
+      }
+      if (captain.is_active === false) {
+        console.warn('[Orderi Bridge] Orderi auth rejected: captain account is inactive.');
+        return null;
+      }
+      console.info('[Orderi Bridge] Orderi auth validated successfully.');
+      return String(captain.id);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'unknown network error';
+      console.error('[Orderi Bridge] Orderi auth lookup threw an error:', message);
       return null;
     }
-
-    const captainUrl = new URL(`${supabaseUrl}/rest/v1/captains`);
-    captainUrl.searchParams.set('id', `eq.${session.captain_id}`);
-    captainUrl.searchParams.set('select', 'id,is_active');
-    captainUrl.searchParams.set('limit', '1');
-    const captainResponse = await fetch(captainUrl, { headers });
-    if (!captainResponse.ok) return null;
-    const captains = await captainResponse.json() as Array<{ id?: string; is_active?: boolean }>;
-    const captain = captains[0];
-    if (!captain?.id || captain.is_active === false) return null;
-    return String(captain.id);
   }
 
   function rateLimit(maxRequests: number, windowMs: number) {
