@@ -55,6 +55,7 @@ interface UserSessionRecord {
   status: BridgeSessionPublicStatus;
   autoResume: boolean;
   worker: BridgeWorkerHandle | null;
+  pairingStartupTimer: ReturnType<typeof setTimeout> | null;
   recentGroupMessages: BridgeGroupMessageEvent[];
   pendingSends: Map<string, PendingSendResolver>;
   outreachLedger: {
@@ -173,6 +174,7 @@ export class WhatsAppBridgeSupervisor {
       sessionDir,
       autoResume: meta.autoResume,
       worker: null,
+      pairingStartupTimer: null,
       recentGroupMessages: [],
       pendingSends: new Map(),
       outreachLedger,
@@ -371,7 +373,17 @@ export class WhatsAppBridgeSupervisor {
     if (!msg || typeof msg !== 'object') return;
 
     switch (msg.type) {
+      case 'WORKER_READY': {
+        console.info('[Orderi Bridge] WhatsApp worker is ready to initialize.');
+        break;
+      }
+
       case 'STATE_UPDATE': {
+        if (msg.state !== 'Connecting' && msg.state !== 'Reconnecting' && record.pairingStartupTimer) {
+          clearTimeout(record.pairingStartupTimer);
+          record.pairingStartupTimer = null;
+        }
+        console.info(`[Orderi Bridge] Worker state update: ${msg.state}; errorCode=${msg.errorCode || 'none'}.`);
         this.updateStatus(record, {
           state: msg.state,
           pairingCode: msg.pairingCode !== undefined ? msg.pairingCode : record.status.pairingCode,
@@ -483,6 +495,20 @@ export class WhatsAppBridgeSupervisor {
     });
 
     const worker = this.ensureWorker(record);
+    if (record.pairingStartupTimer) clearTimeout(record.pairingStartupTimer);
+    record.pairingStartupTimer = setTimeout(() => {
+      if (record.status.state !== 'Connecting' && record.status.state !== 'Reconnecting') return;
+      console.warn('[Orderi Bridge] Pairing startup timed out before a pairing code or terminal state was received.');
+      const stalledWorker = record.worker;
+      record.worker = null;
+      if (stalledWorker) stalledWorker.kill();
+      record.pairingStartupTimer = null;
+      this.updateStatus(record, {
+        state: 'Error',
+        errorCode: 'PAIRING_START_TIMEOUT',
+        errorMessage: 'توقف تجهيز اتصال واتساب دون استجابة من خدمة الربط. تحقق من سجلات الخدمة ثم أعد المحاولة لاحقاً.',
+      });
+    }, 45_000);
     worker.send({
       type: 'INIT_AND_START',
       userId: record.userId,
@@ -492,6 +518,7 @@ export class WhatsAppBridgeSupervisor {
       requestPairingCode: true,
     });
 
+    console.info('[Orderi Bridge] WhatsApp worker startup command sent.');
     return this.getStatus(userId);
   }
 

@@ -193,6 +193,7 @@ async function requestPairingCodeSafely(
 }
 
 async function startSocketConnection(): Promise<void> {
+  console.info('[Orderi Bridge] Worker starting WhatsApp socket initialization.');
   await teardownSocket();
   const generation = ++socketGeneration;
   manualDisconnectRequested = false;
@@ -212,6 +213,7 @@ async function startSocketConnection(): Promise<void> {
         fromAppStateSyncKeyObject: (val) => proto.Message.AppStateSyncKeyData.fromObject(val),
       });
     }
+    console.info('[Orderi Bridge] Encrypted WhatsApp auth state initialized.');
 
     let version: [number, number, number] | undefined;
     try {
@@ -243,6 +245,7 @@ async function startSocketConnection(): Promise<void> {
     });
 
     activeSocket = sock;
+    console.info('[Orderi Bridge] Baileys socket created; waiting for WhatsApp connection events.');
 
     sock.ev.on('creds.update', async () => {
       if (authController) {
@@ -261,6 +264,9 @@ async function startSocketConnection(): Promise<void> {
     sock.ev.on('connection.update', async (update) => {
       if (generation !== socketGeneration) return;
       const { connection, lastDisconnect, qr } = update;
+      if (connection || qr) {
+        console.info(`[Orderi Bridge] WhatsApp connection event: ${connection || 'qr'}.`);
+      }
 
       if (qr && wantsPairingCode && !sock.authState.creds.registered && !pairingCodeRequestedForSocket) {
         await requestPairingCodeSafely(sock, generation);
@@ -439,6 +445,7 @@ async function startSocketConnection(): Promise<void> {
     });
   } catch (err: any) {
     if (generation !== socketGeneration) return;
+    console.error(`[Orderi Bridge] Socket initialization failed: ${sanitizeForLog(err?.message || 'Unknown error')}`);
     emitState('Error', {
       errorCode: 'BRIDGE_INIT_FAILED',
       errorMessage: `تعذر تهيئة WhatsApp Web Bridge: ${sanitizeForLog(err?.message || 'خطأ غير متوقع')}`,
