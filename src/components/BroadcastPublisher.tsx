@@ -458,7 +458,11 @@ export function BroadcastPublisher({
       }
     }
 
-    onToast(`✅ تم نشر الإعلان في كافة القروبات المحددة (${selectedGroupNames.length}) في الخلفية بنجاح 🚀`);
+    if (isNativeAndroid()) {
+      onToast(`✅ تم بدء نشر الإعلان في (${selectedGroupNames.length}) قروب عبر خدمة الهاتف 🚀`);
+    } else {
+      onToast(`📋 تم حفظ الإعلان ونسخه للحافظة — للنشر المباشر في قروبات واتساب استخدم تطبيق Orderi APK على Android`);
+    }
 
     const newBroadcast: OrderBroadcast = {
       id: 'bcast-' + Date.now(),
@@ -564,9 +568,9 @@ export function BroadcastPublisher({
         } catch (err) {
           console.warn('[Orderi] publish replay error:', err);
         }
-        onToast(`✅ تم إطلاق إرسال رد «تم» في الخلفية إلى ${allGroups.length} قروب دون فتح واتساب 🚀`);
+        onToast(`✅ تم إطلاق إرسال رد «تم» في الخلفية إلى ${allGroups.length} قروب 🚀`);
       } else {
-        onToast(`✅ تم إرسال رد (تم) في الخلفية إلى ${allGroups.length} قروب محدد 🎯`);
+        onToast(`📋 تم نسخ وحفظ رد (تم) لعدد ${allGroups.length} قروب — الإرسال المباشر للقروبات يتطلب تطبيق Orderi APK على Android`);
       }
 
       // Single notification to backend API
@@ -661,7 +665,11 @@ export function BroadcastPublisher({
       setBroadcastHistory(updatedHistory);
       try { localStorage.setItem('orderi_broadcast_history', JSON.stringify(updatedHistory)); } catch {}
 
-      onToast(`✅ تم إرسال رد (حصلت مندوب) مع اقتباس الإعلان لجميع القروبات (${groups.length}) في الخلفية دون فتح واتساب 🎯`);
+      onToast(
+        isNativeAndroid()
+          ? `✅ تم إرسال رد (حصلت مندوب) للقروبات (${groups.length}) عبر خدمة الهاتف 🎯`
+          : `📋 تم نسخ رد (حصلت مندوب) للقروبات (${groups.length}) — الإرسال التلقائي للقروبات يتطلب تطبيق Orderi APK على Android`
+      );
     } finally {
       setQuickCompletingId(null);
     }
@@ -684,7 +692,7 @@ export function BroadcastPublisher({
       }).catch(() => {});
       const updatedReplied = Array.from(new Set([...repliedGroups, groupName]));
       setRepliedGroups(updatedReplied);
-      onToast(`✅ تم إرسال رد (تم) في الخلفية إلى «${groupName}» 🎯`);
+      onToast(`📋 تم نسخ وحفظ رد (تم) لقروب «${groupName}» — افتح التطبيق على Android للإرسال التلقائي`);
       return;
     }
 

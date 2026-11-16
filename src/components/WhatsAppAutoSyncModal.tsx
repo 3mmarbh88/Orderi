@@ -17,9 +17,20 @@ import {
   AlertTriangle,
   UploadCloud,
   FileText,
+  KeyRound,
+  Link2,
+  Phone,
+  Unlink,
+  Wifi,
+  WifiOff,
 } from 'lucide-react';
 import { CaptainUser } from '../types';
 import { parseWhatsAppExportTxt, ChatImportResult } from '../utils/whatsappChatImporter';
+import {
+  BridgeSessionStatus,
+  createInitialBridgeStatus,
+  orderiBridgeClient,
+} from '../utils/bridgeClient';
 import { 
   getWhatsAppListenerStatus, 
   openWhatsAppListenerSettings, 
@@ -59,7 +70,7 @@ interface WhatsAppAutoSyncModalProps {
   onClose: () => void;
   isStreamConnected: boolean;
   receivedCount: number;
-  initialTab?: 'listener' | 'webhook' | 'qr';
+  initialTab?: 'messenger' | 'listener' | 'importer' | 'webhook' | 'qr';
   onShowToast: (msg: string) => void;
   onSessionConnected?: (session: WhatsAppSessionData, initialOrders?: any[]) => void;
   onAddIncomingOrders?: (orders: any[]) => void;
@@ -69,6 +80,12 @@ interface WhatsAppAutoSyncModalProps {
   onUpdateMyGroups?: (newGroups: string[]) => void;
   onOpenSettings?: () => void;
   onOpenAPKModal?: () => void;
+  bridgeStatus?: BridgeSessionStatus;
+  onConnectBridge?: (phoneNumber: string) => Promise<BridgeSessionStatus | void>;
+  onReconnectBridge?: () => Promise<BridgeSessionStatus | void>;
+  onDisconnectBridge?: () => Promise<BridgeSessionStatus | void>;
+  onRefreshBridgeStatus?: () => Promise<BridgeSessionStatus | void>;
+  onOpenBridgeView?: () => void;
 }
 
 export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
@@ -76,7 +93,7 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
   onClose,
   isStreamConnected,
   receivedCount,
-  initialTab = 'listener',
+  initialTab = 'messenger',
   onShowToast,
   onSessionConnected,
   onAddIncomingOrders,
@@ -86,12 +103,28 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
   onUpdateMyGroups,
   onOpenSettings,
   onOpenAPKModal,
+  bridgeStatus: propBridgeStatus,
+  onConnectBridge,
+  onReconnectBridge,
+  onDisconnectBridge,
+  onRefreshBridgeStatus,
+  onOpenBridgeView,
 }) => {
-  const [activeTab, setActiveTab] = useState<'listener' | 'importer' | 'webhook'>(
-    initialTab === 'webhook' ? 'webhook' : 'listener'
+  const resolveInitialTab = (t?: string): 'messenger' | 'listener' | 'importer' | 'webhook' => {
+    if (t === 'listener' || t === 'importer' || t === 'webhook') return t;
+    return 'messenger';
+  };
+  const [activeTab, setActiveTab] = useState<'messenger' | 'listener' | 'importer' | 'webhook'>(
+    () => resolveInitialTab(initialTab)
   );
   const [nativeListenerEnabled, setNativeListenerEnabled] = useState(false);
   const [clientDiag, setClientDiag] = useState<WhatsAppClientDiagnostics>(() => orderiWhatsAppClient.getDiagnostics());
+  const [localBridgeStatus, setLocalBridgeStatus] = useState<BridgeSessionStatus>(
+    () => propBridgeStatus || orderiBridgeClient.getStatusSnapshot() || createInitialBridgeStatus()
+  );
+  const effectiveBridgeStatus = propBridgeStatus || localBridgeStatus;
+  const [bridgeSubmitting, setBridgeSubmitting] = useState(false);
+  const [copiedBridgeCode, setCopiedBridgeCode] = useState(false);
   const [session, setSession] = useState<WhatsAppSessionData | null>(null);
   const [savedConnection, setSavedConnection] = useState(() => getWhatsAppConnection());
   const [linkBusy, setLinkBusy] = useState(false);
@@ -416,12 +449,32 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
   const [copiedCode, setCopiedCode] = useState(false);
 
   useEffect(() => {
+    if (!propBridgeStatus) {
+      const unsub = orderiBridgeClient.subscribe({
+        onStatus: (next) => setLocalBridgeStatus(next),
+      });
+      return unsub;
+    }
+    setLocalBridgeStatus(propBridgeStatus);
+  }, [propBridgeStatus]);
+
+  useEffect(() => {
     if (isOpen) {
+      setActiveTab(resolveInitialTab(initialTab));
       const connection = getWhatsAppConnection();
       setSavedConnection(connection);
-      if (connection?.phoneNumber) setPhoneNumberInput(connection.phoneNumber);
+      if (effectiveBridgeStatus.phoneNumber) {
+        setPhoneNumberInput(effectiveBridgeStatus.phoneNumber);
+      } else if (connection?.phoneNumber) {
+        setPhoneNumberInput(connection.phoneNumber);
+      }
+      if (onRefreshBridgeStatus) {
+        void onRefreshBridgeStatus();
+      } else {
+        void orderiBridgeClient.refreshStatus();
+      }
     }
-  }, [isOpen]);
+  }, [isOpen, initialTab]);
 
   useEffect(() => {
     if (!isOpen || activeTab !== 'listener') return;
@@ -536,15 +589,107 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
     }
   };
 
-  const isConnected = savedConnection?.status === 'connected' || session?.status === 'connected';
+  const isBridgeConnected = effectiveBridgeStatus.state === 'Connected';
+  const isConnected =
+    isBridgeConnected ||
+    (savedConnection?.status === 'connected' && savedConnection?.verificationSource === 'notification') ||
+    session?.status === 'connected';
   const activeGroups = savedConnection?.groups || internalMyGroups;
+
+  const handleBridgePairSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleaned = phoneNumberInput.replace(/[^\d+]/g, '').trim();
+    const digits = cleaned.replace(/\D/g, '');
+    if (digits.length < 8 || digits.length > 15) {
+      onShowToast('أدخل رقم WhatsApp Messenger كامل بالرمز الدولي (مثال: 97339123456)');
+      return;
+    }
+    setBridgeSubmitting(true);
+    try {
+      const next = onConnectBridge
+        ? await onConnectBridge(cleaned)
+        : await orderiBridgeClient.connectWithPhoneNumber(cleaned);
+      if (next && 'pairingCode' in next && next.pairingCode) {
+        onShowToast(`تم استخراج رمز الربط: ${next.pairingCode}`);
+      } else {
+        onShowToast('جاري الاتصال بخادم واتساب واستخراج رمز الربط...');
+      }
+    } catch (err: any) {
+      onShowToast(err?.message || 'تعذر الاتصال بخادم WhatsApp Bridge');
+    } finally {
+      setBridgeSubmitting(false);
+    }
+  };
+
+  const handleCopyBridgeCode = async () => {
+    if (!effectiveBridgeStatus.pairingCode) return;
+    try {
+      await navigator.clipboard.writeText(effectiveBridgeStatus.pairingCode.replace(/-/g, ''));
+      setCopiedBridgeCode(true);
+      onShowToast('تم نسخ رمز الربط — افتح WhatsApp Messenger وأدخله الآن');
+      setTimeout(() => setCopiedBridgeCode(false), 2200);
+    } catch {
+      onShowToast('حدد الرمز وانسخه يدوياً');
+    }
+  };
+
+  const handleBridgeReconnect = async () => {
+    setBridgeSubmitting(true);
+    try {
+      if (onReconnectBridge) {
+        await onReconnectBridge();
+      } else {
+        await orderiBridgeClient.reconnect();
+      }
+      onShowToast('جاري إعادة الاتصال بجلسة WhatsApp Messenger...');
+    } catch (err: any) {
+      onShowToast(err?.message || 'تعذر إعادة الاتصال بالجلسة');
+    } finally {
+      setBridgeSubmitting(false);
+    }
+  };
+
+  const handleBridgeDisconnect = async () => {
+    setBridgeSubmitting(true);
+    try {
+      if (onDisconnectBridge) {
+        await onDisconnectBridge();
+      } else {
+        await orderiBridgeClient.disconnect(true);
+      }
+      onShowToast('تم فصل جلسة WhatsApp Messenger بأمان');
+    } catch (err: any) {
+      onShowToast(err?.message || 'تعذر فصل الجلسة');
+    } finally {
+      setBridgeSubmitting(false);
+    }
+  };
+
+  const bridgeStateLabel = (() => {
+    switch (effectiveBridgeStatus.state) {
+      case 'Connected':
+        return { text: 'متصل ومؤكد', tone: 'text-emerald-700 bg-emerald-50 border-emerald-200' };
+      case 'Waiting for Pairing':
+        return { text: 'أدخل الرمز في واتساب', tone: 'text-amber-900 bg-amber-50 border-amber-300' };
+      case 'Connecting':
+      case 'Reconnecting':
+        return { text: 'جاري الاتصال...', tone: 'text-blue-800 bg-blue-50 border-blue-200' };
+      case 'Session Expired':
+        return { text: 'انتهت الجلسة', tone: 'text-rose-800 bg-rose-50 border-rose-200' };
+      case 'Error':
+        return { text: 'تعذر الربط', tone: 'text-rose-800 bg-rose-50 border-rose-200' };
+      default:
+        return { text: 'غير متصل', tone: 'text-slate-700 bg-slate-100 border-slate-200' };
+    }
+  })();
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/75 animate-in fade-in duration-200"
       onClick={onClose}
     >
       <div
+        data-testid="whatsapp-autosync-modal"
         className="relative w-full sm:max-w-2xl bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92dvh] sm:max-h-[88vh] pb-safe overscroll-contain"
         dir="rtl"
         onClick={(e) => e.stopPropagation()}
@@ -558,18 +703,18 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
         <div className="flex items-center justify-between gap-3 px-4 py-3 sm:px-6 sm:py-4 bg-white border-b border-slate-200 shrink-0">
           <div className="flex items-center gap-3 min-w-0">
             <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200/80 flex items-center justify-center shrink-0">
-              <QrCode className="w-5 h-5" />
+              <Link2 className="w-5 h-5" />
             </div>
             <div className="min-w-0">
               <h3 className="text-base sm:text-lg font-black tracking-tight text-slate-900 truncate">
-                السحب التلقائي من واتساب
+                ربط WhatsApp Messenger
               </h3>
               <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500 font-medium mt-0.5">
                 <span className={isConnected ? 'text-emerald-700 font-bold' : 'text-amber-700 font-bold'}>
-                  {isConnected ? 'متصل ومفعّل' : 'جاهز للربط'}
+                  {isBridgeConnected ? 'جلسة واتساب متصلة' : isConnected ? 'مراقبة الإشعارات نشطة' : 'جاهز للربط الحقيقي'}
                 </span>
                 <span aria-hidden="true">·</span>
-                <span>واتساب العادي (Android)</span>
+                <span>واتساب العادي (نفس الهاتف)</span>
               </div>
             </div>
           </div>
@@ -585,53 +730,303 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
           </button>
         </div>
 
-        {/* 3-Column Segmented Tab Navigation (Always visible on mobile without scrolling) */}
-        <div className="px-4 py-2.5 sm:px-6 bg-slate-50 border-b border-slate-200 shrink-0">
-          <div className="grid grid-cols-3 gap-1 p-1 bg-slate-200/75 rounded-xl select-none">
+        {/* 4-Column Segmented Tab Navigation (Single-line labels fitting 360px+ without horizontal scroll) */}
+        <div className="px-3 py-2 sm:px-6 bg-slate-50 border-b border-slate-200 shrink-0">
+          <div className="grid grid-cols-4 gap-1 p-1 bg-slate-200/75 rounded-xl select-none" role="tablist">
             <button
               type="button"
+              role="tab"
+              aria-selected={activeTab === 'messenger'}
+              onClick={() => setActiveTab('messenger')}
+              className={`min-h-[44px] flex items-center justify-center gap-1 px-1 sm:px-2 rounded-lg text-[11px] sm:text-xs transition-all cursor-pointer ${
+                activeTab === 'messenger'
+                  ? 'bg-white text-emerald-800 font-black shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900 font-bold'
+              }`}
+            >
+              <KeyRound className="w-3.5 h-3.5 shrink-0 hidden sm:inline" />
+              <span className="whitespace-nowrap truncate">ربط مباشر</span>
+            </button>
+
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'listener'}
               onClick={() => setActiveTab('listener')}
-              className={`min-h-[44px] flex items-center justify-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 rounded-lg text-[11px] sm:text-xs transition-all cursor-pointer ${
+              className={`min-h-[44px] flex items-center justify-center gap-1 px-1 sm:px-2 rounded-lg text-[11px] sm:text-xs transition-all cursor-pointer ${
                 activeTab === 'listener'
                   ? 'bg-white text-emerald-800 font-black shadow-xs'
                   : 'text-slate-600 hover:text-slate-900 font-bold'
               }`}
             >
-              <Smartphone className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-              <span className="whitespace-nowrap">قارئ واتساب</span>
+              <Smartphone className="w-3.5 h-3.5 shrink-0 hidden sm:inline" />
+              <span className="whitespace-nowrap truncate">قارئ APK</span>
             </button>
 
             <button
               type="button"
+              role="tab"
+              aria-selected={activeTab === 'importer'}
               onClick={() => setActiveTab('importer')}
-              className={`min-h-[44px] flex items-center justify-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 rounded-lg text-[11px] sm:text-xs transition-all cursor-pointer ${
+              className={`min-h-[44px] flex items-center justify-center gap-1 px-1 sm:px-2 rounded-lg text-[11px] sm:text-xs transition-all cursor-pointer ${
                 activeTab === 'importer'
                   ? 'bg-white text-emerald-800 font-black shadow-xs'
                   : 'text-slate-600 hover:text-slate-900 font-bold'
               }`}
             >
-              <FileText className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-              <span className="whitespace-nowrap">استيراد .txt</span>
+              <FileText className="w-3.5 h-3.5 shrink-0 hidden sm:inline" />
+              <span className="whitespace-nowrap truncate">استيراد .txt</span>
             </button>
 
             <button
               type="button"
+              role="tab"
+              aria-selected={activeTab === 'webhook'}
               onClick={() => setActiveTab('webhook')}
-              className={`min-h-[44px] flex items-center justify-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 rounded-lg text-[11px] sm:text-xs transition-all cursor-pointer ${
+              className={`min-h-[44px] flex items-center justify-center gap-1 px-1 sm:px-2 rounded-lg text-[11px] sm:text-xs transition-all cursor-pointer ${
                 activeTab === 'webhook'
                   ? 'bg-white text-emerald-800 font-black shadow-xs'
                   : 'text-slate-600 hover:text-slate-900 font-bold'
               }`}
             >
-              <Zap className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-              <span className="whitespace-nowrap">الويب هوك</span>
+              <Zap className="w-3.5 h-3.5 shrink-0 hidden sm:inline" />
+              <span className="whitespace-nowrap truncate">الويب هوك</span>
             </button>
           </div>
         </div>
 
         {/* Modal Scrollable Body (Flattened hierarchy so mobile has full horizontal room) */}
         <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 space-y-4 text-slate-700 text-sm">
-          {/* TAB 1: Native Android Notification Listener Service */}
+          {/* TAB 1: Real WhatsApp Messenger Single-Phone Pairing Code Connection */}
+          {activeTab === 'messenger' && (
+            <div className="space-y-4" data-testid="modal-messenger-tab">
+              {/* Live Server Session Status Header */}
+              <section className="p-3.5 sm:p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <h4 className="text-sm font-black text-slate-900">
+                      ربط WhatsApp Messenger برمز Pairing Code
+                    </h4>
+                    <p className="text-xs text-slate-600 mt-0.5">
+                      اربط واتساب العادي على نفس الهاتف لاستقبال القروبات والرد بالخاص تلقائياً من الخادم
+                    </p>
+                  </div>
+                  <span
+                    data-testid="modal-bridge-state-badge"
+                    className={`px-2.5 py-1 rounded-xl border text-xs font-bold shrink-0 ${bridgeStateLabel.tone}`}
+                  >
+                    {bridgeStateLabel.text}
+                  </span>
+                </div>
+
+                {/* Error or Session Expired Alert */}
+                {(effectiveBridgeStatus.errorMessage ||
+                  effectiveBridgeStatus.state === 'Error' ||
+                  effectiveBridgeStatus.state === 'Session Expired') && (
+                  <div
+                    role="alert"
+                    data-testid="modal-bridge-error"
+                    className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 text-xs flex items-start gap-2"
+                  >
+                    <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                    <div className="space-y-0.5">
+                      <p className="font-bold">
+                        {effectiveBridgeStatus.errorMessage || 'تعذر الاتصال بخادم واتساب — أعد المحاولة.'}
+                      </p>
+                      {effectiveBridgeStatus.errorCode && (
+                        <p className="text-[11px] font-mono text-rose-700">Code: {effectiveBridgeStatus.errorCode}</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Phone Number Input Form */}
+                <form onSubmit={handleBridgePairSubmit} className="space-y-2.5">
+                  <label htmlFor="modal-messenger-phone" className="block text-xs font-bold text-slate-700">
+                    رقم حساب WhatsApp Messenger بالرمز الدولي (مثال: 97339123456)
+                  </label>
+                  <div className="flex flex-col sm:flex-row gap-2.5">
+                    <div className="relative flex-1 min-w-0">
+                      <Phone className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <input
+                        id="modal-messenger-phone"
+                        type="tel"
+                        dir="ltr"
+                        inputMode="tel"
+                        value={phoneNumberInput}
+                        onChange={(e) => setPhoneNumberInput(e.target.value)}
+                        placeholder="+973 3912 3456"
+                        className="w-full min-h-[46px] pr-10 pl-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-base sm:text-sm font-mono font-bold text-slate-900 text-left outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 tabular-nums"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={bridgeSubmitting || effectiveBridgeStatus.state === 'Connecting'}
+                      data-testid="modal-request-pairing-btn"
+                      className="w-full sm:w-auto min-h-[46px] px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white font-black text-xs sm:text-sm disabled:opacity-55 shadow-sm shrink-0 whitespace-nowrap cursor-pointer transition-all inline-flex items-center justify-center gap-2"
+                    >
+                      {bridgeSubmitting || effectiveBridgeStatus.state === 'Connecting' ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          <span>جاري استخراج الرمز...</span>
+                        </>
+                      ) : (
+                        <>
+                          <KeyRound className="w-4 h-4" />
+                          <span>استخراج رمز الربط</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
+
+                {/* Active 8-Char Pairing Code Display */}
+                {effectiveBridgeStatus.pairingCode && (
+                  <div
+                    data-testid="modal-pairing-code-card"
+                    className="p-3.5 sm:p-4 rounded-xl border-2 border-emerald-500 bg-emerald-50/80 space-y-3"
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                      <div>
+                        <p className="text-xs font-black text-emerald-950">رمز الربط (صالح 3 دقائق)</p>
+                        <p className="text-[11px] text-emerald-800">
+                          أدخل هذا الرمز في تطبيق WhatsApp Messenger على نفس هاتفك الآن
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span
+                          dir="ltr"
+                          data-testid="modal-pairing-code-value"
+                          className="px-3.5 py-2 rounded-xl bg-white border border-emerald-300 font-mono tabular-nums text-base sm:text-xl font-black tracking-[0.12em] text-slate-900 select-all whitespace-nowrap shrink-0"
+                        >
+                          {effectiveBridgeStatus.pairingCode}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => void handleCopyBridgeCode()}
+                          className="min-h-[44px] px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shrink-0"
+                        >
+                          {copiedBridgeCode ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                          <span>{copiedBridgeCode ? 'تم النسخ' : 'نسخ'}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <ol className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-xs text-emerald-950 pt-2.5 border-t border-emerald-200/80 leading-relaxed">
+                      <li>1. افتح تطبيق <strong>WhatsApp Messenger</strong> العادي.</li>
+                      <li>2. ادخل إلى: <strong>الإعدادات ← الأجهزة المرتبطة ← ربط جهاز</strong>.</li>
+                      <li>3. اضغط بالأسفل: <strong>الربط برقم الهاتف بدلاً من ذلك</strong>.</li>
+                      <li>4. اكتب الرمز أعلاه وانتظر تأكيد الاتصال تلقائياً.</li>
+                    </ol>
+                  </div>
+                )}
+
+                {/* Connected Session Telemetry & Management */}
+                {isBridgeConnected && (
+                  <div
+                    data-testid="modal-bridge-connected-card"
+                    className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 space-y-3"
+                  >
+                    <div className="flex items-center gap-2 text-emerald-900 text-xs sm:text-sm font-black">
+                      <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                      <span>
+                        متصل الآن بالرقم{' '}
+                        <span dir="ltr" className="font-mono tabular-nums underline">
+                          {effectiveBridgeStatus.phoneNumber || effectiveBridgeStatus.connectedJid || 'WhatsApp'}
+                        </span>
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 text-xs tabular-nums">
+                      <div className="p-2.5 rounded-lg bg-white border border-emerald-200/80">
+                        <span className="block text-[11px] text-slate-500">الاستقبال</span>
+                        <strong className="text-emerald-700 font-black flex items-center gap-1 mt-0.5">
+                          {effectiveBridgeStatus.messageIngestionActive ? (
+                            <>
+                              <Wifi className="w-3.5 h-3.5 shrink-0" />
+                              <span>نشط</span>
+                            </>
+                          ) : (
+                            <>
+                              <WifiOff className="w-3.5 h-3.5 shrink-0" />
+                              <span>متوقف</span>
+                            </>
+                          )}
+                        </strong>
+                      </div>
+                      <div className="p-2.5 rounded-lg bg-white border border-emerald-200/80">
+                        <span className="block text-[11px] text-slate-500">رسائل مستقبلة</span>
+                        <strong className="text-slate-900 font-mono font-black block mt-0.5">
+                          {effectiveBridgeStatus.receivedMessagesCount}
+                        </strong>
+                      </div>
+                      <div className="p-2.5 rounded-lg bg-white border border-emerald-200/80">
+                        <span className="block text-[11px] text-slate-500">ردود مرسلة</span>
+                        <strong className="text-slate-900 font-mono font-black block mt-0.5">
+                          {effectiveBridgeStatus.sentMessagesCount}
+                        </strong>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Reconnect / Disconnect / Full Bridge Console Actions */}
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  {effectiveBridgeStatus.state !== 'Disconnected' && (
+                    <>
+                      <button
+                        type="button"
+                        disabled={bridgeSubmitting || effectiveBridgeStatus.state === 'Connecting'}
+                        onClick={() => void handleBridgeReconnect()}
+                        className="flex-1 sm:flex-none min-h-[42px] px-3.5 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-slate-800 text-xs font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${bridgeSubmitting ? 'animate-spin' : ''}`} />
+                        <span>إعادة الاتصال</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={bridgeSubmitting}
+                        onClick={() => void handleBridgeDisconnect()}
+                        data-testid="modal-bridge-disconnect-btn"
+                        className="flex-1 sm:flex-none min-h-[42px] px-3.5 py-2 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      >
+                        <Unlink className="w-3.5 h-3.5" />
+                        <span>فصل الحساب</span>
+                      </button>
+                    </>
+                  )}
+
+                  {onOpenBridgeView && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        onOpenBridgeView();
+                      }}
+                      className="w-full sm:w-auto sm:mr-auto min-h-[42px] px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Link2 className="w-3.5 h-3.5" />
+                      <span>إعدادات Bridge المتقدمة</span>
+                    </button>
+                  )}
+                </div>
+              </section>
+
+              {/* Privacy & Security Notice (Plain concise summary) */}
+              <div className="p-3.5 rounded-2xl border border-slate-200 bg-white text-xs text-slate-600 space-y-1 leading-relaxed">
+                <div className="flex items-center gap-1.5 font-black text-slate-900">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>كيف يعمل الربط الآمن؟</span>
+                </div>
+                <p>
+                  يقرأ النظام طلبات قروبات التوصيل المشفرة (AES-256-GCM) فقط مع تجاهل جميع المحادثات الخاصة بين الأصدقاء تلقائياً، ويرسل القبول بالخاص للمعلن فقط عند ضغطك على قبول الطلب.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: Native Android Notification Listener Service */}
           {activeTab === 'listener' && (
             <div className="space-y-4">
               {/* Section 1: WhatsApp Phone Number Linking */}
@@ -1164,21 +1559,25 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
           <div className="flex items-center gap-2 min-w-0">
             <span
               className={`w-2.5 h-2.5 rounded-full shrink-0 ${
-                clientDiag.state === 'active_stream'
+                isBridgeConnected || clientDiag.state === 'active_stream'
                   ? 'bg-emerald-500'
+                  : effectiveBridgeStatus.state === 'Waiting for Pairing'
+                  ? 'bg-amber-500'
                   : clientDiag.state === 'ready_listening'
                   ? 'bg-blue-500'
-                  : 'bg-amber-500'
+                  : 'bg-slate-400'
               }`}
             />
             <span className="font-bold text-slate-700 text-xs leading-snug truncate">
-              {clientDiag.state === 'active_stream'
-                ? 'مراقبة WhatsApp العادي مفعّلة لحظياً'
+              {isBridgeConnected
+                ? 'WhatsApp Messenger متصل ومؤكد من الخادم'
+                : effectiveBridgeStatus.state === 'Waiting for Pairing'
+                ? 'بانتظار إدخال رمز الربط في تطبيق واتساب'
+                : clientDiag.state === 'active_stream'
+                ? 'مراقبة إشعارات WhatsApp مفعّلة لحظياً'
                 : clientDiag.state === 'ready_listening'
                 ? 'خدمة Android نشطة ومستعدة للاستقبال'
-                : clientDiag.state === 'permission_required'
-                ? 'صلاحية الإشعارات مطلوبة من إعدادات الهاتف'
-                : 'عميل Orderi جاهز للتفعيل'}
+                : 'أدخل رقمك واضغط استخراج رمز الربط للاتصال'}
             </span>
           </div>
 

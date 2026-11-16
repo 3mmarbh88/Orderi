@@ -166,9 +166,28 @@ async function requestPairingCodeSafely(
   } catch (err: any) {
     if (generation !== socketGeneration) return;
     pairingCodeRequestedForSocket = false;
+    const rawMsg = String(err?.message || '');
+    const statusCode = (err as Boom)?.output?.statusCode;
+    let friendlyError = `تعذر استخراج رمز الربط من واتساب: ${sanitizeForLog(rawMsg || 'خطأ غير متوقع')}`;
+    let errorCode = 'PAIRING_CODE_FAILED';
+
+    if (statusCode === 429 || /rate[-_\s]?overlimit|too many/i.test(rawMsg)) {
+      errorCode = 'PAIRING_RATE_LIMITED';
+      friendlyError =
+        'تم إرسال عدة طلبات ربط متتالية؛ يرجى الانتظار دقيقتين ثم إعادة المحاولة برمز ربط جديد.';
+    } else if (/not[-_\s]?authorized|401|403/i.test(rawMsg)) {
+      errorCode = 'PAIRING_REJECTED';
+      friendlyError =
+        'رفض خادم واتساب إنشاء رمز الربط للرقم المدخل — تأكد من إدخال الرقم الصحيح بالرمز الدولي (مثال: 97339123456).';
+    } else if (/timed?\s*out|etimedout/i.test(rawMsg)) {
+      errorCode = 'PAIRING_TIMEOUT';
+      friendlyError =
+        'انتهت مهلة الاتصال بخادم واتساب أثناء طلب رمز الربط — تحقق من الإنترنت وأعد المحاولة.';
+    }
+
     emitState('Error', {
-      errorCode: 'PAIRING_CODE_FAILED',
-      errorMessage: `تعذر استخراج رمز الربط من واتساب: ${sanitizeForLog(err?.message || 'خطأ غير متوقع')}`,
+      errorCode,
+      errorMessage: friendlyError,
     });
   }
 }
@@ -214,7 +233,7 @@ async function startSocketConnection(): Promise<void> {
       },
       logger: silentLogger,
       printQRInTerminal: false,
-      browser: Browsers.ubuntu('Orderi'),
+      browser: Browsers.macOS('Chrome'),
       syncFullHistory: false,
       markOnlineOnConnect: false,
       generateHighQualityLinkPreview: false,
@@ -273,6 +292,20 @@ async function startSocketConnection(): Promise<void> {
           errorCode: null,
           errorMessage: null,
         });
+
+        // Pre-warm group subject cache silently so the very first captured message displays the real Arabic group name
+        void sock
+          .groupFetchAllParticipating()
+          .then((groups) => {
+            if (!groups || typeof groups !== 'object') return;
+            for (const [jid, meta] of Object.entries(groups)) {
+              const subject = String((meta as any)?.subject || '').trim();
+              if (jid && subject) {
+                groupNameCache.set(jid, subject);
+              }
+            }
+          })
+          .catch(() => {});
       }
 
       if (connection === 'close') {

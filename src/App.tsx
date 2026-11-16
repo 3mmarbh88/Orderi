@@ -411,7 +411,7 @@ function OrderiApp({
   const [isBackgroundModalOpen, setIsBackgroundModalOpen] = useState(false);
   const [isAutoSyncModalOpen, setIsAutoSyncModalOpen] = useState(false);
   const [settingsInitialSection, setSettingsInitialSection] = useState<string | null>(null);
-  const [autoSyncInitialTab, setAutoSyncInitialTab] = useState<'listener' | 'webhook'>('listener');
+  const [autoSyncInitialTab, setAutoSyncInitialTab] = useState<'messenger' | 'listener' | 'importer' | 'webhook'>('messenger');
   const [isStreamConnected, setIsStreamConnected] = useState(false);
   const [isWhatsAppConnected, setIsWhatsAppConnected] = useState(false);
   const [bridgeStatus, setBridgeStatus] = useState<BridgeSessionStatus>(() => createInitialBridgeStatus());
@@ -2347,6 +2347,11 @@ function OrderiApp({
         setBridgeStatus(nextStatus);
         if (nextStatus.state === 'Connected') {
           setIsWhatsAppConnected(true);
+        } else if (nextStatus.state === 'Disconnected' || nextStatus.state === 'Session Expired') {
+          const nativeConn = getWhatsAppConnection();
+          setIsWhatsAppConnected(
+            Boolean(nativeConn?.status === 'connected' && nativeConn?.verificationSource === 'notification')
+          );
         }
       },
       onGroupMessage: (msg) => {
@@ -2354,7 +2359,7 @@ function OrderiApp({
       },
       onPrivateReply: handleBridgePrivateReply,
       onSessionExpired: () => {
-        showToast('⚠️ انتهت صلاحية جلسة WhatsApp Bridge — يرجى إعادة الربط من تبويب Bridge');
+        showToast('⚠️ انتهت صلاحية جلسة WhatsApp Messenger — يرجى إعادة الربط');
       },
     });
 
@@ -3706,7 +3711,7 @@ function OrderiApp({
         onTabChange={(tab) => setActiveTab(tab)}
         onOpenBackgroundModal={() => setIsBackgroundModalOpen(true)}
         onOpenAutoSyncModal={() => {
-          setAutoSyncInitialTab('listener');
+          setAutoSyncInitialTab('messenger');
           setIsAutoSyncModalOpen(true);
         }}
         onOpenDiscoveredGroupsModal={() => setIsDiscoveredGroupsModalOpen(true)}
@@ -3751,11 +3756,11 @@ function OrderiApp({
           onOpenBackgroundModal={() => setIsBackgroundModalOpen(true)}
           onRunInBackground={handleRunInBackground}
           onOpenAutoSyncModal={() => {
-            setAutoSyncInitialTab('listener');
+            setAutoSyncInitialTab('messenger');
             setIsAutoSyncModalOpen(true);
           }}
           isStreamConnected={isStreamConnected}
-          isWhatsAppConnected={isWhatsAppConnected}
+          isWhatsAppConnected={(isActivated && isWhatsAppConnected) || bridgeStatus.state === 'Connected'}
           onToggleIgnoreNonMatching={handleToggleIgnoreNonMatching}
           isCarTrackingActive={isCarTrackingActive}
           onToggleCarTracking={handleToggleCarTracking}
@@ -4261,6 +4266,28 @@ function OrderiApp({
           setActiveTab('settings');
         }}
         onOpenAPKModal={() => setIsAPKModalOpen(true)}
+        bridgeStatus={bridgeStatus}
+        onConnectBridge={async (phoneNumber) => {
+          const next = await orderiBridgeClient.connectWithPhoneNumber(phoneNumber);
+          setBridgeStatus(next);
+          return next;
+        }}
+        onReconnectBridge={async () => {
+          const next = await orderiBridgeClient.reconnect();
+          setBridgeStatus(next);
+          return next;
+        }}
+        onDisconnectBridge={async () => {
+          const next = await orderiBridgeClient.disconnect(true);
+          setBridgeStatus(next);
+          return next;
+        }}
+        onRefreshBridgeStatus={async () => {
+          const next = await orderiBridgeClient.refreshStatus();
+          setBridgeStatus(next);
+          return next;
+        }}
+        onOpenBridgeView={() => setActiveTab('bridge')}
         onSessionConnected={(sessionData, initialOrders) => {
           // Saving a phone number or enabling notification access is not a
           // verified message-receiving event. Only a session verified by an

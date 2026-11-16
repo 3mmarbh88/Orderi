@@ -51,12 +51,12 @@ const STATE_STYLES: Record<
   },
   Connecting: {
     badgeClass: 'bg-blue-50 text-blue-800 border-blue-300',
-    dotClass: 'bg-blue-500 animate-pulse',
+    dotClass: 'bg-blue-500',
     arLabel: 'جاري الاتصال وتجهيز الجلسة',
   },
   'Waiting for Pairing': {
     badgeClass: 'bg-amber-50 text-amber-900 border-amber-300',
-    dotClass: 'bg-amber-500 animate-ping',
+    dotClass: 'bg-amber-500',
     arLabel: 'بانتظار إدخال رمز الربط في واتساب',
   },
   Connected: {
@@ -66,7 +66,7 @@ const STATE_STYLES: Record<
   },
   Reconnecting: {
     badgeClass: 'bg-amber-50 text-amber-800 border-amber-300',
-    dotClass: 'bg-amber-500 animate-pulse',
+    dotClass: 'bg-amber-500',
     arLabel: 'إعادة الاتصال التلقائي جارية',
   },
   'Session Expired': {
@@ -376,11 +376,11 @@ export function WhatsAppBridgeView({
                   انسخ الرمز وأدخله في تطبيق WhatsApp Messenger على نفس هاتفك الآن
                 </p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 shrink-0">
                 <span
                   dir="ltr"
                   data-testid="bridge-pairing-code-value"
-                  className="px-4 py-2 rounded-xl bg-white border border-emerald-300 font-mono tabular-nums text-xl sm:text-2xl font-black tracking-[0.2em] text-slate-900 select-all"
+                  className="px-3.5 py-2 rounded-xl bg-white border border-emerald-300 font-mono tabular-nums text-base sm:text-2xl font-black tracking-[0.12em] text-slate-900 select-all whitespace-nowrap shrink-0"
                 >
                   {status.pairingCode}
                 </span>

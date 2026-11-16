@@ -4,14 +4,14 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
-import QRCode from "qrcode";
 import { parseWhatsAppOrderText, parseMultipleWhatsAppOrders } from "./src/utils/orderParser";
 import { checkIncomingMessageForClosure, extractClosureKeywords } from "./src/utils/orderClosureDetector";
 import { classifyAdvertiserPrivateReply } from "./src/utils/advertiserReplyClassifier";
 import { classifyPrivateWhatsAppMessage, registerKnownGroupAdvertiser } from "./src/utils/personalChatClassifier";
 import { checkOrRegisterDevice, activateDevice, resetDeviceTrial } from "./src/server/trialVault";
 import { WhatsAppBridgeSupervisor } from "./src/server/bridge/bridgeSupervisor";
-import { createBridgeRouter } from "./src/server/bridge/bridgeRouter";
+import { createBridgeRouter, extractBearerToken } from "./src/server/bridge/bridgeRouter";
+import { verifyBridgeToken } from "./src/server/bridge/whatsappBridgeCrypto";
 import { BridgeWsHub } from "./src/server/bridge/bridgeWsServer";
 
 dotenv.config();
@@ -55,15 +55,36 @@ const bridgeSupervisor = new WhatsAppBridgeSupervisor({
   events: {
     onStatusChange: (userId, status) => {
       bridgeWsHub?.broadcastStatus(userId, status);
+      if (status.state === "Connected") {
+        bridgeConnectedUsers.add(userId);
+        whatsAppSession.status = "connected";
+        whatsAppSession.connectedPhone = status.phoneNumber || status.connectedJid || null;
+        whatsAppSession.connectedAt = status.lastConnectedAt || new Date().toISOString();
+        whatsAppSession.lastSyncAt = new Date().toISOString();
+      } else {
+        bridgeConnectedUsers.delete(userId);
+        if (bridgeConnectedUsers.size === 0) {
+          whatsAppSession.status = status.state === "Connecting" || status.state === "Reconnecting" ? "connecting" : "disconnected";
+          whatsAppSession.connectedPhone = null;
+          whatsAppSession.connectedAt = null;
+        }
+      }
     },
     onGroupMessage: (userId, event) => {
       bridgeWsHub?.broadcastGroupMessage(userId, event);
+      whatsAppSession.totalOrdersCaptured += 1;
+      whatsAppSession.lastSyncAt = new Date().toISOString();
     },
     onPrivateReply: (userId, event) => {
       bridgeWsHub?.broadcastPrivateReply(userId, event);
     },
     onSessionExpired: (userId, reason) => {
       bridgeWsHub?.broadcastSessionExpired(userId, reason);
+      bridgeConnectedUsers.delete(userId);
+      if (bridgeConnectedUsers.size === 0) {
+        whatsAppSession.status = "disconnected";
+        whatsAppSession.connectedPhone = null;
+      }
     },
   },
 });
@@ -165,51 +186,29 @@ interface WhatsAppSessionState {
   listenerServiceActive: boolean;
 }
 
+const bridgeConnectedUsers = new Set<string>();
+
+function resolveAuthenticatedBridgeUserId(req: express.Request): string | null {
+  const token = extractBearerToken(req);
+  if (!token) return null;
+  const verified = verifyBridgeToken(token, bridgeSupervisor.masterSecret);
+  return verified.valid && verified.userId ? verified.userId : null;
+}
+
 const whatsAppSession: WhatsAppSessionState = {
   status: "disconnected",
   qrCodeDataUrl: "",
   pairingCode: "",
   connectedPhone: null,
   connectedAt: null,
-  deviceName: "Orderi Radar Gateway (Multi-Device)",
-  batteryLevel: 96,
-  groupsMonitoredCount: 18,
-  privateChatsMonitoredCount: 6,
+  deviceName: "Orderi WhatsApp Messenger Bridge",
+  batteryLevel: 0,
+  groupsMonitoredCount: 0,
+  privateChatsMonitoredCount: 0,
   totalOrdersCaptured: 0,
   lastSyncAt: null,
   listenerServiceActive: true,
 };
-
-// Generate QR code data URL for WhatsApp Web Session
-async function generateFreshQRCode(): Promise<string> {
-  const randomToken = Array.from({ length: 32 }, () =>
-    Math.floor(Math.random() * 36).toString(36)
-  ).join("");
-  const pairingStr = `2@ORD-RADAR-BH-${Date.now()}-${randomToken}`;
-  whatsAppSession.pairingCode = `ORD-973-${Math.floor(1000 + Math.random() * 9000)}`;
-
-  try {
-    const dataUrl = await QRCode.toDataURL(pairingStr, {
-      errorCorrectionLevel: "M",
-      margin: 2,
-      width: 320,
-      color: {
-        dark: "#000000",
-        light: "#ffffff",
-      },
-    });
-    whatsAppSession.qrCodeDataUrl = dataUrl;
-    return dataUrl;
-  } catch (err) {
-    console.error("QR Code generation error:", err);
-    return "";
-  }
-}
-
-// Pre-generate initial QR Code
-generateFreshQRCode().then(() => {
-  whatsAppSession.status = "qr_ready";
-});
 
 // Lazy initialization of Gemini client
 let genAIClient: GoogleGenAI | null = null;
@@ -1014,7 +1013,7 @@ app.post("/api/whatsapp/broadcast", (req, res) => {
   }
 });
 
-// 4c. Broadcast Replay / "تم" to WhatsApp Groups
+// 4c. Broadcast Replay / "تم" Log & Event Sync
 app.post("/api/whatsapp/broadcast-reply", (req, res) => {
   try {
     const { broadcastId, replyText, targetGroups = [], originalText = "" } = req.body || {};
@@ -1026,6 +1025,10 @@ app.post("/api/whatsapp/broadcast-reply", (req, res) => {
       });
     }
 
+    const authUserId = resolveAuthenticatedBridgeUserId(req);
+    const bridgeStatus = authUserId ? bridgeSupervisor.getStatus(authUserId) : null;
+    const isBridgeConnected = bridgeStatus?.state === "Connected";
+
     const payload = {
       type: "BROADCAST_REPLY_SENT",
       broadcastId: broadcastId || `bcast-reply-${Date.now()}`,
@@ -1033,7 +1036,7 @@ app.post("/api/whatsapp/broadcast-reply", (req, res) => {
       targetGroups: Array.isArray(targetGroups) ? targetGroups : [targetGroups],
       originalText,
       sentAt: new Date().toISOString(),
-      isGatewayConnected: whatsAppSession.status === "connected",
+      isGatewayConnected: isBridgeConnected,
       clientsNotified: sseClients.size,
     };
 
@@ -1046,13 +1049,14 @@ app.post("/api/whatsapp/broadcast-reply", (req, res) => {
       }
     });
 
-    console.log(`[Orderi Broadcast Replay] (تم) dispatched for broadcast "${broadcastId}" to groups: [${targetGroups.join(", ")}]`);
+    console.log(`[Orderi Broadcast Replay] (تم) logged for broadcast "${broadcastId}" to groups: [${targetGroups.join(", ")}] (bridgeConnected=${isBridgeConnected})`);
 
     return res.json({
       success: true,
-      message: whatsAppSession.status === "connected"
-        ? `تم إرسال رد (تم) عبر جلسة واتساب ويب إلى كافة القروبات (${targetGroups.length}) بنجاح!`
-        : `تم توثيق وتجهيز رد (تم) لنشره في كافة القروبات (${targetGroups.length}) بنجاح`,
+      dispatchedToWhatsApp: isBridgeConnected,
+      message: isBridgeConnected
+        ? `تم توثيق رد (تم) وجلسة واتساب متصلة لعدد (${targetGroups.length}) قروب`
+        : `تم حفظ ونسخ رد (تم) محلياً للقروبات (${targetGroups.length}) — الإرسال التلقائي داخل واتساب يتطلب تطبيق Android أو جلسة Bridge متصلة`,
       broadcastId,
       targetGroups,
       sentAt: payload.sentAt,
@@ -1214,24 +1218,64 @@ app.post("/api/orders/close", (req, res) => {
   }
 });
 
-// 4e. Instant Accept & Auto-Reply to WhatsApp Advertiser Without Redirection
-app.post("/api/whatsapp/quick-accept-reply", (req, res) => {
+// 4e. Instant Accept & Real Private Reply via Verified WhatsApp Bridge Session
+app.post("/api/whatsapp/quick-accept-reply", async (req, res) => {
   try {
-    const { orderId, phone, groupName, senderName, replyText, price, from, to } = req.body || {};
+    const {
+      orderId,
+      operationId,
+      targetJid,
+      phone,
+      groupName,
+      senderName,
+      replyText,
+      price,
+      from,
+      to,
+    } = req.body || {};
 
-    if (!replyText || typeof replyText !== "string") {
+    if (!replyText || typeof replyText !== "string" || !replyText.trim()) {
       return res.status(400).json({
         success: false,
+        errorCode: "EMPTY_MESSAGE",
         error: "نص الرد فارغ. يرجى توفير نص الرد.",
       });
     }
 
-    const cleanPhone = phone ? String(phone).replace(/[^\d+]/g, "") : "";
+    const authUserId = resolveAuthenticatedBridgeUserId(req);
+    if (!authUserId) {
+      return res.status(401).json({
+        success: false,
+        errorCode: "WHATSAPP_AUTH_REQUIRED",
+        error: "يرجى ربط جلسة WhatsApp Messenger الخاصة بك أولاً قبل الإرسال بالخاص.",
+        isGatewayConnected: false,
+      });
+    }
 
-    // Broadcast auto-reply event via SSE to all listening clients
+    const cleanPhone = phone ? String(phone).replace(/[^\d+]/g, "") : "";
+    const sendResult = await bridgeSupervisor.sendPrivateMessage(authUserId, {
+      orderId: String(orderId || `ord-${Date.now()}`),
+      operationId: String(operationId || `quick-${orderId || Date.now()}`),
+      targetJid: targetJid ? String(targetJid) : undefined,
+      senderPhone: cleanPhone || undefined,
+      originalSenderName: senderName ? String(senderName) : undefined,
+      message: replyText.trim(),
+    });
+
+    if (!sendResult.success || !sendResult.sentMessageId) {
+      return res.status(422).json({
+        success: false,
+        errorCode: sendResult.errorCode || "BRIDGE_SEND_FAILED",
+        error: sendResult.errorMessage || "تعذر إرسال الرسالة عبر WhatsApp Messenger.",
+        isGatewayConnected: bridgeSupervisor.getStatus(authUserId).state === "Connected",
+      });
+    }
+
     const payload = {
       type: "ORDER_AUTO_REPLIED",
       orderId,
+      sentMessageId: sendResult.sentMessageId,
+      targetJid: sendResult.targetJid,
       phone: cleanPhone,
       groupName: groupName || "WhatsApp",
       senderName: senderName || "التاجر",
@@ -1239,8 +1283,8 @@ app.post("/api/whatsapp/quick-accept-reply", (req, res) => {
       price: price || 0,
       from: from || "",
       to: to || "",
-      repliedAt: new Date().toISOString(),
-      isGatewayConnected: whatsAppSession.status === "connected",
+      repliedAt: sendResult.timestamp || new Date().toISOString(),
+      isGatewayConnected: true,
     };
 
     const sseEvent = `data: ${JSON.stringify(payload)}\n\n`;
@@ -1252,7 +1296,6 @@ app.post("/api/whatsapp/quick-accept-reply", (req, res) => {
       }
     });
 
-    // Record pending outreach to advertiser phone for monitoring subsequent private responses (تم/لك/عندك vs اخذوه/تكنسل)
     const digits = cleanPhone.replace(/\D/g, "");
     const last8 = digits.length >= 8 ? digits.slice(-8) : digits;
     if (last8) {
@@ -1268,14 +1311,14 @@ app.post("/api/whatsapp/quick-accept-reply", (req, res) => {
       });
     }
 
-    console.log(`[Orderi Auto-Reply] Quick auto-reply sent for order ${orderId} to ${cleanPhone || groupName || "chat"}: "${replyText.substring(0, 50)}..."`);
-
     return res.json({
       success: true,
-      message: "تم إرسال الرد التلقائي السريع في واتساب وتأكيد قبول الطلب فوراً ⚡",
+      sentMessageId: sendResult.sentMessageId,
+      targetJid: sendResult.targetJid,
+      message: "تم إرسال رسالة القبول الحقيقية عبر WhatsApp Messenger وتأكيد استلام خادم واتساب ✅",
       orderId,
       repliedAt: payload.repliedAt,
-      isGatewayConnected: whatsAppSession.status === "connected",
+      isGatewayConnected: true,
     });
   } catch (error: any) {
     console.error("Error in quick-accept-reply:", error);
@@ -1287,82 +1330,95 @@ app.post("/api/whatsapp/quick-accept-reply", (req, res) => {
 });
 
 // -------------------------------------------------------------
-// WhatsApp Web Gateway (QR Code Session) Endpoints
+// Genuine WhatsApp Messenger Session Status Endpoints (Zero Fake QR / Zero Simulated Pairing)
 // -------------------------------------------------------------
 
-// 6. Get Current WhatsApp Web Gateway Session
-app.get("/api/whatsapp/session", async (req, res) => {
-  if (!whatsAppSession.qrCodeDataUrl || whatsAppSession.status === "disconnected") {
-    await generateFreshQRCode();
-    whatsAppSession.status = whatsAppSession.connectedPhone ? "connected" : "qr_ready";
+// 6. Get Current Honest WhatsApp Session Status (Derived from BridgeSupervisor)
+app.get("/api/whatsapp/session", (req, res) => {
+  const authUserId = resolveAuthenticatedBridgeUserId(req);
+  if (authUserId) {
+    const bStatus = bridgeSupervisor.getStatus(authUserId);
+    const mappedStatus: WhatsAppSessionState["status"] =
+      bStatus.state === "Connected"
+        ? "connected"
+        : bStatus.state === "Connecting" || bStatus.state === "Reconnecting" || bStatus.state === "Waiting for Pairing"
+        ? "connecting"
+        : "disconnected";
+
+    return res.json({
+      success: true,
+      session: {
+        ...whatsAppSession,
+        status: mappedStatus,
+        qrCodeDataUrl: "",
+        pairingCode: bStatus.pairingCode || "",
+        connectedPhone: bStatus.phoneNumber || bStatus.connectedJid || null,
+        connectedAt: bStatus.lastConnectedAt,
+        lastSyncAt: bStatus.lastMessageAt || bStatus.lastConnectedAt,
+        bridgeState: bStatus.state,
+        liveClients: sseClients.size,
+        recentOrdersCount: recentWebhookOrders.length,
+      },
+    });
   }
-  res.json({
+
+  return res.json({
     success: true,
     session: {
       ...whatsAppSession,
+      status: bridgeConnectedUsers.size > 0 ? "connected" : "disconnected",
+      qrCodeDataUrl: "",
+      pairingCode: "",
+      bridgeState: bridgeConnectedUsers.size > 0 ? "Connected" : "Disconnected",
       liveClients: sseClients.size,
       recentOrdersCount: recentWebhookOrders.length,
     },
   });
 });
 
-// 7. Refresh QR Code
-app.post("/api/whatsapp/session/refresh-qr", async (req, res) => {
-  await generateFreshQRCode();
-  whatsAppSession.status = "qr_ready";
-  res.json({
-    success: true,
-    message: "تم توليد باركود ربط جديد بنجاح",
-    session: whatsAppSession,
+// 7. Legacy QR Refresh Disabled (Replaced by Real Pairing Code via /api/bridge/session/connect)
+app.post("/api/whatsapp/session/refresh-qr", (_req, res) => {
+  return res.status(410).json({
+    success: false,
+    errorCode: "SIMULATED_QR_DISABLED",
+    error: "تم إيقاف الباركود الوهمي؛ يتم الربط الحقيقي عبر رمز الربط (Pairing Code) من /api/bridge/session/connect.",
   });
 });
 
-// 8. Pair / Link WhatsApp Web Session (Simulate QR Scan from WhatsApp Linked Devices)
-app.post("/api/whatsapp/session/pair", (req, res) => {
-  const phone = req.body?.phoneNumber || "+973 3912 3456";
-  const device = req.body?.deviceName || "Orderi Radar Gateway (Multi-Device)";
-
-  whatsAppSession.status = "connected";
-  whatsAppSession.connectedPhone = phone;
-  whatsAppSession.connectedAt = new Date().toISOString();
-  whatsAppSession.deviceName = device;
-  whatsAppSession.lastSyncAt = new Date().toISOString();
-  whatsAppSession.batteryLevel = 100;
-  whatsAppSession.groupsMonitoredCount = 0;
-  whatsAppSession.privateChatsMonitoredCount = 0;
-
-  // Broadcast session status to all clients
-  const eventPayload = `data: ${JSON.stringify({ 
-    type: "SESSION_CONNECTED", 
-    session: whatsAppSession 
-  })}\n\n`;
-  sseClients.forEach((client) => {
-    try {
-      client.write(eventPayload);
-    } catch {
-      sseClients.delete(client);
-    }
-  });
-
-  res.json({
-    success: true,
-    message: "تم ربط جلسة واتساب بنجاح! الرادار الآن بانتظار استلام الطلبات الحقيقية من قروباتك.",
-    session: whatsAppSession,
-    initialOrders: [],
+// 8. Legacy Simulated Pair Disabled (Requires Real WhatsApp Messenger Verification)
+app.post("/api/whatsapp/session/pair", (_req, res) => {
+  return res.status(400).json({
+    success: false,
+    errorCode: "REAL_PAIRING_REQUIRED",
+    error: "تم إلغاء الربط الوهمي؛ يرجى استخدام رمز الربط الحقيقي (Pairing Code) عبر /api/bridge/session/connect وإدخاله داخل WhatsApp Messenger.",
+    session: {
+      ...whatsAppSession,
+      status: "disconnected",
+      qrCodeDataUrl: "",
+      pairingCode: "",
+    },
   });
 });
 
-// 9. Disconnect WhatsApp Web Session
+// 9. Disconnect WhatsApp Session Cleanly
 app.post("/api/whatsapp/session/disconnect", async (req, res) => {
-  whatsAppSession.status = "disconnected";
-  whatsAppSession.connectedPhone = null;
-  whatsAppSession.connectedAt = null;
-  await generateFreshQRCode();
-  whatsAppSession.status = "qr_ready";
+  const authUserId = resolveAuthenticatedBridgeUserId(req);
+  if (authUserId) {
+    await bridgeSupervisor.disconnect(authUserId, true);
+  } else {
+    whatsAppSession.status = "disconnected";
+    whatsAppSession.connectedPhone = null;
+    whatsAppSession.connectedAt = null;
+  }
 
-  const eventPayload = `data: ${JSON.stringify({ 
-    type: "SESSION_DISCONNECTED", 
-    session: whatsAppSession 
+  const eventPayload = `data: ${JSON.stringify({
+    type: "SESSION_DISCONNECTED",
+    session: {
+      ...whatsAppSession,
+      status: "disconnected",
+      qrCodeDataUrl: "",
+      pairingCode: "",
+    },
   })}\n\n`;
   sseClients.forEach((client) => {
     try {
@@ -1372,10 +1428,15 @@ app.post("/api/whatsapp/session/disconnect", async (req, res) => {
     }
   });
 
-  res.json({
+  return res.json({
     success: true,
-    message: "تم فصل جلسة واتساب ويب بنجاح. تم توليد باركود جديد للربط.",
-    session: whatsAppSession,
+    message: "تم فصل جلسة واتساب بنجاح.",
+    session: {
+      ...whatsAppSession,
+      status: "disconnected",
+      qrCodeDataUrl: "",
+      pairingCode: "",
+    },
   });
 });
 

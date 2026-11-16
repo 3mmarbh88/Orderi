@@ -583,52 +583,43 @@ export function Header({
           </div>
         </div>
 
-        {/* Mobile Secondary Action Toolbar (Row 2 on phone screen: Location, WhatsApp, Mark Read) */}
-        <div className="md:hidden border-t border-slate-200/80 bg-gradient-to-b from-slate-50/95 to-slate-100/80 backdrop-blur-md px-2.5 py-2 flex items-center gap-2 overflow-x-auto no-scrollbar shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]">
+        {/* Mobile Secondary Action Toolbar (Row 2 on phone screen: Location, WhatsApp, Mark Read, Commitments, Groups) */}
+        <div className="md:hidden border-t border-slate-200/80 bg-slate-50/95 px-2.5 py-2 flex flex-wrap items-stretch gap-1.5">
           {/* GPS Location & Live Vehicle Tracking */}
           <button
+            type="button"
             onClick={onRequestGps}
             title={isCarTrackingActive ? "تتبع حركة السيارة نشط: انقر لتحديث موقعك الآن عبر GPS" : "تحديد وتحديث موقعك الحالي عبر GPS"}
-            className={`h-8.5 flex items-center gap-1.5 px-2.5 rounded-xl text-xs font-bold border transition-all active:scale-95 cursor-pointer shrink-0 shadow-2xs ${
+            className={`flex-1 min-w-[calc(33.333%-0.25rem)] min-h-[42px] flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-xl text-[11px] font-bold border transition-all active:scale-95 cursor-pointer shadow-2xs ${
               isCarTrackingActive
-                ? 'bg-emerald-50 text-emerald-950 border-emerald-300 ring-1 ring-emerald-400/40'
+                ? 'bg-emerald-50 text-emerald-950 border-emerald-300 ring-1 ring-emerald-400/30'
                 : 'bg-white hover:bg-slate-50 text-slate-800 border-slate-200 hover:border-slate-300'
             }`}
           >
-            <div className="flex items-center justify-center">
-              {isCarTrackingActive ? (
-                <Car className="w-3.5 h-3.5 text-emerald-600 animate-pulse shrink-0" />
-              ) : (
-                <MapPin className={`w-3.5 h-3.5 shrink-0 ${isGpsLoading ? 'animate-bounce text-amber-600' : 'text-emerald-600'}`} />
-              )}
-            </div>
-            <span className="max-w-[85px] truncate font-medium">
-              {isGpsLoading ? 'جاري التحديد...' : (carSpeedKmh > 10 ? `${carSpeedKmh} كم/س` : driverLocation?.areaName || 'موقعي')}
-            </span>
-            {isCarTrackingActive && (
-              <span className="relative flex h-2 w-2 shrink-0">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-              </span>
+            {isCarTrackingActive ? (
+              <Car className="w-3.5 h-3.5 text-emerald-600 animate-pulse shrink-0" />
+            ) : (
+              <MapPin className={`w-3.5 h-3.5 shrink-0 ${isGpsLoading ? 'animate-bounce text-amber-600' : 'text-emerald-600'}`} />
             )}
+            <span className="truncate font-bold">
+              {isGpsLoading ? 'تحديد...' : (carSpeedKmh > 10 ? `${carSpeedKmh} كم/س` : driverLocation?.areaName || 'موقعي')}
+            </span>
           </button>
 
           {/* WhatsApp Auto-Sync */}
           {onOpenAutoSyncModal && (
             <button
+              type="button"
               onClick={onOpenAutoSyncModal}
               title="ربط واتساب وقراءة الإشعارات"
-              className={`h-8.5 flex items-center gap-1.5 px-2.5 rounded-xl text-xs font-bold border transition-all active:scale-95 cursor-pointer shrink-0 ${
+              className={`flex-1 min-w-[calc(33.333%-0.25rem)] min-h-[42px] flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-xl text-[11px] font-bold border transition-all active:scale-95 cursor-pointer shadow-2xs ${
                 isWhatsAppConnected
-                  ? 'bg-emerald-500/25 hover:bg-emerald-500/35 text-emerald-950 border-emerald-400/60 shadow-xs shadow-emerald-500/10 backdrop-blur-sm'
-                  : 'bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-950 border-emerald-400/50 shadow-2xs backdrop-blur-sm'
+                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600'
+                  : 'bg-white hover:bg-emerald-50 text-emerald-800 border-emerald-300'
               }`}
             >
               <QrCode className={`w-3.5 h-3.5 shrink-0 ${isWhatsAppConnected ? 'text-white' : 'text-emerald-600'}`} />
-              <span className="truncate">{isWhatsAppConnected ? 'واتساب متصل' : 'ربط واتساب'}</span>
-              {isWhatsAppConnected && (
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-200 animate-pulse shrink-0"></span>
-              )}
+              <span className="whitespace-nowrap truncate">{isWhatsAppConnected ? 'واتساب متصل' : 'ربط واتساب'}</span>
             </button>
           )}
 
@@ -639,32 +630,35 @@ export function Header({
               onClick={handleMarkReadClick}
               disabled={isMarkingInternal}
               title="تحديد الكل وقراءة جميع قروبات الواتساب بما فيها المؤرشفة"
-              className={`h-8.5 flex items-center gap-1.5 px-3 rounded-xl text-xs font-bold border transition-all active:scale-95 cursor-pointer shrink-0 ${
+              className={`flex-1 min-w-[calc(33.333%-0.25rem)] min-h-[42px] flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-xl text-[11px] font-bold border transition-all active:scale-95 cursor-pointer shadow-2xs ${
                 justMarked
-                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300 shadow-2xs'
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
                   : isMarkingInternal
-                  ? 'bg-teal-50 text-teal-800 border-teal-300 shadow-2xs opacity-80 cursor-wait'
-                  : 'bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white border-teal-600 shadow-xs shadow-teal-700/20'
+                  ? 'bg-slate-100 text-slate-600 border-slate-300 opacity-80 cursor-wait'
+                  : 'bg-slate-900 hover:bg-slate-800 text-white border-slate-900'
               }`}
             >
               {isMarkingInternal ? (
-                <RefreshCw className="w-3.5 h-3.5 text-teal-700 animate-spin shrink-0" />
+                <RefreshCw className="w-3.5 h-3.5 text-slate-600 animate-spin shrink-0" />
               ) : (
-                <CheckCheck className={`w-3.5 h-3.5 shrink-0 ${justMarked ? 'text-emerald-600' : 'text-teal-100'}`} />
+                <CheckCheck className={`w-3.5 h-3.5 shrink-0 ${justMarked ? 'text-emerald-600' : 'text-emerald-400'}`} />
               )}
-              <span className="shrink-0 font-extrabold">{isMarkingInternal ? 'جاري القراءة...' : justMarked ? 'مقروءة ✓✓' : 'قراءة الكل'}</span>
+              <span className="whitespace-nowrap truncate font-bold">
+                {isMarkingInternal ? 'جاري...' : justMarked ? 'مقروءة ✓' : 'قراءة الكل'}
+              </span>
             </button>
           )}
 
           {/* Commitments if any */}
           {onOpenCommitments && commitmentsCount > 0 && (
             <button
+              type="button"
               onClick={onOpenCommitments}
-              className="h-8.5 flex items-center gap-1.5 px-2.5 rounded-xl text-xs font-bold border border-indigo-200/90 bg-white hover:bg-indigo-50/60 text-indigo-950 shadow-2xs shrink-0 active:scale-95 cursor-pointer"
+              className="flex-1 min-w-[calc(50%-0.25rem)] min-h-[40px] flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-bold border border-indigo-200 bg-white hover:bg-indigo-50 text-indigo-950 shadow-2xs active:scale-95 cursor-pointer"
             >
               <CalendarDays className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-              <span>ارتباط</span>
-              <span className="px-1.5 py-0.2 text-[10px] rounded-full bg-indigo-600 text-white font-black">
+              <span>الالتزامات</span>
+              <span className="px-1.5 py-0.5 text-[10px] rounded-md bg-indigo-600 text-white font-black tabular-nums leading-none">
                 {commitmentsCount}
               </span>
             </button>
@@ -673,12 +667,13 @@ export function Header({
           {/* Discovered Groups if any */}
           {onOpenDiscoveredGroupsModal && newDiscoveredGroupsCount > 0 && (
             <button
+              type="button"
               onClick={onOpenDiscoveredGroupsModal}
-              className="h-8.5 flex items-center gap-1.5 px-2.5 rounded-xl text-xs font-bold border border-emerald-300 bg-white hover:bg-emerald-50/60 text-emerald-950 shadow-2xs shrink-0 active:scale-95 cursor-pointer"
+              className="flex-1 min-w-[calc(50%-0.25rem)] min-h-[40px] flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-bold border border-emerald-300 bg-white hover:bg-emerald-50 text-emerald-950 shadow-2xs active:scale-95 cursor-pointer"
             >
               <LinkIcon className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-              <span>قروبات</span>
-              <span className="px-1.5 py-0.2 text-[10px] rounded-full bg-emerald-600 text-white font-black">
+              <span>قروبات مكتشفة</span>
+              <span className="px-1.5 py-0.5 text-[10px] rounded-md bg-emerald-600 text-white font-black tabular-nums leading-none">
                 {newDiscoveredGroupsCount}
               </span>
             </button>

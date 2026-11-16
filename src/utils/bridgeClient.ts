@@ -175,6 +175,7 @@ class OrderiBridgeClient {
   private currentStatus: BridgeSessionStatus = createInitialBridgeStatus();
   private ws: WebSocket | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private transitionPollTimer: ReturnType<typeof setInterval> | null = null;
   private bridgeToken: string | null = null;
   private tokenUserId: string | null = null;
   private enabled = false;
@@ -200,11 +201,39 @@ class OrderiBridgeClient {
 
   private emitStatus(next: BridgeSessionStatus): void {
     this.currentStatus = next;
+    if (next.state !== 'Connecting' && next.state !== 'Reconnecting') {
+      this.stopTransitionPoll();
+    }
     for (const l of this.listeners) {
       try {
         l.onStatus?.(next);
       } catch {}
     }
+  }
+
+  private stopTransitionPoll(): void {
+    if (this.transitionPollTimer) {
+      clearInterval(this.transitionPollTimer);
+      this.transitionPollTimer = null;
+    }
+  }
+
+  private startTransitionPoll(): void {
+    this.stopTransitionPoll();
+    if (typeof window === 'undefined') return;
+    let ticks = 0;
+    this.transitionPollTimer = setInterval(() => {
+      ticks += 1;
+      if (
+        !this.enabled ||
+        ticks > 50 ||
+        (this.currentStatus.state !== 'Connecting' && this.currentStatus.state !== 'Reconnecting')
+      ) {
+        this.stopTransitionPoll();
+        return;
+      }
+      void this.refreshStatus();
+    }, 650);
   }
 
   private handleIncomingGroupMessage(msg: BridgeGroupMessagePayload): void {
@@ -346,20 +375,29 @@ class OrderiBridgeClient {
     }
     this.emitStatus(data.status);
     void this.syncAndConnectWs();
+    if (data.status.state === 'Connecting' || data.status.state === 'Reconnecting') {
+      this.startTransitionPoll();
+    }
     return data.status as BridgeSessionStatus;
   }
 
   public async reconnect(): Promise<BridgeSessionStatus> {
+    this.enabled = true;
     const resp = await this.authedFetch('/api/bridge/session/reconnect', { method: 'POST' });
     const data = await resp.json();
     if (data?.status) {
       this.emitStatus(data.status);
+      void this.syncAndConnectWs();
+      if (data.status.state === 'Connecting' || data.status.state === 'Reconnecting') {
+        this.startTransitionPoll();
+      }
       return data.status as BridgeSessionStatus;
     }
     return this.currentStatus;
   }
 
   public async disconnect(logout = true): Promise<BridgeSessionStatus> {
+    this.stopTransitionPoll();
     const resp = await this.authedFetch('/api/bridge/session/disconnect', {
       method: 'POST',
       body: JSON.stringify({ logout }),
@@ -439,6 +477,10 @@ class OrderiBridgeClient {
       const socket = new WebSocket(wsUrl);
       this.ws = socket;
 
+      socket.onopen = () => {
+        void this.refreshStatus();
+      };
+
       socket.onmessage = (ev) => {
         try {
           const msg = JSON.parse(String(ev.data || '{}'));
@@ -494,6 +536,7 @@ class OrderiBridgeClient {
   }
 
   private stopWebSocket(): void {
+    this.stopTransitionPoll();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;

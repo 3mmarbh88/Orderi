@@ -1,0 +1,10 @@
+{
+  "userId": "live-pairing-probe",
+  "phoneNumber": "97339123456",
+  "autoResume": false,
+  "lastConnectedAt": null,
+  "lastDisconnectedAt": null,
+  "lastMessageAt": null,
+  "receivedMessagesCount": 0,
+  "sentMessagesCount": 0
+}
