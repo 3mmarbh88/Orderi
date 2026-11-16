@@ -1,0 +1,28 @@
+name: WhatsApp Bridge Service
+
+on:
+  push:
+    branches:
+      - main
+      - fix/whatsapp-bridge-deployment-and-auth
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Build isolated Bridge service and Baileys worker
+        run: npm run build:bridge
+      - name: Run Bridge regression tests
+        run: npm run test:whatsapp-bridge
