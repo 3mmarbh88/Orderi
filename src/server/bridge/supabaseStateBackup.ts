@@ -12,20 +12,31 @@ const SNAPSHOT_CONTEXT = 'bridge-state-backup';
 const SNAPSHOT_OBJECT = 'bridge-state-v1.enc';
 
 function storageBaseUrl(supabaseUrl: string): string {
-  return `${supabaseUrl.replace(/\/+$/, '')}/storage/v1`;
+  return supabaseUrl.replace(/\/+$/, '') + '/storage/v1';
 }
 
 /**
- * Supabase publishable/secret API keys are not JWTs and must not be sent as
- * Authorization Bearer tokens. Legacy service_role keys are JWTs and still
- * require the Authorization header for Storage requests.
+ * API/Data endpoints use the API key in apikey. Legacy JWT keys also need
+ * their Bearer token; opaque sb_secret keys must not be treated as JWTs here.
  */
-export function storageAuthHeaders(apiKey: string): Record<string, string> {
+export function supabaseApiHeaders(apiKey: string): Record<string, string> {
   const headers: Record<string, string> = { apikey: apiKey };
   if (/^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(apiKey)) {
     headers.Authorization = `Bearer ${apiKey}`;
   }
   return headers;
+}
+
+/**
+ * Supabase Storage's backend StorageClient contract requires Authorization
+ * as well as apikey. For opaque secret keys Storage accepts the same key in
+ * this header; this mirrors the official @supabase/storage-js backend setup.
+ */
+export function storageAuthHeaders(apiKey: string): Record<string, string> {
+  return {
+    ...supabaseApiHeaders(apiKey),
+    Authorization: `Bearer ${apiKey}`,
+  };
 }
 
 function safeRelativePath(value: string): boolean {
@@ -67,7 +78,6 @@ function safeStorageError(message: string): string {
 }
 
 async function ensurePrivateBucket(baseUrl: string, headers: Record<string, string>, bucket: string): Promise<void> {
-  // Check first: an existing private bucket should not be recreated on every startup.
   const check = await fetch(`${baseUrl}/bucket/${encodeURIComponent(bucket)}`, { headers });
   if (check.ok) return;
   if (check.status !== 404) {
