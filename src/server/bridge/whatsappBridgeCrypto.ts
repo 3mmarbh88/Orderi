@@ -15,8 +15,12 @@ export function resolveBridgeMasterSecret(stateDir: string): string {
     process.env.BRIDGE_SESSION_SECRET ||
     ''
   ).trim();
-  if (envSecret.length >= 16) {
+  if (Buffer.byteLength(envSecret, 'utf8') >= 32) {
     return envSecret;
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('WHATSAPP_BRIDGE_SECRET must be configured with at least 32 bytes in production.');
   }
 
   fs.mkdirSync(stateDir, { recursive: true, mode: 0o700 });

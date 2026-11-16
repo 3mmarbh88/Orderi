@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: orderi-bridge
+    runtime: node
+    plan: starter
+    region: ohio
+    buildCommand: npm ci && npm run build:bridge
+    startCommand: npm run start:bridge
+    healthCheckPath: /api/bridge/health
+    disk:
+      name: orderi-bridge-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: WHATSAPP_BRIDGE_STATE_DIR
+        value: /var/data/whatsapp-bridge
+      - key: WHATSAPP_BRIDGE_SECRET
+        generateValue: true
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false
+      - key: BRIDGE_ALLOWED_ORIGINS
+        sync: false

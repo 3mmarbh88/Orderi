@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
+import express from 'express';
 
 import {
   decryptBridgePayload,
@@ -14,6 +15,7 @@ import {
   verifyBridgeToken,
 } from '../src/server/bridge/whatsappBridgeCrypto';
 import { useEncryptedAuthState } from '../src/server/bridge/encryptedAuthState';
+import { createBridgeRouter } from '../src/server/bridge/bridgeRouter';
 import {
   BridgeMessageDeduper,
   extractPhoneFromJid,
@@ -634,4 +636,65 @@ describe('Orderi Core Integration: Cross-Channel Dedup, Quoted Closure, & Privat
     assert.equal(result.sentMessageId, 'BAE5_ACK_55');
     assert.equal(capturedTarget, '97339112233@s.whatsapp.net');
   });
+});
+
+
+test('Bridge token issuance requires a verified Orderi session and rejects userId spoofing', async () => {
+  const secret = 'bridge-test-secret-with-at-least-32-bytes';
+  const supervisor = new WhatsAppBridgeSupervisor({
+    stateDir: createTempDir('orderi-bridge-auth-'),
+    masterSecret: secret,
+    workerFactory: () => {
+      throw new Error('Worker must not start during authentication test');
+    },
+  });
+  const app = express();
+  app.use(express.json());
+  app.use('/api/bridge', createBridgeRouter(supervisor, async (req) => {
+    return req.headers.authorization === 'Bearer valid-orderi-session'
+      ? 'captain-real'
+      : null;
+  }));
+  const server = app.listen(0);
+  await new Promise<void>((resolve) => server.once('listening', resolve));
+  const address = server.address();
+  assert.ok(address && typeof address === 'object');
+  const origin = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const unauthorized = await fetch(`${origin}/api/bridge/auth/session`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: 'captain-victim' }),
+    });
+    assert.equal(unauthorized.status, 401);
+
+    const spoofed = await fetch(`${origin}/api/bridge/auth/session`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer valid-orderi-session',
+      },
+      body: JSON.stringify({ userId: 'captain-victim' }),
+    });
+    assert.equal(spoofed.status, 403);
+
+    const accepted = await fetch(`${origin}/api/bridge/auth/session`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer valid-orderi-session',
+      },
+      body: JSON.stringify({ userId: 'captain-real' }),
+    });
+    assert.equal(accepted.status, 200);
+    const payload = await accepted.json() as { bridgeToken: string; userId: string };
+    assert.equal(payload.userId, 'captain-real');
+    assert.equal(verifyBridgeToken(payload.bridgeToken, secret).userId, 'captain-real');
+  } finally {
+    supervisor.shutdownAll();
+    await new Promise<void>((resolve, reject) => {
+      server.close((err) => err ? reject(err) : resolve());
+    });
+  }
 });

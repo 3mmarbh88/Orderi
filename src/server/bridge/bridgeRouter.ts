@@ -15,32 +15,56 @@ export function extractBearerToken(req: express.Request): string {
   return typeof alt === 'string' ? alt.trim() : '';
 }
 
-export function createBridgeRouter(supervisor: WhatsAppBridgeSupervisor): express.Router {
+export type OrderiSessionResolver = (req: express.Request) => Promise<string | null>;
+
+export function createBridgeRouter(
+  supervisor: WhatsAppBridgeSupervisor,
+  resolveOrderiSession?: OrderiSessionResolver
+): express.Router {
   const router = express.Router();
 
-  // Issue user-scoped signed Bridge session token so every session is strictly isolated per userId
-  router.post('/auth/session', (req, res) => {
+  // A Bridge token is issued only after validating the user's real Orderi session.
+  // Never trust a userId supplied by the client as proof of identity.
+  router.post('/auth/session', async (req, res) => {
     try {
-      const userId = String(req.body?.userId || '').trim();
-      if (!userId || userId.length < 3 || userId.length > 128) {
-        return res.status(400).json({
+      if (!resolveOrderiSession) {
+        return res.status(503).json({
           success: false,
-          error: 'معرف المستخدم (userId) مطلوب لعزل جلسة واتساب الخاصة بك.',
+          errorCode: 'ORDERI_AUTH_NOT_CONFIGURED',
+          error: 'التحقق من جلسة حساب Orderi غير مهيأ على خدمة الربط.',
         });
       }
 
-      const bridgeToken = signBridgeToken(userId, supervisor.masterSecret);
-      const status = supervisor.getStatus(userId);
+      const authenticatedUserId = await resolveOrderiSession(req);
+      if (!authenticatedUserId) {
+        return res.status(401).json({
+          success: false,
+          errorCode: 'ORDERI_AUTH_REQUIRED',
+          error: 'يرجى تسجيل الدخول إلى حساب Orderi أولاً.',
+        });
+      }
+
+      const requestedUserId = String(req.body?.userId || '').trim();
+      if (requestedUserId && requestedUserId !== authenticatedUserId) {
+        return res.status(403).json({
+          success: false,
+          errorCode: 'ORDERI_USER_MISMATCH',
+          error: 'معرف المستخدم لا يطابق حساب Orderi المسجل.',
+        });
+      }
+
+      const bridgeToken = signBridgeToken(authenticatedUserId, supervisor.masterSecret);
+      const status = supervisor.getStatus(authenticatedUserId);
       return res.json({
         success: true,
         bridgeToken,
-        userId,
+        userId: authenticatedUserId,
         status,
       });
     } catch {
       return res.status(500).json({
         success: false,
-        error: 'تعذر إصدار جلسة المصادقة الخاصة بـ WhatsApp Bridge.',
+        error: 'تعذر التحقق من جلسة Orderi وإصدار جلسة WhatsApp Bridge.',
       });
     }
   });
