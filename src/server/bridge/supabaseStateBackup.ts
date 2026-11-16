@@ -12,7 +12,7 @@ const SNAPSHOT_CONTEXT = 'bridge-state-backup';
 const SNAPSHOT_OBJECT = 'bridge-state-v1.enc';
 
 function storageBaseUrl(supabaseUrl: string): string {
-  return `${supabaseUrl.replace(/\\/+$/, '')}/storage/v1`;
+  return \`${supabaseUrl}.replace(/\/+$/, '')}/storage/v1\`;
 }
 
 /**
@@ -21,7 +21,7 @@ function storageBaseUrl(supabaseUrl: string): string {
  */
 export function supabaseApiHeaders(apiKey: string): Record<string, string> {
   const headers: Record<string, string> = { apikey: apiKey };
-  if (/^eyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$/.test(apiKey)) {
+  if (/^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(apiKey)) {
     headers.Authorization = `Bearer ${apiKey}`;
   }
   return headers;
@@ -41,7 +41,7 @@ export function storageAuthHeaders(apiKey: string): Record<string, string> {
 
 function safeRelativePath(value: string): boolean {
   if (!value || path.isAbsolute(value)) return false;
-  const normalized = path.posix.normalize(value.replace(/\\\\/g, '/'));
+  const normalized = path.posix.normalize(value.replace(/\\/g, '/'));
   return normalized !== '..' && !normalized.startsWith('../') && !normalized.includes('/../');
 }
 
@@ -72,8 +72,8 @@ async function collectFiles(root: string): Promise<Record<string, string>> {
 
 function safeStorageError(message: string): string {
   return message
-    .replace(/Bearer\\s+[^\\s"'\\x60]+/gi, 'Bearer [REDACTED]')
-    .replace(/\\b(?:sb_secret_[A-Za-z0-9_-]+|eyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+)\\b/g, '[REDACTED]')
+    .replace(/Bearer\s+[^\s"'\x60]+/gi, 'Bearer [REDACTED]')
+    .replace(/\b(?:sb_secret_[A-Za-z0-9_-]+|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)\b/g, '[REDACTED]')
     .slice(0, 1000);
 }
 
