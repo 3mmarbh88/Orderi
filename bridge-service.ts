@@ -13,6 +13,7 @@ async function startBridgeService(): Promise<void> {
   const port = Number(process.env.PORT || 10000);
   const encryptionSecret = process.env.WHATSAPP_BRIDGE_SECRET || '';
   const supabaseSecret = process.env.SUPABASE_SECRET_KEY || '';
+  const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
   const supabaseUrl = (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
   const stateDir = process.env.WHATSAPP_BRIDGE_STATE_DIR || '/tmp/whatsapp-bridge';
   const bucket = process.env.WHATSAPP_BRIDGE_STORAGE_BUCKET || 'orderi-bridge-state';
@@ -28,6 +29,7 @@ async function startBridgeService(): Promise<void> {
     stateDir,
     supabaseUrl,
     supabaseSecretKey: supabaseSecret,
+    supabaseServiceRoleKey,
     encryptionSecret,
     bucket,
   });
@@ -150,6 +152,7 @@ async function startBridgeService(): Promise<void> {
     stateDir,
     supabaseUrl,
     supabaseSecretKey: supabaseSecret,
+    supabaseServiceRoleKey,
     encryptionSecret,
     bucket,
     intervalMs: 15_000,
