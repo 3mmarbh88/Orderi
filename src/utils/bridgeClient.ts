@@ -120,13 +120,13 @@ export function resolveBridgeApiOrigin(): string {
   try {
     const customOverride = localStorage.getItem(STORAGE_SERVER_OVERRIDE_KEY)?.trim();
     if (customOverride) {
-      return customOverride.replace(/\\/+$/, '');
+      return customOverride.replace(/\/+$/, '');
     }
   } catch {}
 
   const envUrl = ((import.meta as any)?.env?.VITE_WHATSAPP_BRIDGE_URL || '').trim();
   if (envUrl) {
-    return envUrl.replace(/\\/+$/, '');
+      return envUrl.replace(/\/+$/, '');
   }
 
   // WhatsApp Bridge is deployed independently from the Orderi account/API server.
