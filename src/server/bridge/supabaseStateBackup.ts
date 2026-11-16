@@ -39,9 +39,9 @@ export function supabaseApiHeaders(apiKey: string): Record<string, string> {
  */
 export function storageAuthHeaders(apiKey: string, serviceRoleJwt?: string): Record<string, string> {
   const bearerToken = serviceRoleJwt || (
-    /^eyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$/.test(apiKey) ? apiKey : ''
+    /^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(apiKey) ? apiKey : ''
   );
-  if (!/^eyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$/.test(bearerToken)) {
+  if (!/^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(bearerToken)) {
     throw new Error(
       'SUPABASE_SERVICE_ROLE_KEY must be a legacy service_role JWT when SUPABASE_SECRET_KEY is an sb_secret key.'
     );
@@ -169,6 +169,7 @@ export function startBridgeStateBackup(options: {
   stateDir: string;
   supabaseUrl: string;
   supabaseSecretKey: string;
+  supabaseServiceRoleKey?: string;
   encryptionSecret: string;
   bucket?: string;
   intervalMs?: number;
