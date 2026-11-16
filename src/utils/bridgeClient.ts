@@ -155,7 +155,6 @@ export function getBridgeServerUrlOverride(): string {
 export function resolveBridgeUserId(): string {
   const user = getCurrentUser();
   if (user?.id) return String(user.id);
-  if (user?.phone) return `captain_${user.phone}`;
   return '';
 }
 
