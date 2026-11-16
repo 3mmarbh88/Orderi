@@ -140,7 +140,12 @@ export async function restoreBridgeStateFromSupabase(options: {
   );
   if (response.status === 404) return { restored: false, fileCount: 0 };
   if (!response.ok) {
-    throw new Error(`Supabase Bridge state restore failed (HTTP ${response.status}).`);
+    const message = safeStorageError(
+      await response.text().catch(() => '')
+    );
+    throw new Error(
+      `Supabase Bridge state restore failed (HTTP ${response.status})${message ? `: ${message}` : '.'}`
+    );
   }
 
   const envelope = await response.text();
