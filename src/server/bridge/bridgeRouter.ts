@@ -101,7 +101,9 @@ export function createBridgeRouter(
 
   router.post('/session/connect', requireBridgeAuth, (req: AuthenticatedBridgeRequest, res) => {
     const phoneNumber = String(req.body?.phoneNumber || '').trim();
+    console.info('[Orderi Bridge] Pairing request received.');
     const status = supervisor.startPairing(req.bridgeUserId!, phoneNumber);
+    console.info(`[Orderi Bridge] Pairing request accepted; initial state=${status.state}; errorCode=${status.errorCode || 'none'}.`);
     return res.json({ success: true, status });
   });
 
