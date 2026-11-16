@@ -6,7 +6,7 @@ import { BridgeWsHub } from './src/server/bridge/bridgeWsServer';
 
 const app = express();
 const port = Number(process.env.PORT || 10000);
-const supabaseUrl = (process.env.SUPABASE_URL || '').replace(/\\/+$/, '');
+const supabaseUrl = (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
 const supabaseSecret = process.env.SUPABASE_SECRET_KEY || '';
 const stateDir = process.env.WHATSAPP_BRIDGE_STATE_DIR || '/var/data/whatsapp-bridge';
 
