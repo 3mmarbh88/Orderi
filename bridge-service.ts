@@ -10,6 +10,7 @@ import {
 
 async function startBridgeService(): Promise<void> {
   const port = Number(process.env.PORT || 10000);
+  const encryptionSecret = process.env.WHATSAPP_BRIDGE_SECRET || '';
   const supabaseSecret = process.env.SUPABASE_SECRET_KEY || '';
   const supabaseUrl = (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
   const stateDir = process.env.WHATSAPP_BRIDGE_STATE_DIR || '/tmp/whatsapp-bridge';
