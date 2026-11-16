@@ -43,6 +43,7 @@ interface AdvertiserOutreachModalProps {
     confirmedPhone: string | null,
     message?: string,
     deliveryMethod?:
+      | 'whatsapp_web_bridge'
       | 'notification_remote_input'
       | 'accessibility_reply_privately'
       | 'accessibility_member_click'

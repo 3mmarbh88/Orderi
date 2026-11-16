@@ -95,6 +95,8 @@ export interface OrderFilter {
   useLocalAi?: boolean;              // تفعيل الذكاء الاصطناعي المحلي (Gemma 3 1B)
   useCloudAiFallback?: boolean;      // تفعيل الذكاء الاصطناعي السحابي عند الحاجة (Cloud AI Fallback)
   localAiConfig?: LocalAIModelConfig;
+  whatsAppBridgeEnabled?: boolean;   // تفعيل قناة WhatsApp Web Bridge الإضافية
+  preferBridgeOutreach?: boolean;    // تفضيل الإرسال الخاص عبر Bridge عند اتصاله
 }
 
 export interface LocalAIModelConfig {
@@ -201,7 +203,11 @@ export interface ParsedOrder {
   ratePerKm?: number;
   contactStatus?: 'vip' | 'blacklist' | 'normal';
   matchedContact?: StoreContact;
-  source?: 'webhook_auto' | 'whatsapp_web_session' | 'manual' | 'voice' | 'android_notification';
+  source?: 'webhook_auto' | 'whatsapp_web_session' | 'whatsapp_web_bridge' | 'manual' | 'voice' | 'android_notification';
+  bridgeGroupJid?: string;
+  bridgeParticipantJid?: string;
+  bridgeMessageId?: string;
+  bridgeQuotedStanzaId?: string;
   isDirectPrivate?: boolean;
   aiTierUsed?: 'local_ai' | 'cloud_ai' | 'fast_heuristic' | 'hybrid';
   aiAnalysis?: AIMatchAnalysis;
@@ -265,8 +271,10 @@ export interface OutreachAttemptDetails {
   attemptedAt: string;
   message: string;
   reasonCode?: string;
-  packageName?: 'com.whatsapp';
+  packageName?: 'com.whatsapp' | 'whatsapp_web_bridge';
+  sentMessageId?: string;
   deliveryMethod:
+    | 'whatsapp_web_bridge'
     | 'notification_remote_input'
     | 'accessibility_reply_privately'
     | 'accessibility_member_click'

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && esbuild src/server/bridge/bridgeWorkerEntry.ts --bundle --platform=node --format=esm --packages=external --sourcemap --outfile=dist/bridge-worker.mjs",
     "start": "node dist/server.cjs",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
@@ -20,7 +20,8 @@
     "test:advertiser-outreach": "tsx test/advertiserOutreach.test.ts",
     "test:order-closure": "tsx test/orderClosureSync.test.ts",
     "test:original-locator": "tsx test/originalMessageSenderLocator.test.ts",
-    "test:execution-engine": "tsx test/whatsAppExecutionEngine.test.ts"
+    "test:execution-engine": "tsx test/whatsAppExecutionEngine.test.ts",
+    "test:whatsapp-bridge": "tsx --test test/whatsapp-bridge.test.ts"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.2",
@@ -30,8 +31,11 @@
     "@capacitor/geolocation": "^8.2.2",
     "@capacitor/haptics": "^8.0.2",
     "@google/genai": "^2.4.0",
+    "@hapi/boom": "^10.0.1",
     "@tailwindcss/vite": "^4.1.14",
+    "@types/ws": "^8.18.2",
     "@vitejs/plugin-react": "^5.0.4",
+    "@whiskeysockets/baileys": "^7.0.0-rc14",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
     "lucide-react": "^0.546.0",
@@ -39,7 +43,8 @@
     "qrcode": "^1.5.4",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
-    "vite": "^6.2.3"
+    "vite": "^6.2.3",
+    "ws": "^8.23.0"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",

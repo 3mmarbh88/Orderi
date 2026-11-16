@@ -280,9 +280,12 @@ export function checkIncomingMessageForClosure(
     text: string;
     senderName?: string;
     senderPhone?: string;
+    senderJid?: string;
     groupName?: string;
+    groupJid?: string;
     timestamp?: Date | number;
     rawQuotedText?: string;
+    quotedStanzaId?: string;
     messageId?: string;
     isGroup?: boolean;
     isDirectPrivate?: boolean;
@@ -340,12 +343,13 @@ export function checkIncomingMessageForClosure(
   const candidateOrders = activeOrders.filter((order) => {
     if (order.status === 'accepted' || order.status === 'closed_taken') return false;
 
-    // التأكد من تطابق المجموعة
-    const inSameGroup = 
+    // التأكد من تطابق المجموعة (عبر JID الدقيق أو الاسم المنظف)
+    const inSameGroup =
+      (message.groupJid && order.bridgeGroupJid && message.groupJid === order.bridgeGroupJid) ||
       (msgGroup && order.groupName && cleanSenderText(order.groupName) === cleanSenderText(msgGroup)) ||
       (order.crossPostedGroups && order.crossPostedGroups.some((g) => cleanSenderText(g) === cleanSenderText(msgGroup)));
 
-    if (!msgGroup || !inSameGroup) return false;
+    if ((!msgGroup && !message.groupJid) || !inSameGroup) return false;
 
     // لا نضع حداً زمنياً ثابتاً: قد يتأخر المعلن في كتابة «تم».
     // لا نقبل الرسائل السابقة للإعلان أو الطلبات ذات الطابع الزمني غير الصالح.
@@ -355,8 +359,19 @@ export function checkIncomingMessageForClosure(
 
   if (candidateOrders.length === 0) return null;
 
+  const doesMessageMatchAdvertiser = (order: ParsedOrder): boolean => {
+    if (
+      message.senderJid &&
+      order.bridgeParticipantJid &&
+      message.senderJid.split(':')[0] === order.bridgeParticipantJid.split(':')[0]
+    ) {
+      return true;
+    }
+    return isAdvertiserSenderMatch(msgSender, msgPhone, order.senderName, order.senderPhone, order.rawText);
+  };
+
   // =========================================================================
-  // المسار الأول: ريبلي / رد صريح على الطلب (Quoted Reply)
+  // المسار الأول: ريبلي / رد صريح على الطلب (Quoted Reply via stanzaId or text)
   // المعلن عمل ريبلي على رسالة طلبه وكتب تم/حصلت أو أرسل ملصق/استيكر
   // =========================================================================
   for (const order of candidateOrders) {
@@ -365,6 +380,12 @@ export function checkIncomingMessageForClosure(
     const fromMention = order.from && cleanMsg.includes(cleanDialectText(order.from));
     const toMention = order.to && cleanMsg.includes(cleanDialectText(order.to));
     const priceMention = order.price && order.price > 0 && cleanMsg.includes(order.price.toString());
+
+    const stanzaMatchesOrder = Boolean(
+      message.quotedStanzaId &&
+        ((order.bridgeMessageId && message.quotedStanzaId === order.bridgeMessageId) ||
+          (order.sourceMessageId && order.sourceMessageId === message.quotedStanzaId))
+    );
 
     const rawQuoteClean = message.rawQuotedText ? cleanDialectText(message.rawQuotedText) : '';
     const rawOrderClean = cleanDialectText(order.rawText);
@@ -385,7 +406,7 @@ export function checkIncomingMessageForClosure(
             (candidateRaw.length >= 8 && rawQuoteClean.includes(candidateRaw.slice(0, 25)));
         }).length
       : 0;
-    const quoteMatchesUniqueOrder = quoteMatchesOrder && quoteMatchCount === 1;
+    const quoteMatchesUniqueOrder = stanzaMatchesOrder || (quoteMatchesOrder && quoteMatchCount === 1);
     const isQuoted =
       quoteMatchesUniqueOrder ||
       (candidateOrders.length === 1 && (
@@ -394,7 +415,7 @@ export function checkIncomingMessageForClosure(
         ((fromMention && toMention) || (fromMention && priceMention) || (toMention && priceMention))
       ));
 
-    const isSenderMatch = isAdvertiserSenderMatch(msgSender, msgPhone, order.senderName, order.senderPhone, order.rawText);
+    const isSenderMatch = doesMessageMatchAdvertiser(order);
 
     // In multi-order groups, only a quote that uniquely identifies one original
     // message may select a target; route/name overlap is not sufficient.
@@ -426,9 +447,7 @@ export function checkIncomingMessageForClosure(
   // يكتب معلن 1 (أو يرسل استيكر/ملصق) "تم" أو "حصلت" ➔ يُحذف طلب معلن 1 فقط!
   // ويبقى طلب معلن 2 ومعلن 3 نشطين بالرادار دون أي تأثير!
   // =========================================================================
-  const matchingAdvertiserOrders = candidateOrders.filter((order) =>
-    isAdvertiserSenderMatch(msgSender, msgPhone, order.senderName, order.senderPhone, order.rawText)
-  );
+  const matchingAdvertiserOrders = candidateOrders.filter((order) => doesMessageMatchAdvertiser(order));
 
   // A non-reply message can close an order only when exactly one active
   // order belongs to this verified advertiser in this exact group/time window.
@@ -504,9 +523,12 @@ export async function checkIncomingMessageForClosureWithAI(
     text: string;
     senderName?: string;
     senderPhone?: string;
+    senderJid?: string;
     groupName?: string;
+    groupJid?: string;
     timestamp?: Date | number;
     rawQuotedText?: string;
+    quotedStanzaId?: string;
     messageId?: string;
     isGroup?: boolean;
     isDirectPrivate?: boolean;
@@ -528,10 +550,18 @@ export async function checkIncomingMessageForClosureWithAI(
   // فحص الطلبات التي تعود لنفس المعلن ونفس القروب
   const advertiserOrders = activeOrders.filter((order) => {
     if (order.status === 'accepted' || order.status === 'closed_taken') return false;
-    const inSameGroup = 
+    const inSameGroup =
+      (message.groupJid && order.bridgeGroupJid && message.groupJid === order.bridgeGroupJid) ||
       (msgGroup && order.groupName && cleanSenderText(order.groupName) === cleanSenderText(msgGroup)) ||
       (order.crossPostedGroups && order.crossPostedGroups.some((g) => cleanSenderText(g) === cleanSenderText(msgGroup)));
-    if (!msgGroup || !inSameGroup) return false;
+    if ((!msgGroup && !message.groupJid) || !inSameGroup) return false;
+    if (
+      message.senderJid &&
+      order.bridgeParticipantJid &&
+      message.senderJid.split(':')[0] === order.bridgeParticipantJid.split(':')[0]
+    ) {
+      return true;
+    }
     return isAdvertiserSenderMatch(msgSender, msgPhone, order.senderName, order.senderPhone, order.rawText);
   });
 

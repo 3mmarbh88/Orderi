@@ -1,36 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
-import QRCode from 'qrcode';
 import {
   X,
   Zap,
-  Radio,
   Copy,
   Check,
   Smartphone,
   CheckCircle2,
-  AlertCircle,
   RefreshCw,
   Sparkles,
   QrCode,
   ShieldCheck,
-  Wifi,
-  Power,
-  Phone,
-  ArrowRight,
-  ExternalLink,
-  ChevronRight,
-  Clock,
-  MapPin,
-  TrendingUp,
-  Users,
-  Trash2,
-  Plus,
   CheckCheck,
   HelpCircle,
   ChevronDown,
   ChevronUp,
-  Bell,
-  Settings as SettingsIcon,
   AlertTriangle,
   UploadCloud,
   FileText,
@@ -554,650 +537,655 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
   };
 
   const isConnected = savedConnection?.status === 'connected' || session?.status === 'connected';
-  const showConnectedScreen = isConnected;
+  const activeGroups = savedConnection?.groups || internalMyGroups;
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/75 backdrop-blur-sm animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200"
       onClick={onClose}
     >
       <div
-        className="relative w-full max-w-2xl bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-200/90 overflow-hidden flex flex-col max-h-[94vh] pb-safe"
+        className="relative w-full sm:max-w-2xl bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92dvh] sm:max-h-[88vh] pb-safe overscroll-contain"
         dir="rtl"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Mobile Sheet Drag Handle */}
-        <div className="sm:hidden w-10 h-1.5 bg-slate-300 rounded-full mx-auto mt-2 -mb-1" />
+        {/* Mobile Sheet Grab Handle */}
+        <div className="sm:hidden flex justify-center pt-2.5 pb-1 bg-white shrink-0">
+          <span className="w-10 h-1 bg-slate-300 rounded-full" />
+        </div>
 
-        {/* Header with WhatsApp Emerald Branding */}
-        <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 sm:py-4.5 bg-gradient-to-r from-emerald-700 via-emerald-800 to-teal-900 text-white shadow-md">
-          <div className="flex items-center gap-2.5 sm:gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-white/15 backdrop-blur-md flex items-center justify-center border border-white/20 shadow-inner shrink-0">
-              <QrCode className="w-5 h-5 text-emerald-200" />
+        {/* Clean High-Contrast Modal Header */}
+        <div className="flex items-center justify-between gap-3 px-4 py-3 sm:px-6 sm:py-4 bg-white border-b border-slate-200 shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200/80 flex items-center justify-center shrink-0">
+              <QrCode className="w-5 h-5" />
             </div>
-            <div>
-              <div className="flex items-center gap-1.5 sm:gap-2">
-                <h3 className="text-base sm:text-lg font-black tracking-tight">السحب التلقائي من واتساب</h3>
-                <span
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold border ${
-                    isConnected
-                      ? 'bg-emerald-500/25 text-emerald-200 border-emerald-400/40'
-                      : 'bg-white/15 text-white/90 border-white/20'
-                  }`}
-                >
-                  <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-300 animate-pulse' : 'bg-amber-300'}`} />
-                  <span>{isConnected ? 'متصل ومفعل 🟢' : 'جاهز للربط ⚡'}</span>
+            <div className="min-w-0">
+              <h3 className="text-base sm:text-lg font-black tracking-tight text-slate-900 truncate">
+                السحب التلقائي من واتساب
+              </h3>
+              <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500 font-medium mt-0.5">
+                <span className={isConnected ? 'text-emerald-700 font-bold' : 'text-amber-700 font-bold'}>
+                  {isConnected ? 'متصل ومفعّل' : 'جاهز للربط'}
                 </span>
+                <span aria-hidden="true">·</span>
+                <span>واتساب العادي (Android)</span>
               </div>
-              <p className="text-[11px] sm:text-xs text-emerald-100/90 font-medium">
-                سحب طلبات القروبات والخاص تلقائياً بدون أي تدخل يدوي
-              </p>
             </div>
           </div>
 
           <button
+            type="button"
             onClick={onClose}
-            className="p-2 rounded-xl text-white/80 hover:text-white hover:bg-white/10 transition-colors"
+            className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl text-slate-500 hover:text-slate-800 hover:bg-slate-100 active:scale-95 transition-colors shrink-0 cursor-pointer"
+            aria-label="إغلاق النافذة"
             title="إغلاق النافذة"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Tab Navigation - Real modes only, no simulator */}
-        <div className="flex border-b border-slate-200 bg-slate-50 px-4 sm:px-6 pt-3 gap-2 overflow-x-auto no-scrollbar select-none">
-          <button
-            onClick={() => setActiveTab('listener')}
-            className={`min-h-[44px] flex items-center gap-2 pb-3 px-3 text-xs font-black border-b-2 transition-all shrink-0 active:scale-95 ${
-              activeTab === 'listener'
-                ? 'border-emerald-600 text-emerald-800'
-                : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            <Smartphone className="w-4 h-4" />
-            <span>1. قارئ WhatsApp الأصلي (Android APK)</span>
-            {isConnected && <span className="w-2 h-2 rounded-full bg-emerald-500" />}
-          </button>
+        {/* 3-Column Segmented Tab Navigation (Always visible on mobile without scrolling) */}
+        <div className="px-4 py-2.5 sm:px-6 bg-slate-50 border-b border-slate-200 shrink-0">
+          <div className="grid grid-cols-3 gap-1 p-1 bg-slate-200/75 rounded-xl select-none">
+            <button
+              type="button"
+              onClick={() => setActiveTab('listener')}
+              className={`min-h-[44px] flex items-center justify-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 rounded-lg text-[11px] sm:text-xs transition-all cursor-pointer ${
+                activeTab === 'listener'
+                  ? 'bg-white text-emerald-800 font-black shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900 font-bold'
+              }`}
+            >
+              <Smartphone className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+              <span className="whitespace-nowrap">قارئ واتساب</span>
+            </button>
 
-          <button
-            onClick={() => setActiveTab('importer')}
-            className={`min-h-[44px] flex items-center gap-2 pb-3 px-3 text-xs font-black border-b-2 transition-all shrink-0 active:scale-95 ${
-              activeTab === 'importer'
-                ? 'border-emerald-600 text-emerald-800'
-                : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            <FileText className="w-4 h-4" />
-            <span>2. استيراد محادثات واتساب (.txt)</span>
-          </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('importer')}
+              className={`min-h-[44px] flex items-center justify-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 rounded-lg text-[11px] sm:text-xs transition-all cursor-pointer ${
+                activeTab === 'importer'
+                  ? 'bg-white text-emerald-800 font-black shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900 font-bold'
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+              <span className="whitespace-nowrap">استيراد .txt</span>
+            </button>
 
-          <button
-            onClick={() => setActiveTab('webhook')}
-            className={`min-h-[44px] flex items-center gap-2 pb-3 px-3 text-xs font-black border-b-2 transition-all shrink-0 active:scale-95 ${
-              activeTab === 'webhook'
-                ? 'border-emerald-600 text-emerald-800'
-                : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            <Zap className="w-4 h-4" />
-            <span>3. الويب هوك والسيرفر المباشر (Webhook & Stream)</span>
-          </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('webhook')}
+              className={`min-h-[44px] flex items-center justify-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 rounded-lg text-[11px] sm:text-xs transition-all cursor-pointer ${
+                activeTab === 'webhook'
+                  ? 'bg-white text-emerald-800 font-black shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900 font-bold'
+              }`}
+            >
+              <Zap className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+              <span className="whitespace-nowrap">الويب هوك</span>
+            </button>
+          </div>
         </div>
 
-        {/* Modal Scrollable Body */}
-        <div className="p-4 sm:p-6 overflow-y-auto space-y-6 text-slate-700 text-sm">
-          {/* TAB 1: Native Android Notification Listener Service (Real Device Flow) */}
-
+        {/* Modal Scrollable Body (Flattened hierarchy so mobile has full horizontal room) */}
+        <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 space-y-4 text-slate-700 text-sm">
+          {/* TAB 1: Native Android Notification Listener Service */}
           {activeTab === 'listener' && (
-            <div className="space-y-5">
-              <div className="bg-blue-50/80 border border-blue-200/90 rounded-3xl p-5 space-y-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-md shadow-blue-600/20 shrink-0">
-                    <Smartphone className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-black text-blue-950">قارئ WhatsApp الأصلي في Android</h4>
-                    <p className="text-xs text-blue-800">يلتقط إشعارات WhatsApp العادي حتى عندما يكون Orderi في الخلفية</p>
-                  </div>
-                </div>
-                {/* كارت مدمج لحفظ وربط الرقم وتفعيل الصلاحية مباشرة بدون حشو شروحات */}
-                <div className="p-4 rounded-2xl bg-white border border-emerald-300 shadow-sm space-y-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <div>
-                      <span className="text-xs font-black text-slate-900 block">رقم WhatsApp وقراءة الإشعارات</span>
-                      <span className="text-[10px] text-emerald-700 font-bold block mt-0.5">
-                        🔒 متطابق ومربوط تلقائياً بالرقم المسجل به في البرنامج
-                      </span>
-                    </div>
-                    <span
-                      className={`px-2.5 py-0.5 rounded-full text-[10px] font-black ${
-                        nativeListenerEnabled && savedConnection?.status === 'connected'
-                          ? 'bg-emerald-100 text-emerald-700'
-                          : nativeListenerEnabled
-                          ? 'bg-blue-100 text-blue-700'
-                          : 'bg-amber-100 text-amber-700'
-                      }`}
-                    >
-                      {nativeListenerEnabled && savedConnection?.status === 'connected'
-                        ? 'مربوط ومفعّل ✅'
-                        : nativeListenerEnabled
-                        ? 'الخدمة مفعّلة ✅'
-                        : 'الصلاحية مطلوبة ⚠️'}
-                    </span>
-                  </div>
-
-                  <div className="flex gap-2">
-                    <input
-                      dir="ltr"
-                      value={phoneNumberInput}
-                      onChange={(e) => setPhoneNumberInput(e.target.value)}
-                      placeholder="+973 3XXXXXXX"
-                      className="flex-1 min-w-0 px-3.5 py-2.5 rounded-xl border border-slate-300 bg-slate-50 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500"
-                      inputMode="tel"
-                    />
-                    <button
-                      type="button"
-                      disabled={linkBusy}
-                      onClick={async () => {
-                        const phone = normalizeWhatsAppPhone(phoneNumberInput);
-                        if (!phone) {
-                          onShowToast('أدخل رقم WhatsApp أولاً');
-                          return;
-                        }
-
-                        setLinkBusy(true);
-                        try {
-                          const connection = registerWhatsAppNumber(phone);
-                          orderiWhatsAppClient.registerPhoneNumber(phone);
-                          setSavedConnection(connection);
-
-                          // تحقق من صلاحية الإشعارات
-                          const enabled = await getWhatsAppListenerStatus();
-                          if (!enabled) {
-                            await openWhatsAppListenerSettings();
-                            onShowToast('تم حفظ الرقم. يرجى تفعيل صلاحية قراءة الإشعارات لتطبيق Orderi');
-                            setTimeout(() => {
-                              orderiWhatsAppClient.refreshDiagnostics().catch(() => {});
-                            }, 1500);
-                          } else {
-                            await orderiWhatsAppClient.start();
-                            setNativeListenerEnabled(true);
-                            onShowToast('✅ تم حفظ الرقم والخدمة نشطة بانتظار وصول رسائل القروبات');
-                          }
-                        } catch (err) {
-                          console.error('[Orderi] Save & Link error:', err);
-                          onShowToast('تعذر إتمام حفظ الرقم');
-                        } finally {
-                          setLinkBusy(false);
-                          setIsPairing(false);
-                        }
-                      }}
-                      className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-black text-xs disabled:opacity-50 shadow-md shadow-emerald-600/20 shrink-0"
-                    >
-                      {linkBusy ? 'جاري التنفيذ...' : 'حفظ الرقم وتفعيل المراقبة'}
-                    </button>
-                  </div>
-                </div>
-
-                {/* لوحة التشخيص المباشر لصلاحيات أندرويد وحالة العميل */}
-                <div className="p-4 rounded-2xl bg-slate-900 text-white shadow-md space-y-3">
-                  <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
-                    <div className="flex items-center gap-2">
-                      <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                      <span className="text-xs font-black">تشخيص صلاحيات واتساب في الهاتف (Orderi Client)</span>
-                    </div>
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                      clientDiag.state === 'active_stream'
-                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                        : clientDiag.listenerEnabled
-                        ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40'
-                        : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                    }`}>
-                      {clientDiag.stateLabel}
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2 text-[11px]">
-                    <div className="p-2.5 rounded-xl bg-slate-800/80 border border-slate-700/60 flex items-center justify-between">
-                      <span className="text-slate-300">قراءة الإشعارات:</span>
-                      {clientDiag.listenerEnabled ? (
-                        <span className="text-emerald-400 font-bold flex items-center gap-1">مفعّلة ✅</span>
-                      ) : (
-                        <button
-                          type="button"
-                          disabled={isActivatingSetting === 'notification'}
-                          onClick={handleOpenNotificationSettings}
-                          className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 font-black text-[10px] cursor-pointer shadow-xs transition-all disabled:opacity-60 flex items-center gap-1"
-                        >
-                          {isActivatingSetting === 'notification' ? (
-                            <>
-                              <RefreshCw className="w-2.5 h-2.5 animate-spin" />
-                              <span>جاري الفتح...</span>
-                            </>
-                          ) : (
-                            <span>تفعيل ⚠️</span>
-                          )}
-                        </button>
-                      )}
-                    </div>
-
-                    <div className="p-2.5 rounded-xl bg-slate-800/80 border border-slate-700/60 flex items-center justify-between">
-                      <span className="text-slate-300">إمكانية الوصول:</span>
-                      {clientDiag.accessibilityEnabled ? (
-                        <span className="text-emerald-400 font-bold flex items-center gap-1">مفعّلة ✅</span>
-                      ) : (
-                        <button
-                          type="button"
-                          disabled={isActivatingSetting === 'accessibility'}
-                          onClick={handleOpenAccessibilitySettings}
-                          className="px-2.5 py-1 rounded-lg bg-slate-700 hover:bg-slate-600 active:scale-95 text-white font-bold text-[10px] cursor-pointer transition-all disabled:opacity-60 flex items-center gap-1"
-                        >
-                          {isActivatingSetting === 'accessibility' ? (
-                            <>
-                              <RefreshCw className="w-2.5 h-2.5 animate-spin" />
-                              <span>جاري الفتح...</span>
-                            </>
-                          ) : (
-                            <span>تفعيل</span>
-                          )}
-                        </button>
-                      )}
-                    </div>
-
-                    <div className="p-2.5 rounded-xl bg-slate-800/80 border border-slate-700/60 flex items-center justify-between">
-                      <span className="text-slate-300">خدمة الخلفية:</span>
-                      <span className={clientDiag.serviceConnected ? "text-emerald-400 font-bold" : "text-slate-400 font-bold"}>
-                        {clientDiag.serviceConnected ? 'متصلة ✅' : 'جاهزة ⚡'}
-                      </span>
-                    </div>
-
-                    <div className="p-2.5 rounded-xl bg-slate-800/80 border border-slate-700/60 flex items-center justify-between">
-                      <span className="text-slate-300">استثناء البطارية:</span>
-                      <span className={clientDiag.batteryOptimizationIgnored ? "text-emerald-400 font-bold" : "text-amber-400 font-bold"}>
-                        {clientDiag.batteryOptimizationIgnored ? 'محمي ✅' : 'عادي'}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* دليل التفعيل اليدوي إذا لم تفتح الشاشة تلقائياً */}
-                  <div className="pt-2 border-t border-slate-800">
-                    <button
-                      type="button"
-                      onClick={() => setShowManualGuide((prev) => !prev)}
-                      className="w-full flex items-center justify-between py-1 px-1 text-[10px] text-amber-300 hover:text-amber-200 font-bold transition-colors cursor-pointer"
-                    >
-                      <span className="flex items-center gap-1">
-                        <HelpCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                        <span>لا يفتح زر التفعيل معك؟ اضغط هنا للخطوات اليدوية وفحص هاتفك</span>
-                      </span>
-                      {showManualGuide ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                    </button>
-
-                    {showManualGuide && (
-                      <div className="mt-2 p-3 rounded-xl bg-slate-800/90 border border-slate-700 text-[10px] text-slate-300 space-y-2.5 leading-relaxed">
-                        <div className="flex items-center justify-between border-b border-slate-700 pb-1.5">
-                          <span className="font-bold text-white">خطوات التفعيل اليدوي على هاتفك:</span>
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              await orderiWhatsAppClient.refreshDiagnostics();
-                              const enabled = await getWhatsAppListenerStatus();
-                              setNativeListenerEnabled(enabled);
-                              onShowToast('🔄 تم فحص وتحديث حالة الصلاحيات الآن');
-                            }}
-                            className="text-[9px] bg-emerald-600 hover:bg-emerald-500 text-white font-black px-2 py-0.5 rounded cursor-pointer transition-colors"
-                          >
-                            🔄 فحص الصلاحيات الآن
-                          </button>
-                        </div>
-
-                        <div className="space-y-1">
-                          <strong className="text-amber-300 block">1. صلاحية قراءة الإشعارات (Notification Access):</strong>
-                          <p>
-                            الضبط (Settings) ➔ التطبيقات (Apps) ➔ القائمة (النقاط الثلاث) ➔ <strong>الوصول الخاص (Special Access)</strong> ➔ <strong>الوصول إلى الإشعارات (Device & app notifications)</strong> ➔ ابحث عن <strong>Orderi</strong> وفعّل المفتاح ✅.
-                          </p>
-                        </div>
-
-                        <div className="space-y-1">
-                          <strong className="text-amber-300 block">2. صلاحية إمكانية الوصول (Accessibility):</strong>
-                          <p>
-                            الضبط (Settings) ➔ <strong>إمكانية الوصول (Accessibility)</strong> ➔ <strong>الخدمات المثبتة (Installed Services)</strong> ➔ اختر <strong>Orderi - WhatsApp Auto-Accept</strong> وفعّل المفتاح ✅.
-                          </p>
-                        </div>
-
-                        {!isNativeAndroid() && (
-                          <div className="p-2 rounded-lg bg-amber-950/60 border border-amber-600/50 text-amber-200 space-y-1">
-                            <span className="block font-bold">⚠️ تنبيه: التطبيق مفتوح في المتصفح</span>
-                            <span className="block text-[10px] text-amber-100/90">
-                              متصفحات الويب لا تدعم قراءة إشعارات التطبيقات في الخلفية. يجب تثبيت تطبيق Orderi كـ APK وتشغيله على الهاتف لالتقاط إعلانات الواتساب.
-                            </span>
-                            {onOpenAPKModal && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  onClose();
-                                  onOpenAPKModal();
-                                }}
-                                className="inline-block mt-1 text-emerald-300 underline font-black cursor-pointer hover:text-emerald-200"
-                              >
-                                📥 اضغط هنا لفتح شاشة تثبيت ملف الـ APK الأصلي
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* العدادات والإحصائيات الحقيقية */}
-                  <div className="pt-2 border-t border-slate-800 flex items-center justify-between text-[10px] text-slate-400">
-                    <div>
-                      رسائل مفحوصة: <strong className="text-white font-bold">{clientDiag.totalMessagesIngested}</strong>
-                    </div>
-                    <div>
-                      طلبات بالرادار: <strong className="text-emerald-400 font-bold">{clientDiag.totalOrdersCaptured}</strong>
-                    </div>
-                    <div>
-                      طلبات مغلقة: <strong className="text-teal-400 font-bold">{clientDiag.totalClosedOrders}</strong>
-                    </div>
-                    {clientDiag.lastMessageAt && (
-                      <div>
-                        آخر رسالة: <span className="text-slate-300">{new Date(clientDiag.lastMessageAt).toLocaleTimeString('ar-BH')}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <div className="p-4 rounded-2xl bg-white border border-slate-200 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="text-xs font-black text-slate-900">القروبات المكتشفة والمحفوظة</div>
-                    <span className="text-[10px] font-black text-emerald-700 bg-emerald-50 px-2 py-1 rounded-full">{(savedConnection?.groups || internalMyGroups).length} قروب</span>
-                  </div>
-
-                  {/* Manual group quick addition input */}
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={newGroupInput}
-                      onChange={(e) => setNewGroupInput(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          handleAddDirectGroup(newGroupInput);
-                        }
-                      }}
-                      placeholder="أدخل اسم القروب كما يظهر في هاتفك..."
-                      className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-800 placeholder-slate-400 focus:outline-emerald-500"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => handleAddDirectGroup(newGroupInput)}
-                      className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-black text-xs shrink-0 cursor-pointer shadow-xs"
-                    >
-                      + إضافة قروب
-                    </button>
-                  </div>
-
-                  {/* Mark All as Read Action Card */}
-                  <div className="p-3 rounded-2xl bg-gradient-to-r from-emerald-50 via-teal-50 to-blue-50 border border-emerald-300/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div className="space-y-0.5 min-w-0">
-                      <div className="flex items-center gap-1.5 text-xs font-black text-emerald-950">
-                        <CheckCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                        <span>تمييز جميع القروبات كمقروءة (Mark as Read) وجلب الأرشيف</span>
-                      </div>
-                      <p className="text-[10px] text-slate-600">
-                        لتصفير عدادات الإشعارات وسحب طلبات القروبات المؤرشفة تلقائياً
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      disabled={isMarkingRead}
-                      onClick={handleMarkAllAsRead}
-                      className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 active:scale-95 text-white font-black text-xs shadow-md shadow-emerald-600/25 flex items-center justify-center gap-1.5 shrink-0 transition-all disabled:opacity-50 cursor-pointer"
-                    >
-                      <CheckCheck className={`w-4 h-4 ${isMarkingRead ? 'animate-bounce' : ''}`} />
-                      <span>{isMarkingRead ? 'جاري التنفيذ...' : 'تنفيذ Mark as Read الآن 👁️'}</span>
-                    </button>
-                  </div>
-
-                  {/* Archived Groups Pro-Tip for Instant 0s Capture */}
-                  <div className="p-3 rounded-xl bg-amber-50/70 border border-amber-200 text-[11px] text-amber-950 space-y-1">
-                    <div className="flex items-center gap-1.5 font-black text-amber-900">
-                      <span>💡 هل تضع قروبات الواتساب في الأرشيف؟</span>
-                    </div>
-                    <p className="text-[10px] text-slate-700 leading-relaxed">
-                      لاستقبال طلبات القروبات المؤرشفة في الرادار فوراً بلحظتها (0 ثانية) دون الحاجة للضغط على «قراءة الكل»:
-                      افتح <strong>واتساب ➔ الإعدادات ➔ الدردشات ➔ أوقف خيار «إبقاء الدردشات مؤرشفة»</strong>.
+            <div className="space-y-4">
+              {/* Section 1: WhatsApp Phone Number Linking */}
+              <section className="p-3.5 sm:p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <h4 className="text-sm font-black text-slate-900">
+                      رقم WhatsApp في الهاتف
+                    </h4>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      مربوط تلقائياً برقم حسابك لالتقاط إعلانات القروبات في الخلفية
                     </p>
                   </div>
+                  <span
+                    className={`text-xs font-black shrink-0 ${
+                      nativeListenerEnabled && savedConnection?.status === 'connected'
+                        ? 'text-emerald-700'
+                        : nativeListenerEnabled
+                        ? 'text-blue-700'
+                        : 'text-amber-700'
+                    }`}
+                  >
+                    {nativeListenerEnabled && savedConnection?.status === 'connected'
+                      ? 'مربوط ومفعّل'
+                      : nativeListenerEnabled
+                      ? 'الخدمة مفعّلة'
+                      : 'الصلاحية مطلوبة'}
+                  </span>
+                </div>
 
-                  {/* Automatic Link & Adoption of detected phone notification groups */}
-                  {detectedIncomingGroups && detectedIncomingGroups.length > 0 && (
-                    <div className="p-2.5 rounded-xl bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200/90 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                      <div className="text-[11px] font-bold text-blue-950 flex items-center gap-1.5">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                        <span>تم اعتماد وربط كافة القروبات المرصودة مؤخراً ({detectedIncomingGroups.length} قروب) بحسابك أوتوماتيكياً</span>
-                      </div>
+                <div className="flex flex-col sm:flex-row gap-2.5">
+                  <input
+                    dir="ltr"
+                    value={phoneNumberInput}
+                    onChange={(e) => setPhoneNumberInput(e.target.value)}
+                    placeholder="+973 3XXXXXXX"
+                    className="w-full sm:flex-1 min-w-0 min-h-[46px] px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-base sm:text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 tabular-nums"
+                    inputMode="tel"
+                    aria-label="رقم WhatsApp في الهاتف"
+                  />
+                  <button
+                    type="button"
+                    disabled={linkBusy}
+                    onClick={async () => {
+                      const phone = normalizeWhatsAppPhone(phoneNumberInput);
+                      if (!phone) {
+                        onShowToast('أدخل رقم WhatsApp أولاً');
+                        return;
+                      }
+
+                      setLinkBusy(true);
+                      try {
+                        const connection = registerWhatsAppNumber(phone);
+                        orderiWhatsAppClient.registerPhoneNumber(phone);
+                        setSavedConnection(connection);
+
+                        const enabled = await getWhatsAppListenerStatus();
+                        if (!enabled) {
+                          await openWhatsAppListenerSettings();
+                          onShowToast('تم حفظ الرقم. يرجى تفعيل صلاحية قراءة الإشعارات لتطبيق Orderi');
+                          setTimeout(() => {
+                            orderiWhatsAppClient.refreshDiagnostics().catch(() => {});
+                          }, 1500);
+                        } else {
+                          await orderiWhatsAppClient.start();
+                          setNativeListenerEnabled(true);
+                          onShowToast('✅ تم حفظ الرقم والخدمة نشطة بانتظار وصول رسائل القروبات');
+                        }
+                      } catch (err) {
+                        console.error('[Orderi] Save & Link error:', err);
+                        onShowToast('تعذر إتمام حفظ الرقم');
+                      } finally {
+                        setLinkBusy(false);
+                        setIsPairing(false);
+                      }
+                    }}
+                    className="w-full sm:w-auto min-h-[46px] px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white font-black text-sm sm:text-xs disabled:opacity-50 shadow-sm shrink-0 whitespace-nowrap cursor-pointer transition-all"
+                  >
+                    {linkBusy ? 'جاري التنفيذ...' : 'حفظ الرقم وتفعيل المراقبة'}
+                  </button>
+                </div>
+              </section>
+
+              {/* Section 2: Android Permissions & Live Client Diagnostics */}
+              <section className="p-3.5 sm:p-4 rounded-2xl bg-slate-900 text-white space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span className="text-xs sm:text-sm font-black truncate">تشخيص صلاحيات الهاتف</span>
+                  </div>
+                  <span
+                    className={`text-[11px] font-bold ${
+                      clientDiag.state === 'active_stream'
+                        ? 'text-emerald-300'
+                        : clientDiag.listenerEnabled
+                        ? 'text-blue-300'
+                        : 'text-amber-300'
+                    }`}
+                  >
+                    {clientDiag.stateLabel}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2.5 text-xs">
+                  <div className="p-3 rounded-xl bg-slate-800/90 border border-slate-700/70 flex flex-col justify-between gap-2 min-h-[78px]">
+                    <span className="text-slate-300 text-[11px] font-medium">قراءة الإشعارات</span>
+                    {clientDiag.listenerEnabled ? (
+                      <span className="text-emerald-400 font-black text-xs flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                        <span>مفعّلة</span>
+                      </span>
+                    ) : (
                       <button
                         type="button"
-                        onClick={handleLinkAllDetectedToWhatsApp}
-                        className="py-1 px-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-[10px] font-black shrink-0 shadow-2xs transition-all cursor-pointer self-end sm:self-auto"
+                        disabled={isActivatingSetting === 'notification'}
+                        onClick={handleOpenNotificationSettings}
+                        className="w-full min-h-[36px] px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 font-black text-xs cursor-pointer transition-all disabled:opacity-60 flex items-center justify-center gap-1"
                       >
-                        ⚡ إعادة المزامنة والاعتماد
+                        {isActivatingSetting === 'notification' ? (
+                          <>
+                            <RefreshCw className="w-3 h-3 animate-spin" />
+                            <span>جاري الفتح...</span>
+                          </>
+                        ) : (
+                          <span>تفعيل الآن</span>
+                        )}
                       </button>
-                    </div>
-                  )}
+                    )}
+                  </div>
 
-                  {(savedConnection?.groups || internalMyGroups).length === 0 ? (
-                    <div className="py-2 text-center">
-                      <p className="text-xs text-slate-500">
-                        لا توجد قروبات مرتبطة حالياً. أضف اسم قروبك يدوياً أعلاه أو سيتم رصده تلقائياً عند استلام إشعارات الواتساب على الهاتف.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto">
-                      {(savedConnection?.groups || internalMyGroups).map((g) => (
-                        <span key={g} className="px-2.5 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-[11px] font-bold text-emerald-900 flex items-center gap-1.5 shadow-2xs">
-                          <span>👥 {g}</span>
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveDirectGroup(g)}
-                            className="text-emerald-500 hover:text-red-500 rounded-full p-0.5 hover:bg-red-50 cursor-pointer transition-colors"
-                            title="حذف القروب"
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                        </span>
-                      ))}
+                  <div className="p-3 rounded-xl bg-slate-800/90 border border-slate-700/70 flex flex-col justify-between gap-2 min-h-[78px]">
+                    <span className="text-slate-300 text-[11px] font-medium">إمكانية الوصول</span>
+                    {clientDiag.accessibilityEnabled ? (
+                      <span className="text-emerald-400 font-black text-xs flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                        <span>مفعّلة</span>
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={isActivatingSetting === 'accessibility'}
+                        onClick={handleOpenAccessibilitySettings}
+                        className="w-full min-h-[36px] px-2.5 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 active:scale-95 text-white font-bold text-xs cursor-pointer transition-all disabled:opacity-60 flex items-center justify-center gap-1"
+                      >
+                        {isActivatingSetting === 'accessibility' ? (
+                          <>
+                            <RefreshCw className="w-3 h-3 animate-spin" />
+                            <span>جاري الفتح...</span>
+                          </>
+                        ) : (
+                          <span>تفعيل الآن</span>
+                        )}
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-slate-800/90 border border-slate-700/70 flex flex-col justify-between gap-1.5">
+                    <span className="text-slate-300 text-[11px] font-medium">خدمة الخلفية</span>
+                    <span className={`font-black text-xs ${clientDiag.serviceConnected ? 'text-emerald-400' : 'text-slate-200'}`}>
+                      {clientDiag.serviceConnected ? 'متصلة وتعمل' : 'جاهزة للتشغيل'}
+                    </span>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-slate-800/90 border border-slate-700/70 flex flex-col justify-between gap-1.5">
+                    <span className="text-slate-300 text-[11px] font-medium">حماية البطارية</span>
+                    <span className={`font-black text-xs ${clientDiag.batteryOptimizationIgnored ? 'text-emerald-400' : 'text-amber-300'}`}>
+                      {clientDiag.batteryOptimizationIgnored ? 'مستثنى من التقييد' : 'وضع عادي'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Expandable Manual Activation Guide */}
+                <div className="pt-2 border-t border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setShowManualGuide((prev) => !prev)}
+                    className="w-full min-h-[40px] flex items-center justify-between gap-2 py-1 text-xs text-amber-300 hover:text-amber-200 font-bold transition-colors cursor-pointer text-right"
+                  >
+                    <span className="flex items-center gap-1.5 min-w-0">
+                      <HelpCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                      <span>لا يفتح زر التفعيل؟ خطوات التفعيل اليدوي وفحص الهاتف</span>
+                    </span>
+                    {showManualGuide ? <ChevronUp className="w-4 h-4 shrink-0" /> : <ChevronDown className="w-4 h-4 shrink-0" />}
+                  </button>
+
+                  {showManualGuide && (
+                    <div className="mt-2 p-3 rounded-xl bg-slate-800 border border-slate-700 text-xs text-slate-300 space-y-2.5 leading-relaxed">
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-700 pb-2">
+                        <span className="font-bold text-white">خطوات التفعيل اليدوي:</span>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await orderiWhatsAppClient.refreshDiagnostics();
+                            const enabled = await getWhatsAppListenerStatus();
+                            setNativeListenerEnabled(enabled);
+                            onShowToast('🔄 تم فحص وتحديث حالة الصلاحيات الآن');
+                          }}
+                          className="min-h-[34px] text-xs bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1 rounded-lg cursor-pointer transition-colors"
+                        >
+                          فحص الصلاحيات الآن
+                        </button>
+                      </div>
+
+                      <div className="space-y-1">
+                        <strong className="text-amber-300 block">1. صلاحية قراءة الإشعارات:</strong>
+                        <p>
+                          الضبط ➔ التطبيقات ➔ الوصول الخاص ➔ <strong>الوصول إلى الإشعارات</strong> ➔ فعّل المفتاح أمام <strong>Orderi</strong>.
+                        </p>
+                      </div>
+
+                      <div className="space-y-1">
+                        <strong className="text-amber-300 block">2. صلاحية إمكانية الوصول:</strong>
+                        <p>
+                          الضبط ➔ <strong>إمكانية الوصول</strong> ➔ الخدمات المثبتة ➔ اختر <strong>Orderi - WhatsApp Auto-Accept</strong> وفعّل المفتاح.
+                        </p>
+                      </div>
+
+                      {!isNativeAndroid() && (
+                        <div className="p-2.5 rounded-lg bg-amber-950/60 border border-amber-600/50 text-amber-200 space-y-1.5">
+                          <span className="block font-bold">التطبيق مفتوح في المتصفح</span>
+                          <span className="block text-[11px] text-amber-100/90">
+                            متصفحات الويب لا تدعم قراءة إشعارات التطبيقات في الخلفية؛ يلزم تشغيل تطبيق Orderi المثبت كـ APK على Android.
+                          </span>
+                          {onOpenAPKModal && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onClose();
+                                onOpenAPKModal();
+                              }}
+                              className="inline-block text-emerald-300 underline font-black cursor-pointer hover:text-emerald-200"
+                            >
+                              فتح شاشة تثبيت ملف APK الأصلي
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
 
+                {/* Real Counters Grid */}
+                <div className="pt-2.5 border-t border-slate-800 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs text-slate-400 tabular-nums">
+                  <div className="bg-slate-800/50 rounded-lg px-2.5 py-2 flex items-center justify-between sm:block">
+                    <span className="block text-[11px]">رسائل مفحوصة</span>
+                    <strong className="text-white font-black">{clientDiag.totalMessagesIngested}</strong>
+                  </div>
+                  <div className="bg-slate-800/50 rounded-lg px-2.5 py-2 flex items-center justify-between sm:block">
+                    <span className="block text-[11px]">طلبات بالرادار</span>
+                    <strong className="text-emerald-400 font-black">{clientDiag.totalOrdersCaptured}</strong>
+                  </div>
+                  <div className="bg-slate-800/50 rounded-lg px-2.5 py-2 flex items-center justify-between sm:block">
+                    <span className="block text-[11px]">طلبات مغلقة</span>
+                    <strong className="text-teal-400 font-black">{clientDiag.totalClosedOrders}</strong>
+                  </div>
+                  <div className="bg-slate-800/50 rounded-lg px-2.5 py-2 flex items-center justify-between sm:block">
+                    <span className="block text-[11px]">آخر رسالة</span>
+                    <strong className="text-slate-200 font-bold">
+                      {clientDiag.lastMessageAt ? new Date(clientDiag.lastMessageAt).toLocaleTimeString('ar-BH') : '-'}
+                    </strong>
+                  </div>
+                </div>
+              </section>
 
-              </div>
+              {/* Section 3: Monitored Groups & Quick Sync Actions */}
+              <section className="p-3.5 sm:p-4 rounded-2xl bg-white border border-slate-200 space-y-3.5">
+                <div className="flex items-center justify-between gap-2">
+                  <h4 className="text-sm font-black text-slate-900">القروبات المكتشفة والمحفوظة</h4>
+                  <span className="text-xs font-black text-emerald-700 tabular-nums">
+                    {activeGroups.length} قروب
+                  </span>
+                </div>
+
+                {/* Add Group Input + Button (Stacks cleanly on mobile) */}
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="text"
+                    value={newGroupInput}
+                    onChange={(e) => setNewGroupInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddDirectGroup(newGroupInput);
+                      }
+                    }}
+                    placeholder="أدخل اسم القروب كما يظهر في هاتفك..."
+                    aria-label="أدخل اسم القروب"
+                    className="w-full sm:flex-1 min-w-0 min-h-[44px] px-3.5 py-2 rounded-xl border border-slate-300 bg-slate-50/70 text-base sm:text-xs font-bold text-slate-900 placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleAddDirectGroup(newGroupInput)}
+                    className="w-full sm:w-auto min-h-[44px] px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white font-black text-xs shrink-0 cursor-pointer shadow-xs whitespace-nowrap transition-all"
+                  >
+                    + إضافة قروب
+                  </button>
+                </div>
+
+                {detectedIncomingGroups && detectedIncomingGroups.length > 0 && (
+                  <div className="p-3 rounded-xl bg-blue-50/80 border border-blue-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                    <div className="text-xs font-bold text-blue-950 flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
+                      <span>تم اعتماد القروبات المرصودة مؤخراً ({detectedIncomingGroups.length} قروب) تلقائياً</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleLinkAllDetectedToWhatsApp}
+                      className="w-full sm:w-auto min-h-[40px] py-1.5 px-3 rounded-lg bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs font-black shrink-0 transition-all cursor-pointer"
+                    >
+                      إعادة المزامنة والاعتماد
+                    </button>
+                  </div>
+                )}
+
+                {activeGroups.length === 0 ? (
+                  <p className="py-2 text-center text-xs text-slate-500 leading-relaxed">
+                    لا توجد قروبات مرتبطة حالياً. أضف اسم قروبك أعلاه أو سيتم رصده تلقائياً فور وصول إشعارات الواتساب.
+                  </p>
+                ) : (
+                  <div className="flex flex-wrap gap-2 max-h-36 overflow-y-auto pt-0.5">
+                    {activeGroups.map((g) => (
+                      <span
+                        key={g}
+                        className="min-h-[36px] px-3 py-1 rounded-xl bg-emerald-50 border border-emerald-200 text-xs font-bold text-emerald-900 inline-flex items-center gap-2"
+                      >
+                        <span className="truncate max-w-[200px]">{g}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveDirectGroup(g)}
+                          className="w-6 h-6 flex items-center justify-center text-emerald-600 hover:text-red-600 rounded-lg hover:bg-red-50 cursor-pointer transition-colors shrink-0"
+                          aria-label={`حذف قروب ${g}`}
+                          title="حذف القروب"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {/* Mark All as Read Action Bar */}
+                <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                  <div className="space-y-0.5 min-w-0">
+                    <div className="flex items-center gap-1.5 text-xs font-black text-emerald-950">
+                      <CheckCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>تمييز القروبات كمقروءة وجلب الأرشيف</span>
+                    </div>
+                    <p className="text-[11px] text-slate-600">
+                      لتصفير عدادات الإشعارات وسحب طلبات القروبات المؤرشفة
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={isMarkingRead}
+                    onClick={handleMarkAllAsRead}
+                    className="w-full sm:w-auto min-h-[44px] px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white font-black text-xs shadow-sm flex items-center justify-center gap-1.5 shrink-0 transition-all disabled:opacity-50 cursor-pointer whitespace-nowrap"
+                  >
+                    <CheckCheck className={`w-4 h-4 ${isMarkingRead ? 'animate-bounce' : ''}`} />
+                    <span>{isMarkingRead ? 'جاري التنفيذ...' : 'تنفيذ Mark as Read'}</span>
+                  </button>
+                </div>
+
+                {/* Archived Groups Pro-Tip */}
+                <div className="p-3 rounded-xl bg-amber-50/70 border border-amber-200 text-xs text-amber-950 space-y-1">
+                  <div className="font-black text-amber-900">ملاحظة للقروبات المؤرشفة</div>
+                  <p className="text-[11px] text-slate-700 leading-relaxed">
+                    لاستقبال طلبات القروبات المؤرشفة فوراً دون الحاجة للضغط على قراءة الكل: افتح{' '}
+                    <strong>واتساب ➔ الإعدادات ➔ الدردشات ➔ أوقف خيار «إبقاء الدردشات مؤرشفة»</strong>.
+                  </p>
+                </div>
+              </section>
             </div>
           )}
 
           {/* TAB 2: Historical WhatsApp Chat Export Importer (.txt) */}
           {activeTab === 'importer' && (
-            <div className="space-y-5">
-              <div className="bg-emerald-50/80 border border-emerald-200/90 rounded-3xl p-5 space-y-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shadow-md shadow-emerald-600/20 shrink-0">
-                    <FileText className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-black text-emerald-950">استيراد محادثات واتساب التاريخية (.txt)</h4>
-                    <p className="text-xs text-emerald-800">
-                      استيراد ملفات الدردشة المصدّرة يدوياً من قروبات التوصيل واستخراج طلباتها بالذكاء الاصطناعي
-                    </p>
-                  </div>
+            <section className="p-3.5 sm:p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                  <FileText className="w-5 h-5" />
                 </div>
-
-                <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-sm space-y-3">
-                  <div className="space-y-1">
-                    <span className="text-xs font-black text-slate-900 block">اختر ملف المحادثة المصدّر من واتساب:</span>
-                    <p className="text-[11px] text-slate-500">
-                      في واتساب: افتح قروب التوصيل ➔ اضغط الخيارات (النقاط الثلاث) ➔ المزيد ➔ <strong>نقل الدردشة (Export Chat)</strong> ➔ بدون وسائط (Without Media) ➔ احفظ ملف الـ TXT.
-                    </p>
-                  </div>
-
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".txt,text/plain"
-                    onChange={handleFileSelected}
-                    className="hidden"
-                  />
-
-                  <div className="flex flex-col sm:flex-row gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="flex-1 py-3 px-4 rounded-xl border-2 border-dashed border-emerald-300 hover:border-emerald-500 bg-emerald-50/50 hover:bg-emerald-50 text-emerald-800 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-all"
-                    >
-                      <UploadCloud className="w-4 h-4 text-emerald-600" />
-                      <span>{importedResult ? 'تغيير الملف المحدد 📁' : 'رفع ملف محادثة واتساب (.txt) 📂'}</span>
-                    </button>
-
-                    {importedResult && (
-                      <button
-                        type="button"
-                        disabled={isProcessingImport || importedResult.messages.length === 0}
-                        onClick={handleProcessImportedOrders}
-                        className="py-3 px-5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-black text-xs shadow-md shadow-emerald-600/25 flex items-center justify-center gap-2 cursor-pointer transition-all disabled:opacity-50"
-                      >
-                        {isProcessingImport ? (
-                          <>
-                            <RefreshCw className="w-4 h-4 animate-spin" />
-                            <span>جاري التحليل واستخراج الطلبات...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Sparkles className="w-4 h-4" />
-                            <span>استخراج الطلبات وإضافتها للرادار 🚀</span>
-                          </>
-                        )}
-                      </button>
-                    )}
-                  </div>
-
-                  {importedResult && (
-                    <div className="p-3.5 rounded-xl bg-slate-900 text-white space-y-2.5 text-xs">
-                      <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                        <span className="font-bold text-emerald-400">ملخص فحص ملف المحادثة:</span>
-                        <span className="text-[10px] bg-slate-800 px-2 py-0.5 rounded text-slate-300">{importedResult.groupName}</span>
-                      </div>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
-                        <div className="p-2 rounded-lg bg-slate-800/80">
-                          <span className="text-slate-400 block text-[10px]">إجمالي الأسطر:</span>
-                          <strong className="text-white font-mono">{importedResult.totalLines}</strong>
-                        </div>
-                        <div className="p-2 rounded-lg bg-slate-800/80">
-                          <span className="text-slate-400 block text-[10px]">الرسائل المكتشفة:</span>
-                          <strong className="text-blue-400 font-mono">{importedResult.totalMessages}</strong>
-                        </div>
-                        <div className="p-2 rounded-lg bg-slate-800/80">
-                          <span className="text-slate-400 block text-[10px]">إعلانات محتملة:</span>
-                          <strong className="text-emerald-400 font-mono">{importedResult.candidateOrdersCount}</strong>
-                        </div>
-                        <div className="p-2 rounded-lg bg-slate-800/80">
-                          <span className="text-slate-400 block text-[10px]">ردود إغلاق «تم»:</span>
-                          <strong className="text-teal-400 font-mono">{importedResult.closuresCount}</strong>
-                        </div>
-                      </div>
-
-                      {importedResult.messages.length > 0 && (
-                        <div className="space-y-1 pt-1">
-                          <span className="text-[10px] text-slate-400 block">معاينة أولى الرسائل المكتشفة:</span>
-                          <div className="max-h-28 overflow-y-auto space-y-1 text-[10px] text-slate-300 bg-slate-950/60 p-2 rounded-lg border border-slate-800/80">
-                            {importedResult.messages.slice(0, 3).map((m, idx) => (
-                              <div key={idx} className="truncate">
-                                <strong className="text-emerald-300">{m.senderName}:</strong> {m.messageText}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
+                <div className="min-w-0">
+                  <h4 className="text-sm font-black text-slate-900">استيراد محادثات واتساب (.txt)</h4>
+                  <p className="text-xs text-slate-600">
+                    رفع ملف الدردشة المصدّر من قروب التوصيل لاستخراج طلباته تلقائياً
+                  </p>
                 </div>
               </div>
-            </div>
+
+              <div className="p-3.5 rounded-xl bg-white border border-slate-200 space-y-3">
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  في واتساب: افتح القروب ➔ الخيارات (النقاط الثلاث) ➔ المزيد ➔ <strong>نقل الدردشة (Export Chat)</strong> ➔ بدون وسائط.
+                </p>
+
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".txt,text/plain"
+                  onChange={handleFileSelected}
+                  className="hidden"
+                />
+
+                <div className="flex flex-col sm:flex-row gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-full sm:flex-1 min-h-[48px] py-3 px-4 rounded-xl border-2 border-dashed border-emerald-300 hover:border-emerald-500 bg-emerald-50/50 hover:bg-emerald-50 text-emerald-800 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-all"
+                  >
+                    <UploadCloud className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>{importedResult ? 'تغيير الملف المحدد' : 'رفع ملف محادثة واتساب (.txt)'}</span>
+                  </button>
+
+                  {importedResult && (
+                    <button
+                      type="button"
+                      disabled={isProcessingImport || importedResult.messages.length === 0}
+                      onClick={handleProcessImportedOrders}
+                      className="w-full sm:w-auto min-h-[48px] py-3 px-5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white font-black text-xs shadow-sm flex items-center justify-center gap-2 cursor-pointer transition-all disabled:opacity-50"
+                    >
+                      {isProcessingImport ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          <span>جاري الاستخراج...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-4 h-4" />
+                          <span>استخراج الطلبات للرادار</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+
+                {importedResult && (
+                  <div className="p-3.5 rounded-xl bg-slate-900 text-white space-y-2.5 text-xs">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
+                      <span className="font-bold text-emerald-400">ملخص فحص الملف</span>
+                      <span className="text-[11px] text-slate-300 truncate">{importedResult.groupName}</span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs tabular-nums">
+                      <div className="p-2 rounded-lg bg-slate-800/80">
+                        <span className="text-slate-400 block text-[11px]">إجمالي الأسطر</span>
+                        <strong className="text-white font-mono">{importedResult.totalLines}</strong>
+                      </div>
+                      <div className="p-2 rounded-lg bg-slate-800/80">
+                        <span className="text-slate-400 block text-[11px]">الرسائل</span>
+                        <strong className="text-blue-400 font-mono">{importedResult.totalMessages}</strong>
+                      </div>
+                      <div className="p-2 rounded-lg bg-slate-800/80">
+                        <span className="text-slate-400 block text-[11px]">إعلانات محتملة</span>
+                        <strong className="text-emerald-400 font-mono">{importedResult.candidateOrdersCount}</strong>
+                      </div>
+                      <div className="p-2 rounded-lg bg-slate-800/80">
+                        <span className="text-slate-400 block text-[11px]">ردود الإغلاق</span>
+                        <strong className="text-teal-400 font-mono">{importedResult.closuresCount}</strong>
+                      </div>
+                    </div>
+
+                    {importedResult.messages.length > 0 && (
+                      <div className="space-y-1 pt-1">
+                        <span className="text-[11px] text-slate-400 block">معاينة أولى الرسائل:</span>
+                        <div className="max-h-28 overflow-y-auto space-y-1 text-[11px] text-slate-300 bg-slate-950/60 p-2.5 rounded-lg border border-slate-800">
+                          {importedResult.messages.slice(0, 3).map((m, idx) => (
+                            <div key={idx} className="truncate">
+                              <strong className="text-emerald-300">{m.senderName}:</strong> {m.messageText}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </section>
           )}
 
           {/* TAB 3: Direct Webhook & APIs */}
           {activeTab === 'webhook' && (
-            <div className="space-y-5">
-              <div className="bg-slate-50 rounded-2xl p-4.5 border border-slate-200/80 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+            <div className="space-y-4">
+              <section className="p-3.5 sm:p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs font-black text-slate-900">
                     رابط الويب هوك العام (Webhook URL)
                   </span>
-                  <span className="text-xs text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200/60 flex items-center gap-1">
-                    <CheckCircle2 className="w-3.5 h-3.5" /> متاح للاستقبال
+                  <span className="text-xs text-emerald-700 font-bold flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>متاح للاستقبال</span>
                   </span>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 bg-white px-3.5 py-2.5 rounded-xl border border-slate-300/80 text-xs font-mono text-slate-800 break-all select-all shadow-inner">
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <div
+                    dir="ltr"
+                    className="w-full sm:flex-1 bg-white px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs font-mono text-slate-800 break-all select-all"
+                  >
                     {webhookUrl}
                   </div>
                   <button
+                    type="button"
                     onClick={() => copyToClipboard(webhookUrl, 'url')}
-                    className="shrink-0 flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs"
+                    className="w-full sm:w-auto min-h-[44px] shrink-0 flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white font-bold text-xs cursor-pointer transition-all"
                   >
                     {copiedUrl ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                     <span>{copiedUrl ? 'تم النسخ' : 'نسخ الرابط'}</span>
                   </button>
                 </div>
-              </div>
+              </section>
 
-              <div className="space-y-2">
-                <span className="text-xs font-bold text-slate-800">بنية كائن JSON المطلوب إرساله:</span>
-                <div className="relative">
-                  <pre className="p-3 bg-slate-900 text-emerald-400 font-mono text-xs rounded-xl overflow-x-auto">
+              <section className="space-y-2">
+                <span className="text-xs font-black text-slate-800 block">بنية كائن JSON المطلوب إرساله:</span>
+                <pre
+                  dir="ltr"
+                  className="p-3.5 bg-slate-900 text-emerald-400 font-mono text-xs rounded-xl text-left whitespace-pre-wrap break-words"
+                >
 {`{
   "text": "طلب توصيل من الرفاع إلى السيف 3.5 دينار 39123456",
   "sender": "بوتيك دانة للأزياء",
-  "group": "محادثة خاصة / تاجر مباشر 👤",
+  "group": "محادثة خاصة / تاجر مباشر",
   "phone": "97339123456"
 }`}
-                  </pre>
-                </div>
-              </div>
+                </pre>
+              </section>
             </div>
           )}
         </div>
 
-        {/* Modal Footer with Unambiguous Status */}
-        <div className="p-3.5 sm:p-4 bg-slate-50 border-t border-slate-200/80 flex items-center justify-between text-xs text-slate-600">
-          <div className="flex items-center gap-2">
-            <span className="relative flex h-2.5 w-2.5 shrink-0">
-              <span
-                className={`animate-ping absolute inline-flex h-full w-full rounded-full ${
-                  isConnected ? 'bg-emerald-400 opacity-75' : 'bg-emerald-400 opacity-60'
-                }`}
-              />
-              <span
-                className={`relative inline-flex rounded-full h-2.5 w-2.5 ${
-                  isConnected ? 'bg-emerald-500' : 'bg-emerald-600'
-                }`}
-              />
-            </span>
-            <span className="font-bold text-slate-800 text-[11px] sm:text-xs">
+        {/* Sticky Modal Footer */}
+        <div className="px-4 py-3 sm:px-6 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-3 shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <span
+              className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                clientDiag.state === 'active_stream'
+                  ? 'bg-emerald-500'
+                  : clientDiag.state === 'ready_listening'
+                  ? 'bg-blue-500'
+                  : 'bg-amber-500'
+              }`}
+            />
+            <span className="font-bold text-slate-700 text-xs leading-snug truncate">
               {clientDiag.state === 'active_stream'
-                ? '🟢 مراقبة WhatsApp العادي مفعلة • Orderi يستقبل الإعلانات لحظياً'
+                ? 'مراقبة WhatsApp العادي مفعّلة لحظياً'
                 : clientDiag.state === 'ready_listening'
-                ? '⚡ خدمة Android نشطة ومستعدة لاستقبال إعلانات القروبات'
+                ? 'خدمة Android نشطة ومستعدة للاستقبال'
                 : clientDiag.state === 'permission_required'
-                ? '⚠️ صلاحية قراءة إشعارات WhatsApp غير مفعلة في إعدادات الهاتف'
-                : '⚪ عميل Orderi WhatsApp جاهز للتفعيل'}
+                ? 'صلاحية الإشعارات مطلوبة من إعدادات الهاتف'
+                : 'عميل Orderi جاهز للتفعيل'}
             </span>
           </div>
 
           <button
+            type="button"
             onClick={onClose}
-            className="px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold transition-all cursor-pointer text-xs shrink-0"
+            className="min-h-[44px] px-5 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 active:scale-95 text-slate-800 font-bold transition-all cursor-pointer text-xs shrink-0"
           >
             إغلاق
           </button>
@@ -1205,18 +1193,18 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
 
         {/* Permission Help & Manual Action Dialog */}
         {permissionHelpModal && (
-          <div 
-            className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in select-none"
+          <div
+            className="fixed inset-0 z-60 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in select-none"
             onClick={() => setPermissionHelpModal(null)}
           >
             <div
               dir="rtl"
-              className="w-full max-w-md bg-white rounded-3xl p-5 shadow-2xl border border-slate-200 space-y-4"
+              className="w-full sm:max-w-md bg-white rounded-t-3xl sm:rounded-2xl p-4 sm:p-5 shadow-2xl border border-slate-200 space-y-4 max-h-[90dvh] overflow-y-auto"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center">
+              <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
                     <AlertTriangle className="w-4 h-4" />
                   </div>
                   <h4 className="text-sm font-black text-slate-900">{permissionHelpModal.title}</h4>
@@ -1224,20 +1212,20 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setPermissionHelpModal(null)}
-                  className="p-1 rounded-lg text-slate-400 hover:text-slate-600 cursor-pointer"
+                  className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl text-slate-400 hover:text-slate-600 cursor-pointer shrink-0"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
               {!permissionHelpModal.isNative && (
-                <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs space-y-1">
+                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs space-y-1">
                   <div className="font-black flex items-center gap-1.5">
-                    <Smartphone className="w-3.5 h-3.5 text-amber-700" />
-                    <span>أنت تتصفح Orderi من متصفح الويب (Web/PWA)</span>
+                    <Smartphone className="w-4 h-4 text-amber-700 shrink-0" />
+                    <span>أنت تتصفح Orderi من متصفح الويب</span>
                   </div>
                   <p className="text-[11px] leading-relaxed text-amber-800">
-                    متصفحات الإنترنت لا تستطيع تقنياً فتح إعدادات الهاتف مباشرة أو مراقبة إشعارات واتساب في الخلفية بدون تثبيت الـ APK الأصلي.
+                    متصفحات الإنترنت لا تسمح بفتح إعدادات النظام أو مراقبة الإشعارات في الخلفية بدون تثبيت تطبيق APK الأصلي.
                   </p>
                 </div>
               )}
@@ -1246,8 +1234,8 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
                 <span className="font-bold text-slate-900 block">خطوات التفعيل على هاتفك:</span>
                 <ul className="space-y-2">
                   {permissionHelpModal.instructions.map((step, idx) => (
-                    <li key={idx} className="flex items-start gap-2 text-[11px] bg-slate-50 p-2.5 rounded-xl border border-slate-100 leading-relaxed">
-                      <span className="w-4 h-4 rounded-full bg-emerald-600 text-white font-bold text-[9px] flex items-center justify-center shrink-0 mt-0.5">
+                    <li key={idx} className="flex items-start gap-2.5 text-xs bg-slate-50 p-3 rounded-xl border border-slate-200/80 leading-relaxed">
+                      <span className="w-5 h-5 rounded-full bg-emerald-600 text-white font-bold text-[10px] flex items-center justify-center shrink-0 mt-0.5 tabular-nums">
                         {idx + 1}
                       </span>
                       <span>{step}</span>
@@ -1266,9 +1254,9 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
                     onShowToast('🔄 تم فحص وتحديث حالة الصلاحيات الآن');
                     setPermissionHelpModal(null);
                   }}
-                  className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-black text-xs shadow-md shadow-emerald-600/20 flex items-center justify-center gap-1.5 cursor-pointer"
+                  className="w-full min-h-[44px] py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white font-black text-xs shadow-sm flex items-center justify-center gap-1.5 cursor-pointer"
                 >
-                  <RefreshCw className="w-3.5 h-3.5" />
+                  <RefreshCw className="w-4 h-4" />
                   <span>فحص وتحديث الحالة الآن</span>
                 </button>
 
@@ -1280,9 +1268,9 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
                       onClose();
                       onOpenAPKModal();
                     }}
-                    className="w-full py-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs border border-blue-200 flex items-center justify-center gap-1.5 cursor-pointer"
+                    className="w-full min-h-[44px] py-2.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs border border-blue-200 flex items-center justify-center gap-1.5 cursor-pointer"
                   >
-                    <Smartphone className="w-3.5 h-3.5" />
+                    <Smartphone className="w-4 h-4" />
                     <span>تثبيت تطبيق Orderi كـ APK أندرويد أصلي</span>
                   </button>
                 )}
@@ -1290,7 +1278,7 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setPermissionHelpModal(null)}
-                  className="w-full py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs cursor-pointer"
+                  className="w-full min-h-[44px] py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs cursor-pointer"
                 >
                   حسناً، فهمت
                 </button>

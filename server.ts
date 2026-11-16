@@ -1,4 +1,5 @@
 import express from "express";
+import http from "http";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
@@ -9,6 +10,9 @@ import { checkIncomingMessageForClosure, extractClosureKeywords } from "./src/ut
 import { classifyAdvertiserPrivateReply } from "./src/utils/advertiserReplyClassifier";
 import { classifyPrivateWhatsAppMessage, registerKnownGroupAdvertiser } from "./src/utils/personalChatClassifier";
 import { checkOrRegisterDevice, activateDevice, resetDeviceTrial } from "./src/server/trialVault";
+import { WhatsAppBridgeSupervisor } from "./src/server/bridge/bridgeSupervisor";
+import { createBridgeRouter } from "./src/server/bridge/bridgeRouter";
+import { BridgeWsHub } from "./src/server/bridge/bridgeWsServer";
 
 dotenv.config();
 
@@ -44,6 +48,27 @@ const PORT = resolvePort();
 // Middleware for body parsing (allowing audio base64 payload up to 35MB)
 app.use(express.json({ limit: "35mb" }));
 app.use(express.urlencoded({ extended: true, limit: "35mb" }));
+
+// Isolated WhatsApp Web Bridge Supervisor (Baileys Worker Process + AES-256-GCM Encrypted Sessions)
+let bridgeWsHub: BridgeWsHub | null = null;
+const bridgeSupervisor = new WhatsAppBridgeSupervisor({
+  events: {
+    onStatusChange: (userId, status) => {
+      bridgeWsHub?.broadcastStatus(userId, status);
+    },
+    onGroupMessage: (userId, event) => {
+      bridgeWsHub?.broadcastGroupMessage(userId, event);
+    },
+    onPrivateReply: (userId, event) => {
+      bridgeWsHub?.broadcastPrivateReply(userId, event);
+    },
+    onSessionExpired: (userId, reason) => {
+      bridgeWsHub?.broadcastSessionExpired(userId, reason);
+    },
+  },
+});
+
+app.use("/api/bridge", createBridgeRouter(bridgeSupervisor));
 
 // Server-Sent Events (SSE) Client registry for instant live order delivery
 const sseClients = new Set<express.Response>();
@@ -2321,17 +2346,35 @@ async function startServer() {
     });
   }
 
-  const server = app.listen(PORT, "0.0.0.0", () => {
+  const httpServer = http.createServer(app);
+  bridgeWsHub = new BridgeWsHub(httpServer, bridgeSupervisor);
+
+  httpServer.listen(PORT, "0.0.0.0", () => {
     console.log(`[Orderi Server] Running on http://0.0.0.0:${PORT} (ENV=${process.env.NODE_ENV || 'dev'})`);
+    try {
+      const restoredCount = bridgeSupervisor.restorePersistedSessions();
+      if (restoredCount > 0) {
+        console.log(`[Orderi Bridge] Restored ${restoredCount} persisted encrypted WhatsApp Bridge session(s).`);
+      }
+    } catch (err) {
+      console.warn("[Orderi Bridge] Could not restore persisted sessions:", err);
+    }
   });
 
-  server.on("error", (err: any) => {
+  httpServer.on("error", (err: any) => {
     if (err.code === "EADDRINUSE") {
       console.warn(`[Orderi Server] Port ${PORT} currently in use; retaining existing active process.`);
     } else {
       console.error("[Orderi Server] HTTP server error:", err);
     }
   });
+
+  const gracefulShutdown = () => {
+    bridgeSupervisor.shutdownAll();
+    bridgeWsHub?.close();
+  };
+  process.once("SIGTERM", gracefulShutdown);
+  process.once("SIGINT", gracefulShutdown);
 }
 
 startServer().catch((err) => {

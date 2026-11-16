@@ -218,6 +218,16 @@ export function findDuplicateOrderMatch(
     // Skip if comparing to exact same order ID
     if (existing.id === newOrder.id) continue;
 
+    // Rule 0: Exact WhatsApp message ID / Bridge message ID match across channels
+    if (
+      (newOrder.bridgeMessageId && existing.bridgeMessageId && newOrder.bridgeMessageId === existing.bridgeMessageId) ||
+      (newOrder.sourceMessageId && existing.sourceMessageId && newOrder.sourceMessageId === existing.sourceMessageId) ||
+      (newOrder.bridgeMessageId && existing.sourceMessageId && existing.sourceMessageId.includes(newOrder.bridgeMessageId)) ||
+      (newOrder.sourceMessageId && existing.bridgeMessageId && newOrder.sourceMessageId.includes(existing.bridgeMessageId))
+    ) {
+      return existing;
+    }
+
     const existingTime = existing.receivedAt ? new Date(existing.receivedAt).getTime() : now;
     const timeDiff = Math.abs(now - existingTime);
     if (timeDiff > DEDUP_TTL_MS) continue;
@@ -304,6 +314,7 @@ export function isDuplicateOrder(order: Partial<ParsedOrder>, now = Date.now()):
   const cleanText = cleanAnnouncementText(order);
   const price = Number(order.price || 0).toFixed(1);
 
+  const messageId = (order.bridgeMessageId || order.sourceMessageId || '').trim();
   const exactKey = `${fromNorm}|${toNorm}|${price}|${cleanText}`;
   const routeKey = `${normalizeAreaName(order.from)}|${normalizeAreaName(order.to)}|${price}`;
   const advertiserRouteKey = normPhone ? `${normPhone}|${normalizeAreaName(order.from)}|${normalizeAreaName(order.to)}` : '';
@@ -315,6 +326,8 @@ export function isDuplicateOrder(order: Partial<ParsedOrder>, now = Date.now()):
       : [];
 
     const isDup = recent.some((x: any) => {
+      // 0. Exact same WhatsApp/Bridge message ID
+      if (messageId && x.messageId && x.messageId === messageId) return true;
       // 1. Same exact announcement message
       if (x.exactKey === exactKey) return true;
       // 2. Same advertiser phone + route within 30 mins
@@ -329,6 +342,7 @@ export function isDuplicateOrder(order: Partial<ParsedOrder>, now = Date.now()):
     const next = recent.slice(-(MAX_ITEMS - 1));
     if (!isDup) {
       next.push({
+        messageId,
         exactKey,
         routeKey,
         advRouteKey: advertiserRouteKey,
@@ -355,6 +369,7 @@ export function rememberOrderFingerprint(order: Partial<ParsedOrder>, now = Date
     const toNorm = normalizeArabicText(order.to);
     const cleanText = cleanAnnouncementText(order);
     const price = Number(order.price || 0).toFixed(1);
+    const messageId = (order.bridgeMessageId || order.sourceMessageId || '').trim();
 
     const exactKey = `${fromNorm}|${toNorm}|${price}|${cleanText}`;
     const routeKey = `${normalizeAreaName(order.from)}|${normalizeAreaName(order.to)}|${price}`;
@@ -365,8 +380,9 @@ export function rememberOrderFingerprint(order: Partial<ParsedOrder>, now = Date
       ? saved.filter((x: any) => now - Number(x.at || 0) < DEDUP_TTL_MS)
       : [];
 
-    if (!recent.some((x: any) => x.exactKey === exactKey || (advertiserRouteKey && x.advRouteKey === advertiserRouteKey))) {
+    if (!recent.some((x: any) => (messageId && x.messageId === messageId) || x.exactKey === exactKey || (advertiserRouteKey && x.advRouteKey === advertiserRouteKey))) {
       recent.push({
+        messageId,
         exactKey,
         routeKey,
         advRouteKey: advertiserRouteKey,

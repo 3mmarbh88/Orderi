@@ -64,6 +64,7 @@ import { ActiveRoute, findOrdersOnSameRoute, checkOrderOnSameRoute } from './uti
 import { BroadcastPublisher } from './components/BroadcastPublisher';
 import { BackgroundModeModal } from './components/BackgroundModeModal';
 import { WhatsAppAutoSyncModal } from './components/WhatsAppAutoSyncModal';
+import { WhatsAppBridgeView } from './components/WhatsAppBridgeView';
 import { NewGroupLinkPrompt } from './components/NewGroupLinkPrompt';
 import { DiscoveredGroupsModal } from './components/DiscoveredGroupsModal';
 import { APKDownloadModal } from './components/APKDownloadModal';
@@ -102,6 +103,13 @@ import {
   AdvertiserContactResolution,
   classifyTextPhoneNumbers,
 } from './utils/whatsappPrivateOutreach';
+import {
+  orderiBridgeClient,
+  BridgeSessionStatus,
+  BridgeGroupMessagePayload,
+  BridgePrivateReplyPayload,
+  createInitialBridgeStatus,
+} from './utils/bridgeClient';
 import { buildOriginalMessageRef } from './utils/originalMessageLocator';
 import {
   buildSafeAiEvaluatePayload,
@@ -183,6 +191,8 @@ const DEFAULT_FILTER: OrderFilter = {
   excludeMyOwnAds: true,
   captainPhone: '',
   monitorArchivedGroups: true, // التقاط إشعارات جميع القروبات الموثقة في الخلفية دون فتح واتساب
+  whatsAppBridgeEnabled: true,
+  preferBridgeOutreach: true,
   // Cloud AI Deep Analysis enabled for WhatsApp orders
   useCloudAiFallback: false,
 };
@@ -261,7 +271,7 @@ function OrderiApp({
   const [isGpsLoading, setIsGpsLoading] = useState(false);
 
   // 3. Navigation & Feed Filter
-  const [activeTab, setActiveTab] = useState<'radar' | 'settings' | 'ledger' | 'broadcast' | 'map'>('radar');
+  const [activeTab, setActiveTab] = useState<'radar' | 'settings' | 'ledger' | 'broadcast' | 'map' | 'bridge'>('radar');
   const [feedFilter, setFeedFilter] = useState<'all' | 'matched' | 'vip' | 'trusted_vip' | 'passengers' | 'closed' | 'hunted'>(() => {
     try {
       const saved = localStorage.getItem('orderi_feed_filter');
@@ -404,6 +414,7 @@ function OrderiApp({
   const [autoSyncInitialTab, setAutoSyncInitialTab] = useState<'listener' | 'webhook'>('listener');
   const [isStreamConnected, setIsStreamConnected] = useState(false);
   const [isWhatsAppConnected, setIsWhatsAppConnected] = useState(false);
+  const [bridgeStatus, setBridgeStatus] = useState<BridgeSessionStatus>(() => createInitialBridgeStatus());
   const [webhookOrdersCount, setWebhookOrdersCount] = useState(0);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isRadarRefreshing, setIsRadarRefreshing] = useState(false);
@@ -1114,15 +1125,17 @@ function OrderiApp({
       return;
     }
 
-    // All verified Android WhatsApp notification groups are included when the user
-    // enables background monitoring, even if they are not selected in Orderi.
-    // This exception is limited to events already verified as real groups by the
-    // source discriminator; private and ambiguous chats never reach this point.
+    // All verified Android WhatsApp notification groups & WhatsApp Bridge groups are included
+    // when background monitoring is active. Private and ambiguous chats never reach this point.
     const isVerifiedNativeGroupNotification =
       raw.source === 'android_notification' &&
       raw.isDirectPrivate === false &&
       filterRef.current.monitorArchivedGroups === true;
-    if (!isOrderGroupAllowedRef(raw.groupName) && !isVerifiedNativeGroupNotification) {
+    const isVerifiedBridgeGroup =
+      raw.source === 'whatsapp_web_bridge' &&
+      raw.isDirectPrivate === false &&
+      filterRef.current.monitorArchivedGroups !== false;
+    if (!isOrderGroupAllowedRef(raw.groupName) && !isVerifiedNativeGroupNotification && !isVerifiedBridgeGroup) {
       return;
     }
 
@@ -1131,41 +1144,35 @@ function OrderiApp({
       isBlockForbiddenEnabled: filterRef.current.blockPassengerDeliveries !== false,
     });
 
-    // Compare order & advertiser across WhatsApp groups to prevent duplicates (منع تكرار نشر نفس الإعلان في عدة قروبات)
+    // Compare order & advertiser across WhatsApp groups & channels to prevent duplicates
     if (filterRef.current.preventDuplicateOrders !== false) {
       const existingMatch = findDuplicateOrderMatch(raw, ordersRef.current);
       if (existingMatch) {
+        const mergeEnrichment = (o: ParsedOrder): ParsedOrder => {
+          const currentGroups = o.crossPostedGroups || [o.groupName];
+          const updatedGroups = currentGroups.includes(raw.groupName)
+            ? currentGroups
+            : [...currentGroups, raw.groupName];
+          return {
+            ...o,
+            crossPostedGroups: updatedGroups,
+            duplicateCount: (o.duplicateCount || 1) + 1,
+            bridgeGroupJid: o.bridgeGroupJid || raw.bridgeGroupJid,
+            bridgeParticipantJid: o.bridgeParticipantJid || raw.bridgeParticipantJid,
+            bridgeMessageId: o.bridgeMessageId || raw.bridgeMessageId,
+            bridgeQuotedStanzaId: o.bridgeQuotedStanzaId || raw.bridgeQuotedStanzaId,
+            sourceMessageId: o.sourceMessageId || raw.sourceMessageId,
+            senderPhone: o.senderPhone || raw.senderPhone || '',
+            senderPhoneSource: o.senderPhone ? o.senderPhoneSource : raw.senderPhoneSource || o.senderPhoneSource,
+          };
+        };
         // Synchronously update ordersRef.current so burst messages see the merge immediately
-        ordersRef.current = ordersRef.current.map((o) => {
-          if (o.id === existingMatch.id) {
-            const currentGroups = o.crossPostedGroups || [o.groupName];
-            const updatedGroups = currentGroups.includes(raw.groupName)
-              ? currentGroups
-              : [...currentGroups, raw.groupName];
-            return {
-              ...o,
-              crossPostedGroups: updatedGroups,
-              duplicateCount: (o.duplicateCount || 1) + 1,
-            };
-          }
-          return o;
-        });
+        ordersRef.current = ordersRef.current.map((o) =>
+          o.id === existingMatch.id ? mergeEnrichment(o) : o
+        );
 
         setOrders((prev) =>
-          prev.map((o) => {
-            if (o.id === existingMatch.id) {
-              const currentGroups = o.crossPostedGroups || [o.groupName];
-              const updatedGroups = currentGroups.includes(raw.groupName)
-                ? currentGroups
-                : [...currentGroups, raw.groupName];
-              return {
-                ...o,
-                crossPostedGroups: updatedGroups,
-                duplicateCount: (o.duplicateCount || 1) + 1,
-              };
-            }
-            return o;
-          })
+          prev.map((o) => (o.id === existingMatch.id ? mergeEnrichment(o) : o))
         );
         rememberOrderFingerprint(raw);
         console.info(`[Orderi Dedup] Merged cross-posted ad from ${raw.senderName || 'معلن'} in group "${raw.groupName}" into existing order ${existingMatch.id}`);
@@ -1185,26 +1192,28 @@ function OrderiApp({
     // Secondary fingerprint check: If this order fingerprint was already alerted recently across any group
     const isAlreadyAlerted = isDuplicateOrder(raw);
     if (isAlreadyAlerted) {
-      // Find matching order in active radar to attach cross-posted group name
       const fallbackMatch = findDuplicateOrderMatch(raw, ordersRef.current);
       if (fallbackMatch) {
-        ordersRef.current = ordersRef.current.map((o) => {
-          if (o.id === fallbackMatch.id) {
-            const currentGroups = o.crossPostedGroups || [o.groupName];
-            const updatedGroups = currentGroups.includes(raw.groupName) ? currentGroups : [...currentGroups, raw.groupName];
-            return { ...o, crossPostedGroups: updatedGroups, duplicateCount: (o.duplicateCount || 1) + 1 };
-          }
-          return o;
-        });
+        const mergeFallback = (o: ParsedOrder): ParsedOrder => {
+          const currentGroups = o.crossPostedGroups || [o.groupName];
+          const updatedGroups = currentGroups.includes(raw.groupName) ? currentGroups : [...currentGroups, raw.groupName];
+          return {
+            ...o,
+            crossPostedGroups: updatedGroups,
+            duplicateCount: (o.duplicateCount || 1) + 1,
+            bridgeGroupJid: o.bridgeGroupJid || raw.bridgeGroupJid,
+            bridgeParticipantJid: o.bridgeParticipantJid || raw.bridgeParticipantJid,
+            bridgeMessageId: o.bridgeMessageId || raw.bridgeMessageId,
+            bridgeQuotedStanzaId: o.bridgeQuotedStanzaId || raw.bridgeQuotedStanzaId,
+            sourceMessageId: o.sourceMessageId || raw.sourceMessageId,
+            senderPhone: o.senderPhone || raw.senderPhone || '',
+          };
+        };
+        ordersRef.current = ordersRef.current.map((o) =>
+          o.id === fallbackMatch.id ? mergeFallback(o) : o
+        );
         setOrders((prev) =>
-          prev.map((o) => {
-            if (o.id === fallbackMatch.id) {
-              const currentGroups = o.crossPostedGroups || [o.groupName];
-              const updatedGroups = currentGroups.includes(raw.groupName) ? currentGroups : [...currentGroups, raw.groupName];
-              return { ...o, crossPostedGroups: updatedGroups, duplicateCount: (o.duplicateCount || 1) + 1 };
-            }
-            return o;
-          })
+          prev.map((o) => (o.id === fallbackMatch.id ? mergeFallback(o) : o))
         );
       }
       console.info(`[Orderi Dedup] Suppressed duplicate notification and duplicate card for cross-posted ad in "${raw.groupName}"`);
@@ -2119,6 +2128,244 @@ function OrderiApp({
     };
   }, []);
 
+  // Keep latest handlers accessible to persistent WhatsApp Bridge WebSocket callbacks
+  const processIncomingBridgeOrderRef = useRef(handleProcessIncomingRawOrder);
+  processIncomingBridgeOrderRef.current = handleProcessIncomingRawOrder;
+
+  // Dedicated WhatsApp Web Bridge (Baileys) WebSocket + REST lifecycle
+  useEffect(() => {
+    const enabled = filter.whatsAppBridgeEnabled !== false;
+    if (!enabled) {
+      orderiBridgeClient.start(false);
+      return;
+    }
+
+    const handleBridgeGroupMessage = async (msg: BridgeGroupMessagePayload) => {
+      if (!msg || msg.isPrivateChat || !msg.groupJid || msg.groupJid === 'status@broadcast') {
+        return;
+      }
+
+      const groupName = (msg.groupName || '').trim() || msg.groupJid;
+      const rawText = (msg.rawText || '').trim();
+
+      if (groupName && !groupName.includes('محادثة خاصة') && !isSimulatedMockGroup(groupName)) {
+        autoAdoptDetectedGroups([groupName]);
+        try {
+          const saved = localStorage.getItem('orderi_my_whatsapp_groups');
+          const list = saved ? JSON.parse(saved) : [];
+          if (Array.isArray(list) && !list.includes(groupName)) {
+            localStorage.setItem('orderi_my_whatsapp_groups', JSON.stringify([...list, groupName]));
+          }
+        } catch {}
+        setPersistedDetectedGroups((prev) => {
+          if (!prev.includes(groupName)) {
+            const next = [groupName, ...prev];
+            try {
+              localStorage.setItem('orderi_detected_incoming_groups', JSON.stringify(next));
+            } catch {}
+            return next;
+          }
+          return prev;
+        });
+      }
+
+      if (rawText) {
+        const embeddedLinks = extractGroupLinksFromText(rawText, msg.senderName || 'معلن واتساب', '', groupName);
+        if (embeddedLinks.length > 0) {
+          embeddedLinks.forEach((link) => {
+            setDiscoveredGroupLinks((prev) => {
+              const exists = prev.some((l) => l.inviteCode === link.inviteCode);
+              if (exists) return prev;
+              const next = [link, ...prev];
+              saveDiscoveredGroupLinks(next);
+              setActiveGroupLinkPrompt(link);
+              return next;
+            });
+          });
+        }
+      }
+
+      if (rawText && !msg.isSticker) {
+        const advertisementCheck = detectAdvertisementMessage(rawText);
+        if (advertisementCheck.isAdvertisement) {
+          return;
+        }
+      }
+
+      // Check smart order closure before creating new orders
+      if (filterRef.current.autoCloseOrdersEnabled !== false) {
+        const closurePayload = {
+          text: rawText || (msg.isSticker ? '[sticker]' : ''),
+          senderName: msg.senderName || '',
+          senderPhone: msg.senderPhone || '',
+          senderJid: msg.senderJid || '',
+          groupName,
+          groupJid: msg.groupJid,
+          timestamp: msg.timestamp || Date.now(),
+          rawQuotedText: msg.quotedText || '',
+          quotedStanzaId: msg.quotedStanzaId || '',
+          messageId: msg.messageId,
+          isGroup: true,
+          isDirectPrivate: false,
+          isSticker: msg.isSticker === true,
+        };
+
+        const fastMatch = checkIncomingMessageForClosure(closurePayload, ordersRef.current);
+        if (fastMatch) {
+          handleAutoOrderClosure(fastMatch);
+          return;
+        }
+
+        if (!msg.isSticker && rawText) {
+          try {
+            const aiMatch = await checkIncomingMessageForClosureWithAI(closurePayload, ordersRef.current);
+            if (aiMatch) {
+              handleAutoOrderClosure(aiMatch);
+              return;
+            }
+          } catch {}
+        }
+      }
+
+      // Stickers or empty captions never create fake orders
+      if (msg.isSticker || !rawText) return;
+      if (msg.isFromMe && filterRef.current.excludeMyOwnAds !== false) return;
+
+      try {
+        const { parseMultipleWhatsAppOrdersWithLocalAi } = await import('./utils/localAiOrderParser');
+        const parsedList = await parseMultipleWhatsAppOrdersWithLocalAi(rawText, {
+          hybridMode: filterRef.current.localAiConfig?.hybridMode !== false,
+          forceAi: filterRef.current.localAiConfig?.hybridMode === false,
+          useCloudFallback: filterRef.current.useCloudAiFallback === true,
+          senderName: msg.senderName,
+          groupName,
+        });
+
+        for (let idx = 0; idx < parsedList.length; idx++) {
+          const parsed = parsedList[idx];
+          const suffix = parsedList.length > 1 ? `-part-${idx + 1}` : '';
+          const segText = (parsed as any).rawSegment || rawText;
+          const metaPhone = msg.senderPhone ? normalizeBahrainPhone(msg.senderPhone) : '';
+          const textAdvCandidates = classifyTextPhoneNumbers(segText).filter((c) => c.role === 'advertiser');
+          const resolvedPhone =
+            metaPhone ||
+            (textAdvCandidates.length === 1 ? textAdvCandidates[0].phone : '') ||
+            (parsed.phone ? normalizeBahrainPhone(parsed.phone) : '');
+          const senderPhoneSource = metaPhone
+            ? ('notification_metadata' as const)
+            : resolvedPhone
+            ? ('ad_text_advertiser' as const)
+            : ('none' as const);
+
+          const isPassengerRequest =
+            parsed.passengerDetection?.level === 'confirmed_passenger' ||
+            parsed.passengerDetection?.level === 'suspicious_passenger';
+
+          if (!parsed.canCreateOrder && !isPassengerRequest) continue;
+
+          const order = {
+            id: `bridge-wa-${msg.messageId}${suffix}`,
+            from: parsed.from || 'موقع الاستلام غير محدد 📍',
+            to: parsed.to || 'وجهة التوصيل غير محددة 📍',
+            price: parsed.price,
+            orderCount: parsed.orderCount,
+            isPriceUnspecified: parsed.isPriceUnspecified,
+            scheduledTime: parsed.scheduledTime,
+            scheduledTimeMinutes: parsed.scheduledTimeMinutes,
+            isFutureSchedule: parsed.isFutureSchedule,
+            rawText: segText,
+            groupName,
+            senderName: (msg.senderName && msg.senderName.trim())
+              ? msg.senderName.trim()
+              : (parsed.advertiserName || 'معلن بالقروب'),
+            senderPhone: resolvedPhone,
+            senderPhoneSource,
+            senderIdentityKey: msg.senderJid || undefined,
+            sourceMessageId: msg.messageId,
+            sourceMessageTimestamp: msg.timestamp || Date.now(),
+            originalMessageRef: buildOriginalMessageRef(segText, msg.timestamp || 0),
+            receivedAt: new Date(msg.timestamp || Date.now()),
+            confidence: parsed.confidence,
+            type: 'whatsapp_bridge',
+            notes: parsed.notes || '',
+            status: 'pending' as const,
+            source: 'whatsapp_web_bridge' as const,
+            isDirectPrivate: false,
+            bridgeGroupJid: msg.groupJid,
+            bridgeParticipantJid: msg.senderJid,
+            bridgeMessageId: msg.messageId,
+            bridgeQuotedStanzaId: msg.quotedStanzaId,
+            aiTierUsed: parsed.parseMethod,
+            passengerDetection: parsed.passengerDetection,
+          };
+
+          processIncomingBridgeOrderRef.current(order, false);
+        }
+      } catch (err) {
+        console.warn('[Orderi Bridge] Failed processing group message:', err);
+      }
+    };
+
+    const handleBridgePrivateReply = (reply: BridgePrivateReplyPayload) => {
+      if (!reply || !reply.rawText || reply.isFromMe) return;
+
+      // Never create Radar orders from 1-on-1 private chats!
+      const replyPhone = (reply.senderPhone || '').replace(/\D/g, '');
+      const activeOutreachOrder = ordersRef.current.find((ord) => {
+        if (ord.status !== 'pending' || !ord.outreachStatus || ord.outreachStatus === 'NOT_ATTEMPTED') return false;
+        if (ord.bridgeParticipantJid && reply.senderJid && ord.bridgeParticipantJid === reply.senderJid) return true;
+        if (ord.senderIdentityKey && reply.senderJid && ord.senderIdentityKey === reply.senderJid) return true;
+        const ordPhone = (ord.senderPhone || '').replace(/\D/g, '');
+        if (ordPhone.length >= 8 && replyPhone.length >= 8 && ordPhone.slice(-8) === replyPhone.slice(-8)) return true;
+        return false;
+      });
+
+      if (!activeOutreachOrder) return;
+
+      const replyVerdict = classifyAdvertiserPrivateReply(reply.rawText);
+      if (replyVerdict.verdict === 'CONFIRMED_AWARDED') {
+        setOrders((prev) =>
+          prev.map((o) =>
+            o.id === activeOutreachOrder.id ? { ...o, outreachStatus: 'DELIVERY_CONFIRMED' } : o
+          )
+        );
+        setAwardedOrderData({
+          orderId: activeOutreachOrder.id,
+          advertiserName: reply.senderName || activeOutreachOrder.senderName || 'صاحب الإعلان',
+          advertiserPhone: activeOutreachOrder.senderPhone || reply.senderPhone || '',
+          replyText: reply.rawText.trim(),
+        });
+        showToast(`✅ المعلن رد عليك بالخاص وأكّد الطلب لك («${reply.rawText.trim()}»)`);
+        if (filterRef.current.soundEnabled) {
+          playAlertTone('cash_register', 90);
+        }
+      }
+    };
+
+    const unsubscribe = orderiBridgeClient.subscribe({
+      onStatus: (nextStatus) => {
+        setBridgeStatus(nextStatus);
+        if (nextStatus.state === 'Connected') {
+          setIsWhatsAppConnected(true);
+        }
+      },
+      onGroupMessage: (msg) => {
+        void handleBridgeGroupMessage(msg);
+      },
+      onPrivateReply: handleBridgePrivateReply,
+      onSessionExpired: () => {
+        showToast('⚠️ انتهت صلاحية جلسة WhatsApp Bridge — يرجى إعادة الربط من تبويب Bridge');
+      },
+    });
+
+    void orderiBridgeClient.start(true);
+
+    return () => {
+      unsubscribe();
+      orderiBridgeClient.start(false);
+    };
+  }, [filter.whatsAppBridgeEnabled, currentUser?.id]);
+
   // Listen for Web / PWA background notification clicks: opens order details modal directly in Radar!
   useEffect(() => {
     const handleOpenOrderDetailEvent = (e: any) => {
@@ -2956,6 +3203,10 @@ function OrderiApp({
     };
 
     try {
+      const useBridgeOutreach =
+        filterRef.current.whatsAppBridgeEnabled !== false &&
+        filterRef.current.preferBridgeOutreach !== false;
+
       let outreach = await executePrivateAdvertiserOutreach(
         order,
         filterRef.current.customResponseTemplate,
@@ -2964,6 +3215,8 @@ function OrderiApp({
           autoSend: true,
           backgroundOnly: true,
           allowUiFallback: false,
+          useBridge: useBridgeOutreach,
+          bridgeOutreach: orderiBridgeClient,
           latestOrders: ordersRef.current,
           onProgress: (progressStatus) => updateProgressOrder(progressStatus, undefined, undefined),
           onExecutionStateProgress: (execState, _label, opId) => updateProgressOrder(undefined, execState, opId),
@@ -2990,6 +3243,8 @@ function OrderiApp({
                 autoSend: true,
                 backgroundOnly: false,
                 allowUiFallback: true,
+                useBridge: useBridgeOutreach,
+                bridgeOutreach: orderiBridgeClient,
                 latestOrders: ordersRef.current,
                 onProgress: (progressStatus) => updateProgressOrder(progressStatus, undefined, undefined),
                 onExecutionStateProgress: (execState, _label, opId) => updateProgressOrder(undefined, execState, opId),
@@ -3010,8 +3265,9 @@ function OrderiApp({
         advertiserName: outreach.resolution.name || order.senderName || 'صاحب الإعلان',
         attemptedAt: new Date().toISOString(),
         message: outreach.message,
+        sentMessageId: outreach.sentMessageId,
         reasonCode: outreach.reasonCode,
-        packageName: 'com.whatsapp',
+        packageName: outreach.deliveryMethod === 'whatsapp_web_bridge' ? 'whatsapp_web_bridge' : 'com.whatsapp',
         deliveryMethod: outreach.deliveryMethod,
         verifiedAdvertiser: outreach.resolution.advertiserVerified,
       };
@@ -3265,7 +3521,11 @@ function OrderiApp({
       order.source === 'android_notification' &&
       order.isDirectPrivate === false &&
       filter.monitorArchivedGroups === true;
-    return isOrderGroupAllowed(order.groupName) || isVerifiedNativeGroupNotification;
+    const isVerifiedBridgeGroup =
+      order.source === 'whatsapp_web_bridge' &&
+      order.isDirectPrivate === false &&
+      filter.monitorArchivedGroups !== false;
+    return isOrderGroupAllowed(order.groupName) || isVerifiedNativeGroupNotification || isVerifiedBridgeGroup;
   };
 
   const detectedIncomingGroups = Array.from(
@@ -3455,7 +3715,8 @@ function OrderiApp({
         onOpenAPKModal={() => setIsAPKModalOpen(true)}
         newDiscoveredGroupsCount={discoveredGroupLinks.filter((g) => g.status === 'new').length}
         isStreamConnected={isStreamConnected}
-        isWhatsAppConnected={isActivated ? isWhatsAppConnected : false}
+        isWhatsAppConnected={(isActivated && isWhatsAppConnected) || bridgeStatus.state === 'Connected'}
+        isBridgeConnected={bridgeStatus.state === 'Connected'}
         onRequestGps={handleRequestGps}
         isGpsLoading={isGpsLoading}
         isCarTrackingActive={isActivated ? isCarTrackingActive : false}
@@ -3828,6 +4089,62 @@ function OrderiApp({
               const area = BAHRAIN_AREAS.find(a => a.name === areaName);
               if (area) handleSetManualLocation(area);
             }}
+          />
+        )}
+
+        {/* WhatsApp Web Bridge View */}
+        {activeTab === 'bridge' && (
+          <WhatsAppBridgeView
+            status={bridgeStatus}
+            defaultPhone={currentUser?.phone || filter.captainPhone || ''}
+            bridgeEnabled={filter.whatsAppBridgeEnabled !== false}
+            preferBridgeOutreach={filter.preferBridgeOutreach !== false}
+            onToggleBridgeEnabled={(enabled) => {
+              handleUpdateFilter({ ...filter, whatsAppBridgeEnabled: enabled });
+              showToast(enabled ? 'تم تفعيل قناة WhatsApp Web Bridge ✅' : 'تم إيقاف قناة WhatsApp Web Bridge مؤقتاً ⏸️');
+            }}
+            onTogglePreferBridgeOutreach={(enabled) => {
+              handleUpdateFilter({ ...filter, preferBridgeOutreach: enabled });
+              showToast(enabled ? 'سيتم تفضيل Bridge لإرسال القبول تلقائياً بالخلفية' : 'سيتم استخدام الإشعارات الأصلية لإرسال القبول');
+            }}
+            onConnect={async (phoneNumber) => {
+              try {
+                const next = await orderiBridgeClient.connectWithPhoneNumber(phoneNumber);
+                setBridgeStatus(next);
+                showToast(
+                  next.pairingCode
+                    ? `تم توليد رمز الربط: ${next.pairingCode}`
+                    : 'جاري تجهيز جلسة WhatsApp Bridge...'
+                );
+              } catch (err: any) {
+                showToast(err?.message || 'تعذر بدء جلسة الربط مع الخادم');
+              }
+            }}
+            onReconnect={async () => {
+              try {
+                const next = await orderiBridgeClient.reconnect();
+                setBridgeStatus(next);
+                showToast('جاري إعادة الاتصال بجلسة WhatsApp Bridge...');
+              } catch (err: any) {
+                showToast(err?.message || 'تعذر إعادة الاتصال بـ Bridge');
+              }
+            }}
+            onDisconnect={async () => {
+              try {
+                const next = await orderiBridgeClient.disconnect();
+                setBridgeStatus(next);
+                showToast('تم قطع اتصال WhatsApp Bridge وإزالة بيانات الجلسة 🔒');
+              } catch (err: any) {
+                showToast(err?.message || 'تعذر قطع الاتصال');
+              }
+            }}
+            onRefreshStatus={async () => {
+              try {
+                const next = await orderiBridgeClient.refreshStatus();
+                setBridgeStatus(next);
+              } catch {}
+            }}
+            onToast={showToast}
           />
         )}
 

@@ -47,7 +47,7 @@ interface HeaderProps {
   notificationsEnabled: boolean;
   ignoreNonMatching: boolean;
   keepScreenAwake?: boolean;
-  activeTab: 'radar' | 'settings' | 'ledger' | 'broadcast' | 'map';
+  activeTab: 'radar' | 'settings' | 'ledger' | 'broadcast' | 'map' | 'bridge';
   acceptedCount: number;
   todayEarnings: number;
   currentUser?: CaptainUser | null;
@@ -57,7 +57,8 @@ interface HeaderProps {
   onToggleSound: () => void;
   onToggleIgnoreNonMatching: () => void;
   onToggleKeepScreenAwake?: () => void;
-  onTabChange: (tab: 'radar' | 'settings' | 'ledger' | 'broadcast' | 'map') => void;
+  onTabChange: (tab: 'radar' | 'settings' | 'ledger' | 'broadcast' | 'map' | 'bridge') => void;
+  isBridgeConnected?: boolean;
   onOpenVoiceModal?: () => void;
   onOpenBackgroundModal?: () => void;
   onOpenAutoSyncModal?: () => void;
@@ -118,6 +119,7 @@ export function Header({
   onOpenFaceLogin,
   onShowSplash,
   onOpenSpider,
+  isBridgeConnected = false,
 }: HeaderProps) {
   const [timeStr, setTimeStr] = useState('');
   const [isExitConfirmOpen, setIsExitConfirmOpen] = useState(false);
@@ -174,13 +176,13 @@ export function Header({
         className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/80 shadow-xs w-full max-w-full"
         style={{ paddingTop: 'max(0px, env(safe-area-inset-top))' }}
       >
-        <div className="max-w-7xl mx-auto px-2 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-14 sm:h-20 gap-1.5 sm:gap-2 w-full max-w-full">
+        <div className="max-w-[1600px] mx-auto px-2 sm:px-4 lg:px-5">
+          <div className="flex items-center justify-between h-14 sm:h-18 gap-1.5 sm:gap-2 w-full max-w-full">
             
             {/* Logo & Identity */}
-            <div className="flex items-center gap-1.5 sm:gap-3 shrink-0 min-w-0">
+            <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0 min-w-0">
               <div className="relative">
-                <div className="w-8 h-8 sm:w-11 sm:h-11 rounded-lg sm:rounded-2xl overflow-hidden shadow-md shadow-emerald-600/20 ring-2 ring-emerald-500/30 bg-white p-0.5 flex items-center justify-center">
+                <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-2xl overflow-hidden shadow-md shadow-emerald-600/20 ring-2 ring-emerald-500/30 bg-white p-0.5 flex items-center justify-center">
                   <img 
                     src="/logo.png" 
                     alt="Ordari Bahrain Radar" 
@@ -195,9 +197,9 @@ export function Header({
               </div>
 
               <div className="min-w-0">
-                <div className="flex items-center gap-1 sm:gap-2">
-                  <span className="text-base sm:text-2xl font-black tracking-tight text-slate-900 font-['Plus_Jakarta_Sans',sans-serif]">Ordari</span>
-                  <span className="text-[8px] sm:text-xs px-1 sm:px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold border border-emerald-200/60 shadow-2xs">
+                <div className="flex items-center gap-1 sm:gap-1.5">
+                  <span className="text-base sm:text-xl font-black tracking-tight text-slate-900 font-['Plus_Jakarta_Sans',sans-serif]">Ordari</span>
+                  <span className="text-[8px] sm:text-xs px-1 sm:px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold border border-emerald-200/60 shadow-2xs">
                     🇧🇭
                   </span>
 
@@ -207,7 +209,7 @@ export function Header({
                       type="button"
                       onClick={onOpenTrialModal}
                       title="تفاصيل الفترة التجريبية وترخيص هذا الهاتف"
-                      className={`h-6 sm:h-7.5 flex items-center gap-1 px-1.5 sm:px-2 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-black transition-all border shrink-0 cursor-pointer active:scale-95 shadow-2xs ${
+                      className={`h-6 sm:h-7 flex items-center gap-1 px-1.5 sm:px-2 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-black transition-all border shrink-0 cursor-pointer active:scale-95 shadow-2xs ${
                         trialStatus.isActivated
                           ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
                           : trialStatus.isExpired
@@ -218,7 +220,7 @@ export function Header({
                       {trialStatus.isActivated ? (
                         <>
                           <ShieldCheck className="w-3 h-3 text-emerald-600" />
-                          <span className="hidden sm:inline">مفعّل</span>
+                          <span className="hidden xl:inline">مفعّل</span>
                         </>
                       ) : trialStatus.isExpired ? (
                         <>
@@ -234,48 +236,48 @@ export function Header({
                     </button>
                   )}
                 </div>
-                <p className="hidden sm:block text-[11px] text-slate-500 font-medium">رادار طلبات التوصيل الذكي</p>
+                <p className="hidden 2xl:block text-[11px] text-slate-500 font-medium whitespace-nowrap">رادار طلبات التوصيل الذكي</p>
               </div>
             </div>
 
             {/* Center Navigation Tabs (Desktop & Tablet) */}
-            <nav className="hidden md:flex items-center gap-1 bg-slate-100/80 p-1.5 rounded-2xl border border-slate-200/70">
+            <nav className="hidden md:flex items-center gap-0.5 bg-slate-100/80 p-1 rounded-2xl border border-slate-200/70 shrink min-w-0 overflow-x-auto no-scrollbar">
               <button
                 onClick={() => onTabChange('radar')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all ${
+                className={`flex items-center gap-1 px-2 2xl:px-3 py-1.5 rounded-xl text-xs 2xl:text-[13px] font-bold transition-all whitespace-nowrap shrink-0 cursor-pointer ${
                   activeTab === 'radar'
                     ? 'bg-white text-blue-700 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
                 }`}
               >
-                <Radar className="w-4 h-4 text-blue-600" />
-                <span>الرادار المباشر</span>
+                <Radar className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                <span>الرادار</span>
               </button>
 
               <button
                 onClick={() => onTabChange('map')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all ${
+                className={`flex items-center gap-1 px-2 2xl:px-3 py-1.5 rounded-xl text-xs 2xl:text-[13px] font-bold transition-all whitespace-nowrap shrink-0 cursor-pointer ${
                   activeTab === 'map'
                     ? 'bg-white text-blue-700 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
                 }`}
               >
-                <Map className="w-4 h-4 text-emerald-600" />
-                <span>الخريطة والمناطق</span>
+                <Map className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <span>الخريطة</span>
               </button>
 
               <button
                 onClick={() => onTabChange('ledger')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all ${
+                className={`flex items-center gap-1 px-2 2xl:px-3 py-1.5 rounded-xl text-xs 2xl:text-[13px] font-bold transition-all whitespace-nowrap shrink-0 cursor-pointer ${
                   activeTab === 'ledger'
                     ? 'bg-white text-blue-700 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
                 }`}
               >
-                <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-                <span>الطلبات المقبولة</span>
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <span>المقبولة</span>
                 {acceptedCount > 0 && (
-                  <span className="px-1.5 py-0.2 text-xs rounded-full bg-emerald-500 text-white font-black">
+                  <span className="px-1.5 py-0.2 text-[11px] rounded-full bg-emerald-500 text-white font-black">
                     {acceptedCount}
                   </span>
                 )}
@@ -283,25 +285,25 @@ export function Header({
 
               <button
                 onClick={() => onTabChange('broadcast')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all ${
+                className={`flex items-center gap-1 px-2 2xl:px-3 py-1.5 rounded-xl text-xs 2xl:text-[13px] font-bold transition-all whitespace-nowrap shrink-0 cursor-pointer ${
                   activeTab === 'broadcast'
                     ? 'bg-white text-emerald-700 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
                 }`}
               >
-                <Share2 className="w-4 h-4 text-emerald-600" />
-                <span>نشر بالقروبات</span>
+                <Share2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <span>نشر طلب</span>
               </button>
 
               {onOpenCommitments && (
                 <button
                   onClick={onOpenCommitments}
-                  className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-bold transition-all text-indigo-700 hover:text-indigo-900 hover:bg-indigo-50/70"
+                  className="flex items-center gap-1 px-2 2xl:px-3 py-1.5 rounded-xl text-xs 2xl:text-[13px] font-bold transition-all whitespace-nowrap shrink-0 text-indigo-700 hover:text-indigo-900 hover:bg-indigo-50/70 cursor-pointer"
                 >
-                  <CalendarDays className="w-4 h-4 text-indigo-600" />
-                  <span>الارتباط الشهري</span>
+                  <CalendarDays className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                  <span>الالتزامات</span>
                   {commitmentsCount > 0 && (
-                    <span className="px-1.5 py-0.2 text-xs rounded-full bg-indigo-600 text-white font-black">
+                    <span className="px-1.5 py-0.2 text-[11px] rounded-full bg-indigo-600 text-white font-black">
                       {commitmentsCount}
                     </span>
                   )}
@@ -310,14 +312,31 @@ export function Header({
 
               <button
                 onClick={() => onTabChange('settings')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all ${
+                className={`flex items-center gap-1 px-2 2xl:px-3 py-1.5 rounded-xl text-xs 2xl:text-[13px] font-bold transition-all whitespace-nowrap shrink-0 cursor-pointer ${
                   activeTab === 'settings'
                     ? 'bg-white text-blue-700 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
                 }`}
               >
-                <Sliders className="w-4 h-4 text-indigo-600" />
-                <span>ضبط الفلتر</span>
+                <Sliders className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                <span>الفلتر</span>
+              </button>
+
+              <button
+                onClick={() => onTabChange('bridge')}
+                title="WhatsApp Web Bridge (Pairing Code)"
+                aria-label="WhatsApp Bridge"
+                className={`flex items-center gap-1 px-2 2xl:px-3 py-1.5 rounded-xl text-xs 2xl:text-[13px] font-bold transition-all whitespace-nowrap shrink-0 cursor-pointer ${
+                  activeTab === 'bridge'
+                    ? 'bg-white text-emerald-700 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+                }`}
+              >
+                <LinkIcon className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <span>Bridge</span>
+                {isBridgeConnected && (
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                )}
               </button>
             </nav>
 
@@ -434,7 +453,7 @@ export function Header({
                 <button
                   onClick={onToggleKeepScreenAwake}
                   title={keepScreenAwake ? 'إبقاء الشاشة مضاءة: مفعّل ☀️' : 'إبقاء الشاشة مضاءة: معطّل 🌙'}
-                  className={`h-9 w-9 sm:h-10 sm:w-10 flex items-center justify-center rounded-xl border transition-all active:scale-95 cursor-pointer ${
+                  className={`hidden 2xl:flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-xl border transition-all active:scale-95 cursor-pointer ${
                     keepScreenAwake
                       ? 'bg-amber-50 text-amber-600 border-amber-300'
                       : 'bg-slate-100 text-slate-400 border-slate-200 hover:bg-slate-200'
@@ -467,7 +486,7 @@ export function Header({
                 <button
                   onClick={onOpenAPKModal}
                   title="تثبيت التطبيق على الهاتف كـ APK أصلي"
-                  className="hidden lg:flex h-10 items-center gap-1.5 px-3 rounded-xl text-xs font-black transition-all bg-gradient-to-r from-emerald-600 to-teal-700 text-white shadow-xs border border-emerald-500 cursor-pointer active:scale-95"
+                  className="hidden 2xl:flex h-10 items-center gap-1.5 px-3 rounded-xl text-xs font-black transition-all bg-gradient-to-r from-emerald-600 to-teal-700 text-white shadow-xs border border-emerald-500 cursor-pointer active:scale-95 whitespace-nowrap shrink-0"
                 >
                   <Smartphone className="w-3.5 h-3.5 text-emerald-200" />
                   <span>تثبيت APK</span>
@@ -475,7 +494,7 @@ export function Header({
               )}
 
               {/* PWA Install Button */}
-              <div className="hidden sm:block">
+              <div className="hidden 2xl:block">
                 <PWAInstallButton />
               </div>
 
@@ -485,7 +504,7 @@ export function Header({
                   type="button"
                   onClick={onOpenFaceLogin}
                   title="فحص وتسجيل الدخول ببصمة الوجه (Face ID)"
-                  className="h-9 sm:h-10 flex items-center gap-1.5 px-3 rounded-xl text-xs font-black transition-all bg-emerald-50 hover:bg-emerald-100 text-emerald-950 border border-emerald-300 shadow-2xs cursor-pointer active:scale-95 shrink-0"
+                  className="hidden 2xl:flex h-9 sm:h-10 items-center gap-1 px-2.5 rounded-xl text-xs font-black transition-all bg-emerald-50 hover:bg-emerald-100 text-emerald-950 border border-emerald-300 shadow-2xs cursor-pointer active:scale-95 shrink-0 whitespace-nowrap"
                 >
                   <Scan className="w-3.5 h-3.5 text-emerald-600" />
                   <span>Face ID</span>
@@ -757,6 +776,25 @@ export function Header({
         >
           <Sliders className={`w-5 h-5 ${activeTab === 'settings' ? 'text-emerald-600' : 'text-slate-500'}`} />
           <span className="text-[10px] sm:text-[11px] mt-0.5">الفلتر</span>
+        </button>
+
+        {/* 5B. WhatsApp Bridge */}
+        <button
+          id="mobile-nav-bridge"
+          onClick={() => onTabChange('bridge')}
+          className={`min-h-[48px] flex flex-col items-center justify-center py-1.5 px-1 rounded-xl transition-all flex-1 relative active:scale-95 cursor-pointer ${
+            activeTab === 'bridge'
+              ? 'text-emerald-700 font-black bg-emerald-50/80 shadow-2xs'
+              : 'text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <div className="relative">
+            <LinkIcon className={`w-5 h-5 ${activeTab === 'bridge' ? 'text-emerald-600' : 'text-slate-500'}`} />
+            {isBridgeConnected && (
+              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 border border-white" />
+            )}
+          </div>
+          <span className="text-[10px] sm:text-[11px] mt-0.5">Bridge</span>
         </button>
 
         {/* 6. Exit Button (خروج من البرنامج) - In Mobile Bottom Navigation Bar */}

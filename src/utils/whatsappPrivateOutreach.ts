@@ -723,12 +723,35 @@ export interface ExecutePrivateOutreachResult {
   statusLabel: string;
   reasonCode?: string;
   deliveryMethod:
+    | 'whatsapp_web_bridge'
     | 'notification_remote_input'
     | 'accessibility_reply_privately'
     | 'accessibility_member_click'
     | 'manual_regular_whatsapp'
     | 'none';
+  sentMessageId?: string;
   accessibilityRequired?: boolean;
+}
+
+export interface BridgeOutreachAdapter {
+  isConnected: () => boolean;
+  sendPrivateMessage: (params: {
+    orderId: string;
+    operationId: string;
+    targetJid?: string;
+    senderPhone?: string;
+    groupJid?: string;
+    originalMessageId?: string;
+    originalSenderName?: string;
+    message: string;
+  }) => Promise<{
+    success: boolean;
+    alreadySent?: boolean;
+    sentMessageId?: string;
+    targetJid?: string;
+    errorCode?: string;
+    errorMessage?: string;
+  }>;
 }
 
 const privateOutreachInFlight = new Set<string>();
@@ -738,6 +761,8 @@ export interface ExecutePrivateOutreachOptions {
   autoSend?: boolean;
   backgroundOnly?: boolean;
   allowUiFallback?: boolean;
+  useBridge?: boolean;
+  bridgeOutreach?: BridgeOutreachAdapter;
   phoneOverride?: string | null;
   latestOrders?: ParsedOrder[];
   pollTimeoutMs?: number;
@@ -794,6 +819,8 @@ export async function executePrivateAdvertiserOutreach(
           autoSend: optionsOrAutoSend.autoSend ?? true,
           backgroundOnly: optionsOrAutoSend.backgroundOnly ?? true,
           allowUiFallback: optionsOrAutoSend.allowUiFallback ?? false,
+          useBridge: optionsOrAutoSend.useBridge,
+          bridgeOutreach: optionsOrAutoSend.bridgeOutreach,
           phoneOverride: optionsOrAutoSend.phoneOverride ?? legacyPhoneOverride,
           latestOrders: optionsOrAutoSend.latestOrders,
           pollTimeoutMs: optionsOrAutoSend.pollTimeoutMs,
@@ -938,12 +965,120 @@ export async function executePrivateAdvertiserOutreach(
     openWhatsAppPrivateConversation: (payload) => OrderiNotificationListener.openWhatsAppPrivateConversation(payload),
   };
 
+  // Step 1B: Try WhatsApp Web Bridge channel first when enabled & connected,
+  // using verified original JID or verified phone (NEVER display-name alone!).
+  const verifiedBridgeJid = (orderWithRef.bridgeParticipantJid || '').trim();
+  const hasVerifiedBridgeTarget = Boolean(
+    (verifiedBridgeJid &&
+      (verifiedBridgeJid.includes('@s.whatsapp.net') || verifiedBridgeJid.includes('@lid'))) ||
+      targetPhone,
+  );
+
+  if (autoSend && opts.useBridge !== false && opts.bridgeOutreach?.isConnected()) {
+    if (hasVerifiedBridgeTarget) {
+      const bridgeLock = acquireExecutionLock(orderWithRef, operationId, allowUiFallback);
+      if (!bridgeLock.acquired) {
+        if ('reason' in bridgeLock && bridgeLock.reason === 'SEND_RESULT_UNKNOWN') {
+          return makeFailure(
+            'SEND_RESULT_UNKNOWN',
+            'تعذر الجزم بنتيجة الإرسال السابقة لهذا الطلب — مُنع التكرار التلقائي.',
+            'send_result_unknown_retry_blocked',
+            { executionState: 'SEND_RESULT_UNKNOWN', retryBlocked: true, openFallbackModal: false },
+          );
+        }
+        return makeFailure(
+          'SEND_FAILED',
+          'توجد عملية إرسال جارية حالياً لهذا الطلب — مُنع التكرار.',
+          'operation_in_flight',
+          { executionState: 'FAILED', openFallbackModal: false },
+        );
+      }
+
+      emitExecutionState('OPENING_PRIVATE_CHAT', 'جاري تحديد المحادثة الخاصة للمعلن عبر Bridge...');
+      emitProgress('PRIVATE_CHAT_RESOLVED', 'تم تحديد مسار المحادثة الخاصة عبر WhatsApp Bridge');
+      transitionExecutionLock(lockKey, operationId, 'EXECUTING');
+      emitExecutionState('EXECUTING', 'جاري إرسال رسالة القبول عبر WhatsApp Bridge...');
+
+      const bridgeRes = await opts.bridgeOutreach.sendPrivateMessage({
+        orderId: orderWithRef.id,
+        operationId,
+        targetJid: verifiedBridgeJid || undefined,
+        senderPhone: targetPhone || undefined,
+        groupJid: orderWithRef.bridgeGroupJid,
+        originalMessageId: orderWithRef.bridgeMessageId,
+        originalSenderName: advertiserName,
+        message: messageText,
+      });
+
+      if (bridgeRes.success && bridgeRes.sentMessageId) {
+        transitionExecutionLock(lockKey, operationId, 'SENT', true);
+        emitExecutionState('SENT', 'تم إرسال رسالة القبول للمعلن عبر WhatsApp Bridge مباشرة ✓');
+        return {
+          success: true,
+          status: 'MESSAGE_SUBMITTED',
+          executionState: 'SENT',
+          operationId,
+          retryBlocked: false,
+          sentVerifiedInUi: true,
+          deliveryReceiptStatus: 'sent_only',
+          needsVerification: false,
+          openFallbackModal: false,
+          resolution,
+          message: messageText,
+          phoneUsed: targetPhone,
+          deliveryMethod: 'whatsapp_web_bridge',
+          sentMessageId: bridgeRes.sentMessageId,
+          reasonCode: bridgeRes.alreadySent ? 'bridge_already_sent' : 'bridge_sent_confirmed',
+          statusLabel: bridgeRes.alreadySent
+            ? `تم تأكيد إرسال رسالة القبول مسبقاً لـ «${advertiserName}» عبر WhatsApp Bridge دون تكرار ✅`
+            : `تم إرسال رسالة القبول إلى محادثة «${advertiserName}» الخاصة عبر WhatsApp Bridge دون فتح واتساب ✅`,
+        };
+      }
+
+      if (bridgeRes.errorCode === 'IDENTITY_NOT_VERIFIED') {
+        transitionExecutionLock(lockKey, operationId, 'IDENTITY_NOT_CONFIRMED', false);
+        emitExecutionState('IDENTITY_NOT_CONFIRMED', bridgeRes.errorMessage);
+        return makeFailure(
+          'IDENTITY_NOT_VERIFIED',
+          bridgeRes.errorMessage || 'تعذر التحقق من معرف المعلن الحقيقي عبر Bridge.',
+          'bridge_identity_not_verified',
+          { executionState: 'IDENTITY_NOT_CONFIRMED', operationId },
+        );
+      }
+
+      const canFallBackToAndroid =
+        bridge.isNativeAndroid() &&
+        (bridgeRes.errorCode === 'BRIDGE_NOT_CONNECTED' || bridgeRes.errorCode === 'BRIDGE_NETWORK_ERROR');
+
+      if (!canFallBackToAndroid) {
+        transitionExecutionLock(lockKey, operationId, 'FAILED', false);
+        emitExecutionState('FAILED', bridgeRes.errorMessage);
+        return makeFailure(
+          'SEND_FAILED',
+          bridgeRes.errorMessage || 'فشل إرسال الرسالة الخاصة عبر WhatsApp Bridge؛ بقي الطلب بدون قبول.',
+          bridgeRes.errorCode || 'bridge_send_failed',
+          { executionState: 'FAILED', operationId, openFallbackModal: false },
+        );
+      }
+      // If transient Bridge disconnect on native Android, transition lock out cleanly to let native path try
+      transitionExecutionLock(lockKey, operationId, 'FAILED', false);
+    } else if (!bridge.isNativeAndroid()) {
+      emitExecutionState('IDENTITY_NOT_CONFIRMED');
+      return makeFailure(
+        'IDENTITY_NOT_VERIFIED',
+        'لا يتوفر معرف JID حقيقي أو رقم هاتف موثق لصاحب الإعلان؛ لن يتم البحث بالاسم أو إرسال رسالة لشخص خطأ.',
+        'missing_verified_bridge_jid_or_phone',
+        { executionState: 'IDENTITY_NOT_CONFIRMED' },
+      );
+    }
+  }
+
   // Step 2: Check native Android execution availability (NEVER auto-open WhatsApp on background failure)
   if (!bridge.isNativeAndroid()) {
     emitExecutionState('NEEDS_USER_INTERACTION');
     return makeFailure(
       'BACKGROUND_SEND_UNAVAILABLE',
-      'أنت تستخدم نسخة المتصفح حالياً؛ الإرسال الصامت بالخلفية يتطلب تطبيق أندرويد (APK) وصلاحية الإشعارات. يمكنك المتابعة فوراً عبر واتساب العادي من الخيارات أدناه.',
+      'أنت تستخدم نسخة المتصفح أو أن WhatsApp Bridge غير متصل حالياً؛ وصّل الجسر أو استخدم تطبيق أندرويد لإتمام الإرسال بالخلفية.',
       'non_android_runtime',
       { executionState: 'NEEDS_USER_INTERACTION' },
     );
