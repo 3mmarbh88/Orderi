@@ -56,6 +56,7 @@ let authController: Awaited<ReturnType<typeof useEncryptedAuthState>> | null = n
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectAttempts = 0;
 let socketGeneration = 0;
+let lastDisconnectDiagnostic: { errorCode: string; errorMessage: string } | null = null;
 
 const groupNameCache = new Map<string, string>();
 const messageDeduper = new BridgeMessageDeduper(2500);
@@ -201,8 +202,7 @@ async function startSocketConnection(): Promise<void> {
 
   emitState(reconnectAttempts > 0 ? 'Reconnecting' : 'Connecting', {
     reconnectAttempts,
-    errorCode: null,
-    errorMessage: null,
+    ...(lastDisconnectDiagnostic || { errorCode: null, errorMessage: null }),
   });
 
   try {
@@ -274,7 +274,10 @@ async function startSocketConnection(): Promise<void> {
 
       if (connection === 'connecting') {
         if (currentState !== 'Waiting for Pairing') {
-          emitState(reconnectAttempts > 0 ? 'Reconnecting' : 'Connecting', { reconnectAttempts });
+          emitState(reconnectAttempts > 0 ? 'Reconnecting' : 'Connecting', {
+            reconnectAttempts,
+            ...(lastDisconnectDiagnostic || { errorCode: null, errorMessage: null }),
+          });
         }
         if (wantsPairingCode && !sock.authState.creds.registered && !pairingCodeRequestedForSocket) {
           setTimeout(() => {
@@ -287,6 +290,7 @@ async function startSocketConnection(): Promise<void> {
 
       if (connection === 'open') {
         reconnectAttempts = 0;
+        lastDisconnectDiagnostic = null;
         wantsPairingCode = false;
         pairingCodeRequestedForSocket = false;
         const connectedJid = normalizePrivateUserJid(sock.user?.id || '');
@@ -332,9 +336,17 @@ async function startSocketConnection(): Promise<void> {
           statusCode === 401 ||
           statusCode === DisconnectReason.badSession;
         const isReplaced = statusCode === DisconnectReason.connectionReplaced || statusCode === 440;
+        const disconnectReason = sanitizeForLog(err?.message || err?.name || 'Unknown disconnect');
+        console.warn(
+          `[Orderi Bridge] WhatsApp socket closed; statusCode=${statusCode ?? 'none'}; reason=${disconnectReason}; generation=${generation}; reconnectAttempts=${reconnectAttempts}.`
+        );
 
         if (isLoggedOut) {
           wantsPairingCode = false;
+          lastDisconnectDiagnostic = {
+            errorCode: 'SESSION_EXPIRED',
+            errorMessage: 'انتهت صلاحية جلسة واتساب؛ يلزم إعادة الربط بعد التأكد من حالة الحساب.',
+          };
           if (authController) {
             await authController.clearAll().catch(() => {});
             authController = null;
@@ -354,6 +366,10 @@ async function startSocketConnection(): Promise<void> {
         }
 
         if (isReplaced) {
+          lastDisconnectDiagnostic = {
+            errorCode: 'CONNECTION_REPLACED',
+            errorMessage: 'تم استبدال اتصال الجسر بجلسة أخرى لنفس الحساب؛ تحقق من الأجهزة المرتبطة.',
+          };
           emitState('Error', {
             errorCode: 'CONNECTION_REPLACED',
             errorMessage: 'تم استبدال اتصال الجسر بجلسة أخرى لنفس الحساب؛ أعد الاتصال عند الحاجة.',
@@ -363,10 +379,13 @@ async function startSocketConnection(): Promise<void> {
 
         reconnectAttempts += 1;
         const delayMs = Math.min(30_000, 2000 * Math.pow(2, Math.min(reconnectAttempts - 1, 4)));
+        lastDisconnectDiagnostic = {
+          errorCode: statusCode ? `WA_${statusCode}` : 'NETWORK_RECONNECTING',
+          errorMessage: `انقطع اتصال واتساب${statusCode ? ` (HTTP ${statusCode})` : ''}: ${disconnectReason}. ستتم إعادة المحاولة تلقائياً (${reconnectAttempts}).`,
+        };
         emitState('Reconnecting', {
           reconnectAttempts,
-          errorCode: statusCode ? `WA_${statusCode}` : 'NETWORK_RECONNECTING',
-          errorMessage: `انقطع الاتصال مؤقتاً — جاري إعادة المحاولة تلقائياً (${reconnectAttempts})...`,
+          ...lastDisconnectDiagnostic,
         });
 
         clearReconnectTimer();
@@ -573,6 +592,7 @@ process.on('message', async (raw: SupervisorToWorkerMessage) => {
       activePhoneNumber = raw.phoneNumber || '';
       wantsPairingCode = raw.requestPairingCode;
       reconnectAttempts = 0;
+      lastDisconnectDiagnostic = null;
       authController = null;
       emitToSupervisor({ type: 'WORKER_READY', userId: activeUserId });
       await startSocketConnection();
@@ -590,6 +610,7 @@ process.on('message', async (raw: SupervisorToWorkerMessage) => {
     case 'DISCONNECT': {
       manualDisconnectRequested = true;
       wantsPairingCode = false;
+      lastDisconnectDiagnostic = null;
       clearReconnectTimer();
       const sock = activeSocket;
       if (raw.logout && sock) {
