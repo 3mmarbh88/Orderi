@@ -479,6 +479,23 @@ export class WhatsAppBridgeSupervisor {
       digits.length === 8 && /^[1367]/.test(digits) ? `973${digits}` : digits;
 
     const record = this.getOrCreateRecord(userId);
+
+    // A restored or already-running WhatsApp session must not be killed just
+    // because the user tapped "Connect" again. In particular, preserve the
+    // existing socket while it is reconnecting after a transient WA_408.
+    if (
+      record.worker &&
+      (record.status.state === 'Connected' ||
+        record.status.state === 'Connecting' ||
+        record.status.state === 'Reconnecting' ||
+        record.status.state === 'Waiting for Pairing')
+    ) {
+      console.info(
+        `[Orderi Bridge] Pairing request reused existing worker; state=${record.status.state}.`
+      );
+      return this.getStatus(userId);
+    }
+
     if (record.worker) {
       record.worker.kill();
       record.worker = null;
