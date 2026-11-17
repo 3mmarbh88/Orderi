@@ -23,5 +23,7 @@ jobs:
         run: npm install
       - name: Build isolated Bridge service and Baileys worker
         run: npm run build:bridge
+      - name: Run lifecycle queue tests
+        run: npm run test:bridge-lifecycle
       - name: Run Bridge regression tests
         run: npm run test:whatsapp-bridge
