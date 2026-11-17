@@ -10,6 +10,7 @@ import makeWASocket, {
   proto,
 } from '@whiskeysockets/baileys';
 import { useEncryptedAuthState } from './encryptedAuthState';
+import { SerialTaskQueue } from './serialTaskQueue';
 import {
   BridgeMessageDeduper,
   extractPhoneFromJid,
@@ -265,12 +266,14 @@ async function startSocketConnectionInternal(): Promise<void> {
     console.info('[Orderi Bridge] Baileys socket created; waiting for WhatsApp connection events.');
 
     sock.ev.on('creds.update', async () => {
+      if (generation !== socketGeneration || activeSocket !== sock) return;
       if (authController) {
         await authController.saveCreds().catch(() => {});
       }
     });
 
     sock.ev.on('groups.update', (updates) => {
+      if (generation !== socketGeneration || activeSocket !== sock) return;
       for (const update of updates) {
         if (update?.id && update?.subject) {
           groupNameCache.set(update.id, update.subject.trim());
@@ -598,9 +601,10 @@ async function handleSendPrivateMessage(
   }
 }
 
-process.on('message', async (raw: SupervisorToWorkerMessage) => {
-  if (!raw || typeof raw !== 'object') return;
+const lifecycleCommandQueue = new SerialTaskQueue();
 
+async function handleWorkerCommand(raw: SupervisorToWorkerMessage): Promise<void> {
+  if (!raw || typeof raw !== 'object') return;
   switch (raw.type) {
     case 'INIT_AND_START': {
       if (socketStartInFlight || activeSocket) {
@@ -623,7 +627,8 @@ process.on('message', async (raw: SupervisorToWorkerMessage) => {
     case 'RECONNECT': {
       if (raw.phoneNumber) activePhoneNumber = raw.phoneNumber;
       wantsPairingCode = false;
-      reconnectAttempts = 0;
+      // Keep the retry counter and last disconnect diagnostic until a real
+      // connection open event confirms recovery.
       await startSocketConnection();
       break;
     }
@@ -668,7 +673,32 @@ process.on('message', async (raw: SupervisorToWorkerMessage) => {
       break;
     }
   }
-});
+}
+
+function dispatchWorkerCommand(raw: SupervisorToWorkerMessage): void {
+  const isLifecycleCommand =
+    raw?.type === 'INIT_AND_START' ||
+    raw?.type === 'RECONNECT' ||
+    raw?.type === 'DISCONNECT';
+
+  const operation = () => handleWorkerCommand(raw);
+  const pending = isLifecycleCommand
+    ? lifecycleCommandQueue.run(operation)
+    : operation();
+
+  void pending.catch((err: any) => {
+    const message = sanitizeForLog(err?.message || 'Worker command failed');
+    console.error('[Orderi Bridge] Worker command failed:', message);
+    if (activeUserId) {
+      emitState('Error', {
+        errorCode: 'WORKER_COMMAND_FAILED',
+        errorMessage: message,
+      });
+    }
+  });
+}
+
+process.on('message', dispatchWorkerCommand);
 
 process.on('uncaughtException', (err) => {
   if (activeUserId) {
