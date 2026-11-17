@@ -392,8 +392,10 @@ export class WhatsAppBridgeSupervisor {
               ? msg.pairingCodeExpiresAt
               : record.status.pairingCodeExpiresAt,
           connectedJid: msg.connectedJid !== undefined ? msg.connectedJid : record.status.connectedJid,
-          errorCode: msg.errorCode !== undefined ? msg.errorCode : null,
-          errorMessage: msg.errorMessage !== undefined ? msg.errorMessage : null,
+          // Keep the last disconnect reason visible while the worker retries;
+          // the worker explicitly clears both fields only after a successful open.
+          errorCode: msg.errorCode !== undefined ? msg.errorCode : record.status.errorCode,
+          errorMessage: msg.errorMessage !== undefined ? msg.errorMessage : record.status.errorMessage,
           reconnectAttempts:
             msg.reconnectAttempts !== undefined
               ? msg.reconnectAttempts
