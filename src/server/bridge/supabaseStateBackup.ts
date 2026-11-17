@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { decryptBridgePayload, encryptBridgePayload } from './whatsappBridgeCrypto';
+import { withEncryptedAuthStateLock } from './encryptedAuthState';
 
 interface BridgeStateSnapshot {
   version: 1;
@@ -60,7 +61,11 @@ function safeRelativePath(value: string): boolean {
 
 async function collectFiles(root: string): Promise<Record<string, string>> {
   const files: Record<string, string> = {};
-  const visit = async (directory: string): Promise<void> => {
+
+  // Auth writes are serialized against this lock. Capturing an auth directory
+  // under the same lock prevents Supabase backups from mixing old and new
+  // creds/key files while Baileys is updating its multi-file state.
+  const visit = async (directory: string, insideAuthDirectory = false): Promise<void> => {
     let entries;
     try {
       entries = await fs.readdir(directory, { withFileTypes: true });
@@ -68,17 +73,30 @@ async function collectFiles(root: string): Promise<Record<string, string>> {
       if (error?.code === 'ENOENT') return;
       throw error;
     }
+
     for (const entry of entries) {
       const absolute = path.join(directory, entry.name);
       const relative = path.relative(root, absolute).split(path.sep).join('/');
       if (entry.isDirectory()) {
-        await visit(absolute);
+        if (entry.name === 'auth' && !insideAuthDirectory) {
+          await withEncryptedAuthStateLock(path.dirname(absolute), () => visit(absolute, true));
+        } else {
+          await visit(absolute, insideAuthDirectory);
+        }
       } else if (entry.isFile() && !entry.name.endsWith('.tmp')) {
-        const data = await fs.readFile(absolute);
-        files[relative] = data.toString('base64');
+        try {
+          const data = await fs.readFile(absolute);
+          files[relative] = data.toString('base64');
+        } catch (error: any) {
+          // Files can disappear during unrelated non-auth cleanup. Auth
+          // directories are locked, so any auth read failure must abort rather
+          // than upload a partial session snapshot.
+          if (insideAuthDirectory || error?.code !== 'ENOENT') throw error;
+        }
       }
     }
   };
+
   await visit(root);
   return files;
 }
