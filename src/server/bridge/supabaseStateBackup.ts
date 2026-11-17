@@ -216,20 +216,48 @@ export function startBridgeStateBackup(options: {
         files,
       };
       const envelope = encryptBridgePayload(JSON.stringify(snapshot), options.encryptionSecret, SNAPSHOT_CONTEXT);
-      const response = await fetch(
-        `${baseUrl}/object/${encodeURIComponent(bucket)}/${SNAPSHOT_OBJECT}`,
-        {
-          method: 'POST',
-          headers: {
-            ...headers,
-            'Content-Type': 'text/plain',
-            'x-upsert': 'true',
-          },
-          body: envelope,
+      const uploadUrl = `${baseUrl}/object/${encodeURIComponent(bucket)}/${SNAPSHOT_OBJECT}`;
+      let uploaded = false;
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        let response: Response;
+        try {
+          response = await fetch(uploadUrl, {
+            method: 'POST',
+            headers: {
+              ...headers,
+              'Content-Type': 'text/plain',
+              'x-upsert': 'true',
+            },
+            body: envelope,
+            signal: AbortSignal.timeout(20_000),
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'network error';
+          if (attempt === 3) {
+            throw new Error(`Supabase Bridge state backup failed after 3 attempts: ${safeStorageError(message)}.`);
+          }
+          console.warn(`[Orderi Bridge] State backup network error; retry ${attempt + 1}/3.`);
+          await new Promise((resolve) => setTimeout(resolve, attempt * 1500));
+          continue;
         }
-      );
-      if (!response.ok) {
-        throw new Error(`Supabase Bridge state backup failed (HTTP ${response.status}).`);
+
+        if (response.ok) {
+          uploaded = true;
+          break;
+        }
+
+        const retryable = response.status === 408 || response.status === 425 ||
+          response.status === 429 || response.status >= 500;
+        if (!retryable || attempt === 3) {
+          throw new Error(`Supabase Bridge state backup failed (HTTP ${response.status}) after ${attempt} attempt(s).`);
+        }
+        console.warn(
+          `[Orderi Bridge] State backup returned HTTP ${response.status}; retry ${attempt + 1}/3.`
+        );
+        await new Promise((resolve) => setTimeout(resolve, attempt * 1500));
+      }
+      if (!uploaded) {
+        throw new Error('Supabase Bridge state backup did not complete after retries.');
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown backup error';
@@ -239,6 +267,8 @@ export function startBridgeStateBackup(options: {
     }
   };
 
+  // Persist an initial snapshot immediately; subsequent updates use the interval.
+  void backup();
   const timer = setInterval(() => void backup(), options.intervalMs || 15_000);
   timer.unref?.();
 
