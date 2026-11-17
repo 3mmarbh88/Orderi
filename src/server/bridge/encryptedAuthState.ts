@@ -16,13 +16,35 @@ const mutexQueues = new Map<string, Promise<unknown>>();
 function runExclusive<T>(lockKey: string, task: () => Promise<T>): Promise<T> {
   const prev = mutexQueues.get(lockKey) || Promise.resolve();
   const next = prev.then(task, task);
-  const cleanup = next.finally(() => {
-    if (mutexQueues.get(lockKey) === cleanup) {
-      mutexQueues.delete(lockKey);
+  // Keep the queue tail fulfilled even when a task rejects. Storing a
+  // rejected Promise here creates a second, unobserved rejection (the caller
+  // handles `next`, but nobody awaits the cleanup Promise).
+  const settled = next.then(
+    () => {
+      if (mutexQueues.get(lockKey) === settled) {
+        mutexQueues.delete(lockKey);
+      }
+    },
+    () => {
+      if (mutexQueues.get(lockKey) === settled) {
+        mutexQueues.delete(lockKey);
+      }
     }
-  });
-  mutexQueues.set(lockKey, cleanup);
+  );
+  mutexQueues.set(lockKey, settled);
   return next;
+}
+
+/**
+ * Runs work while no Baileys auth read/write/clear operation can mutate this
+ * session's auth directory. State backup uses this to capture a consistent set
+ * of auth files rather than a mixture of files from different write moments.
+ */
+export function withEncryptedAuthStateLock<T>(
+  sessionDir: string,
+  task: () => Promise<T>
+): Promise<T> {
+  return runExclusive(path.join(sessionDir, 'auth'), task);
 }
 
 function fixFileName(name: string): string {
@@ -54,51 +76,68 @@ export async function useEncryptedAuthState(
 
   const writeEncryptedData = async (data: any, fileKey: string): Promise<void> => {
     const filePath = path.join(authFolder, fixFileName(fileKey));
-    await runExclusive(filePath, async () => {
-      const serialized = JSON.stringify(data, adapters.BufferJSON.replacer);
-      const encrypted = encryptBridgePayload(serialized, masterSecret, 'baileys-auth');
-      const tmpPath = `${filePath}.${Date.now()}.tmp`;
-      await fs.writeFile(tmpPath, encrypted, { encoding: 'utf8', mode: 0o600 });
-      await fs.rename(tmpPath, filePath);
-    });
+    await withEncryptedAuthStateLock(sessionDir, () =>
+      runExclusive(filePath, async () => {
+        const serialized = JSON.stringify(data, adapters.BufferJSON.replacer);
+        const encrypted = encryptBridgePayload(serialized, masterSecret, 'baileys-auth');
+        const tmpPath = `${filePath}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
+        try {
+          await fs.writeFile(tmpPath, encrypted, { encoding: 'utf8', mode: 0o600 });
+          await fs.rename(tmpPath, filePath);
+        } finally {
+          await fs.unlink(tmpPath).catch(() => {});
+        }
+      })
+    );
   };
 
   const readEncryptedData = async (fileKey: string): Promise<any | null> => {
     const filePath = path.join(authFolder, fixFileName(fileKey));
-    return runExclusive(filePath, async () => {
-      try {
-        const envelope = await fs.readFile(filePath, { encoding: 'utf8' });
-        const json = decryptBridgePayload(envelope, masterSecret, 'baileys-auth');
-        return JSON.parse(json, adapters.BufferJSON.reviver);
-      } catch {
-        return null;
-      }
-    });
+    return withEncryptedAuthStateLock(sessionDir, () =>
+      runExclusive(filePath, async () => {
+        let envelope: string;
+        try {
+          envelope = await fs.readFile(filePath, { encoding: 'utf8' });
+        } catch (error: any) {
+          if (error?.code === 'ENOENT') return null;
+          throw new Error(`Unable to read encrypted Baileys auth file ${path.basename(filePath)}: ${error?.code || 'READ_ERROR'}`);
+        }
+
+        try {
+          const json = decryptBridgePayload(envelope, masterSecret, 'baileys-auth');
+          return JSON.parse(json, adapters.BufferJSON.reviver);
+        } catch {
+          // Never silently replace an existing but unreadable credential/key file.
+          throw new Error(`Unable to decrypt or parse encrypted Baileys auth file ${path.basename(filePath)}; preserved the existing session data.`);
+        }
+      })
+    );
   };
 
   const removeEncryptedData = async (fileKey: string): Promise<void> => {
     const filePath = path.join(authFolder, fixFileName(fileKey));
-    await runExclusive(filePath, async () => {
-      try {
-        await fs.unlink(filePath);
-      } catch {
-        // Ignore if file already absent
-      }
-    });
+    await withEncryptedAuthStateLock(sessionDir, () =>
+      runExclusive(filePath, async () => {
+        try {
+          await fs.unlink(filePath);
+        } catch (error: any) {
+          if (error?.code !== 'ENOENT') throw error;
+        }
+      })
+    );
   };
 
   const clearAll = async (): Promise<void> => {
-    await runExclusive(authFolder, async () => {
-      try {
-        await fs.rm(authFolder, { recursive: true, force: true });
-        await fs.mkdir(authFolder, { recursive: true, mode: 0o700 });
-      } catch {
-        // Best-effort wipe
-      }
+    await withEncryptedAuthStateLock(sessionDir, async () => {
+      await fs.rm(authFolder, { recursive: true, force: true });
+      await fs.mkdir(authFolder, { recursive: true, mode: 0o700 });
     });
   };
 
-  const creds = (await readEncryptedData('creds')) || adapters.initAuthCreds();
+  // Missing creds is a first-time session. Existing unreadable creds now fail
+  // closed instead of generating a fresh identity over the preserved files.
+  const storedCreds = await readEncryptedData('creds');
+  const creds = storedCreds ?? adapters.initAuthCreds();
 
   return {
     state: {

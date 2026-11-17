@@ -14,7 +14,7 @@ import {
   signBridgeToken,
   verifyBridgeToken,
 } from '../src/server/bridge/whatsappBridgeCrypto';
-import { useEncryptedAuthState } from '../src/server/bridge/encryptedAuthState';
+import { useEncryptedAuthState, withEncryptedAuthStateLock } from '../src/server/bridge/encryptedAuthState';
 import { createBridgeRouter } from '../src/server/bridge/bridgeRouter';
 import {
   BridgeMessageDeduper,
@@ -128,6 +128,57 @@ describe('WhatsApp Bridge Crypto & Token Security', () => {
 });
 
 describe('Encrypted Baileys Auth State Adapter', () => {
+  test('Fails closed on unreadable existing credentials without replacing or deleting session data', async () => {
+    const dir = createTempDir('orderi-corrupt-auth-');
+    const authDir = path.join(dir, 'auth');
+    fs.mkdirSync(authDir, { recursive: true });
+    const credsPath = path.join(authDir, 'creds.enc');
+    const original = 'ORD_BRIDGE_AESGCM_V1:corrupt-existing-session-data';
+    fs.writeFileSync(credsPath, original, 'utf8');
+
+    let initCalls = 0;
+    await assert.rejects(
+      useEncryptedAuthState(dir, 'vault-master-secret-973-testing-key', {
+        initAuthCreds: () => {
+          initCalls += 1;
+          return { registrationId: 1 };
+        },
+        BufferJSON: {
+          replacer: (_k: string, v: any) => v,
+          reviver: (_k: string, v: any) => v,
+        },
+      }),
+      /Unable to decrypt or parse encrypted Baileys auth file creds\.enc/
+    );
+
+    assert.equal(initCalls, 0, 'An unreadable existing session must not be silently replaced with fresh credentials');
+    assert.equal(fs.readFileSync(credsPath, 'utf8'), original, 'Existing session bytes must remain untouched');
+  });
+
+  test('Auth snapshots hold the same exclusive lock used by credential writes', async () => {
+    const dir = createTempDir('orderi-auth-lock-');
+    const vault = await useEncryptedAuthState(dir, 'vault-master-secret-973-testing-key', {
+      initAuthCreds: () => ({ registrationId: 7788 }),
+      BufferJSON: {
+        replacer: (_k: string, v: any) => v,
+        reviver: (_k: string, v: any) => v,
+      },
+    });
+
+    let releaseLock!: () => void;
+    const gate = new Promise<void>((resolve) => { releaseLock = resolve; });
+    const lockHeld = withEncryptedAuthStateLock(dir, async () => gate);
+    const pendingWrite = vault.saveCreds();
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(fs.existsSync(path.join(dir, 'auth', 'creds.enc')), false,
+      'Credential writes must wait while a consistent auth snapshot holds the lock');
+
+    releaseLock();
+    await Promise.all([lockHeld, pendingWrite]);
+    assert.equal(fs.existsSync(path.join(dir, 'auth', 'creds.enc')), true);
+  });
+
   test('Persists creds and keys encrypted on disk without plaintext leaks and wipes on clearAll', async () => {
     const dir = createTempDir('orderi-enc-auth-');
     const secret = 'vault-master-secret-973-testing-key';
