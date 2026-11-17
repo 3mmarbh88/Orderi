@@ -57,6 +57,7 @@ let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectAttempts = 0;
 let socketGeneration = 0;
 let lastDisconnectDiagnostic: { errorCode: string; errorMessage: string } | null = null;
+let socketStartInFlight = false;
 
 const groupNameCache = new Map<string, string>();
 const messageDeduper = new BridgeMessageDeduper(2500);
@@ -194,6 +195,22 @@ async function requestPairingCodeSafely(
 }
 
 async function startSocketConnection(): Promise<void> {
+  // Serialize socket creation: overlapping INIT/RECONNECT commands must never
+  // create competing Baileys sockets against the same encrypted auth state.
+  if (socketStartInFlight) {
+    console.warn('[Orderi Bridge] Socket start skipped; another initialization is already in progress.');
+    return;
+  }
+
+  socketStartInFlight = true;
+  try {
+    await startSocketConnectionInternal();
+  } finally {
+    socketStartInFlight = false;
+  }
+}
+
+async function startSocketConnectionInternal(): Promise<void> {
   console.info('[Orderi Bridge] Worker starting WhatsApp socket initialization.');
   await teardownSocket();
   const generation = ++socketGeneration;
@@ -586,6 +603,10 @@ process.on('message', async (raw: SupervisorToWorkerMessage) => {
 
   switch (raw.type) {
     case 'INIT_AND_START': {
+      if (socketStartInFlight || activeSocket) {
+        console.warn('[Orderi Bridge] Duplicate INIT_AND_START ignored; an existing socket lifecycle is active.');
+        break;
+      }
       activeUserId = raw.userId;
       activeSessionDir = raw.sessionDir;
       activeMasterSecret = raw.masterSecret;
