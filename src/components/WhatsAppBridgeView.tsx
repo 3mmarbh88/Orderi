@@ -112,6 +112,7 @@ export function WhatsAppBridgeView({
   const [phoneInput, setPhoneInput] = useState<string>(status.phoneNumber || defaultPhone || '');
   const [serverOverrideInput, setServerOverrideInput] = useState<string>(() => getBridgeServerUrlOverride());
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [pairingRequestPending, setPairingRequestPending] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
   const [showAdvancedServer, setShowAdvancedServer] = useState(false);
 
@@ -120,6 +121,14 @@ export function WhatsAppBridgeView({
       setPhoneInput(status.phoneNumber || defaultPhone);
     }
   }, [status.phoneNumber, defaultPhone]);
+
+  // A restored session can be Connecting when this screen first mounts.
+  // Only show the pairing-code progress label after this screen initiated pairing.
+  useEffect(() => {
+    if (status.state !== 'Connecting') {
+      setPairingRequestPending(false);
+    }
+  }, [status.state]);
 
   const currentStyle = STATE_STYLES[status.state] || STATE_STYLES.Disconnected;
 
@@ -131,6 +140,7 @@ export function WhatsAppBridgeView({
       return;
     }
     setIsSubmitting(true);
+    setPairingRequestPending(true);
     try {
       await onConnect(cleaned);
     } finally {
@@ -346,13 +356,33 @@ export function WhatsAppBridgeView({
 
           <button
             type="submit"
-            disabled={isSubmitting || status.state === 'Connecting'}
+            disabled={
+              isSubmitting ||
+              status.state === 'Connecting' ||
+              status.state === 'Reconnecting' ||
+              status.state === 'Waiting for Pairing' ||
+              status.state === 'Connected'
+            }
             className="min-h-[46px] px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-black text-sm inline-flex items-center justify-center gap-2 transition-colors cursor-pointer shrink-0"
           >
-            {isSubmitting || status.state === 'Connecting' ? (
+            {status.state === 'Connecting' || status.state === 'Reconnecting' ? (
               <>
                 <RefreshCw className="w-4 h-4 animate-spin" />
-                <span>جاري إنشاء الرمز...</span>
+                <span>
+                  {pairingRequestPending && status.state === 'Connecting'
+                    ? 'جاري إنشاء رمز الربط...'
+                    : 'جاري استعادة الجلسة والاتصال...'}
+                </span>
+              </>
+            ) : status.state === 'Waiting for Pairing' ? (
+              <>
+                <KeyRound className="w-4 h-4" />
+                <span>أدخل رمز الربط في واتساب</span>
+              </>
+            ) : status.state === 'Connected' ? (
+              <>
+                <CheckCircle2 className="w-4 h-4" />
+                <span>واتساب متصل</span>
               </>
             ) : (
               <>
