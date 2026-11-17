@@ -365,6 +365,46 @@ describe('WhatsAppBridgeSupervisor State Machine, Worker Isolation & Verified Ou
     supervisor2.shutdownAll();
   });
 
+  test('Repeated pairing request preserves an active or reconnecting worker', () => {
+    const stateDir = createTempDir('orderi-preserve-worker-');
+    const workers: MockBridgeWorker[] = [];
+    const supervisor = new WhatsAppBridgeSupervisor({
+      stateDir,
+      workerFactory: () => {
+        const worker = new MockBridgeWorker();
+        workers.push(worker);
+        return worker;
+      },
+    });
+
+    supervisor.startPairing('user-preserve', '97339123456');
+    const originalWorker = workers[0];
+    originalWorker.emitWorkerMessage({
+      type: 'STATE_UPDATE',
+      userId: 'user-preserve',
+      state: 'Connected',
+      connectedJid: '97339123456@s.whatsapp.net',
+    });
+
+    const connectedResult = supervisor.startPairing('user-preserve', '97339123456');
+    assert.equal(connectedResult.state, 'Connected');
+    assert.equal(originalWorker.killed, false);
+    assert.equal(workers.length, 1, 'A second worker must not replace a live WhatsApp socket');
+
+    originalWorker.emitWorkerMessage({
+      type: 'STATE_UPDATE',
+      userId: 'user-preserve',
+      state: 'Reconnecting',
+      errorCode: 'WA_408',
+    });
+    const reconnectingResult = supervisor.startPairing('user-preserve', '97339123456');
+    assert.equal(reconnectingResult.state, 'Reconnecting');
+    assert.equal(originalWorker.killed, false);
+    assert.equal(workers.length, 1, 'A transient disconnect must not trigger a new pairing worker');
+
+    supervisor.shutdownAll();
+  });
+
   test('Verified private messaging: blocks display-name-only send and enforces idempotency', async () => {
     const stateDir = createTempDir('orderi-outreach-sup-');
     const workers = new Map<string, MockBridgeWorker>();
