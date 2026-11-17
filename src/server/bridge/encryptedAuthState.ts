@@ -16,12 +16,22 @@ const mutexQueues = new Map<string, Promise<unknown>>();
 function runExclusive<T>(lockKey: string, task: () => Promise<T>): Promise<T> {
   const prev = mutexQueues.get(lockKey) || Promise.resolve();
   const next = prev.then(task, task);
-  const cleanup = next.finally(() => {
-    if (mutexQueues.get(lockKey) === cleanup) {
-      mutexQueues.delete(lockKey);
+  // Keep the queue tail fulfilled even when a task rejects. Storing a
+  // rejected Promise here creates a second, unobserved rejection (the caller
+  // handles `next`, but nobody awaits the cleanup Promise).
+  const settled = next.then(
+    () => {
+      if (mutexQueues.get(lockKey) === settled) {
+        mutexQueues.delete(lockKey);
+      }
+    },
+    () => {
+      if (mutexQueues.get(lockKey) === settled) {
+        mutexQueues.delete(lockKey);
+      }
     }
-  });
-  mutexQueues.set(lockKey, cleanup);
+  );
+  mutexQueues.set(lockKey, settled);
   return next;
 }
 
