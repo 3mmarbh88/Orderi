@@ -7,10 +7,16 @@ export type WhatsAppIngestionSource =
   | 'webhook_auto';
 
 /** Retains every channel that observed a deduplicated order. */
+export interface WhatsAppIngestionProvenance {
+  ingestionSources: WhatsAppIngestionSource[];
+  ingestionMessageIds: string[];
+  ingestionGroupJids: string[];
+}
+
 export function mergeWhatsAppIngestionProvenance(
   existing: Partial<ParsedOrder>,
   incoming: Partial<ParsedOrder>,
-): Pick<ParsedOrder, 'ingestionSources' | 'ingestionMessageIds' | 'ingestionGroupJids'> {
+): WhatsAppIngestionProvenance {
   const ingestionSources = new Set<WhatsAppIngestionSource>();
   for (const source of [
     ...(existing.ingestionSources || []), existing.source,
