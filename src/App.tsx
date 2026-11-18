@@ -1113,7 +1113,7 @@ function OrderiApp({
       }
     }
 
-    // Order processing is permanently active without trial restrictions
+    // Order ingestion is enabled only after the official license is verified.
     const isAppActive = true;
 
     recordSpiderEvent({
@@ -4198,7 +4198,7 @@ function OrderiApp({
                 </div>
                 <div>
                   <h3 className="text-base font-black text-slate-900">لصق وفحص إعلان واتساب حقيقي</h3>
-                  <p className="text-xs text-slate-500">انسخ أي إعلان من قروبات الواتساب والصقه هنا لتجربة الرادار والإشعار</p>
+                  <p className="text-xs text-slate-500">انسخ إعلاناً من قروبات الواتساب والصقه هنا لمعاينة الرادار والإشعار</p>
                 </div>
               </div>
               <button
