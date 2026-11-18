@@ -9,8 +9,9 @@ public class RadarBootReceiver extends BroadcastReceiver {
         String action = intent.getAction();
         if (!Intent.ACTION_BOOT_COMPLETED.equals(action)
                 && !Intent.ACTION_MY_PACKAGE_REPLACED.equals(action)) return;
-        boolean enabled = context.getSharedPreferences(BackgroundRadarService.PREFS, Context.MODE_PRIVATE)
-                .getBoolean(BackgroundRadarService.KEY_ENABLED, false);
+        android.content.SharedPreferences prefs = context.getSharedPreferences(BackgroundRadarService.PREFS, Context.MODE_PRIVATE);
+        boolean enabled = prefs.getBoolean(BackgroundRadarService.KEY_ENABLED, false)
+                && prefs.getBoolean(BackgroundRadarService.KEY_LICENSED, false);
         if (!enabled) return;
         Intent service = new Intent(context, BackgroundRadarService.class);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(service);
