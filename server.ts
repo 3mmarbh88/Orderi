@@ -115,7 +115,7 @@ app.use("/api/bridge", createBridgeRouter(bridgeSupervisor, async (req) => {
     if (userId) bridgeLicenseTokens.set(userId, token);
     return userId || null;
   } catch { return null; }
-}), async (userId) => {
+}, async (userId) => {
   const token = bridgeLicenseTokens.get(userId);
   return Boolean(token && await isOfficialLicenseActive(token));
 }));
