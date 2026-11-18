@@ -939,9 +939,10 @@ export async function executePrivateAdvertiserOutreach(
 
   // A name alone is not a recipient. It is only a clue used together with the exact
   // original group/message context by Bridge or the Android original-message resolver.
+  const sourceGroupJid = (orderWithRef.bridgeGroupJid || orderWithRef.ingestionGroupJids?.[0] || '').trim();
   const hasOriginalMessageContext = Boolean(
     (orderWithRef.rawText || '').trim() &&
-    ((orderWithRef.bridgeGroupJid || '').trim().endsWith('@g.us') || (orderWithRef.groupName || '').trim())
+    (sourceGroupJid.endsWith('@g.us') || (orderWithRef.groupName || '').trim())
   );
   if (!targetPhone && !targetSenderKey && !targetSenderUri && !hasOriginalMessageContext) {
     emitExecutionState('IDENTITY_NOT_CONFIRMED');
@@ -972,12 +973,12 @@ export async function executePrivateAdvertiserOutreach(
   // Step 1B: Try WhatsApp Web Bridge channel first when enabled & connected,
   // using verified original JID or verified phone (NEVER display-name alone!).
   const verifiedBridgeJid = (orderWithRef.bridgeParticipantJid || '').trim();
+  const sourceGroupJid = (orderWithRef.bridgeGroupJid || orderWithRef.ingestionGroupJids?.[0] || '').trim();
   const hasVerifiedBridgeTarget = Boolean(
     (verifiedBridgeJid &&
       (verifiedBridgeJid.includes('@s.whatsapp.net') || verifiedBridgeJid.includes('@lid'))) ||
       targetPhone ||
-      ((orderWithRef.bridgeGroupJid || '').trim().endsWith('@g.us') &&
-        Boolean((orderWithRef.rawText || '').trim()))
+      (sourceGroupJid.endsWith('@g.us') && Boolean((orderWithRef.rawText || '').trim()))
   );
 
   // Bridge-only mode: never fall through to Android Accessibility or WhatsApp Messenger.
@@ -1031,8 +1032,8 @@ export async function executePrivateAdvertiserOutreach(
         operationId,
         targetJid: verifiedBridgeJid || undefined,
         senderPhone: targetPhone || undefined,
-        groupJid: orderWithRef.bridgeGroupJid,
-        originalMessageId: orderWithRef.bridgeMessageId || orderWithRef.sourceMessageId,
+        groupJid: sourceGroupJid || undefined,
+        originalMessageId: orderWithRef.bridgeMessageId || orderWithRef.sourceMessageId || orderWithRef.ingestionMessageIds?.[0],
         originalSenderName: targetName || undefined,
         originalMessageText: orderWithRef.rawText || undefined,
         sourceMessageTimestamp: orderWithRef.sourceMessageTimestamp || undefined,
