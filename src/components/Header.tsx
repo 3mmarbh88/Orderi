@@ -38,7 +38,6 @@ import {
 import { MatcherLocation } from '../utils/matcher';
 import { CaptainUser } from '../types';
 import { PWAInstallButton } from './PWAInstallButton';
-import { DeviceTrialStatus } from '../utils/deviceTrialManager';
 
 interface HeaderProps {
   driverLocation: MatcherLocation | null;
@@ -74,8 +73,6 @@ interface HeaderProps {
   isCarTrackingActive?: boolean;
   onToggleCarTracking?: () => void;
   carSpeedKmh?: number;
-  trialStatus?: DeviceTrialStatus | null;
-  onOpenTrialModal?: () => void;
   onMarkAllWhatsAppAsRead?: () => void;
   onOpenFaceLogin?: () => void;
   onShowSplash?: () => void;
@@ -113,8 +110,6 @@ export function Header({
   isCarTrackingActive = true,
   onToggleCarTracking,
   carSpeedKmh = 0,
-  trialStatus,
-  onOpenTrialModal,
   onMarkAllWhatsAppAsRead,
   onOpenFaceLogin,
   onShowSplash,
@@ -203,38 +198,6 @@ export function Header({
                     🇧🇭
                   </span>
 
-                  {/* 7-Day Device Trial Badge (Compact on mobile) */}
-                  {trialStatus && onOpenTrialModal && (
-                    <button
-                      type="button"
-                      onClick={onOpenTrialModal}
-                      title="تفاصيل الفترة التجريبية وترخيص هذا الهاتف"
-                      className={`h-6 sm:h-7 flex items-center gap-1 px-1.5 sm:px-2 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-black transition-all border shrink-0 cursor-pointer active:scale-95 shadow-2xs ${
-                        trialStatus.isActivated
-                          ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                          : trialStatus.isExpired
-                          ? 'bg-rose-50 text-rose-700 border-rose-300 animate-pulse'
-                          : 'bg-gradient-to-r from-amber-50 to-emerald-50 text-emerald-950 border-emerald-300/80 hover:bg-emerald-100'
-                      }`}
-                    >
-                      {trialStatus.isActivated ? (
-                        <>
-                          <ShieldCheck className="w-3 h-3 text-emerald-600" />
-                          <span className="hidden xl:inline">مفعّل</span>
-                        </>
-                      ) : trialStatus.isExpired ? (
-                        <>
-                          <Clock className="w-3 h-3 text-rose-600" />
-                          <span>انتهت</span>
-                        </>
-                      ) : (
-                        <>
-                          <Clock className="w-3 h-3 text-amber-600 animate-spin-slow" />
-                          <span>{trialStatus.daysRemaining > 0 ? `${trialStatus.daysRemaining}ي` : `${trialStatus.hoursRemaining}س`} ⏳</span>
-                        </>
-                      )}
-                    </button>
-                  )}
                 </div>
                 <p className="hidden 2xl:block text-[11px] text-slate-500 font-medium whitespace-nowrap">رادار طلبات التوصيل الذكي</p>
               </div>
