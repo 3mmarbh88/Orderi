@@ -8,7 +8,6 @@ import { parseWhatsAppOrderText, parseMultipleWhatsAppOrders } from "./src/utils
 import { checkIncomingMessageForClosure, extractClosureKeywords } from "./src/utils/orderClosureDetector";
 import { classifyAdvertiserPrivateReply } from "./src/utils/advertiserReplyClassifier";
 import { classifyPrivateWhatsAppMessage, registerKnownGroupAdvertiser } from "./src/utils/personalChatClassifier";
-import { checkOrRegisterDevice, activateDevice, resetDeviceTrial } from "./src/server/trialVault";
 import { WhatsAppBridgeSupervisor } from "./src/server/bridge/bridgeSupervisor";
 import { createBridgeRouter, extractBearerToken } from "./src/server/bridge/bridgeRouter";
 import { verifyBridgeToken } from "./src/server/bridge/whatsappBridgeCrypto";
@@ -89,7 +88,31 @@ const bridgeSupervisor = new WhatsAppBridgeSupervisor({
   },
 });
 
-app.use("/api/bridge", createBridgeRouter(bridgeSupervisor));
+async function isOfficialLicenseActive(token: string): Promise<boolean> {
+  try {
+    const response = await fetch((process.env.ORDERI_AUTH_SERVER_URL || "https://orderi-server.onrender.com") + "/api/auth/subscription", {
+      method: "GET", headers: { Authorization: "Bearer " + token }, signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) return false;
+    const payload: any = await response.json();
+    const expiresAt = payload?.subscription?.expires_at;
+    return payload?.active === true && (!expiresAt || Date.parse(expiresAt) > Date.now());
+  } catch { return false; }
+}
+
+app.use("/api/bridge", createBridgeRouter(bridgeSupervisor, async (req) => {
+  const token = extractBearerToken(req);
+  if (!token || !(await isOfficialLicenseActive(token))) return null;
+  try {
+    const response = await fetch((process.env.ORDERI_AUTH_SERVER_URL || "https://orderi-server.onrender.com") + "/api/auth/subscription", {
+      headers: { Authorization: "Bearer " + token }, signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) return null;
+    const payload: any = await response.json();
+    const userId = String(payload?.subscription?.user_id || payload?.user?.id || "").trim();
+    return userId || null;
+  } catch { return null; }
+}));
 
 // Server-Sent Events (SSE) Client registry for instant live order delivery
 const sseClients = new Set<express.Response>();
@@ -245,7 +268,9 @@ app.get("/api/health", (req, res) => {
 // -------------------------------------------------------------
 
 // 1. SSE Live Stream for Orderi Radar clients
-app.get("/api/whatsapp/stream", (req, res) => {
+app.get("/api/whatsapp/stream", async (req, res) => {
+  const token = String(req.query?.token || extractBearerToken(req) || "").trim();
+  if (!token || !(await isOfficialLicenseActive(token))) return res.status(403).json({ success: false, error: "يتطلب استقبال الطلبات ترخيص Orderi رسمياً." });
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
@@ -749,7 +774,9 @@ app.get("/api/whatsapp/status", (req, res) => {
 });
 
 // 4. Retrieve recent webhook orders
-app.get("/api/whatsapp/recent", (req, res) => {
+app.get("/api/whatsapp/recent", async (req, res) => {
+  const token = String(req.query?.token || extractBearerToken(req) || "").trim();
+  if (!token || !(await isOfficialLicenseActive(token))) return res.status(403).json({ success: false, error: "يتطلب جلب الطلبات ترخيص Orderi رسمياً." });
   res.json({
     success: true,
     orders: recentWebhookOrders,
@@ -809,7 +836,7 @@ export const SIMULATED_MOCK_GROUPS = new Set([
 ]);
 
 const spiderMetrics: OrderiSpiderMetrics = {
-  isActive: true,
+  isActive: false,
   crawlSpeedMs: 2500,
   crawledGroupsCount: 0,
   messagesCrawledCount: 0,
@@ -889,7 +916,12 @@ app.get("/api/spider/status", (req, res) => {
 });
 
 // 4e. Toggle Spider continuous crawler
-app.post("/api/spider/toggle", (req, res) => {
+app.post("/api/spider/toggle", async (req, res) => {
+  const token = extractBearerToken(req);
+  if (!token || !(await isOfficialLicenseActive(token))) {
+    spiderMetrics.isActive = false;
+    return res.status(403).json({ success: false, isActive: false, error: "العنكبوت متوقف حتى اعتماد الترخيص الرسمي." });
+  }
   const { active, speedMs } = req.body || {};
   if (typeof active === "boolean") {
     spiderMetrics.isActive = active;
@@ -910,7 +942,9 @@ app.post("/api/spider/toggle", (req, res) => {
 });
 
 // 4f. Instant Crawl Now (Crawl & Index status check across groups)
-app.post("/api/spider/crawl-now", (req, res) => {
+app.post("/api/spider/crawl-now", async (req, res) => {
+  const token = extractBearerToken(req);
+  if (!token || !(await isOfficialLicenseActive(token))) return res.status(403).json({ success: false, error: "العنكبوت متوقف حتى اعتماد الترخيص الرسمي." });
   const targetGroup = req.body?.groupName || (realSpiderGroups.length > 0 ? realSpiderGroups[Math.floor(Math.random() * realSpiderGroups.length)] : "قروبات واتساب المراقبة");
   spiderMetrics.currentCrawlingGroup = targetGroup;
   spiderMetrics.lastCrawlAt = new Date().toISOString();
@@ -2322,71 +2356,11 @@ app.post("/api/analyze-and-learn-closure", async (req, res) => {
   }
 });
 
-// ============================================================================
-// 7-Day Device Hardware Trial & License Routes (فترة تجريبية 7 أيام مرتبطة بعتاد الهاتف)
-// ============================================================================
-
-// حالة ترخيص التطبيق: مفعل بشكل دائم بدون قيود تجريبية
-app.post("/api/trial/status", (req, res) => {
-  const { deviceId } = req.body || {};
-  return res.json({
-    success: true,
-    deviceId: deviceId || "ORD-LIFETIME-UNLOCKED",
-    firstInstalledAt: Date.now(),
-    expiresAt: Date.now() + 3650 * 24 * 3600 * 1000,
-    trialDays: 9999,
-    daysRemaining: 9999,
-    hoursRemaining: 99999,
-    isExpired: false,
-    isActivated: true,
-    activationCode: "ORD-LIFETIME-UNLOCKED",
-    installCount: 1,
-    isNewInstall: false,
-    message: "البرنامج مفعل بالكامل وبشكل دائم بدون أي قيود تجريبية 🚀",
-  });
-});
-
-// تفعيل ترخيص الهاتف بواسطة كود معتمد
-app.post("/api/trial/activate", (req, res) => {
-  try {
-    const { deviceId, hardwareFingerprint, code, phone } = req.body || {};
-    if (!deviceId || !code) {
-      return res.status(400).json({ error: "يرجى تقديم معرف الجهاز وكود التفعيل" });
-    }
-
-    const result = activateDevice({
-      deviceId,
-      hardwareFingerprint,
-      code,
-      phone,
-    });
-
-    if (result.success) {
-      return res.json({
-        success: true,
-        message: result.message,
-        isActivated: true,
-        record: result.record,
-      });
-    }
-
-    return res.status(400).json({
-      success: false,
-      error: result.message,
-    });
-  } catch (err: any) {
-    console.error("[Trial Activation Error]", err);
-    return res.status(500).json({ error: "تعذر معالجة كود التفعيل" });
-  }
-});
-
-// إعادة ضبط تجريبية للمطورين والاختبار
-app.post("/api/trial/reset-demo", (req, res) => {
-  const { deviceId } = req.body || {};
-  if (!deviceId) return res.status(400).json({ error: "Missing deviceId" });
-  const reset = resetDeviceTrial(deviceId);
-  return res.json({ success: reset });
-});
+// Free-trial endpoints are permanently disabled. Official account licensing is the only activation path.
+app.all("/api/trial/:operation", (_req, res) => res.status(410).json({
+  success: false, isActivated: false, isExpired: true, trialDays: 0, daysRemaining: 0,
+  error: "الفترة التجريبية ملغاة. يرجى إدخال كود الترخيص الرسمي المعتمد.",
+}));
 
 // Setup Vite middleware for development, or static serving for production
 async function startServer() {
