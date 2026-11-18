@@ -115,6 +115,9 @@ app.use("/api/bridge", createBridgeRouter(bridgeSupervisor, async (req) => {
     if (userId) bridgeLicenseTokens.set(userId, token);
     return userId || null;
   } catch { return null; }
+}), async (userId) => {
+  const token = bridgeLicenseTokens.get(userId);
+  return Boolean(token && await isOfficialLicenseActive(token));
 }));
 
 // Revalidate active Bridge sessions server-side so revoked/expired licenses stop Baileys workers.
