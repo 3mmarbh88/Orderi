@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Bell, CheckCircle2, ShieldCheck, Smartphone, Settings, Accessibility } from 'lucide-react';
 import { OrderiNotificationListener } from '../native/orderiNotificationListener';
 
@@ -88,7 +88,7 @@ export function AndroidPermissionSetup({ onComplete }: AndroidPermissionSetupPro
     description: string;
     buttonLabel: string;
     onClick: () => void;
-    icon: React.ReactNode;
+    icon: ReactNode;
   }) => (
     <section className={`rounded-2xl border p-4 space-y-3 ${enabled ? 'border-emerald-200 bg-emerald-50/70' : 'border-slate-200 bg-white'}`}>
       <div className="flex items-start gap-3">
