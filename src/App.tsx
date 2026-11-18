@@ -76,7 +76,7 @@ import { SpiderControlCenter } from './components/SpiderControlCenter';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { recordSpiderEvent, updateSpiderStats } from './utils/spiderCrawler';
 import { DiscoveredGroupLink, CaptainUser } from './types';
-import { getCurrentUser, setCurrentUser as setStoredCurrentUser, isProgramActivated, normalizeBahrainPhone } from './utils/authManager';
+import { getCurrentUser, setCurrentUser as setStoredCurrentUser, isProgramActivated, normalizeBahrainPhone, checkServerSubscription, getAuthToken } from './utils/authManager';
 import { FocusedOrderDetailModal } from './components/FocusedOrderDetailModal';
 import { OrderAwardedCelebrationModal } from './components/OrderAwardedCelebrationModal';
 import { MonthlyCommitmentsModal } from './components/MonthlyCommitmentsModal';
@@ -350,7 +350,7 @@ function OrderiApp({
       const saved = localStorage.getItem('orderi_live_radar_active');
       if (saved !== null) return JSON.parse(saved);
     } catch {}
-    return true;
+    return false;
   });
 
   // Real-time Heads-up Notification Banner
@@ -423,7 +423,7 @@ function OrderiApp({
   // Pull-to-refresh: re-read pending native WhatsApp events and refresh the
   // locally stored radar feed without creating duplicates.
   const refreshRadar = async () => {
-    if (isRadarRefreshing) return;
+    if (!isActivatedRef.current || isRadarRefreshing) return;
     setIsRadarRefreshing(true);
     showToast('🔄 جاري تحديث وجلب أحدث طلبات الواتساب...');
     try {
@@ -458,7 +458,7 @@ function OrderiApp({
 
       // 2. Fetch recent webhook & spider crawler orders from server
       try {
-        const res = await fetch('/api/whatsapp/recent', { signal: AbortSignal.timeout(3500) });
+        const res = await fetch('/api/whatsapp/recent', { headers: { Authorization: 'Bearer ' + (getAuthToken() || '') }, signal: AbortSignal.timeout(3500) });
         if (res.ok) {
           const json = await res.json();
           if (json.success && Array.isArray(json.orders)) {
@@ -640,8 +640,14 @@ function OrderiApp({
     return [];
   });
 
-  // Synchronize Order Spider with Live Radar: Spider works automatically whenever Radar is active
+  // Synchronize Order Spider with Live Radar only after official server-side license verification.
   useEffect(() => {
+    if (!isActivatedRef.current) {
+      localStorage.setItem('orderi_live_radar_active', 'false');
+      updateSpiderStats({ isActive: false, crawlQueue: [], currentCrawlingGroup: '' });
+      fetch('/api/spider/toggle', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (getAuthToken() || '') }, body: JSON.stringify({ active: false }) }).catch(() => {});
+      return;
+    }
     localStorage.setItem('orderi_live_radar_active', JSON.stringify(liveRadarActive));
 
     const activeGroups = Array.from(new Set([
@@ -652,7 +658,7 @@ function OrderiApp({
     ])).filter(Boolean);
 
     updateSpiderStats({
-      isActive: liveRadarActive,
+      isActive: isActivatedRef.current && liveRadarActive,
       crawlQueue: activeGroups,
       crawledGroupsCount: activeGroups.length,
       currentCrawlingGroup: activeGroups[0] || (liveRadarActive ? 'قروبات واتساب النشطة 🕷️' : ''),
@@ -661,8 +667,8 @@ function OrderiApp({
     try {
       fetch('/api/spider/toggle', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ active: liveRadarActive }),
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (getAuthToken() || '') },
+        body: JSON.stringify({ active: isActivatedRef.current && liveRadarActive }),
       }).catch(() => {});
     } catch {}
   }, [liveRadarActive, filter.selectedGroups, filter.customGroups, persistedDetectedGroups]);
@@ -677,6 +683,7 @@ function OrderiApp({
 
   // 7. Captain User Authentication & Licensing State
   const [currentUser, setCurrentUser] = useState<CaptainUser | null>(() => getCurrentUser());
+  const [licenseVerified, setLicenseVerified] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authModalInitialTab, setAuthModalInitialTab] = useState<'login' | 'register' | 'activate'>('login');
 
@@ -722,11 +729,48 @@ function OrderiApp({
     }
   }, [currentUser]);
 
-  // Activation is derived from the signed-in account and its actual expiry.
-  const isActivated = isProgramActivated(currentUser);
+  // A cached account is never sufficient: a fresh official subscription response is required.
+  useEffect(() => {
+    let mounted = true;
+    let interval: ReturnType<typeof setInterval> | null = null;
+    const verifyLicense = async () => {
+      if (!currentUser?.id) { if (mounted) setLicenseVerified(false); return; }
+      try {
+        const result = await checkServerSubscription();
+        if (!mounted) return;
+        const latestUser = result.user || getCurrentUser();
+        if (latestUser) setCurrentUser(latestUser);
+        setLicenseVerified(Boolean(result.success && result.active && latestUser && isProgramActivated(latestUser)));
+      } catch { if (mounted) setLicenseVerified(false); }
+    };
+    setLicenseVerified(false);
+    void verifyLicense();
+    interval = window.setInterval(verifyLicense, 5 * 60 * 1000);
+    const onFocus = () => { if (document.visibilityState === 'visible') void verifyLicense(); };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onFocus);
+    return () => {
+      mounted = false;
+      if (interval) window.clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onFocus);
+    };
+  }, [currentUser?.id, currentUser?.isActivated, currentUser?.expiresAt, currentUser?.isTrial]);
+
+  const isActivated = licenseVerified && isProgramActivated(currentUser);
   const isActivatedRef = useRef(isActivated);
   useEffect(() => {
     isActivatedRef.current = isActivated;
+  }, [isActivated]);
+
+  // Native Android monitoring stays disabled until the official license check succeeds.
+  useEffect(() => {
+    const licensePlugin = (window as any)?.Capacitor?.Plugins?.OrderiLicense;
+    if (licensePlugin?.setLicenseState) {
+      licensePlugin.setLicenseState({ active: isActivated }).catch((error: any) => console.warn('[Orderi License] Native state sync failed:', error));
+    }
+    setLiveRadarActive(isActivated);
+    if (!isActivated) setIsWhatsAppConnected(false);
   }, [isActivated]);
 
   // Orderi Spider Googlebot-style WhatsApp Crawler Modal State
@@ -997,7 +1041,7 @@ function OrderiApp({
 
   // Unified processor for incoming WhatsApp orders from SSE, Pairing, or Polling
   const handleProcessIncomingRawOrder = (raw: any, isInitialBatch = false) => {
-    if (!raw || !raw.id) return;
+    if (!isActivatedRef.current || !raw || !raw.id) return;
 
     // A durable closure tombstone always wins over stale Spider, webhook,
     // notification-queue, and server snapshots.
@@ -2007,6 +2051,7 @@ function OrderiApp({
   // On Native Android: uses the native Android Notification Listener
   // On Web / PWA: connects to SSE /api/whatsapp/stream for real live incoming orders
   useEffect(() => {
+    if (!isActivated) { setIsStreamConnected(false); return; }
     if (isNativeAndroid()) {
       getWhatsAppListenerStatus().then((enabled) => {
         if (enabled) setIsStreamConnected(true);
@@ -2021,7 +2066,7 @@ function OrderiApp({
 
     const connectSSE = () => {
       try {
-        eventSource = new EventSource('/api/whatsapp/stream');
+        eventSource = new EventSource('/api/whatsapp/stream?token=' + encodeURIComponent(getAuthToken() || ''));
         eventSource.onopen = () => {
           setIsStreamConnected(true);
         };
@@ -2132,7 +2177,7 @@ function OrderiApp({
       if (reconnectTimeout) clearTimeout(reconnectTimeout);
       if (eventSource) eventSource.close();
     };
-  }, []);
+  }, [isActivated]);
 
   // Keep latest handlers accessible to persistent WhatsApp Bridge WebSocket callbacks
   const processIncomingBridgeOrderRef = useRef(handleProcessIncomingRawOrder);
@@ -2141,8 +2186,9 @@ function OrderiApp({
   // Dedicated WhatsApp Web Bridge (Baileys) WebSocket + REST lifecycle
   useEffect(() => {
     const enabled = filter.whatsAppBridgeEnabled !== false;
-    if (!enabled) {
+    if (!isActivated || !enabled) {
       orderiBridgeClient.start(false);
+      if (!isActivated) void orderiBridgeClient.disconnect(true).catch(() => {});
       return;
     }
 
@@ -2375,7 +2421,7 @@ function OrderiApp({
       unsubscribe();
       orderiBridgeClient.start(false);
     };
-  }, [filter.whatsAppBridgeEnabled, currentUser?.id]);
+  }, [filter.whatsAppBridgeEnabled, currentUser?.id, isActivated]);
 
   // Listen for Web / PWA background notification clicks: opens order details modal directly in Radar!
   useEffect(() => {
@@ -2492,7 +2538,7 @@ function OrderiApp({
   // Robust GPS Location Request with multi-tier fallback (High Accuracy -> Cellular/WiFi fallback)
   const handleRequestGps = async () => {
     if (!isActivated) {
-      showToast('⚠️ مستشعر الـ GPS معطل: يتطلب تفعيل البرنامج أو بدء التجربة المجانية (7 أيام) 📍🔒');
+      showToast('🔒 مستشعر GPS متوقف. يلزم اعتماد الترخيص الرسمي لتشغيله.');
       setIsBarrierDismissed(false);
       return;
     }
@@ -2515,7 +2561,7 @@ function OrderiApp({
 
   const handleToggleCarTracking = () => {
     if (!isActivated) {
-      showToast('⚠️ تتبع الـ GPS للسيارة معطل: يتطلب تفعيل البرنامج أو بدء التجربة المجانية (7 أيام) 🚗🔒');
+      showToast('🔒 تتبع GPS متوقف. يلزم اعتماد الترخيص الرسمي لتشغيله.');
       setIsBarrierDismissed(false);
       return;
     }
@@ -2534,7 +2580,7 @@ function OrderiApp({
 
   const handleToggleLiveRadar = () => {
     if (!isActivated) {
-      showToast('⚠️ رادار الواتساب معطل: يتطلب إدخال كود التفعيل أو بدء التجربة المجانية (7 أيام) 🔒');
+      showToast('🔒 رادار WhatsApp متوقف حتى اعتماد كود الترخيص الرسمي من الخادم.');
       setIsBarrierDismissed(false);
       return;
     }
@@ -2590,7 +2636,7 @@ function OrderiApp({
 
   const handleRunInBackground = async () => {
     if (!isActivated) {
-      showToast('⚠️ التشغيل في الخلفية معطل: يتطلب تفعيل البرنامج أو بدء التجربة المجانية (7 أيام) 🔒');
+      showToast('🔒 التشغيل في الخلفية متوقف حتى اعتماد الترخيص الرسمي.');
       setIsBarrierDismissed(false);
       return;
     }
@@ -3608,7 +3654,7 @@ function OrderiApp({
           <button
             onClick={() => {
               setIsAppTerminated(false);
-              setLiveRadarActive(true);
+              setLiveRadarActive(isActivated);
             }}
             className="flex-1 flex items-center justify-center gap-2 py-3.5 px-5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs sm:text-sm shadow-lg shadow-emerald-600/30 transition-all cursor-pointer active:scale-95"
           >
@@ -3653,7 +3699,7 @@ function OrderiApp({
             className="w-full sm:w-auto px-4 py-1.5 rounded-xl bg-white text-rose-700 hover:bg-rose-50 font-black text-xs shadow-xs transition-transform active:scale-95 shrink-0 flex items-center justify-center gap-1.5 cursor-pointer"
           >
             <Sparkles className="w-3.5 h-3.5 text-rose-600" />
-            <span>تفعيل البرنامج أو بدء تجربة 7 أيام مجانية ⚡</span>
+            <span>إدخال كود الترخيص الرسمي ⚡</span>
           </button>
         </div>
       )}
@@ -3696,7 +3742,7 @@ function OrderiApp({
         onOpenAPKModal={() => setIsAPKModalOpen(true)}
         newDiscoveredGroupsCount={discoveredGroupLinks.filter((g) => g.status === 'new').length}
         isStreamConnected={isStreamConnected}
-        isWhatsAppConnected={(isActivated && isWhatsAppConnected) || bridgeStatus.state === 'Connected'}
+        isWhatsAppConnected={isActivated && (isWhatsAppConnected || bridgeStatus.state === 'Connected')}
         isBridgeConnected={bridgeStatus.state === 'Connected'}
         onRequestGps={handleRequestGps}
         isGpsLoading={isGpsLoading}
@@ -3736,7 +3782,7 @@ function OrderiApp({
             setIsAutoSyncModalOpen(true);
           }}
           isStreamConnected={isStreamConnected}
-          isWhatsAppConnected={(isActivated && isWhatsAppConnected) || bridgeStatus.state === 'Connected'}
+          isWhatsAppConnected={isActivated && (isWhatsAppConnected || bridgeStatus.state === 'Connected')}
           onToggleIgnoreNonMatching={handleToggleIgnoreNonMatching}
           isCarTrackingActive={isCarTrackingActive}
           onToggleCarTracking={handleToggleCarTracking}
@@ -4089,6 +4135,7 @@ function OrderiApp({
               showToast(enabled ? 'سيتم تفضيل Bridge لإرسال القبول تلقائياً بالخلفية' : 'سيتم استخدام الإشعارات الأصلية لإرسال القبول');
             }}
             onConnect={async (phoneNumber) => {
+              if (!isActivated) { showToast('🔒 يلزم اعتماد الترخيص الرسمي أولاً.'); return; }
               try {
                 const next = await orderiBridgeClient.connectWithPhoneNumber(phoneNumber);
                 setBridgeStatus(next);
@@ -4244,11 +4291,13 @@ function OrderiApp({
         onOpenAPKModal={() => setIsAPKModalOpen(true)}
         bridgeStatus={bridgeStatus}
         onConnectBridge={async (phoneNumber) => {
+          if (!isActivated) { showToast('🔒 يلزم اعتماد الترخيص الرسمي أولاً.'); return; }
           const next = await orderiBridgeClient.connectWithPhoneNumber(phoneNumber);
           setBridgeStatus(next);
           return next;
         }}
         onReconnectBridge={async () => {
+          if (!isActivated) { showToast('🔒 يلزم اعتماد الترخيص الرسمي أولاً.'); return; }
           const next = await orderiBridgeClient.reconnect();
           setBridgeStatus(next);
           return next;
@@ -4335,7 +4384,7 @@ function OrderiApp({
 
 
       {/* Orderi Spider: Continuous Googlebot-style WhatsApp Crawler Modal */}
-      {isSpiderModalOpen && (
+      {isActivated && isSpiderModalOpen && (
         <ErrorBoundary 
           fallbackTitle="عنكبوت الأوردرات الذكي (Orderi Spider)"
           onReset={() => setIsSpiderModalOpen(false)}
