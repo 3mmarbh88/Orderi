@@ -918,7 +918,9 @@ function startSpiderCrawlerLoop() {
 startSpiderCrawlerLoop();
 
 // 4d. Spider Crawler Status Endpoint
-app.get("/api/spider/status", (req, res) => {
+app.get("/api/spider/status", async (req, res) => {
+  const token = extractBearerToken(req);
+  if (!token || !(await isOfficialLicenseActive(token))) return res.status(403).json({ success: false, spider: { isActive: false }, error: "يتطلب عرض حالة العنكبوت ترخيص Orderi رسمياً." });
   res.json({
     success: true,
     spider: {
