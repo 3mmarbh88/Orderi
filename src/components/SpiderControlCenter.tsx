@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { getAuthToken } from '../utils/authManager';
 import { 
   Bot, 
   Play, 
@@ -135,7 +136,7 @@ export const SpiderControlCenter: React.FC<SpiderControlCenterProps> = ({
     try {
       fetch('/api/spider/toggle', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (getAuthToken() || '') },
         body: JSON.stringify({ active: next }),
       }).catch(() => {});
     } catch {}

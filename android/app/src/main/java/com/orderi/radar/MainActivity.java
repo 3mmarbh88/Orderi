@@ -15,25 +15,30 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(NotificationListenerPlugin.class);
         registerPlugin(OrderiBiometricPlugin.class);
         registerPlugin(OrderiLocalAIPlugin.class);
+        registerPlugin(OrderiLicensePlugin.class);
         registerPlugin(com.orderi.whatsapp.WhatsAppClientBridge.class);
     }
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         getSharedPreferences(BackgroundRadarService.PREFS, MODE_PRIVATE)
-                .edit().putBoolean(BackgroundRadarService.KEY_ENABLED, true).apply();
+                .edit().putBoolean(BackgroundRadarService.KEY_LICENSED, false)
+                .putBoolean(BackgroundRadarService.KEY_ENABLED, false).apply();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
                 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 9001);
         }
-        if (!WhatsAppNotificationListenerService.isEnabled(this)) {
+        if (getSharedPreferences(BackgroundRadarService.PREFS, MODE_PRIVATE).getBoolean(BackgroundRadarService.KEY_LICENSED, false)
+                && !WhatsAppNotificationListenerService.isEnabled(this)) {
             try {
                 Intent nIntent = new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS);
                 nIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 startActivity(nIntent);
             } catch (Exception ignored) {}
         }
-        startRadarService();
-        requestBatteryOptimizationExemptionIfNeeded();
+        if (getSharedPreferences(BackgroundRadarService.PREFS, MODE_PRIVATE).getBoolean(BackgroundRadarService.KEY_LICENSED, false)) {
+            startRadarService();
+            requestBatteryOptimizationExemptionIfNeeded();
+        }
         NotificationListenerPlugin.handleOrderIntent(getIntent());
     }
     private void startRadarService() {

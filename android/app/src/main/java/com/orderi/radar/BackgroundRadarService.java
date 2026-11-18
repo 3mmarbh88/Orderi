@@ -13,16 +13,17 @@ import android.util.Log;
 public class BackgroundRadarService extends Service {
     public static final String PREFS = "orderi_runtime";
     public static final String KEY_ENABLED = "background_radar_enabled";
+    public static final String KEY_LICENSED = "official_license_active";
     private static final String CHANNEL_ID = "orderi_background_radar";
     private static final int NOTIFICATION_ID = 74021;
     private static final String TAG = "OrderiBackgroundRadar";
     @Override public void onCreate() {
         super.onCreate();
         createNotificationChannel();
-        startForeground(NOTIFICATION_ID, buildNotification());
     }
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
-        boolean enabled = getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(KEY_ENABLED, true);
+        android.content.SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        boolean enabled = prefs.getBoolean(KEY_ENABLED, false) && prefs.getBoolean(KEY_LICENSED, false);
         if (!enabled) {
             stopForeground(true);
             stopSelf(startId);

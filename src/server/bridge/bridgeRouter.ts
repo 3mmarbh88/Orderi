@@ -19,7 +19,8 @@ export type OrderiSessionResolver = (req: express.Request) => Promise<string | n
 
 export function createBridgeRouter(
   supervisor: WhatsAppBridgeSupervisor,
-  resolveOrderiSession?: OrderiSessionResolver
+  resolveOrderiSession?: OrderiSessionResolver,
+  isUserLicensed?: (userId: string) => Promise<boolean>
 ): express.Router {
   const router = express.Router();
 
@@ -70,7 +71,7 @@ export function createBridgeRouter(
   });
 
   // Require valid signed user-scoped token on all Bridge operations
-  const requireBridgeAuth: express.RequestHandler = (req: AuthenticatedBridgeRequest, res, next) => {
+  const requireBridgeAuth: express.RequestHandler = async (req: AuthenticatedBridgeRequest, res, next) => {
     const token = extractBearerToken(req);
     const verified = verifyBridgeToken(token, supervisor.masterSecret);
     if (!verified.valid || !verified.userId) {
@@ -78,6 +79,14 @@ export function createBridgeRouter(
         success: false,
         errorCode: 'UNAUTHORIZED_BRIDGE_SESSION',
         error: 'يتطلب التحقق من هوية المستخدم للوصول إلى جلسة WhatsApp Bridge الخاصة به.',
+      });
+    }
+
+    if (isUserLicensed && !(await isUserLicensed(verified.userId))) {
+      return res.status(401).json({
+        success: false,
+        errorCode: 'OFFICIAL_LICENSE_REQUIRED',
+        error: 'يجب اعتماد ترخيص Orderi الرسمي للوصول إلى WhatsApp Bridge.',
       });
     }
 
@@ -95,7 +104,11 @@ export function createBridgeRouter(
   };
 
   router.get('/session', requireBridgeAuth, (req: AuthenticatedBridgeRequest, res) => {
-    const status = supervisor.getStatus(req.bridgeUserId!);
+    let status = supervisor.getStatus(req.bridgeUserId!);
+    // Persisted sessions are resumed only after the caller has received a fresh, licensed Bridge token.
+    if (status.phoneNumber && status.state === 'Disconnected') {
+      status = supervisor.resumeSession(req.bridgeUserId!);
+    }
     return res.json({ success: true, status });
   });
 

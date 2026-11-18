@@ -688,6 +688,7 @@ public class OrderiAccessibilityService extends AccessibilityService {
 
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
+        if (!getSharedPreferences(BackgroundRadarService.PREFS, MODE_PRIVATE).getBoolean(BackgroundRadarService.KEY_LICENSED, false)) return;
         if (event == null) return;
 
         CharSequence pkg = event.getPackageName();
