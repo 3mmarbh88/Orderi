@@ -88,6 +88,8 @@ const bridgeSupervisor = new WhatsAppBridgeSupervisor({
   },
 });
 
+const bridgeLicenseTokens = new Map<string, string>();
+
 async function isOfficialLicenseActive(token: string): Promise<boolean> {
   try {
     const response = await fetch((process.env.ORDERI_AUTH_SERVER_URL || "https://orderi-server.onrender.com") + "/api/auth/subscription", {
@@ -110,9 +112,22 @@ app.use("/api/bridge", createBridgeRouter(bridgeSupervisor, async (req) => {
     if (!response.ok) return null;
     const payload: any = await response.json();
     const userId = String(payload?.subscription?.user_id || payload?.user?.id || "").trim();
+    if (userId) bridgeLicenseTokens.set(userId, token);
     return userId || null;
   } catch { return null; }
 }));
+
+// Revalidate active Bridge sessions server-side so revoked/expired licenses stop Baileys workers.
+const bridgeLicenseRecheckTimer = setInterval(async () => {
+  for (const [userId, token] of bridgeLicenseTokens.entries()) {
+    if (await isOfficialLicenseActive(token)) continue;
+    bridgeLicenseTokens.delete(userId);
+    try { await bridgeSupervisor.disconnect(userId, true); } catch (error) {
+      console.warn('[Orderi Bridge] Could not stop session after license revocation:', error);
+    }
+  }
+}, 60_000);
+(bridgeLicenseRecheckTimer as any).unref?.();
 
 // Server-Sent Events (SSE) Client registry for instant live order delivery
 const sseClients = new Set<express.Response>();
