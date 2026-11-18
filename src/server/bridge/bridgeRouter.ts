@@ -127,6 +127,17 @@ export function createBridgeRouter(
     return res.json({ success: true, messages });
   });
 
+  router.post('/messages/mark-groups-read', requireBridgeAuth, async (req: AuthenticatedBridgeRequest, res) => {
+    try {
+      const result = await supervisor.markRecentGroupsRead(req.bridgeUserId!);
+      return res.status(result.success || result.markedCount > 0 ? 200 : 422).json(result);
+    } catch {
+      return res.status(500).json({ success: false, markedCount: 0, skippedCount: 0, groupsAttempted: 0,
+        errorCode: 'BRIDGE_MARK_READ_ERROR',
+        errorMessage: 'حدث خطأ داخلي أثناء تعليم مجموعات واتساب كمقروءة عبر Bridge.' });
+    }
+  });
+
   router.post('/outreach/send', requireBridgeAuth, async (req: AuthenticatedBridgeRequest, res) => {
     try {
       const {
