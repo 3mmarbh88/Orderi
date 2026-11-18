@@ -132,7 +132,7 @@ export function WhatsAppBridgeView({
             listenerEnabled: diagnostic.listenerEnabled,
             serviceConnected: diagnostic.serviceConnected,
             pendingEventsCount: diagnostic.pendingEventsCount,
-            totalEventsIngested: diagnostic.totalEventsIngested,
+            totalEventsIngested: diagnostic.totalEventsIngested || 0,
             lastError: diagnostic.lastError,
           });
         } else if (active) {
