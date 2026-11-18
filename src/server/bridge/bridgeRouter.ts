@@ -161,6 +161,8 @@ export function createBridgeRouter(
         groupJid,
         originalMessageId,
         originalSenderName,
+        originalMessageText,
+        sourceMessageTimestamp,
         message,
       } = req.body || {};
 
@@ -180,6 +182,8 @@ export function createBridgeRouter(
         groupJid: groupJid ? String(groupJid) : undefined,
         originalMessageId: originalMessageId ? String(originalMessageId) : undefined,
         originalSenderName: originalSenderName ? String(originalSenderName) : undefined,
+        originalMessageText: originalMessageText ? String(originalMessageText) : undefined,
+        sourceMessageTimestamp: Number.isFinite(Number(sourceMessageTimestamp)) ? Number(sourceMessageTimestamp) : undefined,
         message: String(message),
       });
 
