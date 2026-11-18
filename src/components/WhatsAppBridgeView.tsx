@@ -229,9 +229,9 @@ export function WhatsAppBridgeView({
         <div className="rounded-2xl border border-slate-200 bg-white p-4">
           <div className="flex items-center justify-between gap-2">
             <div className="font-black text-slate-900">WhatsApp Bridge</div>
-            <span className={"w-2.5 h-2.5 rounded-full " + (bridgeEnabled && status.state === 'Connected' ? 'bg-emerald-500' : 'bg-amber-500')} />
+            <span className={"w-2.5 h-2.5 rounded-full " + (bridgeEnabled && status.state === 'Connected' && status.messageIngestionActive ? 'bg-emerald-500' : 'bg-amber-500')} />
           </div>
-          <div className="mt-1 text-sm text-slate-600">{!bridgeEnabled ? 'القناة متوقفة من الإعدادات' : status.state === 'Connected' ? 'متصل بالخادم ويستقبل الرسائل' : currentStyle.arLabel}</div>
+          <div className="mt-1 text-sm text-slate-600">{!bridgeEnabled ? 'القناة متوقفة من الإعدادات' : status.state === 'Connected' && status.messageIngestionActive ? 'متصل بالخادم ويستقبل الرسائل' : status.state === 'Connected' ? 'متصل بالخادم لكن استقبال الرسائل غير نشط' : currentStyle.arLabel}</div>
           <div className="mt-2 text-xs text-slate-500">الرسائل المستقبلة: {status.receivedMessagesCount || 0}</div>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-4">
