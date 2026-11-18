@@ -716,7 +716,10 @@ export class WhatsAppBridgeSupervisor {
       const originalMessageId = String(payload.originalMessageId || '').trim();
       const originalText = normalizeOutreachMatchText(payload.originalMessageText || '');
       const expectedSender = normalizeOutreachMatchText(payload.originalSenderName || '');
-      const expectedTimestamp = Number(payload.sourceMessageTimestamp || 0);
+      const rawExpectedTimestamp = Number(payload.sourceMessageTimestamp || 0);
+      const expectedTimestamp = rawExpectedTimestamp > 0 && rawExpectedTimestamp < 1e12
+        ? rawExpectedTimestamp * 1000
+        : rawExpectedTimestamp;
       const exactIdMatches = record.recentGroupMessages.filter((m) =>
         groupJid.endsWith('@g.us') && m.groupJid === groupJid && originalMessageId && m.messageId === originalMessageId &&
         validJid(String(m.senderJid || '')) && !m.isFromMe
@@ -726,10 +729,17 @@ export class WhatsAppBridgeSupervisor {
         candidates = record.recentGroupMessages.filter((m) => {
           if (m.groupJid !== groupJid || m.isFromMe || !validJid(String(m.senderJid || ''))) return false;
           if (normalizeOutreachMatchText(m.rawText) !== originalText) return false;
-          if (expectedSender && normalizeOutreachMatchText(m.senderName) !== expectedSender) return false;
           if (expectedTimestamp > 0 && Math.abs(Number(m.timestamp || 0) - expectedTimestamp) > 5 * 60 * 1000) return false;
           return true;
         });
+        // A sender label is only a disambiguator; it is never used as the lookup key.
+        if (candidates.length > 1 && expectedSender) {
+          candidates = candidates.filter((m) => normalizeOutreachMatchText(m.senderName) === expectedSender);
+        }
+        // Without a timestamp, require the sender label to make the exact-text match unique.
+        if (expectedTimestamp <= 0 && expectedSender) {
+          candidates = candidates.filter((m) => normalizeOutreachMatchText(m.senderName) === expectedSender);
+        }
       }
       if (candidates.length === 1) {
         resolvedTargetJid = String(candidates[0].senderJid).trim();
