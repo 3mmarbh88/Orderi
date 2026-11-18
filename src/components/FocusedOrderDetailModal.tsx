@@ -21,14 +21,8 @@ import {
   ExternalLink
 } from 'lucide-react';
 import { ParsedOrder } from '../types';
-import {
-  formatFilterOutreachMessage,
-  openManualRegularWhatsAppChat,
-  getAdvertiserTargetPhone,
-  isMeaningfulAdvertiserName,
-} from '../utils/whatsappPrivateOutreach';
+import { getAdvertiserTargetPhone } from '../utils/whatsappPrivateOutreach';
 import { openWhatsAppGroupConversation } from '../native/whatsappListener';
-import { isNativeAndroid, OrderiNotificationListener } from '../native/orderiNotificationListener';
 
 interface FocusedOrderDetailModalProps {
   order: ParsedOrder | null;
@@ -41,8 +35,6 @@ interface FocusedOrderDetailModalProps {
 
 export const FocusedOrderDetailModal: React.FC<FocusedOrderDetailModalProps> = ({
   order,
-  customTemplate,
-  driverArea = 'البحرين',
   onClose,
   onAccept,
   onIgnore,
@@ -57,7 +49,6 @@ export const FocusedOrderDetailModal: React.FC<FocusedOrderDetailModalProps> = (
   const count = order.passengerCount || order.passengerDetection?.passengerCount;
 
   const effectivePhone = getAdvertiserTargetPhone(order);
-  const privateAdvertiserMessage = formatFilterOutreachMessage(order, customTemplate, driverArea);
 
   const emitToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
     if (typeof window !== 'undefined') {
@@ -79,40 +70,11 @@ export const FocusedOrderDetailModal: React.FC<FocusedOrderDetailModalProps> = (
     }
   };
 
-  const handleOpenAdvertiserPrivateChat = async () => {
+  const handleOpenAdvertiserPrivateChat = () => {
     if (isAutoReplying) return;
-    setIsAutoReplying(true);
-    try {
-      if (typeof navigator !== 'undefined' && navigator.clipboard) {
-        try {
-          await navigator.clipboard.writeText(privateAdvertiserMessage);
-        } catch {}
-      }
-
-      if (effectivePhone) {
-        const res = await openManualRegularWhatsAppChat(effectivePhone, privateAdvertiserMessage);
-        if (res.success) {
-          emitToast(`💬 تم فتح محادثة «${order.senderName || 'صاحب الإعلان'}» في WhatsApp العادي وتجهيز رد الفلتر.`, 'info');
-          return;
-        }
-      }
-
-      if (isNativeAndroid() && isMeaningfulAdvertiserName(order.senderName)) {
-        const res = await OrderiNotificationListener.openWhatsAppPrivateConversation({
-          memberName: order.senderName.trim(),
-        });
-        if (res?.success) {
-          emitToast(`💬 تم فتح المحادثة الخاصة مع «${order.senderName}» (الرد منسوخ وجاهز للصق).`, 'info');
-          return;
-        }
-      }
-
-      emitToast('لا يتوفر رقم أو محادثة خاصة مفتوحة حالياً للمعلن؛ اضغط «قبول الطلب والتواصل عبر واتساب» أو افتح القروب للرد الخاص (تم نسخ الرسالة).', 'info');
-    } catch {
-      emitToast('تعذر فتح المحادثة الخاصة للمعلن.', 'error');
-    } finally {
-      setIsAutoReplying(false);
-    }
+    // Route private outreach through the same server-side Baileys pipeline as acceptance.
+    onAccept(order);
+    onClose();
   };
 
   // Delegate to App's shared acceptance handler so popup and Radar use one send attempt.
@@ -320,7 +282,7 @@ export const FocusedOrderDetailModal: React.FC<FocusedOrderDetailModalProps> = (
                   type="button"
                   onClick={handleOpenAdvertiserPrivateChat}
                   className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-all active:scale-95 cursor-pointer shadow-2xs font-extrabold"
-                  title={`انقر لفتح رسالة خاصة بالواتساب مع المعلن (${order.senderName || 'صاحب الإعلان'})`}
+                  title={`إرسال رد الفلتر إلى المحادثة الخاصة مع المعلن عبر WhatsApp Bridge (${order.senderName || 'صاحب الإعلان'})`}
                 >
                   <User className="w-3.5 h-3.5 text-white shrink-0" />
                   <span className="underline decoration-white/80 decoration-1">
@@ -377,10 +339,10 @@ export const FocusedOrderDetailModal: React.FC<FocusedOrderDetailModalProps> = (
               <Lock className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
               <div className="space-y-0.5">
                 <span className="font-black text-emerald-900 block">
-                  🔒 خصوصية تامة: الرد يُرسل في الخاص للمعلن مباشرة
+                  🔒 خصوصية تامة: الرد يُرسل عبر WhatsApp Bridge إلى المعلن مباشرة
                 </span>
                 <p className="text-emerald-800 leading-relaxed">
-                  عند النقر على قبول، سيتم إرسال ردك تلقائياً في المحادثة الخاصة مع صاحب الإعلان لتأكيد الاستلام دون نشر أي شيء في قروب الواتساب.
+                  عند النقر على قبول، سيُرسل نص الرد المحدد في إعدادات الفلتر إلى المحادثة الخاصة مع صاحب الإعلان عبر Baileys والخادم، دون نشر أي شيء في قروب الواتساب.
                 </p>
               </div>
             </div>
@@ -439,7 +401,7 @@ export const FocusedOrderDetailModal: React.FC<FocusedOrderDetailModalProps> = (
                             <span className="text-[11px] font-bold text-amber-200">👤⚡</span>
                           </span>
                           <span className="text-[10px] font-normal text-emerald-100">
-                            (محادثة خاصة في واتساب العادي — بدون أي رد بالقروب 🔒)
+                            (إرسال خاص عبر WhatsApp Bridge — بدون رد بالقروب 🔒)
                           </span>
                         </div>
                       </>

@@ -35,13 +35,10 @@ import { MatcherLocation } from '../utils/matcher';
 import { AIMatchModal } from './AIMatchModal';
 import { findLandmarkByName } from '../data/bahrainLandmarks';
 import { openWhatsAppGroupConversation } from '../native/whatsappListener';
-import { isNativeAndroid, OrderiNotificationListener } from '../native/orderiNotificationListener';
 import { detectPassengerDelivery } from '../utils/passengerClassifier';
 import {
   formatFilterOutreachMessage,
-  openManualRegularWhatsAppChat,
   getAdvertiserTargetPhone,
-  isMeaningfulAdvertiserName,
 } from '../utils/whatsappPrivateOutreach';
 import { getExecutionStateArabicLabel } from '../utils/whatsAppExecutionEngine';
 
@@ -272,41 +269,11 @@ export function OrderCard({
     if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('orderi-toast', { detail: { message, type } }));
   };
 
-  const handleOpenAdvertiserPrivateChat = async (e?: React.MouseEvent) => {
+  const handleOpenAdvertiserPrivateChat = (e?: React.MouseEvent) => {
     if (e) { e.preventDefault(); e.stopPropagation(); }
     if (isAutoReplying) return;
-    setIsAutoReplying(true);
-    try {
-      if (typeof navigator !== 'undefined' && navigator.clipboard) {
-        try {
-          await navigator.clipboard.writeText(privateAdvertiserMessage);
-        } catch {}
-      }
-
-      if (effectivePhone) {
-        const res = await openManualRegularWhatsAppChat(effectivePhone, privateAdvertiserMessage);
-        if (res.success) {
-          showOutreachToast(`💬 تم فتح محادثة «${order.senderName || 'صاحب الإعلان'}» في WhatsApp العادي وتجهيز رد الفلتر`, 'info');
-          return;
-        }
-      }
-
-      if (isNativeAndroid() && isMeaningfulAdvertiserName(order.senderName)) {
-        const nativeRes = await OrderiNotificationListener.openWhatsAppPrivateConversation({
-          memberName: order.senderName.trim(),
-        });
-        if (nativeRes?.success) {
-          showOutreachToast(`💬 تم فتح محادثة «${order.senderName}» الخاصة (الرد منسوخ وجاهز للصق)`, 'info');
-          return;
-        }
-      }
-
-      showOutreachToast('اضغط «قبول الطلب والتواصل عبر واتساب» لمحاولة الإرسال بالخلفية أو فتح خيارات المعلن (تم نسخ الرد).', 'info');
-    } catch {
-      showOutreachToast('تعذر الوصول إلى محادثة المعلن الخاصة.', 'error');
-    } finally {
-      setIsAutoReplying(false);
-    }
+    // Use the same App-level Bridge/Baileys send pipeline as the Accept button.
+    onAccept(order);
   };
 
   const handleExecuteBackgroundAccept = (e?: React.MouseEvent) => {
@@ -609,7 +576,7 @@ export function OrderCard({
                     <MessageCircle className="w-3 h-3 text-blue-700" />
                     <span>
                       {order.outreachDetails?.sentVerifiedInUi
-                        ? 'تم الإرسال عبر واتساب العادي (حالة التسليم والقراءة تعتمد على واتساب) ✓'
+                        ? 'تم الإرسال عبر WhatsApp Bridge (تأكيد التسليم/القراءة حسب إيصالات واتساب) ✓'
                         : 'تم تمرير الرد للخاص (بانتظار تأكيد التسليم) 💬'}
                     </span>
                   </span>
@@ -836,7 +803,7 @@ export function OrderCard({
                   {order.rawText}
                 </p>
                 <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
-                  {/* معلن الطلب (اسمه ورقم هاتفه): النقر يفتح محادثة واتساب خاصة مع المعلن */}
+                  {/* النقر يرسل رد الفلتر للمعلن عبر WhatsApp Bridge دون استخدام واجهة واتساب */}
                   <div className="flex flex-wrap items-center gap-1.5">
                     <button
                       type="button"
@@ -847,8 +814,9 @@ export function OrderCard({
                     >
                       <User className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                       <span className="group-hover:underline decoration-emerald-500">{order.senderName || 'صاحب الإعلان'}</span>
+                      {effectivePhone && <span dir="ltr" className="text-[10px] text-emerald-800 font-bold">{effectivePhone}</span>}
                       <span className="text-[10px] text-emerald-700 font-bold bg-white px-1.5 py-0.5 rounded border border-emerald-200">
-                        محادثة خاصة 💬
+                        إرسال رد خاص عبر Bridge 💬
                       </span>
                     </button>
                   </div>
@@ -1057,7 +1025,7 @@ export function OrderCard({
                     <strong className="text-slate-800">{order.groupName || 'قروب واتساب'}</strong>
                   </div>
                   <div className="mt-1 text-emerald-900 font-bold bg-white/80 p-2 rounded-xl border border-emerald-200/70">
-                    🔒 خصوصية تامة: لن يُنشر أي رد داخل قروب الواتساب، بل سيتم فتح المحادثة الخاصة مع المعلن مباشرة للتنسيق والاتفاق.
+                    🔒 خصوصية تامة: لن يُنشر أي رد داخل قروب الواتساب؛ سيُرسل رد الفلتر مباشرة إلى محادثة المعلن الخاصة عبر Baileys والخادم.
                   </div>
                 </div>
               </div>

@@ -974,7 +974,28 @@ export async function executePrivateAdvertiserOutreach(
       targetPhone,
   );
 
-  if (autoSend && opts.useBridge !== false && opts.bridgeOutreach?.isConnected()) {
+  // Bridge-only mode: never fall through to Android Accessibility or WhatsApp Messenger.
+  if (opts.useBridge === true) {
+    if (!opts.bridgeOutreach?.isConnected()) {
+      return makeFailure(
+        'BACKGROUND_SEND_UNAVAILABLE',
+        'WhatsApp Bridge غير متصل؛ لم يتم إرسال الرسالة ولم يتم فتح تطبيق واتساب.',
+        'bridge_not_connected',
+        { executionState: 'NEEDS_USER_INTERACTION', openFallbackModal: false },
+      );
+    }
+    if (!hasVerifiedBridgeTarget) {
+      return makeFailure(
+        'IDENTITY_NOT_VERIFIED',
+        'لا يتوفر رقم أو WhatsApp JID موثق للمعلن في الرسالة الأصلية؛ لن نبحث بالاسم أو نراسل شخصاً آخر.',
+        'missing_verified_bridge_target',
+        { executionState: 'IDENTITY_NOT_CONFIRMED', openFallbackModal: false },
+      );
+    }
+  }
+
+
+  if (autoSend && opts.useBridge === true && opts.bridgeOutreach?.isConnected()) {
     if (hasVerifiedBridgeTarget) {
       const bridgeLock = acquireExecutionLock(orderWithRef, operationId, allowUiFallback);
       if (!bridgeLock.acquired) {
@@ -1046,9 +1067,7 @@ export async function executePrivateAdvertiserOutreach(
         );
       }
 
-      const canFallBackToAndroid =
-        bridge.isNativeAndroid() &&
-        (bridgeRes.errorCode === 'BRIDGE_NOT_CONNECTED' || bridgeRes.errorCode === 'BRIDGE_NETWORK_ERROR');
+      const canFallBackToAndroid = false;
 
       if (!canFallBackToAndroid) {
         transitionExecutionLock(lockKey, operationId, 'FAILED', false);

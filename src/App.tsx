@@ -3214,9 +3214,7 @@ function OrderiApp({
     };
 
     try {
-      const useBridgeOutreach =
-        filterRef.current.whatsAppBridgeEnabled !== false &&
-        filterRef.current.preferBridgeOutreach !== false;
+      const useBridgeOutreach = true;
 
       let outreach = await executePrivateAdvertiserOutreach(
         order,
@@ -3234,36 +3232,7 @@ function OrderiApp({
         },
       );
 
-      // If silent RemoteInput is unavailable AND the user explicitly opted into Accessibility auto-outreach
-      // AND Accessibility service is enabled on Android, proceed automatically through their authorized Accessibility path.
-      if (
-        !outreach.success &&
-        outreach.status === 'BACKGROUND_SEND_UNAVAILABLE' &&
-        !outreach.retryBlocked &&
-        filterRef.current.allowAccessibilityAutoOutreach &&
-        isNativeAndroid()
-      ) {
-        try {
-          const accStatus = await OrderiNotificationListener.isAccessibilityEnabled();
-          if (accStatus?.enabled) {
-            outreach = await executePrivateAdvertiserOutreach(
-              order,
-              filterRef.current.customResponseTemplate,
-              driverLocation?.areaName || 'المنامة',
-              {
-                autoSend: true,
-                backgroundOnly: false,
-                allowUiFallback: true,
-                useBridge: useBridgeOutreach,
-                bridgeOutreach: orderiBridgeClient,
-                latestOrders: ordersRef.current,
-                onProgress: (progressStatus) => updateProgressOrder(progressStatus, undefined, undefined),
-                onExecutionStateProgress: (execState, _label, opId) => updateProgressOrder(undefined, execState, opId),
-              },
-            );
-          }
-        } catch {}
-      }
+      // All private outreach is Bridge/Baileys-only; never fall back to Android UI automation.
 
       const attemptDetails: OutreachAttemptDetails = {
         status: outreach.status,
