@@ -21,14 +21,8 @@ import {
   ExternalLink
 } from 'lucide-react';
 import { ParsedOrder } from '../types';
-import {
-  formatFilterOutreachMessage,
-  openManualRegularWhatsAppChat,
-  getAdvertiserTargetPhone,
-  isMeaningfulAdvertiserName,
-} from '../utils/whatsappPrivateOutreach';
+import { getAdvertiserTargetPhone } from '../utils/whatsappPrivateOutreach';
 import { openWhatsAppGroupConversation } from '../native/whatsappListener';
-import { isNativeAndroid, OrderiNotificationListener } from '../native/orderiNotificationListener';
 
 interface FocusedOrderDetailModalProps {
   order: ParsedOrder | null;
@@ -57,7 +51,6 @@ export const FocusedOrderDetailModal: React.FC<FocusedOrderDetailModalProps> = (
   const count = order.passengerCount || order.passengerDetection?.passengerCount;
 
   const effectivePhone = getAdvertiserTargetPhone(order);
-  const privateAdvertiserMessage = formatFilterOutreachMessage(order, customTemplate, driverArea);
 
   const emitToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
     if (typeof window !== 'undefined') {
