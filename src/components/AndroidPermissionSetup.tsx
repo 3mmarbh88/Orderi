@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { Bell, CheckCircle2, ShieldCheck, Smartphone, Settings, Accessibility } from 'lucide-react';
+import { Bell, CheckCircle2, ShieldCheck, Settings, Accessibility } from 'lucide-react';
 import { OrderiNotificationListener } from '../native/orderiNotificationListener';
 
 interface AndroidPermissionSetupProps {
@@ -123,26 +123,28 @@ export function AndroidPermissionSetup({ onComplete }: AndroidPermissionSetupPro
           </div>
           <h1 className="text-xl font-black text-slate-900">إعداد صلاحيات Orderi</h1>
           <p className="text-sm leading-6 text-slate-600">
-            لإتاحة استقبال طلبات واتساب ومتابعتها، فعّل الصلاحيتين التاليتين مرة واحدة من إعدادات هاتفك.
+            لإتاحة استقبال طلبات واتساب ومتابعتها، فعّل الصلاحيتين بالترتيب من إعدادات هاتفك. سيظهر الإعداد الثاني بعد تفعيل الأول.
           </p>
         </div>
 
         <PermissionCard
           enabled={permissions.notification}
-          title="السماح بقراءة الإشعارات"
+          title="الخطوة الأولى: السماح بقراءة الإشعارات"
           description="يسمح لـ Orderi بقراءة إشعارات واتساب لاستقبال الرسائل والطلبات الجديدة."
           buttonLabel="تفعيل صلاحية قراءة الإشعارات"
           onClick={() => void openNotificationSettings()}
           icon={<Bell className="w-5 h-5" />}
         />
-        <PermissionCard
-          enabled={permissions.accessibility}
-          title="تفعيل إمكانية الوصول"
-          description="تتيح خدمة Orderi تنفيذ خطوات واتساب المصرّح بها، مثل فتح المحادثة والتعامل مع الواجهة عند طلبك."
-          buttonLabel="فتح إعدادات إمكانية الوصول"
-          onClick={() => void openAccessibilitySettings()}
-          icon={<Accessibility className="w-5 h-5" />}
-        />
+        {permissions.notification && (
+          <PermissionCard
+            enabled={permissions.accessibility}
+            title="الخطوة الثانية: تفعيل إمكانية الوصول"
+            description="تتيح خدمة Orderi تنفيذ خطوات واتساب المصرّح بها، مثل فتح المحادثة والتعامل مع الواجهة عند طلبك."
+            buttonLabel="فتح إعدادات إمكانية الوصول"
+            onClick={() => void openAccessibilitySettings()}
+            icon={<Accessibility className="w-5 h-5" />}
+          />
+        )}
 
         {permissions.error && (
           <p role="alert" className="rounded-xl bg-rose-50 border border-rose-200 p-3 text-xs text-rose-700">{permissions.error}</p>
