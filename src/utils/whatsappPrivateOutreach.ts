@@ -528,6 +528,14 @@ export function getAdvertiserTargetPhone(order: ParsedOrder, effectivePhone?: st
   return resolution.phone;
 }
 
+/** True only when this order carries a verified phone or WhatsApp sender identity. A display name alone never qualifies. */
+export function hasTrustedAdvertiserIdentity(order: ParsedOrder): boolean {
+  const phone = resolveAdvertiserContact(order).phone;
+  const senderKey = (order.senderIdentityKey || '').trim();
+  const senderUri = (order.senderUri || '').trim();
+  return Boolean(phone || senderKey || senderUri);
+}
+
 /**
  * Fallback response format when the user left FilterSettings.customResponseTemplate empty.
  */
@@ -929,27 +937,16 @@ export async function executePrivateAdvertiserOutreach(
     });
   }
 
-  // Step 1: Must identify advertiser cleanly from the current ad/notification only (or explicit manual phone override)
-  if (!normalizedOverride && !resolution.advertiserVerified) {
+  // Strict identity gate: a display name is NOT a WhatsApp identity.
+  // Require a verified advertiser phone or an actual sender JID/URI from message metadata.
+  const hasTrustedAdvertiserIdentity = Boolean(targetPhone || targetSenderKey || targetSenderUri);
+  if (!hasTrustedAdvertiserIdentity) {
     emitExecutionState('IDENTITY_NOT_CONFIRMED');
     return makeFailure(
       'IDENTITY_NOT_VERIFIED',
-      resolution.verificationReason ||
-        'تعذر التحقق من هوية صاحب الإعلان أو تم رصد أكثر من رقم بدون تحديد قاطع للمعلن.',
-      resolution.confidence === 'multiple_candidates'
-        ? 'multiple_ambiguous_phones'
-        : 'unverified_advertiser_identity',
-      { executionState: 'IDENTITY_NOT_CONFIRMED' },
-    );
-  }
-
-  if (!targetPhone && !targetName && !targetSenderKey && !targetSenderUri) {
-    emitExecutionState('IDENTITY_NOT_CONFIRMED');
-    return makeFailure(
-      'IDENTITY_NOT_VERIFIED',
-      'لا يوجد اسم مرسل حقيقي أو معرف أو رقم هاتف لصاحب الإعلان؛ لن يتم إرسال أي رسالة عشوائية.',
-      'missing_advertiser_identity',
-      { executionState: 'IDENTITY_NOT_CONFIRMED' },
+      'لا يتوفر رقم أو WhatsApp ID موثوق للمعلن؛ لن نبحث بالاسم أو نفتح محادثة مع شخص آخر، ولم يتم تنفيذ أي إجراء.',
+      'missing_verified_advertiser_phone_or_whatsapp_id',
+      { executionState: 'IDENTITY_NOT_CONFIRMED', openFallbackModal: false },
     );
   }
 
