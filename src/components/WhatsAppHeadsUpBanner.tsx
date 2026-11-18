@@ -14,7 +14,6 @@ import { ParsedOrder } from '../types';
 import {
   formatFilterOutreachMessage,
   getAdvertiserTargetPhone,
-  hasTrustedAdvertiserIdentity,
   openManualRegularWhatsAppChat,
 } from '../utils/whatsappPrivateOutreach';
 import { isNativeAndroid, OrderiNotificationListener } from '../native/orderiNotificationListener';
@@ -77,16 +76,6 @@ export const WhatsAppHeadsUpBanner: React.FC<WhatsAppHeadsUpBannerProps> = ({
         } catch {}
       }
 
-      if (!hasTrustedAdvertiserIdentity(order)) {
-        window.dispatchEvent(new CustomEvent('orderi-toast', {
-          detail: {
-            message: 'لا يتوفر رقم أو WhatsApp ID موثوق للمعلن؛ لن نبحث بالاسم أو نراسل شخصاً آخر، ولم يتم تنفيذ أي إجراء.',
-            type: 'error',
-          },
-        }));
-        return;
-      }
-
       const targetPhone = getAdvertiserTargetPhone(order);
       if (targetPhone) {
         const res = await openManualRegularWhatsAppChat(targetPhone, msg);
@@ -102,20 +91,10 @@ export const WhatsAppHeadsUpBanner: React.FC<WhatsAppHeadsUpBannerProps> = ({
         }
       }
 
-      // If the trusted identity is a WhatsApp JID/URI rather than a phone,
-      // use the same Bridge-backed outreach pipeline as the Accept button.
-      if (order.senderIdentityKey || order.senderUri) {
-        onAccept(order);
-        onClose();
-        return;
-      }
-
-      window.dispatchEvent(new CustomEvent('orderi-toast', {
-        detail: {
-          message: 'تعذر فتح محادثة خاصة باستخدام هوية واتساب الموثوقة؛ لم يتم البحث بالاسم أو إرسال رسالة.',
-          type: 'error',
-        },
-      }));
+      // No direct phone: use the shared Bridge + Android original-message resolver.
+      // It will inspect the exact source message and send only after resolving its sender.
+      onAccept(order);
+      onClose();
     } catch {
       window.dispatchEvent(new CustomEvent('orderi-toast', {
         detail: { message: 'تعذر فتح المحادثة الخاصة بالمعلن.', type: 'error' },
@@ -128,15 +107,6 @@ export const WhatsAppHeadsUpBanner: React.FC<WhatsAppHeadsUpBannerProps> = ({
   // Keep popup acceptance on the same single outreach path used by Radar.
   const handleAcceptOrderOutreach = () => {
     if (!order || isAcceptingOrder || isOpeningChat) return;
-    if (!hasTrustedAdvertiserIdentity(order)) {
-      window.dispatchEvent(new CustomEvent('orderi-toast', {
-        detail: {
-          message: 'لا يتوفر رقم أو WhatsApp ID موثوق للمعلن؛ لم يتم قبول الطلب أو إرسال رسالة، ولن نبحث بالاسم.',
-          type: 'error',
-        },
-      }));
-      return;
-    }
     setIsAcceptingOrder(true);
     setIsPaused(true);
     onAccept(order);
