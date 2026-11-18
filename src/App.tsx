@@ -732,7 +732,7 @@ function OrderiApp({
   // A cached account is never sufficient: a fresh official subscription response is required.
   useEffect(() => {
     let mounted = true;
-    let interval: ReturnType<typeof setInterval> | null = null;
+    let interval: number | null = null;
     const verifyLicense = async () => {
       if (!currentUser?.id) { if (mounted) setLicenseVerified(false); return; }
       try {
