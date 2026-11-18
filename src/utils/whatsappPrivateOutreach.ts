@@ -937,20 +937,27 @@ export async function executePrivateAdvertiserOutreach(
     });
   }
 
-  // Strict identity gate: a display name is NOT a WhatsApp identity.
-  // Require a verified advertiser phone or an actual sender JID/URI from message metadata.
-  const hasTrustedAdvertiserIdentity = Boolean(targetPhone || targetSenderKey || targetSenderUri);
-  if (!hasTrustedAdvertiserIdentity) {
+  // A name alone is not a recipient. It is only a clue used together with the exact
+  // original group/message context by Bridge or the Android original-message resolver.
+  const hasOriginalMessageContext = Boolean(
+    (orderWithRef.rawText || '').trim() &&
+    ((orderWithRef.bridgeGroupJid || '').trim().endsWith('@g.us') || (orderWithRef.groupName || '').trim())
+  );
+  if (!targetPhone && !targetSenderKey && !targetSenderUri && !hasOriginalMessageContext) {
     emitExecutionState('IDENTITY_NOT_CONFIRMED');
     return makeFailure(
       'IDENTITY_NOT_VERIFIED',
-      'لا يتوفر رقم أو WhatsApp ID موثوق للمعلن؛ لن نبحث بالاسم أو نفتح محادثة مع شخص آخر، ولم يتم تنفيذ أي إجراء.',
-      'missing_verified_advertiser_phone_or_whatsapp_id',
+      'لا تتوفر بيانات كافية للوصول إلى رسالة الإعلان الأصلية وتحديد مرسلها؛ لم يتم إرسال أي رسالة.',
+      'missing_original_message_context',
       { executionState: 'IDENTITY_NOT_CONFIRMED', openFallbackModal: false },
     );
   }
 
-  emitProgress('ADVERTISER_VERIFIED', `تم التحقق من هوية المعلن: ${advertiserName}`);
+  if (targetPhone || targetSenderKey || targetSenderUri) {
+    emitProgress('ADVERTISER_VERIFIED', `تم العثور على بيانات هوية للمعلن: ${advertiserName}`);
+  } else {
+    emitProgress('IDENTIFYING_ADVERTISER', 'سيتم استخراج هوية المرسل من رسالة المجموعة الأصلية قبل الإرسال...');
+  }
 
   const bridge: PrivateOutreachNativeBridge = opts.nativeBridge || {
     isNativeAndroid,
@@ -968,7 +975,9 @@ export async function executePrivateAdvertiserOutreach(
   const hasVerifiedBridgeTarget = Boolean(
     (verifiedBridgeJid &&
       (verifiedBridgeJid.includes('@s.whatsapp.net') || verifiedBridgeJid.includes('@lid'))) ||
-      targetPhone,
+      targetPhone ||
+      ((orderWithRef.bridgeGroupJid || '').trim().endsWith('@g.us') &&
+        Boolean((orderWithRef.rawText || '').trim()))
   );
 
   // Bridge-only mode: never fall through to Android Accessibility or WhatsApp Messenger.
@@ -1023,8 +1032,10 @@ export async function executePrivateAdvertiserOutreach(
         targetJid: verifiedBridgeJid || undefined,
         senderPhone: targetPhone || undefined,
         groupJid: orderWithRef.bridgeGroupJid,
-        originalMessageId: orderWithRef.bridgeMessageId,
-        originalSenderName: advertiserName,
+        originalMessageId: orderWithRef.bridgeMessageId || orderWithRef.sourceMessageId,
+        originalSenderName: targetName || undefined,
+        originalMessageText: orderWithRef.rawText || undefined,
+        sourceMessageTimestamp: orderWithRef.sourceMessageTimestamp || undefined,
         message: messageText,
       });
 
