@@ -36,7 +36,7 @@ const spiderLogs: SpiderLogEvent[] = [];
 const spiderListeners = new Set<(stats: SpiderStats, logs: SpiderLogEvent[]) => void>();
 
 let currentStats: SpiderStats = {
-  isActive: true,
+  isActive: false,
   crawlSpeedMs: 3000,
   crawledGroupsCount: 0,
   messagesCrawledCount: 0,
