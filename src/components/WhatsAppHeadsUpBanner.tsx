@@ -14,7 +14,7 @@ import { ParsedOrder } from '../types';
 import {
   formatFilterOutreachMessage,
   getAdvertiserTargetPhone,
-  isMeaningfulAdvertiserName,
+  hasTrustedAdvertiserIdentity,
   openManualRegularWhatsAppChat,
 } from '../utils/whatsappPrivateOutreach';
 import { isNativeAndroid, OrderiNotificationListener } from '../native/orderiNotificationListener';
@@ -77,13 +77,23 @@ export const WhatsAppHeadsUpBanner: React.FC<WhatsAppHeadsUpBannerProps> = ({
         } catch {}
       }
 
+      if (!hasTrustedAdvertiserIdentity(order)) {
+        window.dispatchEvent(new CustomEvent('orderi-toast', {
+          detail: {
+            message: 'لا يتوفر رقم أو WhatsApp ID موثوق للمعلن؛ لن نبحث بالاسم أو نراسل شخصاً آخر، ولم يتم تنفيذ أي إجراء.',
+            type: 'error',
+          },
+        }));
+        return;
+      }
+
       const targetPhone = getAdvertiserTargetPhone(order);
       if (targetPhone) {
         const res = await openManualRegularWhatsAppChat(targetPhone, msg);
         if (res.success) {
           window.dispatchEvent(new CustomEvent('orderi-toast', {
             detail: {
-              message: `💬 تم فتح محادثة المعلن (${order.senderName || 'صاحب الإعلان'}) في WhatsApp العادي وتجهيز رد الفلتر`,
+              message: `💬 تم فتح محادثة المعلن (${order.senderName || 'صاحب الإعلان'}) باستخدام الرقم الموثوق وتجهيز رد الفلتر`,
               type: 'info',
             },
           }));
@@ -92,26 +102,18 @@ export const WhatsAppHeadsUpBanner: React.FC<WhatsAppHeadsUpBannerProps> = ({
         }
       }
 
-      if (isNativeAndroid() && isMeaningfulAdvertiserName(order.senderName)) {
-        const nativeOpen = await OrderiNotificationListener.openWhatsAppPrivateConversation({
-          memberName: order.senderName.trim(),
-        });
-        if (nativeOpen?.success) {
-          window.dispatchEvent(new CustomEvent('orderi-toast', {
-            detail: {
-              message: `💬 تم فتح محادثة المعلن (${order.senderName}) الخاصة (الرد منسوخ للصق)`,
-              type: 'info',
-            },
-          }));
-          onClose();
-          return;
-        }
+      // If the trusted identity is a WhatsApp JID/URI rather than a phone,
+      // use the same Bridge-backed outreach pipeline as the Accept button.
+      if (order.senderIdentityKey || order.senderUri) {
+        onAccept(order);
+        onClose();
+        return;
       }
 
       window.dispatchEvent(new CustomEvent('orderi-toast', {
         detail: {
-          message: 'تعذر فتح محادثة خاصة مباشرة الآن — اضغط «قبول الطلب» للمحاولة بالخلفية أو فتح خيارات المعلن.',
-          type: 'info',
+          message: 'تعذر فتح محادثة خاصة باستخدام هوية واتساب الموثوقة؛ لم يتم البحث بالاسم أو إرسال رسالة.',
+          type: 'error',
         },
       }));
     } catch {
@@ -126,6 +128,15 @@ export const WhatsAppHeadsUpBanner: React.FC<WhatsAppHeadsUpBannerProps> = ({
   // Keep popup acceptance on the same single outreach path used by Radar.
   const handleAcceptOrderOutreach = () => {
     if (!order || isAcceptingOrder || isOpeningChat) return;
+    if (!hasTrustedAdvertiserIdentity(order)) {
+      window.dispatchEvent(new CustomEvent('orderi-toast', {
+        detail: {
+          message: 'لا يتوفر رقم أو WhatsApp ID موثوق للمعلن؛ لم يتم قبول الطلب أو إرسال رسالة، ولن نبحث بالاسم.',
+          type: 'error',
+        },
+      }));
+      return;
+    }
     setIsAcceptingOrder(true);
     setIsPaused(true);
     onAccept(order);
