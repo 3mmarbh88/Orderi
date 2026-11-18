@@ -847,8 +847,9 @@ export function OrderCard({
                     >
                       <User className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                       <span className="group-hover:underline decoration-emerald-500">{order.senderName || 'صاحب الإعلان'}</span>
+                      {effectivePhone && <span dir="ltr" className="text-[10px] text-emerald-800 font-bold">{effectivePhone}</span>}
                       <span className="text-[10px] text-emerald-700 font-bold bg-white px-1.5 py-0.5 rounded border border-emerald-200">
-                        محادثة خاصة 💬
+                        محادثة خاصة • رد الفلتر جاهز 💬
                       </span>
                     </button>
                   </div>
