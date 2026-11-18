@@ -2401,14 +2401,8 @@ async function startServer() {
 
   httpServer.listen(PORT, "0.0.0.0", () => {
     console.log(`[Orderi Server] Running on http://0.0.0.0:${PORT} (ENV=${process.env.NODE_ENV || 'dev'})`);
-    try {
-      const restoredCount = bridgeSupervisor.restorePersistedSessions();
-      if (restoredCount > 0) {
-        console.log(`[Orderi Bridge] Restored ${restoredCount} persisted encrypted WhatsApp Bridge session(s).`);
-      }
-    } catch (err) {
-      console.warn("[Orderi Bridge] Could not restore persisted sessions:", err);
-    }
+    // Do not auto-resume persisted WhatsApp workers at process startup.
+    // The first authenticated Bridge session request resumes only after license verification.
   });
 
   httpServer.on("error", (err: any) => {
