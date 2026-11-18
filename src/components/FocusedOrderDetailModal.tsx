@@ -35,8 +35,6 @@ interface FocusedOrderDetailModalProps {
 
 export const FocusedOrderDetailModal: React.FC<FocusedOrderDetailModalProps> = ({
   order,
-  customTemplate,
-  driverArea = 'البحرين',
   onClose,
   onAccept,
   onIgnore,
