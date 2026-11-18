@@ -2545,45 +2545,46 @@ function OrderiApp({
 
   const handleMarkAllWhatsAppAsRead = async () => {
     try {
-      // 1. Check if there are active unread WhatsApp notifications currently in the tray
-      const unreadCheck = await checkHasUnreadWhatsAppNotifications();
-      if (unreadCheck.hasUnread) {
-        console.log(`[Orderi] Detected ${unreadCheck.unreadCount} active unread WhatsApp group notifications.`);
-      }
-
-      // 2. Initiate Mark All As Read with Accessibility Gestures
-      const res = await markAllWhatsAppAsRead([], { includeArchived: true });
-      const count = res.markedCount || 0;
+      // Both paths start from this single tap: Baileys Bridge + Android notification/Accessibility.
+      const unreadCheckPromise = checkHasUnreadWhatsAppNotifications().catch(() => ({ hasUnread: false, unreadCount: 0 }));
+      const bridgeReadPromise = orderiBridgeClient.markRecentGroupsRead();
+      const androidReadPromise = markAllWhatsAppAsRead([], { includeArchived: true });
+      const [unreadCheck, bridgeRead, androidRead] = await Promise.all([
+        unreadCheckPromise, bridgeReadPromise, androidReadPromise,
+      ]);
       if (filter.soundEnabled) playAlertTone('cash_register', 70);
 
-      if (res.accessibilityRequired) {
-        showToast('⚙️ لقراءة القروبات عبر إيماءات إمكانية الوصول، يرجى تفعيل إذن إمكانية الوصول (Accessibility) لـ Orderi');
-        try {
-          await openWhatsAppAccessibilitySettings();
-        } catch {}
-        return;
+      const nativeCount = androidRead.markedCount || 0;
+      const bridgeCount = bridgeRead.markedCount || 0;
+      let completion: Awaited<ReturnType<typeof waitForWhatsAppReadAllCompletion>> | null = null;
+      if (androidRead.archivedAutomationStarted) {
+        showToast('⚡ يعمل المساران معاً: WhatsApp Bridge وAndroid Accessibility للمجموعات النشطة والمؤرشفة...');
+        completion = await waitForWhatsAppReadAllCompletion();
+      } else if (androidRead.accessibilityRequired) {
+        try { await openWhatsAppAccessibilitySettings(); } catch {}
       }
 
-      if (res.archivedAutomationStarted) {
-        showToast('⚡ بدأت محاكاة قراءة القروبات النشطة والمؤرشفة عبر إيماءات إمكانية الوصول...');
-        const completion = await waitForWhatsAppReadAllCompletion();
-        if (completion.status === 'completed') {
-          showToast(`✅ اكتملت قراءة القروبات بنجاح! تم فتح ومعالجة ${completion.visited} قروباً والتأكد من إزالة شارة غير المقروء.`);
-        } else {
-          // Timeout/unavailable is not a successful read-all result.
-          showToast(`تعذر تأكيد قراءة جميع القروبات (${completion.status}). تمت معالجة ${completion.visited} قروباً فقط. ${completion.detail || ''}`);
-        }
-      } else if (count > 0) {
-        showToast(`✅ تم تمييز ${count} قروباً كمقروء عبر أندرويد فوراً!`);
-      } else {
-        // Notification-shade state cannot prove that every WhatsApp chat is read.
-        showToast(unreadCheck.hasUnread
-          ? 'لم يتم تأكيد قراءة القروبات غير المقروءة. فعّل إمكانية الوصول ثم أعد المحاولة.'
-          : 'لا توجد إشعارات واتساب غير مقروءة ظاهرة؛ لم يتم تأكيد حالة جميع المحادثات.');
+      const bridgeSummary = bridgeRead.success || bridgeCount > 0
+        ? `Bridge: ${bridgeCount} مجموعة.`
+        : `Bridge: ${bridgeRead.errorMessage || 'لم يؤكد تعليم أي مجموعة'}.`;
+      const notificationSummary = nativeCount > 0
+        ? `إشعارات Android: ${nativeCount} مجموعة.`
+        : 'إشعارات Android: لا توجد إجراءات قراءة متاحة.';
+      const accessibilitySummary = completion
+        ? completion.status === 'completed'
+          ? `Accessibility: اكتمل فحص ${completion.visited} مجموعة.`
+          : `Accessibility: ${completion.status}، تمت معالجة ${completion.visited} مجموعة. ${completion.detail || ''}`
+        : androidRead.accessibilityRequired
+          ? 'فعّل إذن Accessibility لإكمال فحص جميع المجموعات المؤرشفة.'
+          : 'لم يبدأ فحص Accessibility.';
+      const anyConfirmed = bridgeCount > 0 || nativeCount > 0 || completion?.status === 'completed';
+      showToast(`${anyConfirmed ? '✅' : '⚠️'} نتيجة قراءة الكل — ${bridgeSummary} ${notificationSummary} ${accessibilitySummary}`);
+      if (unreadCheck.hasUnread && !anyConfirmed) {
+        console.warn('[Orderi] Unread WhatsApp notifications remain without a confirmed read action.');
       }
     } catch (e) {
-      console.warn('[Orderi] Mark-all-read failed:', e);
-      showToast('تعذرت قراءة جميع قروبات واتساب. تحقق من صلاحيات الإشعارات وإمكانية الوصول.');
+      console.warn('[Orderi] Dual-path mark-all-read failed:', e);
+      showToast('تعذرت قراءة الكل عبر المسارين. تحقق من اتصال Bridge وصلاحيات الإشعارات وإمكانية الوصول.');
     }
   };
 

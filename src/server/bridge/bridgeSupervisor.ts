@@ -15,6 +15,8 @@ import type {
   BridgePrivateReplyEvent,
   BridgeSendPrivateRequest,
   BridgeSendPrivateResult,
+  BridgeReadGroupTarget,
+  BridgeMarkGroupsReadResult,
   BridgeSessionPublicStatus,
   SupervisorToWorkerMessage,
   WhatsAppBridgeConnectionState,
@@ -49,6 +51,11 @@ interface PendingSendResolver {
   timer: ReturnType<typeof setTimeout>;
 }
 
+interface PendingReadResolver {
+  resolve: (result: BridgeMarkGroupsReadResult) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
 interface UserSessionRecord {
   userId: string;
   sessionDir: string;
@@ -58,6 +65,7 @@ interface UserSessionRecord {
   pairingStartupTimer: ReturnType<typeof setTimeout> | null;
   recentGroupMessages: BridgeGroupMessageEvent[];
   pendingSends: Map<string, PendingSendResolver>;
+  pendingReadOps: Map<string, PendingReadResolver>;
   outreachLedger: {
     byOperationId: Record<string, BridgeOutreachLedgerRecord>;
     byOrderId: Record<string, BridgeOutreachLedgerRecord>;
@@ -177,6 +185,7 @@ export class WhatsAppBridgeSupervisor {
       pairingStartupTimer: null,
       recentGroupMessages: [],
       pendingSends: new Map(),
+      pendingReadOps: new Map(),
       outreachLedger,
       inFlightOrderIds: new Set(),
       status: {
@@ -432,6 +441,16 @@ export class WhatsAppBridgeSupervisor {
         if (pending) {
           clearTimeout(pending.timer);
           record.pendingSends.delete(msg.requestId);
+          pending.resolve(msg.result);
+        }
+        break;
+      }
+
+      case 'MARK_GROUPS_READ_RESULT': {
+        const pending = record.pendingReadOps.get(msg.requestId);
+        if (pending) {
+          clearTimeout(pending.timer);
+          record.pendingReadOps.delete(msg.requestId);
           pending.resolve(msg.result);
         }
         break;
@@ -745,6 +764,44 @@ export class WhatsAppBridgeSupervisor {
     } finally {
       record.inFlightOrderIds.delete(payload.orderId);
     }
+  }
+
+  /**
+   * Marks the newest Bridge-observed message in each known WhatsApp group as read.
+   * Android Accessibility performs the broader device-side sweep, including archived
+   * groups and groups not observed by this Bridge session.
+   */
+  public async markRecentGroupsRead(userId: string): Promise<BridgeMarkGroupsReadResult> {
+    const record = this.getOrCreateRecord(userId);
+    if (!record.worker || record.status.state !== 'Connected') {
+      return { success: false, markedCount: 0, skippedCount: 0, groupsAttempted: 0,
+        errorCode: 'BRIDGE_NOT_CONNECTED', errorMessage: 'WhatsApp Bridge غير متصل حالياً.' };
+    }
+    const latestByGroup = new Map<string, BridgeReadGroupTarget>();
+    for (const message of record.recentGroupMessages) {
+      const groupJid = String(message.groupJid || '').trim();
+      const messageId = String(message.messageId || '').trim();
+      if (!groupJid.endsWith('@g.us') || !messageId) continue;
+      const existing = latestByGroup.get(groupJid);
+      if (!existing || Number(message.timestamp) > existing.timestamp) {
+        latestByGroup.set(groupJid, { groupJid, messageId, timestamp: Number(message.timestamp), fromMe: Boolean(message.isFromMe) });
+      }
+    }
+    const groups = Array.from(latestByGroup.values());
+    if (!groups.length) {
+      return { success: false, markedCount: 0, skippedCount: 0, groupsAttempted: 0,
+        errorCode: 'NO_BRIDGE_GROUP_MESSAGES', errorMessage: 'لا توجد رسائل مجموعات معروفة في جلسة Bridge لتمييزها كمقروءة.' };
+    }
+    const requestId = `read-${crypto.randomUUID()}`;
+    return new Promise<BridgeMarkGroupsReadResult>((resolve) => {
+      const timer = setTimeout(() => {
+        record.pendingReadOps.delete(requestId);
+        resolve({ success: false, markedCount: 0, skippedCount: groups.length, groupsAttempted: groups.length,
+          errorCode: 'BRIDGE_READ_TIMEOUT', errorMessage: 'انتهت مهلة انتظار تأكيد قراءة المجموعات من Bridge.' });
+      }, 20_000);
+      record.pendingReadOps.set(requestId, { resolve, timer });
+      record.worker!.send({ type: 'MARK_GROUPS_READ', requestId, groups });
+    });
   }
 
   /**

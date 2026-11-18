@@ -73,6 +73,22 @@ export interface BridgePrivateReplyEvent {
   ignoredForOrderExtraction: true;
 }
 
+export interface BridgeReadGroupTarget {
+  groupJid: string;
+  messageId: string;
+  timestamp: number;
+  fromMe: boolean;
+}
+
+export interface BridgeMarkGroupsReadResult {
+  success: boolean;
+  markedCount: number;
+  skippedCount: number;
+  groupsAttempted: number;
+  errorCode?: string;
+  errorMessage?: string;
+}
+
 export interface BridgeSendPrivateRequest {
   orderId: string;
   operationId: string;
@@ -126,6 +142,11 @@ export type SupervisorToWorkerMessage =
       payload: BridgeSendPrivateRequest;
     }
   | {
+      type: 'MARK_GROUPS_READ';
+      requestId: string;
+      groups: BridgeReadGroupTarget[];
+    }
+  | {
       type: 'PING';
     };
 
@@ -160,6 +181,12 @@ export type WorkerToSupervisorMessage =
       userId: string;
       requestId: string;
       result: BridgeSendPrivateResult;
+    }
+  | {
+      type: 'MARK_GROUPS_READ_RESULT';
+      userId: string;
+      requestId: string;
+      result: BridgeMarkGroupsReadResult;
     }
   | {
       type: 'SESSION_EXPIRED';

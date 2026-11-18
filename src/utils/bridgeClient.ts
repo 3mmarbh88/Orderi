@@ -454,6 +454,22 @@ class OrderiBridgeClient {
     return [];
   }
 
+  public async markRecentGroupsRead(): Promise<{
+    success: boolean; markedCount: number; skippedCount: number; groupsAttempted: number;
+    errorCode?: string; errorMessage?: string;
+  }> {
+    try {
+      const resp = await this.authedFetch('/api/bridge/messages/mark-groups-read', { method: 'POST', body: JSON.stringify({}) });
+      const data = await resp.json();
+      return { success: Boolean(data?.success), markedCount: Number(data?.markedCount || 0),
+        skippedCount: Number(data?.skippedCount || 0), groupsAttempted: Number(data?.groupsAttempted || 0),
+        errorCode: data?.errorCode, errorMessage: data?.errorMessage || data?.error };
+    } catch (err: any) {
+      return { success: false, markedCount: 0, skippedCount: 0, groupsAttempted: 0,
+        errorCode: 'BRIDGE_NETWORK_ERROR', errorMessage: err?.message || 'تعذر الوصول إلى WhatsApp Bridge لقراءة المجموعات.' };
+    }
+  }
+
   public async sendPrivateMessage(params: BridgeSendOutreachParams): Promise<BridgeSendOutreachResult> {
     try {
       const resp = await this.authedFetch('/api/bridge/outreach/send', {
