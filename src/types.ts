@@ -204,6 +204,10 @@ export interface ParsedOrder {
   contactStatus?: 'vip' | 'blacklist' | 'normal';
   matchedContact?: StoreContact;
   source?: 'webhook_auto' | 'whatsapp_web_session' | 'whatsapp_web_bridge' | 'manual' | 'voice' | 'android_notification';
+  /** Every WhatsApp ingestion channel that observed this logical order. */
+  ingestionSources?: Array<'android_notification' | 'whatsapp_web_bridge' | 'whatsapp_web_session' | 'webhook_auto'>;
+  ingestionMessageIds?: string[];
+  ingestionGroupJids?: string[];
   bridgeGroupJid?: string;
   bridgeParticipantJid?: string;
   bridgeMessageId?: string;
