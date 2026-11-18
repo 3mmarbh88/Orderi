@@ -23,6 +23,15 @@ import type {
   WorkerToSupervisorMessage,
 } from './types';
 
+function normalizeOutreachMatchText(value: string): string {
+  return String(value || '')
+    .normalize('NFKC')
+    .replace(/[\u200e\u200f\u202a-\u202e]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLocaleLowerCase();
+}
+
 const UNOFFICIAL_LIBRARY_WARNING =
   'تنبيه أمني: يعتمد WhatsApp Bridge على مكتبة Baileys غير الرسمية لمحاكاة WhatsApp Web؛ قد يؤدي الاستخدام المكثف أو تغييرات واتساب إلى تقييد الحساب أو انتهاء الجلسة تلقائياً.';
 
@@ -696,24 +705,60 @@ export class WhatsAppBridgeSupervisor {
       };
     }
 
-    // 3. Enforce verified JID or phone (NEVER allow display-name-only sending)
-    const hasJid = Boolean(
-      payload.targetJid &&
-        (payload.targetJid.includes('@s.whatsapp.net') || payload.targetJid.includes('@lid'))
-    );
+    // 3. Resolve the recipient from the exact original group message when a direct JID/phone is absent.
+    // Never search by display name alone. Require a unique match scoped to the exact group and message context.
     const phoneDigits = (payload.senderPhone || '').replace(/\D/g, '');
     const hasPhone = phoneDigits.length >= 8;
-
-    if (!hasJid && !hasPhone) {
-      return {
-        success: false,
-        errorCode: 'IDENTITY_NOT_VERIFIED',
-        errorMessage:
-          'لا يتوفر معرف مرسل حقيقي أو رقم موثق في الرسالة الأصلية؛ مُنع الإرسال بالاسم منعاً لمراسلة شخص خطأ.',
-        timestamp: new Date().toISOString(),
-      };
+    let resolvedTargetJid = (payload.targetJid || '').trim();
+    const validJid = (jid: string) => jid.endsWith('@s.whatsapp.net') || jid.endsWith('@lid');
+    if (!validJid(resolvedTargetJid) && !hasPhone) {
+      const groupJid = String(payload.groupJid || '').trim();
+      const originalMessageId = String(payload.originalMessageId || '').trim();
+      const originalText = normalizeOutreachMatchText(payload.originalMessageText || '');
+      const expectedSender = normalizeOutreachMatchText(payload.originalSenderName || '');
+      const rawExpectedTimestamp = Number(payload.sourceMessageTimestamp || 0);
+      const expectedTimestamp = rawExpectedTimestamp > 0 && rawExpectedTimestamp < 1e12
+        ? rawExpectedTimestamp * 1000
+        : rawExpectedTimestamp;
+      const exactIdMatches = record.recentGroupMessages.filter((m) =>
+        groupJid.endsWith('@g.us') && m.groupJid === groupJid && originalMessageId && m.messageId === originalMessageId &&
+        validJid(String(m.senderJid || '')) && !m.isFromMe
+      );
+      let candidates = exactIdMatches;
+      if (candidates.length === 0 && groupJid.endsWith('@g.us') && originalText) {
+        candidates = record.recentGroupMessages.filter((m) => {
+          if (m.groupJid !== groupJid || m.isFromMe || !validJid(String(m.senderJid || ''))) return false;
+          if (normalizeOutreachMatchText(m.rawText) !== originalText) return false;
+          if (expectedTimestamp > 0 && Math.abs(Number(m.timestamp || 0) - expectedTimestamp) > 5 * 60 * 1000) return false;
+          return true;
+        });
+        // A sender label is only a disambiguator; it is never used as the lookup key.
+        if (candidates.length > 1 && expectedSender) {
+          candidates = candidates.filter((m) => normalizeOutreachMatchText(m.senderName) === expectedSender);
+        }
+        // Without a timestamp, require the sender label to make the exact-text match unique.
+        if (expectedTimestamp <= 0 && expectedSender) {
+          candidates = candidates.filter((m) => normalizeOutreachMatchText(m.senderName) === expectedSender);
+        }
+      }
+      if (candidates.length === 1) {
+        resolvedTargetJid = String(candidates[0].senderJid).trim();
+      } else {
+        return {
+          success: false,
+          errorCode: candidates.length > 1 ? 'AMBIGUOUS_ORIGINAL_MESSAGE' : 'IDENTITY_NOT_VERIFIED',
+          errorMessage: candidates.length > 1
+            ? 'عثرنا على أكثر من رسالة مطابقة داخل المجموعة؛ لم نرسل لتجنب اختيار شخص خطأ.'
+            : 'تعذر استخراج هوية المرسل من رسالة المجموعة الأصلية عبر Bridge؛ لم يتم البحث بالاسم أو إرسال رسالة.',
+          timestamp: new Date().toISOString(),
+        };
+      }
     }
 
+    const safePayload: BridgeSendPrivateRequest = {
+      ...payload,
+      targetJid: validJid(resolvedTargetJid) ? resolvedTargetJid : payload.targetJid,
+    };
     const requestId = `req-${crypto.randomUUID()}`;
     record.inFlightOrderIds.add(payload.orderId);
 
@@ -733,7 +778,7 @@ export class WhatsAppBridgeSupervisor {
         record.worker!.send({
           type: 'SEND_PRIVATE_MESSAGE',
           requestId,
-          payload,
+          payload: safePayload,
         });
       });
 
@@ -741,7 +786,7 @@ export class WhatsAppBridgeSupervisor {
         const ledgerRecord: BridgeOutreachLedgerRecord = {
           operationId: payload.operationId,
           orderId: payload.orderId,
-          targetJid: result.targetJid || payload.targetJid || `${phoneDigits}@s.whatsapp.net`,
+          targetJid: result.targetJid || safePayload.targetJid || `${phoneDigits}@s.whatsapp.net`,
           sentMessageId: result.sentMessageId,
           messagePreview: payload.message.slice(0, 80),
           sentAt: result.timestamp,

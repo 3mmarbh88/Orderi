@@ -14,10 +14,8 @@ import { ParsedOrder } from '../types';
 import {
   formatFilterOutreachMessage,
   getAdvertiserTargetPhone,
-  isMeaningfulAdvertiserName,
   openManualRegularWhatsAppChat,
 } from '../utils/whatsappPrivateOutreach';
-import { isNativeAndroid, OrderiNotificationListener } from '../native/orderiNotificationListener';
 
 interface WhatsAppHeadsUpBannerProps {
   order: ParsedOrder | null;
@@ -83,7 +81,7 @@ export const WhatsAppHeadsUpBanner: React.FC<WhatsAppHeadsUpBannerProps> = ({
         if (res.success) {
           window.dispatchEvent(new CustomEvent('orderi-toast', {
             detail: {
-              message: `💬 تم فتح محادثة المعلن (${order.senderName || 'صاحب الإعلان'}) في WhatsApp العادي وتجهيز رد الفلتر`,
+              message: `💬 تم فتح محادثة المعلن (${order.senderName || 'صاحب الإعلان'}) باستخدام الرقم الموثوق وتجهيز رد الفلتر`,
               type: 'info',
             },
           }));
@@ -92,28 +90,10 @@ export const WhatsAppHeadsUpBanner: React.FC<WhatsAppHeadsUpBannerProps> = ({
         }
       }
 
-      if (isNativeAndroid() && isMeaningfulAdvertiserName(order.senderName)) {
-        const nativeOpen = await OrderiNotificationListener.openWhatsAppPrivateConversation({
-          memberName: order.senderName.trim(),
-        });
-        if (nativeOpen?.success) {
-          window.dispatchEvent(new CustomEvent('orderi-toast', {
-            detail: {
-              message: `💬 تم فتح محادثة المعلن (${order.senderName}) الخاصة (الرد منسوخ للصق)`,
-              type: 'info',
-            },
-          }));
-          onClose();
-          return;
-        }
-      }
-
-      window.dispatchEvent(new CustomEvent('orderi-toast', {
-        detail: {
-          message: 'تعذر فتح محادثة خاصة مباشرة الآن — اضغط «قبول الطلب» للمحاولة بالخلفية أو فتح خيارات المعلن.',
-          type: 'info',
-        },
-      }));
+      // No direct phone: use the shared Bridge + Android original-message resolver.
+      // It will inspect the exact source message and send only after resolving its sender.
+      onAccept(order);
+      onClose();
     } catch {
       window.dispatchEvent(new CustomEvent('orderi-toast', {
         detail: { message: 'تعذر فتح المحادثة الخاصة بالمعلن.', type: 'error' },

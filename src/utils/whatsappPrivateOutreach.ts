@@ -528,6 +528,7 @@ export function getAdvertiserTargetPhone(order: ParsedOrder, effectivePhone?: st
   return resolution.phone;
 }
 
+
 /**
  * Fallback response format when the user left FilterSettings.customResponseTemplate empty.
  */
@@ -743,6 +744,8 @@ export interface BridgeOutreachAdapter {
     groupJid?: string;
     originalMessageId?: string;
     originalSenderName?: string;
+    originalMessageText?: string;
+    sourceMessageTimestamp?: number;
     message: string;
   }) => Promise<{
     success: boolean;
@@ -929,31 +932,28 @@ export async function executePrivateAdvertiserOutreach(
     });
   }
 
-  // Step 1: Must identify advertiser cleanly from the current ad/notification only (or explicit manual phone override)
-  if (!normalizedOverride && !resolution.advertiserVerified) {
+  // A name alone is not a recipient. It is only a clue used together with the exact
+  // original group/message context by Bridge or the Android original-message resolver.
+  const sourceGroupJid = (orderWithRef.bridgeGroupJid || orderWithRef.ingestionGroupJids?.[0] || '').trim();
+  const hasOriginalMessageContext = Boolean(
+    (orderWithRef.rawText || '').trim() &&
+    (sourceGroupJid.endsWith('@g.us') || (orderWithRef.groupName || '').trim())
+  );
+  if (!targetPhone && !targetSenderKey && !targetSenderUri && !hasOriginalMessageContext) {
     emitExecutionState('IDENTITY_NOT_CONFIRMED');
     return makeFailure(
       'IDENTITY_NOT_VERIFIED',
-      resolution.verificationReason ||
-        'تعذر التحقق من هوية صاحب الإعلان أو تم رصد أكثر من رقم بدون تحديد قاطع للمعلن.',
-      resolution.confidence === 'multiple_candidates'
-        ? 'multiple_ambiguous_phones'
-        : 'unverified_advertiser_identity',
-      { executionState: 'IDENTITY_NOT_CONFIRMED' },
+      'لا تتوفر بيانات كافية للوصول إلى رسالة الإعلان الأصلية وتحديد مرسلها؛ لم يتم إرسال أي رسالة.',
+      'missing_original_message_context',
+      { executionState: 'IDENTITY_NOT_CONFIRMED', openFallbackModal: false },
     );
   }
 
-  if (!targetPhone && !targetName && !targetSenderKey && !targetSenderUri) {
-    emitExecutionState('IDENTITY_NOT_CONFIRMED');
-    return makeFailure(
-      'IDENTITY_NOT_VERIFIED',
-      'لا يوجد اسم مرسل حقيقي أو معرف أو رقم هاتف لصاحب الإعلان؛ لن يتم إرسال أي رسالة عشوائية.',
-      'missing_advertiser_identity',
-      { executionState: 'IDENTITY_NOT_CONFIRMED' },
-    );
+  if (targetPhone || targetSenderKey || targetSenderUri) {
+    emitProgress('ADVERTISER_VERIFIED', `تم العثور على بيانات هوية للمعلن: ${advertiserName}`);
+  } else {
+    emitProgress('IDENTIFYING_ADVERTISER', 'سيتم استخراج هوية المرسل من رسالة المجموعة الأصلية قبل الإرسال...');
   }
-
-  emitProgress('ADVERTISER_VERIFIED', `تم التحقق من هوية المعلن: ${advertiserName}`);
 
   const bridge: PrivateOutreachNativeBridge = opts.nativeBridge || {
     isNativeAndroid,
@@ -968,30 +968,24 @@ export async function executePrivateAdvertiserOutreach(
   // Step 1B: Try WhatsApp Web Bridge channel first when enabled & connected,
   // using verified original JID or verified phone (NEVER display-name alone!).
   const verifiedBridgeJid = (orderWithRef.bridgeParticipantJid || '').trim();
+
   const hasVerifiedBridgeTarget = Boolean(
     (verifiedBridgeJid &&
       (verifiedBridgeJid.includes('@s.whatsapp.net') || verifiedBridgeJid.includes('@lid'))) ||
-      targetPhone,
+      targetPhone ||
+      (sourceGroupJid.endsWith('@g.us') && Boolean((orderWithRef.rawText || '').trim()))
   );
 
-  // Bridge-only mode: never fall through to Android Accessibility or WhatsApp Messenger.
-  if (opts.useBridge === true) {
-    if (!opts.bridgeOutreach?.isConnected()) {
-      return makeFailure(
-        'BACKGROUND_SEND_UNAVAILABLE',
-        'WhatsApp Bridge غير متصل؛ لم يتم إرسال الرسالة ولم يتم فتح تطبيق واتساب.',
-        'bridge_not_connected',
-        { executionState: 'NEEDS_USER_INTERACTION', openFallbackModal: false },
-      );
-    }
-    if (!hasVerifiedBridgeTarget) {
-      return makeFailure(
-        'IDENTITY_NOT_VERIFIED',
-        'لا يتوفر رقم أو WhatsApp JID موثق للمعلن في الرسالة الأصلية؛ لن نبحث بالاسم أو نراسل شخصاً آخر.',
-        'missing_verified_bridge_target',
-        { executionState: 'IDENTITY_NOT_CONFIRMED', openFallbackModal: false },
-      );
-    }
+  // Prefer WhatsApp Bridge. If it is unavailable, continue to Android only when
+  // the caller explicitly enabled the UI/Accessibility fallback.
+  const bridgeConnected = Boolean(opts.useBridge === true && opts.bridgeOutreach?.isConnected());
+  if (opts.useBridge === true && !bridgeConnected && !bridge.isNativeAndroid()) {
+    return makeFailure(
+      'BACKGROUND_SEND_UNAVAILABLE',
+      'تعذر الاتصال بخدمة WhatsApp Bridge؛ لم يتم الإرسال.',
+      'bridge_not_connected',
+      { executionState: 'NEEDS_USER_INTERACTION', openFallbackModal: false },
+    );
   }
 
 
@@ -1025,9 +1019,11 @@ export async function executePrivateAdvertiserOutreach(
         operationId,
         targetJid: verifiedBridgeJid || undefined,
         senderPhone: targetPhone || undefined,
-        groupJid: orderWithRef.bridgeGroupJid,
-        originalMessageId: orderWithRef.bridgeMessageId,
-        originalSenderName: advertiserName,
+        groupJid: sourceGroupJid || undefined,
+        originalMessageId: orderWithRef.bridgeMessageId || orderWithRef.sourceMessageId || orderWithRef.ingestionMessageIds?.[0],
+        originalSenderName: targetName || undefined,
+        originalMessageText: orderWithRef.rawText || undefined,
+        sourceMessageTimestamp: orderWithRef.sourceMessageTimestamp || undefined,
         message: messageText,
       });
 
@@ -1056,31 +1052,35 @@ export async function executePrivateAdvertiserOutreach(
         };
       }
 
-      if (bridgeRes.errorCode === 'IDENTITY_NOT_VERIFIED') {
-        transitionExecutionLock(lockKey, operationId, 'IDENTITY_NOT_CONFIRMED', false);
-        emitExecutionState('IDENTITY_NOT_CONFIRMED', bridgeRes.errorMessage);
-        return makeFailure(
-          'IDENTITY_NOT_VERIFIED',
-          bridgeRes.errorMessage || 'تعذر التحقق من معرف المعلن الحقيقي عبر Bridge.',
-          'bridge_identity_not_verified',
-          { executionState: 'IDENTITY_NOT_CONFIRMED', operationId },
+      const safeToTryAndroid = bridge.isNativeAndroid() &&
+        allowUiFallback && !backgroundOnly &&
+        (bridgeRes.errorCode === 'IDENTITY_NOT_VERIFIED' ||
+         bridgeRes.errorCode === 'AMBIGUOUS_ORIGINAL_MESSAGE' ||
+         bridgeRes.errorCode === 'BRIDGE_NOT_CONNECTED');
+
+      if (!safeToTryAndroid) {
+        transitionExecutionLock(
+          lockKey,
+          operationId,
+          bridgeRes.errorCode === 'IDENTITY_NOT_VERIFIED' || bridgeRes.errorCode === 'AMBIGUOUS_ORIGINAL_MESSAGE'
+            ? 'IDENTITY_NOT_CONFIRMED'
+            : 'FAILED',
+          false,
         );
-      }
-
-      const canFallBackToAndroid = false;
-
-      if (!canFallBackToAndroid) {
-        transitionExecutionLock(lockKey, operationId, 'FAILED', false);
-        emitExecutionState('FAILED', bridgeRes.errorMessage);
+        const identityFailure = bridgeRes.errorCode === 'IDENTITY_NOT_VERIFIED' ||
+          bridgeRes.errorCode === 'AMBIGUOUS_ORIGINAL_MESSAGE';
+        emitExecutionState(identityFailure ? 'IDENTITY_NOT_CONFIRMED' : 'FAILED', bridgeRes.errorMessage);
         return makeFailure(
-          'SEND_FAILED',
-          bridgeRes.errorMessage || 'فشل إرسال الرسالة الخاصة عبر WhatsApp Bridge؛ بقي الطلب بدون قبول.',
+          identityFailure ? 'IDENTITY_NOT_VERIFIED' : 'SEND_FAILED',
+          bridgeRes.errorMessage || 'تعذر إكمال التواصل عبر WhatsApp Bridge.',
           bridgeRes.errorCode || 'bridge_send_failed',
-          { executionState: 'FAILED', operationId, openFallbackModal: false },
+          { executionState: identityFailure ? 'IDENTITY_NOT_CONFIRMED' : 'FAILED', operationId, openFallbackModal: false },
         );
       }
-      // If transient Bridge disconnect on native Android, transition lock out cleanly to let native path try
+
       transitionExecutionLock(lockKey, operationId, 'FAILED', false);
+      emitProgress('IDENTIFYING_ADVERTISER', 'لم يتمكن Bridge من حسم هوية المرسل؛ تتم الآن محاولة تحديدها من رسالة واتساب الأصلية على الهاتف...');
+      emitExecutionState('IDENTIFYING_SENDER', 'محاولة تحديد المعلن من الرسالة الأصلية عبر وصول أندرويد...');
     } else if (!bridge.isNativeAndroid()) {
       emitExecutionState('IDENTITY_NOT_CONFIRMED');
       return makeFailure(

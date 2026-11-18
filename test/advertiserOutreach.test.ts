@@ -301,8 +301,31 @@ assert.equal(windowOpenCount, 0);
 assert.equal(locationHrefWrites, 0);
 console.log('✅ PASS: Silent RemoteInput outreach emits stage states, forwards identity metadata, and returns MESSAGE_SUBMITTED');
 
-// Test 9: Placeholder/ambiguous order yields IDENTITY_NOT_VERIFIED; duplicate/native error yields SEND_FAILED;
-// non-autoSend UI open yields PRIVATE_CHAT_RESOLVED (not MESSAGE_SUBMITTED)
+// Test 9: The original-message resolver may be attempted with group context, but
+// a capability-only RemoteInput response must never be treated as proof of recipient identity.
+const unresolvedNativeBridge: PrivateOutreachNativeBridge = {
+  isNativeAndroid: () => true,
+  checkPrivateOutreachCapability: async () => ({
+    regularWhatsAppInstalled: true,
+    notificationListenerEnabled: true,
+    accessibilityEnabled: true,
+    hasPrivateNotificationReplyAction: true,
+    privateChatResolved: false,
+    backgroundSendAvailable: false,
+    reasonCode: 'original_message_sender_not_resolved',
+  }),
+  reachAdvertiserPrivateChat: async () => ({
+    success: false,
+    submitted: false,
+    deliveryConfirmed: false,
+    status: 'IDENTITY_NOT_VERIFIED',
+    executionState: 'IDENTITY_NOT_CONFIRMED',
+    reasonCode: 'original_message_sender_not_resolved',
+    packageName: 'com.whatsapp',
+    method: 'accessibility_member_click',
+    statusLabel: 'تعذر تحديد مرسل الرسالة الأصلية بشكل مؤكد',
+  }),
+};
 const unverifiedOutreachRes = await executePrivateAdvertiserOutreach(
   placeholderOnlyOrder,
   'موافق',
@@ -311,7 +334,7 @@ const unverifiedOutreachRes = await executePrivateAdvertiserOutreach(
     autoSend: true,
     backgroundOnly: true,
     allowUiFallback: false,
-    nativeBridge: mockRemoteInputBridge,
+    nativeBridge: unresolvedNativeBridge,
   },
 );
 assert.equal(unverifiedOutreachRes.success, false);

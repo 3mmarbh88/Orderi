@@ -97,6 +97,8 @@ export interface BridgeSendPrivateRequest {
   groupJid?: string;
   originalMessageId?: string;
   originalSenderName?: string;
+  originalMessageText?: string;
+  sourceMessageTimestamp?: number;
   message: string;
 }
 

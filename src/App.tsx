@@ -3269,8 +3269,10 @@ function OrderiApp({
         driverLocation?.areaName || 'المنامة',
         {
           autoSend: true,
-          backgroundOnly: true,
-          allowUiFallback: false,
+          // User pressed Accept: prefer Bridge, then permit the original-message
+          // Android Accessibility flow if Bridge cannot resolve the sender.
+          backgroundOnly: false,
+          allowUiFallback: true,
           useBridge: useBridgeOutreach,
           bridgeOutreach: orderiBridgeClient,
           latestOrders: ordersRef.current,
@@ -3279,7 +3281,7 @@ function OrderiApp({
         },
       );
 
-      // All private outreach is Bridge/Baileys-only; never fall back to Android UI automation.
+      // Bridge is primary; Android Accessibility is the explicit fallback after a user-initiated Accept.
 
       const attemptDetails: OutreachAttemptDetails = {
         status: outreach.status,
