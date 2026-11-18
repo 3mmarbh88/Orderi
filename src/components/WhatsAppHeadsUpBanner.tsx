@@ -16,7 +16,6 @@ import {
   getAdvertiserTargetPhone,
   openManualRegularWhatsAppChat,
 } from '../utils/whatsappPrivateOutreach';
-import { isNativeAndroid, OrderiNotificationListener } from '../native/orderiNotificationListener';
 
 interface WhatsAppHeadsUpBannerProps {
   order: ParsedOrder | null;
