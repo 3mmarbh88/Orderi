@@ -272,41 +272,11 @@ export function OrderCard({
     if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('orderi-toast', { detail: { message, type } }));
   };
 
-  const handleOpenAdvertiserPrivateChat = async (e?: React.MouseEvent) => {
+  const handleOpenAdvertiserPrivateChat = (e?: React.MouseEvent) => {
     if (e) { e.preventDefault(); e.stopPropagation(); }
     if (isAutoReplying) return;
-    setIsAutoReplying(true);
-    try {
-      if (typeof navigator !== 'undefined' && navigator.clipboard) {
-        try {
-          await navigator.clipboard.writeText(privateAdvertiserMessage);
-        } catch {}
-      }
-
-      if (effectivePhone) {
-        const res = await openManualRegularWhatsAppChat(effectivePhone, privateAdvertiserMessage);
-        if (res.success) {
-          showOutreachToast(`💬 تم فتح محادثة «${order.senderName || 'صاحب الإعلان'}» في WhatsApp العادي وتجهيز رد الفلتر`, 'info');
-          return;
-        }
-      }
-
-      if (isNativeAndroid() && isMeaningfulAdvertiserName(order.senderName)) {
-        const nativeRes = await OrderiNotificationListener.openWhatsAppPrivateConversation({
-          memberName: order.senderName.trim(),
-        });
-        if (nativeRes?.success) {
-          showOutreachToast(`💬 تم فتح محادثة «${order.senderName}» الخاصة (الرد منسوخ وجاهز للصق)`, 'info');
-          return;
-        }
-      }
-
-      showOutreachToast('اضغط «قبول الطلب والتواصل عبر واتساب» لمحاولة الإرسال بالخلفية أو فتح خيارات المعلن (تم نسخ الرد).', 'info');
-    } catch {
-      showOutreachToast('تعذر الوصول إلى محادثة المعلن الخاصة.', 'error');
-    } finally {
-      setIsAutoReplying(false);
-    }
+    // Use the same App-level Bridge/Baileys send pipeline as the Accept button.
+    onAccept(order);
   };
 
   const handleExecuteBackgroundAccept = (e?: React.MouseEvent) => {
