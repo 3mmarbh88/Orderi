@@ -92,7 +92,7 @@ export const FocusedOrderDetailModal: React.FC<FocusedOrderDetailModalProps> = (
       if (effectivePhone) {
         const res = await openManualRegularWhatsAppChat(effectivePhone, privateAdvertiserMessage);
         if (res.success) {
-          emitToast(`💬 تم فتح محادثة «${order.senderName || 'صاحب الإعلان'}» في WhatsApp العادي وتجهيز رد الفلتر.`, 'info');
+          emitToast(`💬 تم فتح المحادثة الخاصة مع «${order.senderName || 'صاحب الإعلان'}» وتجهيز نص الرد المحدد في إعدادات الفلتر.`, 'info');
           return;
         }
       }
@@ -102,7 +102,7 @@ export const FocusedOrderDetailModal: React.FC<FocusedOrderDetailModalProps> = (
           memberName: order.senderName.trim(),
         });
         if (res?.success) {
-          emitToast(`💬 تم فتح المحادثة الخاصة مع «${order.senderName}» (الرد منسوخ وجاهز للصق).`, 'info');
+          emitToast(`💬 تم فتح المحادثة الخاصة مع «${order.senderName}» ونُسخ نص الرد المحدد في إعدادات الفلتر للصقه.`, 'info');
           return;
         }
       }
