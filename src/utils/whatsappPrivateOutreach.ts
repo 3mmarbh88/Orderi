@@ -744,6 +744,8 @@ export interface BridgeOutreachAdapter {
     groupJid?: string;
     originalMessageId?: string;
     originalSenderName?: string;
+    originalMessageText?: string;
+    sourceMessageTimestamp?: number;
     message: string;
   }) => Promise<{
     success: boolean;
