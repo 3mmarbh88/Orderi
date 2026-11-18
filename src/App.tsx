@@ -3232,7 +3232,9 @@ function OrderiApp({
         },
       );
 
-      // All private outreach is Bridge/Baileys-only; never fall back to Android UI automation.\n\n      const attemptDetails: OutreachAttemptDetails = {
+      // All private outreach is Bridge/Baileys-only; never fall back to Android UI automation.
+
+      const attemptDetails: OutreachAttemptDetails = {
         status: outreach.status,
         executionState: outreach.executionState,
         operationId: outreach.operationId,
