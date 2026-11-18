@@ -965,6 +965,15 @@ export async function executePrivateAdvertiserOutreach(
     openWhatsAppPrivateConversation: (payload) => OrderiNotificationListener.openWhatsAppPrivateConversation(payload),
   };
 
+  // Step 1B: Try WhatsApp Web Bridge channel first when enabled & connected,
+  // using verified original JID or verified phone (NEVER display-name alone!).
+  const verifiedBridgeJid = (orderWithRef.bridgeParticipantJid || '').trim();
+  const hasVerifiedBridgeTarget = Boolean(
+    (verifiedBridgeJid &&
+      (verifiedBridgeJid.includes('@s.whatsapp.net') || verifiedBridgeJid.includes('@lid'))) ||
+      targetPhone,
+  );
+
   // Bridge-only mode: never fall through to Android Accessibility or WhatsApp Messenger.
   if (opts.useBridge === true) {
     if (!opts.bridgeOutreach?.isConnected()) {
@@ -985,14 +994,6 @@ export async function executePrivateAdvertiserOutreach(
     }
   }
 
-  // Step 1B: Try WhatsApp Web Bridge channel first when enabled & connected,
-  // using verified original JID or verified phone (NEVER display-name alone!).
-  const verifiedBridgeJid = (orderWithRef.bridgeParticipantJid || '').trim();
-  const hasVerifiedBridgeTarget = Boolean(
-    (verifiedBridgeJid &&
-      (verifiedBridgeJid.includes('@s.whatsapp.net') || verifiedBridgeJid.includes('@lid'))) ||
-      targetPhone,
-  );
 
   if (autoSend && opts.useBridge === true && opts.bridgeOutreach?.isConnected()) {
     if (hasVerifiedBridgeTarget) {
