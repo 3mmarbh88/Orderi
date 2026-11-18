@@ -22,6 +22,8 @@ import { sanitizeForLog } from './whatsappBridgeCrypto';
 import type {
   BridgeSendPrivateRequest,
   BridgeSendPrivateResult,
+  BridgeReadGroupTarget,
+  BridgeMarkGroupsReadResult,
   SupervisorToWorkerMessage,
   WhatsAppBridgeConnectionState,
   WorkerToSupervisorMessage,
@@ -601,6 +603,45 @@ async function handleSendPrivateMessage(
   }
 }
 
+async function handleMarkGroupsRead(groups: BridgeReadGroupTarget[]): Promise<BridgeMarkGroupsReadResult> {
+  const sock = activeSocket;
+  if (!sock || currentState !== 'Connected') {
+    return { success: false, markedCount: 0, skippedCount: groups.length, groupsAttempted: groups.length,
+      errorCode: 'BRIDGE_NOT_CONNECTED', errorMessage: 'WhatsApp Bridge غير متصل؛ لم يتم تعليم أي محادثة كمقروءة.' };
+  }
+  let markedCount = 0;
+  let skippedCount = 0;
+  for (const group of groups) {
+    const jid = String(group?.groupJid || '').trim();
+    const messageId = String(group?.messageId || '').trim();
+    const timestamp = Number(group?.timestamp || 0);
+    if (!jid.endsWith('@g.us') || !messageId || !Number.isFinite(timestamp) || timestamp <= 0) {
+      skippedCount += 1;
+      continue;
+    }
+    try {
+      await sock.chatModify({
+        markRead: true,
+        lastMessages: [{
+          key: { remoteJid: jid, id: messageId, fromMe: Boolean(group.fromMe) },
+          messageTimestamp: Math.floor(timestamp / 1000),
+        }],
+      }, jid);
+      markedCount += 1;
+    } catch (err: any) {
+      skippedCount += 1;
+      console.warn('[Orderi Bridge] Could not mark group read:', jid, sanitizeForLog(err?.message || 'unknown error'));
+    }
+  }
+  return {
+    success: markedCount > 0 && skippedCount === 0,
+    markedCount,
+    skippedCount,
+    groupsAttempted: groups.length,
+    ...(markedCount === 0 ? { errorCode: 'NO_GROUP_READ_CONFIRMED', errorMessage: 'لم يؤكد واتساب تعليم أي مجموعة كمقروءة عبر Bridge.' } : {}),
+  };
+}
+
 const lifecycleCommandQueue = new SerialTaskQueue();
 
 async function handleWorkerCommand(raw: SupervisorToWorkerMessage): Promise<void> {
@@ -665,6 +706,12 @@ async function handleWorkerCommand(raw: SupervisorToWorkerMessage): Promise<void
         requestId: raw.requestId,
         result,
       });
+      break;
+    }
+
+    case 'MARK_GROUPS_READ': {
+      const result = await handleMarkGroupsRead(raw.groups || []);
+      emitToSupervisor({ type: 'MARK_GROUPS_READ_RESULT', userId: activeUserId, requestId: raw.requestId, result });
       break;
     }
 
