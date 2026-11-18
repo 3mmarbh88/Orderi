@@ -25,6 +25,7 @@ import {
   getBridgeServerUrlOverride,
   setBridgeServerUrlOverride,
 } from '../utils/bridgeClient';
+import { OrderiNotificationListener, isNativeAndroid } from '../native/orderiNotificationListener';
 
 interface WhatsAppBridgeViewProps {
   status: BridgeSessionStatus;
@@ -115,6 +116,37 @@ export function WhatsAppBridgeView({
   const [pairingRequestPending, setPairingRequestPending] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
   const [showAdvancedServer, setShowAdvancedServer] = useState(false);
+  const [nativeListenerStatus, setNativeListenerStatus] = useState<{ listenerEnabled: boolean; serviceConnected: boolean; pendingEventsCount: number; totalEventsIngested: number; lastError?: string | null } | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const refreshNativeListenerStatus = async () => {
+      if (!isNativeAndroid()) {
+        if (active) setNativeListenerStatus(null);
+        return;
+      }
+      try {
+        const diagnostic = await OrderiNotificationListener.getDiagnosticStatus?.();
+        if (active && diagnostic) {
+          setNativeListenerStatus({
+            listenerEnabled: diagnostic.listenerEnabled,
+            serviceConnected: diagnostic.serviceConnected,
+            pendingEventsCount: diagnostic.pendingEventsCount,
+            totalEventsIngested: diagnostic.totalEventsIngested,
+            lastError: diagnostic.lastError,
+          });
+        } else if (active) {
+          const enabled = await OrderiNotificationListener.isEnabled();
+          setNativeListenerStatus({ listenerEnabled: enabled.enabled, serviceConnected: enabled.enabled, pendingEventsCount: 0, totalEventsIngested: 0 });
+        }
+      } catch (error: any) {
+        if (active) setNativeListenerStatus({ listenerEnabled: false, serviceConnected: false, pendingEventsCount: 0, totalEventsIngested: 0, lastError: error?.message || 'تعذر قراءة حالة مستمع الإشعارات' });
+      }
+    };
+    void refreshNativeListenerStatus();
+    const interval = setInterval(() => { void refreshNativeListenerStatus(); }, 5000);
+    return () => { active = false; clearInterval(interval); };
+  }, []);
 
   useEffect(() => {
     if (!phoneInput && (status.phoneNumber || defaultPhone)) {
@@ -192,6 +224,27 @@ export function WhatsAppBridgeView({
       data-bridge-state={status.state}
       className="max-w-4xl mx-auto space-y-5 pb-12"
     >
+      {/* Dual WhatsApp ingestion health: Bridge and Android notification listener run independently. */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" data-testid="dual-whatsapp-ingestion-status">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <div className="flex items-center justify-between gap-2">
+            <div className="font-black text-slate-900">WhatsApp Bridge</div>
+            <span className={"w-2.5 h-2.5 rounded-full " + (bridgeEnabled && status.state === 'Connected' ? 'bg-emerald-500' : 'bg-amber-500')} />
+          </div>
+          <div className="mt-1 text-sm text-slate-600">{!bridgeEnabled ? 'القناة متوقفة من الإعدادات' : status.state === 'Connected' ? 'متصل بالخادم ويستقبل الرسائل' : currentStyle.arLabel}</div>
+          <div className="mt-2 text-xs text-slate-500">الرسائل المستقبلة: {status.receivedMessagesCount || 0}</div>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <div className="flex items-center justify-between gap-2">
+            <div className="font-black text-slate-900">مستمع إشعارات Android</div>
+            <span className={"w-2.5 h-2.5 rounded-full " + (nativeListenerStatus?.listenerEnabled && nativeListenerStatus?.serviceConnected ? 'bg-emerald-500' : 'bg-amber-500')} />
+          </div>
+          <div className="mt-1 text-sm text-slate-600">{!isNativeAndroid() ? 'متاح على تطبيق Android فقط' : nativeListenerStatus?.listenerEnabled && nativeListenerStatus?.serviceConnected ? 'مفعّل ومتصل ويعمل بالتوازي مع Bridge' : 'يحتاج تفعيل صلاحية الوصول إلى الإشعارات'}</div>
+          <div className="mt-2 text-xs text-slate-500">أحداث مستقبلة: {nativeListenerStatus?.totalEventsIngested || 0} · بانتظار المعالجة: {nativeListenerStatus?.pendingEventsCount || 0}</div>
+          {isNativeAndroid() && !nativeListenerStatus?.listenerEnabled && <button type="button" onClick={() => void OrderiNotificationListener.openSettings()} className="mt-3 rounded-xl bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-800">تفعيل مستمع الإشعارات</button>}
+          {nativeListenerStatus?.lastError && <div className="mt-2 text-xs text-rose-600">{nativeListenerStatus.lastError}</div>}
+        </div>
+      </div>
       {/* Top Status & Controls Header */}
       <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-100 pb-4">
