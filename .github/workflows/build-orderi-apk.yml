@@ -62,7 +62,8 @@ jobs:
           npm run test:order-closure &&
           npm run test:original-locator &&
           npm run test:execution-engine &&
-          npm run test:whatsapp-bridge
+          npm run test:whatsapp-bridge &&
+          npm run test:dual-whatsapp-ingestion
 
       - name: Build web application
         run: npm run build
