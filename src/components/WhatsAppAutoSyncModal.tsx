@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   Zap,
@@ -7,7 +7,6 @@ import {
   Smartphone,
   CheckCircle2,
   RefreshCw,
-  Sparkles,
   QrCode,
   ShieldCheck,
   CheckCheck,
@@ -15,8 +14,6 @@ import {
   ChevronDown,
   ChevronUp,
   AlertTriangle,
-  UploadCloud,
-  FileText,
   KeyRound,
   Link2,
   Phone,
@@ -25,7 +22,6 @@ import {
   WifiOff,
 } from 'lucide-react';
 import { CaptainUser } from '../types';
-import { parseWhatsAppExportTxt, ChatImportResult } from '../utils/whatsappChatImporter';
 import {
   BridgeSessionStatus,
   createInitialBridgeStatus,
@@ -70,10 +66,9 @@ interface WhatsAppAutoSyncModalProps {
   onClose: () => void;
   isStreamConnected: boolean;
   receivedCount: number;
-  initialTab?: 'messenger' | 'listener' | 'importer' | 'webhook' | 'qr';
+  initialTab?: 'messenger' | 'listener' | 'webhook' | 'qr';
   onShowToast: (msg: string) => void;
   onSessionConnected?: (session: WhatsAppSessionData, initialOrders?: any[]) => void;
-  onAddIncomingOrders?: (orders: any[]) => void;
   currentUser?: CaptainUser | null;
   myGroups?: string[];
   detectedIncomingGroups?: string[];
@@ -96,7 +91,6 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
   initialTab = 'messenger',
   onShowToast,
   onSessionConnected,
-  onAddIncomingOrders,
   currentUser,
   myGroups: propMyGroups,
   detectedIncomingGroups = [],
@@ -110,11 +104,11 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
   onRefreshBridgeStatus,
   onOpenBridgeView,
 }) => {
-  const resolveInitialTab = (t?: string): 'messenger' | 'listener' | 'importer' | 'webhook' => {
-    if (t === 'listener' || t === 'importer' || t === 'webhook') return t;
+  const resolveInitialTab = (t?: string): 'messenger' | 'listener' | 'webhook' => {
+    if (t === 'listener' || t === 'webhook') return t;
     return 'messenger';
   };
-  const [activeTab, setActiveTab] = useState<'messenger' | 'listener' | 'importer' | 'webhook'>(
+  const [activeTab, setActiveTab] = useState<'messenger' | 'listener' | 'webhook'>(
     () => resolveInitialTab(initialTab)
   );
   const [nativeListenerEnabled, setNativeListenerEnabled] = useState(false);
@@ -131,11 +125,6 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
   const [isPairing, setIsPairing] = useState(false);
   const [isDisconnecting, setIsDisconnecting] = useState(false);
   const [isMarkingRead, setIsMarkingRead] = useState(false);
-
-  // Historical Chat Import state
-  const [importedResult, setImportedResult] = useState<ChatImportResult | null>(null);
-  const [isProcessingImport, setIsProcessingImport] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Permission settings activation & interactive guide states
   const [isActivatingSetting, setIsActivatingSetting] = useState<'notification' | 'accessibility' | null>(null);
@@ -270,45 +259,6 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
       setTimeout(() => {
         orderiWhatsAppClient.refreshDiagnostics().catch(() => {});
       }, 1500);
-    }
-  };
-
-  const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const content = event.target?.result as string;
-      if (content) {
-        const cleanName = file.name.replace(/WhatsApp Chat - /i, '').replace(/\.txt$/i, '').trim();
-        const res = parseWhatsAppExportTxt(content, cleanName || 'قروب واتساب مستورد');
-        setImportedResult(res);
-        onShowToast(`تم فحص الملف: ${res.totalMessages} رسالة، ${res.candidateOrdersCount} طلب محتمل`);
-      }
-    };
-    reader.readAsText(file);
-  };
-
-  const handleProcessImportedOrders = async () => {
-    if (!importedResult || !importedResult.messages.length) return;
-    setIsProcessingImport(true);
-    try {
-      const { parseMultipleWhatsAppOrdersWithLocalAi } = await import('../utils/localAiOrderParser');
-      const rawTexts = importedResult.messages.map((m) => m.messageText);
-      const parsedOrders = await parseMultipleWhatsAppOrdersWithLocalAi(rawTexts, {
-        groupName: importedResult.groupName,
-      });
-      if (parsedOrders && parsedOrders.length > 0) {
-        onAddIncomingOrders?.(parsedOrders);
-        onShowToast(`✅ تم استخراج ${parsedOrders.length} طلب بنجاح وإضافتها إلى الرادار!`);
-      } else {
-        onShowToast('لم يتم العثور على طلبات توصيل جديدة مطابقة في الملف المستورد');
-      }
-    } catch (err) {
-      console.error('Import error:', err);
-      onShowToast('حدث خطأ أثناء معالجة رسائل الملف المستورد');
-    } finally {
-      setIsProcessingImport(false);
     }
   };
 
@@ -761,21 +711,6 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
             >
               <Smartphone className="w-3.5 h-3.5 shrink-0 hidden sm:inline" />
               <span className="whitespace-nowrap truncate">قارئ APK</span>
-            </button>
-
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === 'importer'}
-              onClick={() => setActiveTab('importer')}
-              className={`min-h-[44px] flex items-center justify-center gap-1 px-1 sm:px-2 rounded-lg text-[11px] sm:text-xs transition-all cursor-pointer ${
-                activeTab === 'importer'
-                  ? 'bg-white text-emerald-800 font-black shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900 font-bold'
-              }`}
-            >
-              <FileText className="w-3.5 h-3.5 shrink-0 hidden sm:inline" />
-              <span className="whitespace-nowrap truncate">استيراد .txt</span>
             </button>
 
             <button
@@ -1399,109 +1334,6 @@ export const WhatsAppAutoSyncModal: React.FC<WhatsAppAutoSyncModalProps> = ({
                 </div>
               </section>
             </div>
-          )}
-
-          {/* TAB 2: Historical WhatsApp Chat Export Importer (.txt) */}
-          {activeTab === 'importer' && (
-            <section className="p-3.5 sm:p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0">
-                  <FileText className="w-5 h-5" />
-                </div>
-                <div className="min-w-0">
-                  <h4 className="text-sm font-black text-slate-900">استيراد محادثات واتساب (.txt)</h4>
-                  <p className="text-xs text-slate-600">
-                    رفع ملف الدردشة المصدّر من قروب التوصيل لاستخراج طلباته تلقائياً
-                  </p>
-                </div>
-              </div>
-
-              <div className="p-3.5 rounded-xl bg-white border border-slate-200 space-y-3">
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  في واتساب: افتح القروب ➔ الخيارات (النقاط الثلاث) ➔ المزيد ➔ <strong>نقل الدردشة (Export Chat)</strong> ➔ بدون وسائط.
-                </p>
-
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".txt,text/plain"
-                  onChange={handleFileSelected}
-                  className="hidden"
-                />
-
-                <div className="flex flex-col sm:flex-row gap-2.5">
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="w-full sm:flex-1 min-h-[48px] py-3 px-4 rounded-xl border-2 border-dashed border-emerald-300 hover:border-emerald-500 bg-emerald-50/50 hover:bg-emerald-50 text-emerald-800 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-all"
-                  >
-                    <UploadCloud className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>{importedResult ? 'تغيير الملف المحدد' : 'رفع ملف محادثة واتساب (.txt)'}</span>
-                  </button>
-
-                  {importedResult && (
-                    <button
-                      type="button"
-                      disabled={isProcessingImport || importedResult.messages.length === 0}
-                      onClick={handleProcessImportedOrders}
-                      className="w-full sm:w-auto min-h-[48px] py-3 px-5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white font-black text-xs shadow-sm flex items-center justify-center gap-2 cursor-pointer transition-all disabled:opacity-50"
-                    >
-                      {isProcessingImport ? (
-                        <>
-                          <RefreshCw className="w-4 h-4 animate-spin" />
-                          <span>جاري الاستخراج...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Sparkles className="w-4 h-4" />
-                          <span>استخراج الطلبات للرادار</span>
-                        </>
-                      )}
-                    </button>
-                  )}
-                </div>
-
-                {importedResult && (
-                  <div className="p-3.5 rounded-xl bg-slate-900 text-white space-y-2.5 text-xs">
-                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
-                      <span className="font-bold text-emerald-400">ملخص فحص الملف</span>
-                      <span className="text-[11px] text-slate-300 truncate">{importedResult.groupName}</span>
-                    </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs tabular-nums">
-                      <div className="p-2 rounded-lg bg-slate-800/80">
-                        <span className="text-slate-400 block text-[11px]">إجمالي الأسطر</span>
-                        <strong className="text-white font-mono">{importedResult.totalLines}</strong>
-                      </div>
-                      <div className="p-2 rounded-lg bg-slate-800/80">
-                        <span className="text-slate-400 block text-[11px]">الرسائل</span>
-                        <strong className="text-blue-400 font-mono">{importedResult.totalMessages}</strong>
-                      </div>
-                      <div className="p-2 rounded-lg bg-slate-800/80">
-                        <span className="text-slate-400 block text-[11px]">إعلانات محتملة</span>
-                        <strong className="text-emerald-400 font-mono">{importedResult.candidateOrdersCount}</strong>
-                      </div>
-                      <div className="p-2 rounded-lg bg-slate-800/80">
-                        <span className="text-slate-400 block text-[11px]">ردود الإغلاق</span>
-                        <strong className="text-teal-400 font-mono">{importedResult.closuresCount}</strong>
-                      </div>
-                    </div>
-
-                    {importedResult.messages.length > 0 && (
-                      <div className="space-y-1 pt-1">
-                        <span className="text-[11px] text-slate-400 block">معاينة أولى الرسائل:</span>
-                        <div className="max-h-28 overflow-y-auto space-y-1 text-[11px] text-slate-300 bg-slate-950/60 p-2.5 rounded-lg border border-slate-800">
-                          {importedResult.messages.slice(0, 3).map((m, idx) => (
-                            <div key={idx} className="truncate">
-                              <strong className="text-emerald-300">{m.senderName}:</strong> {m.messageText}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </section>
           )}
 
           {/* TAB 3: Direct Webhook & APIs */}

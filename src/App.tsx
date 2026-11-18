@@ -72,6 +72,7 @@ import { APKDownloadModal } from './components/APKDownloadModal';
 import { AuthModal } from './components/AuthModal';
 import { SplashScreen } from './components/SplashScreen';
 import { FaceBiometricModal } from './components/FaceBiometricModal';
+import { AndroidPermissionSetup } from './components/AndroidPermissionSetup';
 import { SpiderControlCenter } from './components/SpiderControlCenter';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { recordSpiderEvent, updateSpiderStats } from './utils/spiderCrawler';
@@ -412,7 +413,7 @@ function OrderiApp({
   const [isBackgroundModalOpen, setIsBackgroundModalOpen] = useState(false);
   const [isAutoSyncModalOpen, setIsAutoSyncModalOpen] = useState(false);
   const [settingsInitialSection, setSettingsInitialSection] = useState<string | null>(null);
-  const [autoSyncInitialTab, setAutoSyncInitialTab] = useState<'messenger' | 'listener' | 'importer' | 'webhook'>('messenger');
+  const [autoSyncInitialTab, setAutoSyncInitialTab] = useState<'messenger' | 'listener' | 'webhook'>('messenger');
   const [isStreamConnected, setIsStreamConnected] = useState(false);
   const [isWhatsAppConnected, setIsWhatsAppConnected] = useState(false);
   const [bridgeStatus, setBridgeStatus] = useState<BridgeSessionStatus>(() => createInitialBridgeStatus());
@@ -4327,13 +4328,6 @@ function OrderiApp({
             });
           }
         }}
-        onAddIncomingOrders={(newOrders) => {
-          if (Array.isArray(newOrders) && newOrders.length > 0) {
-            newOrders.forEach((rawOrd) => {
-              handleProcessIncomingRawOrder(rawOrd, false);
-            });
-          }
-        }}
       />
 
       {/* Real-time Floating Prompt when a group link is intercepted in WhatsApp */}
@@ -4563,6 +4557,7 @@ export default function App() {
   const [showSplash, setShowSplash] = useState<boolean>(true);
   const [showFaceModal, setShowFaceModal] = useState<boolean>(false);
   const [authenticated, setAuthenticated] = useState<boolean>(false);
+  const [androidPermissionsReady, setAndroidPermissionsReady] = useState<boolean>(() => !Capacitor.isNativePlatform());
   const [currentUser, setCurrentUser] = useState<CaptainUser | null>(
     () => getCurrentUser()
   );
@@ -4605,7 +4600,12 @@ export default function App() {
     );
   }
 
-  // 2. Authentication Gate if not logged in
+  // 2. Require Android notification-listener and Accessibility access before login/radar.
+  if (Capacitor.isNativePlatform() && !androidPermissionsReady) {
+    return <AndroidPermissionSetup onComplete={() => setAndroidPermissionsReady(true)} />;
+  }
+
+  // 3. Authentication Gate if not logged in
   if (!authenticated) {
     return (
       <>
@@ -4628,7 +4628,7 @@ export default function App() {
     );
   }
 
-  // 3. Main Orderi Radar Application
+  // 4. Main Orderi Radar Application
   return (
     <>
       <OrderiApp 
