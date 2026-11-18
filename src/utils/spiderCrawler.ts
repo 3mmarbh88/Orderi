@@ -1,4 +1,5 @@
 import { ParsedOrder } from '../types';
+import { getAuthToken } from './authManager';
 import { parseWhatsAppOrderWithLocalAi } from './localAiOrderParser';
 import { detectPassengerDelivery } from './passengerClassifier';
 import { detectAdvertisementMessage } from './advertisementClassifier';
@@ -293,7 +294,7 @@ export async function triggerSpiderCrawlPass(
   try {
     const res = await fetch('/api/spider/crawl-now', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (getAuthToken() || '') },
       body: JSON.stringify({ groupName: pickedGroup }),
     });
     if (res.ok) {
