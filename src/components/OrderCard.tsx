@@ -576,7 +576,7 @@ export function OrderCard({
                     <MessageCircle className="w-3 h-3 text-blue-700" />
                     <span>
                       {order.outreachDetails?.sentVerifiedInUi
-                        ? 'تم الإرسال عبر واتساب العادي (حالة التسليم والقراءة تعتمد على واتساب) ✓'
+                        ? 'تم الإرسال عبر WhatsApp Bridge (تأكيد التسليم/القراءة حسب إيصالات واتساب) ✓'
                         : 'تم تمرير الرد للخاص (بانتظار تأكيد التسليم) 💬'}
                     </span>
                   </span>
@@ -803,7 +803,7 @@ export function OrderCard({
                   {order.rawText}
                 </p>
                 <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
-                  {/* معلن الطلب (اسمه ورقم هاتفه): النقر يفتح محادثة واتساب خاصة مع المعلن */}
+                  {/* النقر يرسل رد الفلتر للمعلن عبر WhatsApp Bridge دون استخدام واجهة واتساب */}
                   <div className="flex flex-wrap items-center gap-1.5">
                     <button
                       type="button"
@@ -816,7 +816,7 @@ export function OrderCard({
                       <span className="group-hover:underline decoration-emerald-500">{order.senderName || 'صاحب الإعلان'}</span>
                       {effectivePhone && <span dir="ltr" className="text-[10px] text-emerald-800 font-bold">{effectivePhone}</span>}
                       <span className="text-[10px] text-emerald-700 font-bold bg-white px-1.5 py-0.5 rounded border border-emerald-200">
-                        محادثة خاصة • رد الفلتر جاهز 💬
+                        إرسال رد خاص عبر Bridge 💬
                       </span>
                     </button>
                   </div>
@@ -1025,7 +1025,7 @@ export function OrderCard({
                     <strong className="text-slate-800">{order.groupName || 'قروب واتساب'}</strong>
                   </div>
                   <div className="mt-1 text-emerald-900 font-bold bg-white/80 p-2 rounded-xl border border-emerald-200/70">
-                    🔒 خصوصية تامة: لن يُنشر أي رد داخل قروب الواتساب، بل سيتم فتح المحادثة الخاصة مع المعلن مباشرة للتنسيق والاتفاق.
+                    🔒 خصوصية تامة: لن يُنشر أي رد داخل قروب الواتساب؛ سيُرسل رد الفلتر مباشرة إلى محادثة المعلن الخاصة عبر Baileys والخادم.
                   </div>
                 </div>
               </div>
