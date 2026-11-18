@@ -79,40 +79,11 @@ export const FocusedOrderDetailModal: React.FC<FocusedOrderDetailModalProps> = (
     }
   };
 
-  const handleOpenAdvertiserPrivateChat = async () => {
+  const handleOpenAdvertiserPrivateChat = () => {
     if (isAutoReplying) return;
-    setIsAutoReplying(true);
-    try {
-      if (typeof navigator !== 'undefined' && navigator.clipboard) {
-        try {
-          await navigator.clipboard.writeText(privateAdvertiserMessage);
-        } catch {}
-      }
-
-      if (effectivePhone) {
-        const res = await openManualRegularWhatsAppChat(effectivePhone, privateAdvertiserMessage);
-        if (res.success) {
-          emitToast(`💬 تم فتح المحادثة الخاصة مع «${order.senderName || 'صاحب الإعلان'}» وتجهيز نص الرد المحدد في إعدادات الفلتر.`, 'info');
-          return;
-        }
-      }
-
-      if (isNativeAndroid() && isMeaningfulAdvertiserName(order.senderName)) {
-        const res = await OrderiNotificationListener.openWhatsAppPrivateConversation({
-          memberName: order.senderName.trim(),
-        });
-        if (res?.success) {
-          emitToast(`💬 تم فتح المحادثة الخاصة مع «${order.senderName}» ونُسخ نص الرد المحدد في إعدادات الفلتر للصقه.`, 'info');
-          return;
-        }
-      }
-
-      emitToast('لا يتوفر رقم أو محادثة خاصة مفتوحة حالياً للمعلن؛ اضغط «قبول الطلب والتواصل عبر واتساب» أو افتح القروب للرد الخاص (تم نسخ الرسالة).', 'info');
-    } catch {
-      emitToast('تعذر فتح المحادثة الخاصة للمعلن.', 'error');
-    } finally {
-      setIsAutoReplying(false);
-    }
+    // Route private outreach through the same server-side Baileys pipeline as acceptance.
+    onAccept(order);
+    onClose();
   };
 
   // Delegate to App's shared acceptance handler so popup and Radar use one send attempt.
