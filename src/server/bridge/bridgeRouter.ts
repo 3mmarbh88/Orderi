@@ -95,7 +95,11 @@ export function createBridgeRouter(
   };
 
   router.get('/session', requireBridgeAuth, (req: AuthenticatedBridgeRequest, res) => {
-    const status = supervisor.getStatus(req.bridgeUserId!);
+    let status = supervisor.getStatus(req.bridgeUserId!);
+    // Persisted sessions are resumed only after the caller has received a fresh, licensed Bridge token.
+    if (status.phoneNumber && status.state === 'Disconnected') {
+      status = supervisor.resumeSession(req.bridgeUserId!);
+    }
     return res.json({ success: true, status });
   });
 
