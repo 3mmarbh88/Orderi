@@ -37,6 +37,7 @@ import {
   ClipboardPaste,
 } from 'lucide-react';
 import { OrderFilter, ParsedOrder, AreaLocation, StoreContact, OrderBroadcast } from './types';
+import { mergeWhatsAppIngestionProvenance } from './utils/whatsappIngestionProvenance';
 import { BAHRAIN_AREAS, findNearestArea } from './data/bahrainAreas';
 import { MatcherLocation, evaluateOrderMatch } from './utils/matcher';
 import { getDetailedCurrentPosition, globalVehicleTracker } from './utils/gpsTracker';
@@ -1155,6 +1156,7 @@ function OrderiApp({
             : [...currentGroups, raw.groupName];
           return {
             ...o,
+            ...mergeWhatsAppIngestionProvenance(o, raw),
             crossPostedGroups: updatedGroups,
             duplicateCount: (o.duplicateCount || 1) + 1,
             bridgeGroupJid: o.bridgeGroupJid || raw.bridgeGroupJid,
@@ -1199,6 +1201,7 @@ function OrderiApp({
           const updatedGroups = currentGroups.includes(raw.groupName) ? currentGroups : [...currentGroups, raw.groupName];
           return {
             ...o,
+            ...mergeWhatsAppIngestionProvenance(o, raw),
             crossPostedGroups: updatedGroups,
             duplicateCount: (o.duplicateCount || 1) + 1,
             bridgeGroupJid: o.bridgeGroupJid || raw.bridgeGroupJid,
@@ -1256,6 +1259,9 @@ function OrderiApp({
       contactStatus: contactCheck.status,
       matchedContact: contactCheck.contact,
       source: raw.source || 'webhook_auto',
+      ingestionSources: raw.ingestionSources?.length ? raw.ingestionSources : [raw.source || 'webhook_auto'],
+      ingestionMessageIds: raw.ingestionMessageIds || [raw.sourceMessageId, raw.bridgeMessageId].filter(Boolean),
+      ingestionGroupJids: raw.ingestionGroupJids || [raw.bridgeGroupJid].filter(Boolean),
       isDirectPrivate: raw.isDirectPrivate,
       crossPostedGroups: raw.crossPostedGroups || [raw.groupName],
       duplicateCount: raw.duplicateCount || 1,
