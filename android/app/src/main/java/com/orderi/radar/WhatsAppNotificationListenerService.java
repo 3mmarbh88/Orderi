@@ -626,8 +626,9 @@ public class WhatsAppNotificationListenerService extends NotificationListenerSer
 
         // Background radar monitoring: defaults to true so WhatsApp orders and closures
         // are consistently processed even when Orderi is in the background.
-        if (!getSharedPreferences(BackgroundRadarService.PREFS, MODE_PRIVATE)
-                .getBoolean(BackgroundRadarService.KEY_ENABLED, true)) {
+        android.content.SharedPreferences runtimePrefs = getSharedPreferences(BackgroundRadarService.PREFS, MODE_PRIVATE);
+        if (!runtimePrefs.getBoolean(BackgroundRadarService.KEY_LICENSED, false)
+                || !runtimePrefs.getBoolean(BackgroundRadarService.KEY_ENABLED, false)) {
             return;
         }
 
