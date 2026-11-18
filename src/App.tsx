@@ -4328,13 +4328,6 @@ function OrderiApp({
             });
           }
         }}
-        onAddIncomingOrders={(newOrders) => {
-          if (Array.isArray(newOrders) && newOrders.length > 0) {
-            newOrders.forEach((rawOrd) => {
-              handleProcessIncomingRawOrder(rawOrd, false);
-            });
-          }
-        }}
       />
 
       {/* Real-time Floating Prompt when a group link is intercepted in WhatsApp */}
