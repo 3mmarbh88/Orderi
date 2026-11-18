@@ -89,6 +89,7 @@ const bridgeSupervisor = new WhatsAppBridgeSupervisor({
 });
 
 const bridgeLicenseTokens = new Map<string, string>();
+const spiderLicenseTokens = new Map<string, string>();
 
 async function isOfficialLicenseActive(token: string): Promise<boolean> {
   try {
@@ -129,6 +130,13 @@ const bridgeLicenseRecheckTimer = setInterval(async () => {
       console.warn('[Orderi Bridge] Could not stop session after license revocation:', error);
     }
   }
+  for (const [tokenKey, token] of spiderLicenseTokens.entries()) {
+    if (await isOfficialLicenseActive(token)) continue;
+    spiderLicenseTokens.delete(tokenKey);
+  }
+  // Spider is shared by this server process: keep it running only while at least
+  // one currently valid official-license session has explicitly enabled it.
+  if (spiderLicenseTokens.size === 0) spiderMetrics.isActive = false;
 }, 60_000);
 (bridgeLicenseRecheckTimer as any).unref?.();
 
@@ -939,15 +947,18 @@ app.get("/api/spider/status", async (req, res) => {
 app.post("/api/spider/toggle", async (req, res) => {
   const token = extractBearerToken(req);
   if (!token || !(await isOfficialLicenseActive(token))) {
-    spiderMetrics.isActive = false;
     return res.status(403).json({ success: false, isActive: false, error: "العنكبوت متوقف حتى اعتماد الترخيص الرسمي." });
   }
   const { active, speedMs } = req.body || {};
   if (typeof active === "boolean") {
-    spiderMetrics.isActive = active;
+    if (active) spiderLicenseTokens.set(token, token);
+    else spiderLicenseTokens.delete(token);
+  } else if (spiderLicenseTokens.has(token)) {
+    spiderLicenseTokens.delete(token);
   } else {
-    spiderMetrics.isActive = !spiderMetrics.isActive;
+    spiderLicenseTokens.set(token, token);
   }
+  spiderMetrics.isActive = spiderLicenseTokens.size > 0;
   if (speedMs && Number(speedMs) >= 500) {
     spiderMetrics.crawlSpeedMs = Number(speedMs);
   }
