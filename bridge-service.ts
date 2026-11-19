@@ -107,7 +107,7 @@ async function startBridgeService(): Promise<void> {
 
       const captainUrl = new URL(`${supabaseUrl}/rest/v1/captains`);
       captainUrl.searchParams.set('id', `eq.${session.captain_id}`);
-      captainUrl.searchParams.set('select', 'id,is_active');
+      captainUrl.searchParams.set('select', 'id');
       captainUrl.searchParams.set('limit', '1');
       let captainResponse = await fetch(captainUrl, { headers });
 
